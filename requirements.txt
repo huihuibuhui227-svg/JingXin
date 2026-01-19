@@ -1,0 +1,32 @@
+# JingXin项目依赖库
+# Python 3.11
+
+# 核心科学计算库
+numpy==1.26.4
+scipy==1.10.0
+
+# 图像处理和计算机视觉
+opencv-python==4.9.0.80
+Pillow==10.2.0
+
+# 机器学习和深度学习
+mediapipe==0.10.21
+
+# Web框架
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pydantic==2.5.3
+
+# 数据处理和可视化
+pandas==2.1.4
+matplotlib==3.8.2
+
+# 语音处理
+SpeechRecognition==3.10.0
+pyttsx3==2.90
+
+# AI服务
+dashscope==1.14.1
+
+# 工具库
+python-multipart==0.0.6
