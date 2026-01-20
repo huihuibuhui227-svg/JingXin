@@ -1,150 +1,106 @@
-"""
-情绪推断引擎
+# face_expression/inference/emotion_infer.py
 
-基于面部动作单元（AU）特征进行精细化情绪判别，支持 8 种基本情绪状态。
-适用于静态图像和视频帧分析。
-"""
-
-from typing import Dict, Any
-
-
-def infer_emotion_from_au(features: Dict[str, Any]) -> str:
+def infer_emotion_from_au(au_features, temporal_stats=None, micro_expressions=None):
     """
-    基于 AU 特征进行精细化情绪判别（适用于静态图像）
+    基于 AU 特征推理多维情绪状态。
 
     Args:
-        features (dict): 包含 AU 特征的字典，应包含以下键（可选）：
-            - 'au4_frown': float, 皱眉强度 (0.0~1.0)
-            - 'au12_eyebrow_raise': float, 眉毛上扬程度
-            - 'au12_smile': float, 微笑强度
-            - 'au9_nose_wrinkle': float, 皱鼻程度
-            - 'au15_mouth_down': float, 嘴角下拉程度
-            - 'au25_mouth_open': float, 张嘴程度
-            - 'focus_score': float, 专注度 (0.0~1.0)
-            - 'blink_status': str, 眨眼状态（'睁眼'/'闭眼'）
+        au_features (dict): 原始 AU 特征字典
+        temporal_stats (dict, optional): 时序统计特征
+        micro_expressions (dict, optional): 微表情检测结果
 
     Returns:
-        str: 带 emoji 的情绪字符串，如 "愉悦 😊"
-
-    Optimizations:
-        - 动态阈值（基于 AU 分布）
-        - 多 AU 联合逻辑
-        - 引入"置信度"概念
-        - 增加中性/模糊状态处理
+        dict: 包含情绪向量和元数据的结构体，例如：
+        {
+            "emotion_vector": {"happy": 0.85, "anxiety": 0.3, ...},
+            "dominant_emotion": "happy",
+            "confidence": 0.85,
+            "is_neutral": False
+        }
     """
-    # 防御性编程：确保 features 不为 None
-    if not features or not isinstance(features, dict):
-        return "中性 😐"
+    # 定义所有支持的情绪类别（仅用于概率分布）
+    basic_emotions = [
+        "happy", "sadness", "anger", "fear", "surprise",
+        "disgust", "contempt", "anxiety", "fatigue",
+        "polite_smile", "distress"
+    ]
 
-    # 提取特征（设默认值防 KeyError）
-    au4 = float(features.get('au4_frown', 0.0))  # 皱眉（眉心压低）
-    au12_raise = float(features.get('au12_eyebrow_raise', 0.0))  # 眉毛上扬
-    au12_smile = float(features.get('au12_smile', 0.0))  # 微笑强度（嘴宽/眼距）
-    au9 = float(features.get('au9_nose_wrinkle', 0.0))  # 皱鼻
-    au15 = float(features.get('au15_mouth_down', 0.0))  # 嘴角下拉
-    au25 = float(features.get('au25_mouth_open', 0.0))  # 张嘴程度
-    focus = float(features.get('focus_score', 0.5))  # 专注度（0~1）
-    blink = features.get('blink_status', '睁眼')  # 静态图仅状态
+    emotions = {e: 0.0 for e in basic_emotions}
 
-    # ==============================
-    # Step 1: 计算各情绪的"激活分数"
-    # ==============================
-    scores = {
-        "愉悦": 0.0,
-        "专注": 0.0,
-        "困惑": 0.0,
-        "惊讶": 0.0,
-        "厌恶": 0.0,
-        "悲伤": 0.0,
-        "说话": 0.0,
-        "中性": 0.0
-    }
+    # 提取特征
+    au4_frown = au_features.get('au4_frown', 0)
+    au12_smile = au_features.get('au12_smile', 0)
+    au6_cheek = au_features.get('au6_cheek_raise', 0)
+    au7_squeeze = au_features.get('au7_eye_squeeze', 0)
+    au15_mouth_down = au_features.get('au15_mouth_down', 0)
+    au23_lip_comp = au_features.get('au23_lip_compression', 0)
+    au25_open = au_features.get('au25_mouth_open', 0)
+    eye_closed_sec = au_features.get('eye_closed_sec', 0)
+    tension_score = au_features.get('psychological_signals', {}).get('tension_score', 0)
+    symmetry = au_features.get('symmetry_score', 1.0)
+    au9_nose = au_features.get('au9_nose_wrinkle', 0)
 
-    # --- 愉悦 😊 ---
-    if au12_smile > 0.8:
-        scores["愉悦"] += 0.7
-        if au4 < 0.3:
-            scores["愉悦"] += 0.3  # 无皱眉加分
+    # === 1. Happy / Duchenne Smile ===
+    if au12_smile > 1.0 and au6_cheek > 0.25:
+        intensity = min(au12_smile - 1.0, au6_cheek) * 1.5
+        emotions["happy"] = min(intensity, 1.0)
+    elif au12_smile > 1.0:
+        emotions["polite_smile"] = min((au12_smile - 1.0) * 1.2, 0.7)
 
-    # --- 专注 🧠 ---
-    if au4 > 0.25:  # 放宽阈值（原 0.35 太高）
-        if focus > 0.6:
-            scores["专注"] += 0.6
-        if au12_smile < 0.6:  # 非微笑状态
-            scores["专注"] += 0.2
-        if abs(au15) < 0.03:  # 嘴角无下拉
-            scores["专注"] += 0.2
+    # === 2. Sadness / Distress ===
+    if au4_frown > 0.4 and au15_mouth_down > 0.1:
+        sadness_intensity = (au4_frown + au15_mouth_down) / 2
+        emotions["sadness"] = min(sadness_intensity, 1.0)
+        emotions["distress"] = min(sadness_intensity * 0.8, 1.0)
 
-    # --- 困惑 ❓ ---
-    if au4 > 0.25:
-        if focus < 0.55:  # 放宽专注度阈值
-            scores["困惑"] += 0.7
-        if au12_raise > 0.05:  # 眉毛轻微上扬（困惑常伴随）
-            scores["困惑"] += 0.3
+    # === 3. Anger ===
+    if au4_frown > 0.5 and au7_squeeze > 0.4:
+        anger_intensity = (au4_frown + au7_squeeze) / 2
+        emotions["anger"] = min(anger_intensity, 1.0)
 
-    # --- 惊讶 😮 ---
-    if au12_raise > 0.08:  # 放宽（原 0.1）
-        if au25 > 0.12:  # 放宽（原 0.15）
-            scores["惊讶"] += 0.8
-        if au4 < 0.2:  # 惊讶时通常不皱眉
-            scores["惊讶"] += 0.2
+    # === 4. Anxiety / Tension ===
+    anxiety_base = max(tension_score, au23_lip_comp)
+    if micro_expressions and 'au4_frown' in micro_expressions:
+        anxiety_base += 0.2
+    emotions["anxiety"] = min(anxiety_base, 1.0)
 
-    # --- 厌恶 🤢 ---
-    if au9 > 0.25:  # 放宽（原 0.3）
-        scores["厌恶"] += 0.8
-        if au4 > 0.2:  # 厌恶常伴随皱眉
-            scores["厌恶"] += 0.2
+    # === 5. Fatigue ===
+    if eye_closed_sec > 1.0:
+        emotions["fatigue"] = min(eye_closed_sec / 3.0, 1.0)
 
-    # --- 悲伤 😢 ---
-    if au15 > 0.03:  # 放宽（原 0.05）
-        scores["悲伤"] += 0.7
-        if au12_smile < 0.5:  # 非微笑
-            scores["悲伤"] += 0.3
-        if focus < 0.5:
-            scores["悲伤"] += 0.2
+    # === 6. Surprise ===
+    eyebrow_raise = au_features.get('au12_eyebrow_raise', 0)
+    if au25_open > 0.4 and eyebrow_raise > 0.2:
+        emotions["surprise"] = min((au25_open + eyebrow_raise) / 2, 1.0)
 
-    # --- 说话 💬 ---
-    if au25 > 0.18:  # 放宽（原 0.2）
-        if au12_raise < 0.08:  # 非惊讶状态
-            scores["说话"] += 0.9
+    # === 7. Contempt (asymmetric smile) ===
+    if au12_smile > 1.0 and symmetry < 0.8:
+        emotions["contempt"] = min((1.0 - symmetry) * 0.8, 0.6)
 
-    # --- 中性 😐 ---
-    max_score = max(scores.values())
-    if max_score < 0.5:  # 无明显情绪激活
-        scores["中性"] = 1.0
+    # === 8. Disgust ===
+    if au9_nose > 0.3 and au15_mouth_down > 0.2:
+        emotions["disgust"] = min((au9_nose + au15_mouth_down) / 2, 1.0)
+
+    # === 9. Fear ===
+    blink_rate = au_features.get('blink_rate_per_min', 0)
+    if au25_open > 0.5 and blink_rate > 40:
+        emotions["fear"] = min(au25_open * 0.8, 1.0)
+
+    # === 归一化（可选）===
+    total = sum(emotions.values())
+    if total > 0:
+        for k in emotions:
+            emotions[k] = round(emotions[k] / total, 3)
     else:
-        scores["中性"] = 0.2  # 默认低分
+        emotions["neutral"] = 1.0
 
-    # ==============================
-    # Step 2: 选择最高分情绪
-    # ==============================
-    emotion = max(scores, key=scores.get)
-    max_score = scores[emotion]
+    # === 确定主导情绪 ===
+    dominant = max(emotions, key=emotions.get)
+    confidence = emotions[dominant]
 
-    # ==============================
-    # Step 3: 特殊规则覆盖（高置信场景）
-    # ==============================
-    # 规则1: 强微笑 + 无皱眉 → 强制愉悦
-    if au12_smile > 1.1 and au4 < 0.25:
-        emotion = "愉悦"
-    # 规则2: 强皱鼻 + 皱眉 → 强制厌恶
-    elif au9 > 0.35 and au4 > 0.3:
-        emotion = "厌恶"
-    # 规则3: 强嘴角下拉 + 低专注 → 强制悲伤
-    elif au15 > 0.08 and focus < 0.4:
-        emotion = "悲伤"
-
-    # ==============================
-    # Step 4: 返回带 emoji 的字符串
-    # ==============================
-    emoji_map = {
-        "愉悦": "😊",
-        "专注": "🧠",
-        "困惑": "❓",
-        "惊讶": "😮",
-        "厌恶": "🤢",
-        "悲伤": "😢",
-        "说话": "💬",
-        "中性": "😐"
+    return {
+        "emotion_vector": emotions,  # 纯情绪概率字典（仅 float）
+        "dominant_emotion": dominant,
+        "confidence": round(confidence, 3),
+        "is_neutral": (confidence < 0.3 and dominant == "neutral")
     }
-    return f"{emotion} {emoji_map[emotion]}"

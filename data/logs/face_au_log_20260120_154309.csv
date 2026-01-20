@@ -1,0 +1,1 @@
+session_id,timestamp,focus_score,symmetry_score,au4_frown,au12_smile,au6_cheek_raise,au7_eye_squeeze,au9_nose_wrinkle,au15_mouth_down,au23_lip_compression,au25_mouth_open,blink_rate_per_min,eye_closed_sec,psychological_signals,micro_expressions,emotion_vector,dominant_emotion,confidence,tension_level
