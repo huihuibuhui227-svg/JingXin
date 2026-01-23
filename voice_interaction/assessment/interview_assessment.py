@@ -1,185 +1,160 @@
-"""
-面试评估模块
+# voice_interaction/assessment/interview_assessment.py
 
-提供面试流程管理和综合评估功能，支持 AI 智能评估与结构化输出。
-"""
-
+import os
+import numpy as np
 from datetime import datetime
-from typing import Optional, List, Tuple, Dict, Any
-from ..config import ASSESSMENT_CONFIG, LOG_CONFIG, LOGS_DIR, DASHSCOPE_API_KEY
-
-InterviewAssessmentResult = Dict[str, Any]
+from typing import List, Dict, Any
 
 
 class InterviewAssessment:
-    """面试评估器"""
-
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
-        """
-        初始化面试评估器
-
-        参数:
-            config: 配置字典，如果为None则使用默认配置
-        """
-        self.config = config or ASSESSMENT_CONFIG.copy()
-        self.questions = self._get_default_questions()
-        self.qa_pairs: List[Tuple[str, str]] = []
-        self.current_index = 0
-        self._cached_evaluation: Optional[InterviewAssessmentResult] = None
-
-    def _get_default_questions(self) -> List[str]:
-        """获取默认面试问题"""
-        return [
-            "请用1-2分钟简单介绍一下你自己，包括你的教育背景和研究兴趣。",
-            "你曾经遇到过最困难的学术或技术问题是什么？你是如何解决的？",
-            "当你在研究中遇到失败或实验反复不成功时，通常会怎么应对？",
-            "请描述一次你主动学习新知识或新技能的经历。是什么驱动你去学的？",
-            "在团队合作中，如果你和队友意见严重分歧，你会怎么处理？",
-            "你认为自己最大的优点和不足分别是什么？这些特质如何影响你的科研工作？",
-            "如果有一个完全自由的研究课题，不受经费和时间限制，你最想探索什么？为什么？",
-            "你如何看待科研中的'重复性工作'？会觉得枯燥吗？",
-            "你平时通过哪些方式保持对前沿科技或学术动态的关注？",
-            "最后，你有什么问题想问我们吗？"
+    def __init__(self):
+        self.questions = [
+            "请简单介绍一下你自己，包括教育背景和研究兴趣。",
+            "你为什么想从事科研工作？",
+            "描述一次你解决复杂问题的经历。",
+            "你在团队合作中通常扮演什么角色？",
+            "你如何应对科研中的失败或挫折？",
+            "你最近读过哪些与你研究方向相关的论文？",
+            "你未来五年的职业规划是什么？",
+            "你有什么问题想问我们吗？"
         ]
+        self.qa_pairs: List[Dict[str, Any]] = []
 
-    def reset(self) -> None:
-        """重置面试状态"""
-        self.qa_pairs = []
-        self.current_index = 0
-        self._cached_evaluation = None
+    def get_next_question(self) -> str:
+        if len(self.qa_pairs) < len(self.questions):
+            return self.questions[len(self.qa_pairs)]
+        else:
+            return None
 
-    def get_next_question(self) -> Optional[str]:
-        """
-        获取下一个问题
+    def add_answer(self, answer: str, prosody: Dict[str, Any] = None):
+        index = len(self.qa_pairs)
+        question = self.questions[index] if index < len(self.questions) else "Unknown"
+        self.qa_pairs.append({
+            "question": question,
+            "answer": answer,
+            "prosody": prosody or {}
+        })
 
-        返回:
-            问题字符串，如果没有更多问题则返回 None
-        """
-        if self.current_index < len(self.questions):
-            question = self.questions[self.current_index]
-            self.current_index += 1
-            return question
-        return None
-
-    def add_answer(self, answer: str) -> None:
-        """
-        添加回答
-
-        参数:
-            answer: 回答文本
-        """
-        if self.current_index > 0 and answer is not None:
-            question = self.questions[self.current_index - 1]
-            self.qa_pairs.append((question, str(answer).strip()))
-            # 清除缓存的评估结果
-            self._cached_evaluation = None
-
-    def get_comprehensive_evaluation(self) -> InterviewAssessmentResult:
-        """
-        获取综合评估（带缓存和降级）
-
-        返回:
-            结构化评估结果字典，包含：
-            - text: 评估文本
-            - is_valid: 是否成功调用 AI
-            - error: 错误信息（如果有）
-        """
-        if self._cached_evaluation is not None:
-            return self._cached_evaluation
-
-        result: InterviewAssessmentResult = {
-            "text": "",
-            "is_valid": False,
-            "error": ""
-        }
-
-        # 检查是否启用 AI
-        if not self.config['use_ai_feedback']:
-            result["text"] = "（AI综合评估已关闭）"
-            result["is_valid"] = True
-            self._cached_evaluation = result
-            return result
-
-        # 检查是否有数据
+    def get_comprehensive_evaluation(self) -> Dict[str, str]:
         if not self.qa_pairs:
-            result["text"] = "（暂无回答数据）"
-            result["is_valid"] = True
-            self._cached_evaluation = result
-            return result
+            return {"text": "未收到任何回答。"}
 
-        # 检查 API 密钥
-        if not DASHSCOPE_API_KEY.strip():
-            result["text"] = "（缺少 DashScope API 密钥，无法生成 AI 评估）"
-            result["error"] = "DASHSCOPE_API_KEY 未配置"
-            self._cached_evaluation = result
-            return result
+        core_competency = self._analyze_core_competency()
+        prosody_feedback = self._analyze_prosody()
 
-        try:
-            qa_text = "\n".join([f"问题：{q}\n回答：{a}" for q, a in self.qa_pairs])
+        full_report = (
+            "【核心胜任力与品质评估】\n"
+            f"{core_competency}\n\n"
+            "【语音表达表现】\n"
+            f"{prosody_feedback}"
+        )
+        return {"text": full_report}
 
-            prompt = f"""你是一位资深人力资源专家和科研导师，请根据以下候选人在模拟面试中的全部回答，对其做出全面、客观的综合评估。
+    def _analyze_core_competency(self) -> str:
+        answers = [pair["answer"] for pair in self.qa_pairs if pair["answer"] != "[无有效回答]"]
+        if not answers:
+            return "未检测到有效回答内容，无法评估胜任力。"
 
-重点关注：
-1. 人格特质（如诚信、责任感、抗压能力、合作精神、主动性等）
-2. 科研或技术岗位所需的核心素质（如批判性思维、解决问题能力、创新意识、逻辑表达、学术严谨性等）
-3. 是否具备胜任目标岗位（如研究员、工程师、科研助理等）的潜力
-4. 是否存在明显风险或短板
+        full_text = " ".join(answers).lower()
 
-请用一段150字以内的专业评语总结，并给出是否推荐录用的倾向性意见。
+        # 关键词定义
+        research_keywords = ["实验", "数据", "论文", "方法", "分析", "模型", "验证", "创新", "研究", "课题", "文献", "算法", "nlp", "自然语言"]
+        problem_solving = ["解决", "克服", "应对", "处理", "优化", "改进", "调试", "失败", "挫折", "困难", "挑战", "复盘", "调整"]
+        teamwork = ["合作", "团队", "沟通", "协调", "帮助", "讨论", "协作", "配合", "集体", "整合", "进度"]
+        motivation = ["兴趣", "热爱", "目标", "规划", "长期", "坚持", "动力", "热情", "志向", "成就感", "研发", "负责人"]
 
-候选人全部问答如下：
-{qa_text}
+        feedback = []
 
-综合评估："""
+        # 科研意识
+        research_score = sum(1 for w in research_keywords if w in full_text)
+        if research_score >= 2:
+            feedback.append("✅ 科研意识强：能提及具体研究方向或技术细节，展现出学术基础。")
+        elif research_score == 1:
+            feedback.append("🟡 具备基本科研认知，但可补充更多技术细节。")
+        else:
+            feedback.append("⚠️ 回答中较少体现科研相关经验，建议加强研究背景描述。")
 
-            from dashscope import Generation
-            import dashscope
-            dashscope.api_key = DASHSCOPE_API_KEY
+        # 问题解决能力
+        ps_score = sum(1 for w in problem_solving if w in full_text)
+        if ps_score >= 2:
+            feedback.append("✅ 问题解决能力强：能描述应对失败或调试的过程，体现韧性。")
+        elif ps_score >= 1:
+            feedback.append("🟡 有解决问题的意识，建议补充具体策略和结果。")
+        else:
+            feedback.append("⚠️ 未充分展示解决复杂问题的经验，可举例说明。")
 
-            response = Generation.call(
-                model=self.config['ai_model'],
-                prompt=prompt,
-                max_tokens=self.config['max_tokens']
-            )
+        # 团队合作
+        team_score = sum(1 for w in teamwork if w in full_text)
+        if team_score >= 1:
+            feedback.append("✅ 团队协作意识良好：强调沟通与协调，符合科研合作需求。")
+        else:
+            feedback.append("⚠️ 较少提及团队角色，建议突出协作经验。")
 
-            if hasattr(response, 'output') and hasattr(response.output, 'text'):
-                result["text"] = response.output.text.strip()
-                result["is_valid"] = True
+        # 内在动机
+        mot_score = sum(1 for w in motivation if w in full_text)
+        if mot_score >= 2:
+            feedback.append("✅ 动机明确：展现出清晰的职业规划与科研热情。")
+        elif mot_score >= 1:
+            feedback.append("🟡 有一定目标感，长期规划可更具体。")
+        else:
+            feedback.append("⚠️ 动机表述较模糊，建议明确发展方向。")
+
+        return "\n".join(feedback)
+
+    def _analyze_prosody(self) -> str:
+        all_prosody = [pair["prosody"] for pair in self.qa_pairs if pair.get("prosody")]
+        if not all_prosody:
+            return "未获取到语音特征数据，无法进行语调分析。"
+
+        pitch_vars = []
+        speech_ratios = []
+
+        for p in all_prosody:
+            pv = p.get("pitch_variation")
+            if isinstance(pv, (int, float)) and not np.isnan(pv):
+                pitch_vars.append(pv)
+            sr = p.get("speech_ratio")
+            if isinstance(sr, (int, float)) and not np.isnan(sr):
+                speech_ratios.append(sr)
+
+        parts = []
+
+        if pitch_vars:
+            avg_pitch = np.mean(pitch_vars)
+            if avg_pitch < 20:
+                parts.append("语调较为平缓，可能显得不够自信或缺乏热情。")
             else:
-                result["text"] = f"（AI评估返回格式异常）"
-                result["error"] = "Unexpected API response format"
+                parts.append("语调富有变化，表达生动，展现出良好的沟通意愿。")
 
-        except Exception as e:
-            error_msg = str(e)
-            result["text"] = f"（AI综合评估失败: {error_msg[:100]}...）"
-            result["error"] = error_msg
+        if speech_ratios:
+            avg_speech = np.mean(speech_ratios)
+            if avg_speech > 0.6:
+                parts.append("表达流畅，停顿合理，逻辑清晰。")
+            else:
+                parts.append("存在较多停顿或犹豫，建议加强表达的连贯性。")
 
-        self._cached_evaluation = result
-        return result
+        if not parts:
+            return "未能从语音中提取有效表达特征。"
+
+        return "".join(parts)
 
     def save_log(self) -> str:
-        """
-        保存面试日志
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_dir = "logs/interview"
+        os.makedirs(log_dir, exist_ok=True)
+        log_path = os.path.join(log_dir, f"interview_{timestamp}.txt")
 
-        返回:
-            日志文件路径
-        """
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        log_file = LOG_CONFIG['interview_log_file'].format(timestamp=timestamp)
-        log_path = LOGS_DIR / log_file
+        with open(log_path, "w", encoding="utf-8") as f:
+            f.write("=== AI 语音面试记录 ===\n\n")
+            for i, pair in enumerate(self.qa_pairs):
+                f.write(f"Q{i + 1}: {pair['question']}\n")
+                f.write(f"A{i + 1}: {pair['answer']}\n")
+                if pair["prosody"]:
+                    f.write(f"Prosody: {pair['prosody']}\n")
+                f.write("\n")
 
-        evaluation_result = self.get_comprehensive_evaluation()
-        evaluation_text = evaluation_result["text"]
+            eval_result = self.get_comprehensive_evaluation()
+            f.write("=== 评估报告 ===\n")
+            f.write(eval_result["text"])
 
-        with open(log_path, "w", encoding='utf-8') as f:
-            f.write("=== AI 语音模拟面试记录 ===\n")
-            f.write(f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
-
-            for i, (question, answer) in enumerate(self.qa_pairs, 1):
-                f.write(f"问题 {i}: {question}\n")
-                f.write(f"回答: {answer}\n\n")
-
-            f.write("=== AI 综合评估报告 ===\n")
-            f.write(evaluation_text + "\n")
-
-        return str(log_path)
+        return os.path.abspath(log_path)

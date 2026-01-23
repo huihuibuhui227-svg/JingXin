@@ -1,169 +1,112 @@
-"""
-语音识别模块
-
-提供基于百度语音API的语音识别功能，包含令牌管理、音频校验和错误重试。
-"""
-
+import os
 import json
-import base64
-import urllib.request
-import urllib.error
-import time
-from typing import Optional, Dict, Any
-import speech_recognition as sr
-from ..config import SPEECH_CONFIG, BAIDU_API_KEY, BAIDU_SECRET_KEY
+import queue
+import logging
+import numpy as np
+from typing import Tuple
+from vosk import Model, KaldiRecognizer
+import sounddevice as sd
+
+logger = logging.getLogger(__name__)
+
+# 自动定位模型路径
+ROOT_DIR = os.path.dirname(
+    os.path.dirname(
+        os.path.dirname(os.path.abspath(__file__))
+    )
+)
+MODEL_PATH = os.path.join(ROOT_DIR, "vosk-model-small-cn-0.22")
+
+if not os.path.exists(MODEL_PATH):
+    raise RuntimeError(f"❌ Vosk 模型未找到: {os.path.abspath(MODEL_PATH)}")
 
 
 class SpeechRecognizer:
-    """语音识别器"""
+    def __init__(self):
+        self.sample_rate = 16000
+        logger.info("正在加载 Vosk 模型...")
+        self.model = Model(MODEL_PATH)
+        logger.info("✅ Vosk 模型加载完成")
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
-        """
-        初始化语音识别器
+    def listen_for_speech(self, timeout: int = 30) -> Tuple[str, np.ndarray]:
+        q = queue.Queue()
+        audio_chunks = []
+        recognized_text = ""  # 存储最终识别文本
 
-        参数:
-            config: 配置字典，如果为None则使用默认配置
-        """
-        self.config = config or SPEECH_CONFIG.copy()
-        self.recognizer = sr.Recognizer()
-        self.recognizer.pause_threshold = self.config['pause_threshold']
-        self.recognizer.non_speaking_duration = self.config['non_speaking_duration']
-        self._token: Optional[str] = None
-        self._last_token_time: float = 0
-        self._token_validity: int = 2592000  # 百度 token 有效期 30 天（秒）
+        def callback(indata, frames, time, status):
+            if status:
+                logger.warning(f"录音状态: {status}")
+            if not isinstance(indata, bytes):
+                indata = bytes(indata)
+            q.put(indata)
+            audio_chunks.append(indata)
 
-    def get_baidu_token(self, force_refresh: bool = False) -> str:
-        """
-        获取百度语音API的访问令牌（带缓存和刷新机制）
-
-        参数:
-            force_refresh: 是否强制刷新令牌
-
-        返回:
-            访问令牌字符串
-
-        异常:
-            RuntimeError: 当 API 密钥缺失或请求失败时
-        """
-        if not BAIDU_API_KEY or not BAIDU_SECRET_KEY:
-            raise RuntimeError("百度 API 密钥未配置，请设置 BAIDU_API_KEY 和 BAIDU_SECRET_KEY")
-
-        # 检查是否需要刷新
-        current_time = time.time()
-        if (not force_refresh and
-                self._token and
-                (current_time - self._last_token_time) < self._token_validity):
-            return self._token
+        print("🎤 请回答（说完后稍作停顿即可）...")
 
         try:
-            url = f"https://aip.baidubce.com/oauth/2.0/token?grant_type=client_credentials&client_id={BAIDU_API_KEY}&client_secret={BAIDU_SECRET_KEY}"
-            req = urllib.request.Request(url, method='POST')
-            with urllib.request.urlopen(req, timeout=10) as response:
-                result = json.loads(response.read().decode())
+            with sd.RawInputStream(
+                    samplerate=self.sample_rate,
+                    blocksize=8000,
+                    dtype='int16',
+                    channels=1,
+                    callback=callback
+            ):
+                recognizer = KaldiRecognizer(self.model, self.sample_rate)
+                silence_count = 0
+                total_time = 0.0
 
-            if 'access_token' not in result:
-                raise RuntimeError(f"百度 token 获取失败: {result.get('error_description', '未知错误')}")
+                while True:
+                    try:
+                        data = q.get(timeout=1.0)
+                    except queue.Empty:
+                        silence_count += 10
+                        total_time += 1.0
+                        if total_time > timeout:
+                            break
+                        continue
 
-            self._token = result['access_token']
-            self._last_token_time = current_time
-            return self._token
+                    if not isinstance(data, bytes):
+                        data = bytes(data)
 
-        except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError) as e:
-            raise RuntimeError(f"获取百度 token 失败: {e}")
+                    total_time += 0.1
 
-    def recognize_speech_baidu(self, audio_data: sr.AudioData) -> str:
-        """
-        使用百度语音API识别语音
+                    # 关键：累积所有识别结果
+                    if recognizer.AcceptWaveform(data):
+                        res = json.loads(recognizer.Result())
+                        text_chunk = res.get("text", "").strip()
+                        if text_chunk:
+                            recognized_text += text_chunk + " "
+                            silence_count = 0
+                            print(f"📝 你说的是: '{text_chunk}'")
+                    else:
+                        partial = json.loads(recognizer.PartialResult()).get("partial", "")
+                        if not partial:
+                            silence_count += 1
+                        else:
+                            silence_count = 0
 
-        参数:
-            audio_data: 音频数据（来自 speech_recognition）
+                    if silence_count > 20 or total_time > timeout:
+                        break
 
-        返回:
-            识别的文本字符串（可能为空）
+                # 不要再调用 FinalResult()！
+                recognized_text = recognized_text.strip()
 
-        异常:
-            ValueError: 音频过长
-            RuntimeError: API 调用失败
-        """
-        # 获取有效 token
-        if not self._token:
-            self.get_baidu_token()
-
-        rate = self.config['sample_rate']
-        raw_data = audio_data.get_wav_data(convert_rate=rate, convert_width=2)
-
-        # 音频长度校验
-        duration_sec = len(raw_data) / (rate * 2)
-        if duration_sec > self.config['max_audio_length']:
-            raise ValueError(f"音频过长（{duration_sec:.1f}秒 > {self.config['max_audio_length']}秒），请精简回答")
-
-        # 构建请求
-        body_dict = {
-            "format": "pcm",
-            "rate": rate,
-            "dev_pid": 1537,  # 中文普通话
-            "channel": 1,
-            "token": self._token,
-            "cuid": "voice_interaction",
-            "len": len(raw_data),
-            "speech": base64.b64encode(raw_data).decode()
-        }
-        body = json.dumps(body_dict).encode()
-
-        try:
-            req = urllib.request.Request(
-                "http://vop.baidu.com/server_api",
-                data=body,
-                headers={'Content-Type': 'application/json'}
-            )
-            with urllib.request.urlopen(req, timeout=15) as response:
-                result = json.loads(response.read().decode())
-
-            if result.get('err_msg') == 'success.' and 'result' in result:
-                return result['result'][0].strip() if result['result'] else ""
-            else:
-                error_msg = result.get('err_msg', '未知错误')
-                raise RuntimeError(f"百度识别失败: {error_msg}")
-
-        except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError) as e:
-            raise RuntimeError(f"百度 API 调用异常: {e}")
-
-    def listen_for_speech(self, timeout: Optional[int] = None) -> str:
-        """
-        监听语音输入（带完整异常处理）
-
-        参数:
-            timeout: 超时时间（秒），如果为None则使用配置中的值
-
-        返回:
-            识别的文本字符串（可能为空）
-        """
-        actual_timeout = timeout or self.config['timeout']
-
-        try:
-            with sr.Microphone() as source:
-                print("🎤 请回答（说完后稍作停顿即可，系统会自动识别结束）...")
-                self.recognizer.adjust_for_ambient_noise(source, duration=0.8)
-
-                audio = self.recognizer.listen(source, timeout=actual_timeout)
-                print("⏳ 正在识别语音...")
-
-                text = self.recognize_speech_baidu(audio)
-                if text:
-                    print(f"📝 你说的是: '{text}'")
+                # 合并音频
+                if audio_chunks:
+                    full_bytes = b''.join(audio_chunks)
+                    audio_int16 = np.frombuffer(full_bytes, dtype=np.int16)
+                    audio_float32 = audio_int16.astype(np.float32) / 32768.0
                 else:
-                    print("📝 未识别到有效语音内容")
-                return text
+                    audio_float32 = np.array([])
 
-        except sr.WaitTimeoutError:
-            print(f"⚠️ 超时：{actual_timeout}秒内未检测到语音")
-            return ""
-        except sr.UnknownValueError:
-            print("⚠️ 无法理解语音内容")
-            return ""
-        except (RuntimeError, ValueError) as e:
-            print(f"❌ 语音识别失败: {e}")
-            return ""
+                if not recognized_text:
+                    print("📝 未识别到有效语音")
+                else:
+                    print(f"✅ 最终识别结果: '{recognized_text}'")
+
+                return recognized_text, audio_float32
+
         except Exception as e:
-            print(f"❌ 未知错误: {e}")
-            return ""
+            logger.error(f"录音或识别异常: {e}")
+            print(f"❌ 语音交互失败: {e}")
+            return "", np.array([])

@@ -1,5 +1,3 @@
-# face_expression/examples/run_video_analyzer.py
-
 import cv2
 import time
 import csv
@@ -11,10 +9,11 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 try:
-    from face_expression.analyzers.face_au_analyzer import FaceAUAnalyzer
+    from face_expression.pipeline.video_pipeline import VideoPipeline as FaceAUAnalyzer
 except ImportError as e:
     print(f"❌ 导入失败: {e}")
     exit(1)
+
 
 def main():
     cap = cv2.VideoCapture(0)
@@ -41,7 +40,7 @@ def main():
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"face_au_log_{session_id}.csv"
 
-    # ✅ 完整字段列表（包含所有新增 AU）
+    # ✅ 完整字段列表（包含所有新增 AU + 视线追踪）
     KEY_FIELDS = [
         "session_id", "timestamp", "focus_score", "symmetry_score",
         "au1_inner_brow_raise", "au2_outer_brow_raise", "au4_frown",
@@ -51,7 +50,10 @@ def main():
         "au25_mouth_open", "au26_jaw_drop", "head_yaw", "head_pitch",
         "blink_rate_per_min", "eye_closed_sec",
         "psychological_signals", "micro_expressions",
-        "emotion_vector", "dominant_emotion", "confidence", "tension_level"
+        "emotion_vector", "dominant_emotion", "confidence", "tension_level",
+        # ✅ 新增：视线追踪字段
+        "left_iris_x", "left_iris_y", "right_iris_x", "right_iris_y",
+        "gaze_direction_x", "gaze_direction_y", "gaze_deviation"
     ]
 
     with open(log_path, 'w', newline='', encoding='utf-8') as f:
@@ -78,7 +80,7 @@ def main():
             break
 
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        features, results, full_result = analyzer.process_frame(frame_rgb)
+        result_obj, results, features = analyzer.process_frame(frame_rgb)
 
         annotated_frame = frame.copy()
         if results and results.multi_face_landmarks and mp_drawing is not None:
@@ -100,8 +102,12 @@ def main():
 
         # === 实时显示全部 AU 特征 ===
         if features:
-            tension_level = features.get('psychological_signals', {}).get('tension_level', 'unknown')
-            emotion_text = f"{features['dominant_emotion']} ({features['confidence']:.2f})"
+            tension_info = features.get('psychological_signals', {})
+            tension_level = tension_info.get('tension_level', 'unknown')
+            dominant_emotion = features.get('dominant_emotion', 'unknown')
+            confidence = features.get('confidence', 0.0)
+            emotion_text = f"{dominant_emotion} ({confidence:.2f})"
+
             lines = [
                 f"Emotion: {emotion_text}",
                 f"Tension: {tension_level.upper()}",
@@ -129,16 +135,21 @@ def main():
         # === 日志输出 ===
         if features:
             current_time_str = time.strftime('%H:%M:%S')
-            print(f"[{current_time_str}] 情绪: {features['dominant_emotion']} "
-                  f"(置信度: {features['confidence']:.2f}), "
-                  f"紧张度: {tension_level}")
+            tension_info = features.get('psychological_signals', {})
+            tension_level = tension_info.get('tension_level', 'low')
+            dominant_emotion = features.get('dominant_emotion', 'unknown')
+            confidence = features.get('confidence', 0.0)
 
-            # 构建日志行
+            print(f"[{current_time_str}] 情绪: {dominant_emotion} "
+                  f"(置信度: {confidence:.2f}), "
+                  f"紧张度: {tension_level.upper()}")
+
+            # 构建日志行（全部使用 .get() 避免 KeyError）
             row = {
-                "session_id": features["session_id"],
-                "timestamp": features["timestamp"],
-                "focus_score": features["focus_score"],
-                "symmetry_score": features["symmetry_score"],
+                "session_id": features.get("session_id", session_id),
+                "timestamp": features.get("timestamp", time.time()),
+                "focus_score": features.get("focus_score", 0.0),
+                "symmetry_score": features.get("symmetry_score", 1.0),
                 "au1_inner_brow_raise": features.get("au1_inner_brow_raise", 0),
                 "au2_outer_brow_raise": features.get("au2_outer_brow_raise", 0),
                 "au4_frown": features.get("au4_frown", 0),
@@ -157,12 +168,20 @@ def main():
                 "head_pitch": features.get("head_pitch", 0),
                 "blink_rate_per_min": features.get("blink_rate_per_min", 0),
                 "eye_closed_sec": features.get("eye_closed_sec", 0),
-                "psychological_signals": str(features["psychological_signals"]),
-                "micro_expressions": str(features["micro_expressions"]),
-                "emotion_vector": str(features["emotion_vector"]),
-                "dominant_emotion": features["dominant_emotion"],
-                "confidence": features["confidence"],
-                "tension_level": features["psychological_signals"].get("tension_level", "low")
+                "psychological_signals": str(features.get("psychological_signals", {})),
+                "micro_expressions": str(features.get("micro_expressions", {})),
+                "emotion_vector": str(features.get("emotion_vector", {})),
+                "dominant_emotion": dominant_emotion,
+                "confidence": confidence,
+                "tension_level": tension_level,
+                # ✅ 新增：视线追踪字段
+                "left_iris_x": features.get("left_iris_x", 0.0),
+                "left_iris_y": features.get("left_iris_y", 0.0),
+                "right_iris_x": features.get("right_iris_x", 0.0),
+                "right_iris_y": features.get("right_iris_y", 0.0),
+                "gaze_direction_x": features.get("gaze_direction_x", 0.0),
+                "gaze_direction_y": features.get("gaze_direction_y", 0.0),
+                "gaze_deviation": features.get("gaze_deviation", 0.0)
             }
 
             # 安全写入 CSV
