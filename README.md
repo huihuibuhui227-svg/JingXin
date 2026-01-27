@@ -1,338 +1,331 @@
 # JingXin 多模态面试评估系统
 
-## 项目简介
+## 概述
 
-JingXin是一个基于多模态AI技术的智能面试评估系统，通过同时分析候选人的面部表情、手势姿态和语音内容，为面试官提供全面、客观的评估报告。系统采用模块化设计，包含面部微表情分析、手势与肢体语言分析、语音交互分析三大核心模块，以及一个集成模块用于协调各模块工作。
+JingXin是一个智能多模态面试评估系统，通过同时分析面试者的面部表情、手势姿态和语音内容，提供全面、客观的面试评估报告。系统采用先进的计算机视觉和语音处理技术，能够实时监测和分析面试者的情绪状态、紧张程度和表达能力。
 
-## 项目特色
+## 核心特性
 
-- **多模态融合分析**：同时分析面部表情、手势姿态和语音内容，提供全方位评估
-- **实时检测与反馈**：支持实时视频流分析，即时提供情绪状态和反馈建议
-- **模块化架构**：各功能模块独立开发、测试和部署，便于维护和扩展
-- **RESTful API**：提供标准API接口，便于集成到现有系统
-- **可视化展示**：直观展示分析结果，支持中文显示
+### 多模态分析
+- **面部表情分析**: 检测面部动作单元，识别情绪状态和专注度
+- **手势姿态分析**: 评估手部动作、肩部稳定性、手臂角度
+- **语音交互分析**: 分析音调、能量、流畅度等语音特征
 
-## 项目结构
+### 智能评估
+- **面试评估**: 针对面试场景的综合能力评估
+- **科研评估**: 针对科研场景的专业能力评估
+- **情绪融合**: 多模态情绪状态综合评估
+- **实时反馈**: 提供即时的分析结果和建议
+
+### 数据管理
+- **结构化日志**: CSV和JSON格式的详细日志记录
+- **可视化报告**: 热力图、统计图表等可视化输出
+- **历史追踪**: 支持历史数据对比和趋势分析
+
+## 系统架构
 
 ```
 jingxin/
-├── data/                           # 数据目录
-│   ├── input/                      # 输入数据
-│   └── output/                     # 输出数据
-├── face_expression/                # 面部微表情分析模块
-│   ├── analyzers/                  # 分析器
-│   │   ├── emotion_engine.py       # 情绪识别引擎
-│   │   ├── face_au_analyzer.py     # 实时视频分析器
-│   │   ├── feature_extractor.py    # 特征提取器
-│   │   ├── image_analyzer.py       # 静态图片分析器
-│   │   ├── landmarks.py            # 面部关键点索引配置
-│   │   ├── micro_expression.py     # 微表情分析
-│   │   └── tension_engine.py       # 紧张度分析引擎
-│   ├── api/                        # API接口
-│   │   └── app.py                  # FastAPI应用
-│   ├── examples/                   # 示例脚本
-│   │   ├── run_image_analyzer.py   # 图片分析示例
-│   │   └── run_video_analyzer.py   # 视频分析示例
-│   ├── inference/                  # 推理模块
-│   │   └── emotion_infer.py        # 情绪推断引擎
-│   ├── utils/                      # 工具模块
-│   │   ├── logger.py               # 日志工具
-│   │   └── visualize.py            # 可视化工具
-│   ├── config.py                   # 配置文件
-│   ├── MODULE_DEPENDENCIES.md      # 模块依赖文档
-│   └── README.md                   # 模块说明文档
-├── gesture_analysis/               # 手势与肢体语言分析模块
-│   ├── analyzers/                  # 分析器
-│   │   ├── hand_analyzer.py        # 手部分析器
-│   │   └── shoulder_analyzer.py    # 肩部分析器
-│   ├── api/                        # API接口
-│   │   └── app.py                  # FastAPI应用
-│   ├── examples/                   # 示例脚本
-│   │   ├── run_realtime_analyzer.py # 实时分析示例
-│   │   └── visualize_logs.py       # 日志可视化
-│   ├── inference/                  # 推理模块
-│   │   └── emotion_inferencer.py   # 情绪推断器
-│   ├── utils/                      # 工具模块
-│   │   ├── logger.py               # 日志工具
-│   │   ├── visualization.py        # 可视化工具
-│   │   └── visualize.py            # 可视化工具
-│   ├── config.py                   # 配置文件
-│   └── README.md                   # 模块说明文档
-├── voice_interaction/              # 语音交互分析模块
-│   ├── analyzers/                  # 分析器
-│   │   ├── prosody_analyzer.py     # 韵律分析器
-│   │   ├── speech_recognizer.py    # 语音识别器
-│   │   └── tts_engine.py           # 文本转语音引擎
-│   ├── assessment/                 # 评估模块
-│   │   ├── interview_assessment.py # 面试评估
-│   │   └── research_assessment.py  # 科研评估
-│   ├── api/                        # API接口
-│   │   └── app.py                  # FastAPI应用
-│   ├── examples/                   # 示例脚本
-│   │   ├── run_interview.py        # 面试示例
-│   │   ├── run_research_assessment.py # 科研评估示例
-│   │   └── visualize_log.py        # 日志可视化
-│   ├── utils/                      # 工具模块
-│   │   ├── logger.py               # 日志工具
-│   │   └── visualize.py            # 可视化工具
-│   ├── config.py                   # 配置文件
-│   └── __init__.py                 # 模块初始化文件
-├── main/                           # 集成模块
-│   ├── api/                        # API接口
-│   │   └── app.py                  # FastAPI应用
-│   ├── examples/                   # 示例脚本
-│   │   └── run_integrated_interview.py # 集成面试示例
-│   ├── integrator.py               # 集成器
-│   └── README.md                   # 模块说明文档
-└── requirements.txt                # 项目依赖
+├── face_expression/        # 面部表情分析模块
+│   ├── core/             # 核心分析引擎
+│   ├── models/           # 数据模型
+│   ├── pipeline/         # 处理流程
+│   ├── utils/           # 工具函数
+│   └── examples/        # 示例代码
+├── gesture_analysis/      # 手势姿态分析模块
+│   ├── core/             # 核心分析引擎
+│   ├── models/           # 数据模型
+│   ├── pipeline/         # 处理流程
+│   ├── utils/           # 工具函数
+│   └── examples/        # 示例代码
+├── voice_interaction/     # 语音交互分析模块
+│   ├── core/             # 核心分析引擎
+│   ├── models/           # 数据模型
+│   ├── pipeline/         # 处理流程
+│   ├── utils/           # 工具函数
+│   └── examples/        # 示例代码
+├── main/                # 多模态集成模块
+│   ├── api/             # 集成API
+│   ├── examples/        # 集成示例
+│   └── integrator.py    # 集成器
+├── data/                # 数据目录
+│   ├── input/           # 输入数据
+│   ├── output/          # 输出结果
+│   │   ├── face_expression/
+│   │   ├── gesture_analysis/
+│   │   └── voice_interaction/
+│   └── logs/            # 日志文件
+└── requirements.txt      # 依赖列表
 ```
 
-## 核心功能
-
-### 1. 面部微表情分析模块
-
-基于MediaPipe的面部动作单元(AU)分析和情绪识别功能，支持实时视频流和静态图片两种分析模式。
-
-**主要功能：**
-- 实时检测面部关键点
-- 计算眨眼频率
-- 提取多个AU特征值
-- 实时情绪识别
-- 疲劳检测
-- 专注度评估
-
-**支持识别的情绪状态：**
-- 😊 愉悦
-- 🧠 专注
-- ❓ 困惑
-- 😮 惊讶
-- 🤢 厌恶
-- 😢 悲伤
-- 💬 说话
-- 😴 疲劳（仅视频模式）
-- 😐 中性
-
-### 2. 手势与肢体语言分析模块
-
-提供实时手势检测、肩部动作分析和情绪评估功能，用于评估用户的抗压能力和情绪状态。
-
-**主要功能：**
-- 手部分析：
-  - 实时检测手部关键点
-  - 计算手指抖动幅度
-  - 检测握拳状态
-  - 计算手指张开度
-  - 评估抗压能力评分
-
-- 肩部分析：
-  - 实时检测肩部位置
-  - 自动校准自然肩位
-  - 计算肩部抖动幅度
-  - 检测耸肩动作
-  - 评估紧张度评分
-
-- 情绪评估：
-  - 综合手部和肩部特征
-  - 推断情绪状态（非常放松、放松、中性、轻微紧张、紧张、高度焦虑）
-  - 提供实时反馈和建议
-
-### 3. 语音交互分析模块
-
-提供语音识别、文本转语音和面试评估功能，用于分析候选人的语音内容和表达方式。
-
-**主要功能：**
-- 语音识别：
-  - 实时语音转文字
-  - 支持中文识别
-  - 自动检测语音停顿
-
-- 文本转语音：
-  - 将问题文本转换为语音
-  - 支持语速和音量调节
-
-- 面试评估：
-  - 预设面试问题库
-  - 分析回答内容
-  - 评估核心胜任力与品质
-  - 分析语音表达表现
-
-### 4. 集成模块
-
-统一调用面部表情、手势姿态、语音内容三个子模块，实现多模态数据的融合分析。
-
-**主要功能：**
-- 统一接口：提供统一的API访问三个子模块
-- 面试流程管理：管理完整的面试会话，协调问题提出和回答收集
-- 多模态数据融合：同时分析面部表情、语音和手势，综合评估候选人的情绪状态
-- Web API：提供RESTful API接口，支持实时分析，便于集成到其他系统
-
-## 快速开始
+## 安装指南
 
 ### 环境要求
-
-- Python 3.11
+- Python 3.8+
 - Windows/Linux/macOS
-- 摄像头设备
-- 麦克风设备
+- 摄像头
+- 麦克风
 
 ### 安装步骤
 
-1. 克隆项目仓库：
+1. 克隆项目
 ```bash
-git clone <repository-url>
+git clone https://github.com/yourusername/jingxin.git
 cd jingxin
 ```
 
-2. 创建虚拟环境（推荐）：
+2. 创建虚拟环境（推荐）
 ```bash
 python -m venv venv
-# Windows
-venv\Scripts\activate
-# Linux/macOS
-source venv/bin/activate
+source venv/bin/activate  # Linux/macOS
+venv\Scriptsctivate  # Windows
 ```
 
-3. 安装依赖：
+3. 安装依赖
 ```bash
 pip install -r requirements.txt
 ```
 
-4. 下载Vosk语音识别模型：
+4. 下载语音模型
 ```bash
-# 下载中文小模型（约40MB）
-# 请从 https://alphacephei.com/vosk/models 下载
-# 将模型解压到项目根目录，命名为 vosk-model-small-cn-0.22
+# 下载Vosk中文模型
+cd vosk-model-cn-0.22
+# 模型文件已包含在项目中
 ```
 
-5. 配置API密钥（可选）：
-```bash
-# 创建 .env 文件
-echo "DASHSCOPE_API_KEY=your_api_key" > .env
+## 快速开始
+
+### 1. 面部表情分析
+
+```python
+from face_expression import VideoPipeline
+import cv2
+
+pipeline = VideoPipeline()
+cap = cv2.VideoCapture(0)
+
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    result = pipeline.process_frame(frame)
+    print(f"情绪: {result.emotion}, 专注度: {result.features.focus_score}")
+
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+cap.release()
 ```
 
-### 运行示例
+### 2. 手势姿态分析
 
-#### 运行面部表情分析
-```bash
-python face_expression/examples/run_video_analyzer.py
+```python
+from gesture_analysis import GestureEmotionPipeline
+import cv2
+
+pipeline = GestureEmotionPipeline()
+cap = cv2.VideoCapture(0)
+
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    results = pipeline.process_frame(frame)
+    emotion_result = pipeline.get_emotion_result()
+    print(f"情绪: {emotion_result['emotion_state']}")
+
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+cap.release()
 ```
 
-#### 运行手势分析
-```bash
-python gesture_analysis/examples/run_realtime_analyzer.py
+### 3. 语音交互分析
+
+```python
+from voice_interaction import InterviewAssessmentPipeline
+
+pipeline = InterviewAssessmentPipeline()
+
+# 添加回答
+pipeline.add_answer("我是计算机科学专业的学生...")
+
+# 获取评估结果
+evaluation = pipeline.get_comprehensive_evaluation()
+print(evaluation)
+
+# 保存日志
+log_path = pipeline.save_log()
 ```
 
-#### 运行语音面试
-```bash
-python voice_interaction/examples/run_interview.py
+### 4. 多模态集成分析
+
+```python
+from main import JingXinIntegrator
+
+integrator = JingXinIntegrator()
+integrator.start_interview_session()
 ```
 
-#### 运行集成面试
-```bash
-python main/examples/run_integrated_interview.py
-```
+## API服务
 
 ### 启动API服务
 
-#### 启动面部表情分析API
 ```bash
-python face_expression/api/app.py
+# 面部表情API
+python -m face_expression.api.app
+
+# 手势分析API
+python -m gesture_analysis.api.app
+
+# 语音交互API
+python -m voice_interaction.api.app
+
+# 集成API
+python -m main.api.app
 ```
 
-#### 启动手势分析API
-```bash
-python gesture_analysis/api/app.py
+### API端点
+
+#### 面部表情API
+- `POST /analyze/image`: 分析单张图片
+- `POST /analyze/video`: 分析视频文件
+- `GET /health`: 健康检查
+
+#### 手势分析API
+- `POST /analyze/frame`: 分析单帧图像
+- `POST /analyze/video`: 分析视频流
+- `GET /health`: 健康检查
+
+#### 语音交互API
+- `POST /recognize`: 语音识别
+- `POST /synthesize`: 语音合成
+- `POST /assess/interview`: 面试评估
+- `POST /assess/research`: 科研评估
+- `POST /visualize`: 数据可视化
+- `GET /health`: 健康检查
+
+## 数据目录结构
+
+```
+data/
+├── input/              # 输入数据
+│   ├── images/        # 图片文件
+│   └── videos/        # 视频文件
+├── output/            # 输出结果
+│   ├── face_expression/     # 面部表情输出
+│   ├── gesture_analysis/    # 手势分析输出
+│   └── voice_interaction/  # 语音交互输出
+└── logs/              # 日志文件
+    ├── face_au_log.csv
+    ├── static_face_log.csv
+    ├── gesture_emotion_log_*.csv
+    ├── interview_emotion_log_*.csv
+    └── research_emotion_log_*.csv
 ```
 
-#### 启动语音交互API
+## 配置说明
+
+### 环境变量
+
 ```bash
-python voice_interaction/api/app.py
+# 自定义数据目录
+export JINGXIN_DATA_DIR=/custom/path/to/data
 ```
 
-#### 启动集成API
+### 路径配置
+
+所有模块统一使用以下路径结构：
+- `DATA_DIR`: 数据根目录
+- `INPUT_DIR`: 输入文件目录
+- `OUTPUT_DIR`: 输出结果目录
+- `LOGS_DIR`: 日志文件目录
+
+### 各模块输出目录
+
+- `face_expression`: `data/output/face_expression`
+- `gesture_analysis`: `data/output/gesture_analysis`
+- `voice_interaction`: `data/output/voice_interaction`
+
+## 使用场景
+
+### 1. 面试评估
+适用于企业招聘、学术面试等场景，评估面试者的：
+- 核心胜任力
+- 问题解决能力
+- 团队合作意识
+- 表达流畅度
+- 情绪稳定性
+
+### 2. 科研评估
+适用于研究生入学、科研项目评估等场景，评估：
+- 方法论能力
+- 批判性思维
+- 创新能力
+- 可行性评估
+- 坚持与韧性
+
+### 3. 情绪监测
+适用于心理辅导、情绪管理培训等场景，监测：
+- 情绪状态变化
+- 紧张程度
+- 专注度水平
+- 疲劳状态
+
+## 性能优化
+
+### 硬件加速
+- 使用GPU加速MediaPipe推理
+- 使用GPU加速librosa特征提取
+
+### 参数调整
+- 降低视频分辨率以提升处理速度
+- 调整检测置信度阈值平衡准确率和速度
+- 减少历史数据长度以降低内存使用
+
+### 系统优化
+- 使用多线程处理多模态数据
+- 优化数据传输和存储
+- 实现结果缓存机制
+
+## 故障排除
+
+### 摄像头问题
 ```bash
-python main/api/app.py
+# 检查摄像头设备
+python -c "import cv2; print(cv2.VideoCapture(0).isOpened())"
+
+# 更换摄像头索引
+cap = cv2.VideoCapture(1)  # 尝试索引1
 ```
 
-## API文档
+### 麦克风问题
+```bash
+# 检查麦克风设备
+python -c "import pyaudio; p = pyaudio.PyAudio(); [print(i, p.get_device_info_by_index(i)['name']) for i in range(p.get_device_count())]"
+```
 
-### 集成模块API端点
+### 模块导入问题
+```bash
+# 确保从项目根目录运行
+cd /path/to/jingxin
+python -m main.examples.run_integrated_interview
+```
 
-- `GET /` - API信息
-- `GET /health` - 健康检查
-- `POST /interview/start` - 开始面试
-- `GET /interview/question` - 获取下一个问题
-- `POST /interview/answer` - 提交回答
-- `GET /interview/evaluation` - 获取综合评估
-- `POST /analyze/frame` - 分析视频帧
-- `POST /tts` - 文本转语音
+### 依赖问题
+```bash
+# 重新安装依赖
+pip install --upgrade -r requirements.txt
 
-### 面部表情分析API端点
+# 清理缓存
+pip cache purge
+```
 
-- `GET /` - API信息
-- `GET /health` - 健康检查
-- `POST /analyze/image` - 分析静态图片
-- `POST /analyze/video` - 分析视频流
+## 项目贡献
 
-### 手势分析API端点
-
-- `GET /` - API信息
-- `GET /health` - 健康检查
-- `POST /analyze` - 分析图片中的手势和肩部
-- `POST /reset` - 重置分析器状态
-
-### 语音交互API端点
-
-- `GET /` - API信息
-- `GET /health` - 健康检查
-- `POST /interview/start` - 开始面试
-- `GET /interview/question` - 获取下一个问题
-- `POST /interview/answer` - 提交回答
-- `GET /interview/evaluation` - 获取评估报告
-- `POST /tts` - 文本转语音
-
-## 技术栈
-
-- **计算机视觉**：MediaPipe, OpenCV
-- **深度学习**：TensorFlow, PyTorch
-- **语音处理**：Vosk, librosa, sounddevice, pyttsx3
-- **Web框架**：FastAPI, Uvicorn
-- **数据处理**：NumPy, Pandas, SciPy
-- **可视化**：Matplotlib
-- **AI服务**：DashScope (通义千问)
-
-## 开发指南
-
-### 模块开发规范
-
-1. 每个模块应包含以下目录结构：
-   - `analyzers/` - 核心分析逻辑
-   - `api/` - API接口
-   - `examples/` - 使用示例
-   - `utils/` - 工具函数
-   - `config.py` - 配置文件
-   - `README.md` - 模块文档
-
-2. 每个模块应提供独立的API接口，便于单独测试和部署
-
-3. 模块间通信应通过集成模块进行，避免直接依赖
-
-### 代码风格
-
-- 遵循PEP 8代码风格
-- 使用类型注解
-- 编写清晰的文档字符串
-- 添加必要的注释
-
-### 测试
-
-- 每个模块应包含单元测试
-- 集成测试应覆盖主要功能流程
-- 使用pytest进行测试
-
-## 贡献指南
-
-欢迎贡献代码！请遵循以下步骤：
+欢迎贡献代码、报告问题或提出建议！
 
 1. Fork项目
 2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
@@ -340,21 +333,29 @@ python main/api/app.py
 4. 推送到分支 (`git push origin feature/AmazingFeature`)
 5. 开启Pull Request
 
+## 版本历史
+
+### v1.0.0 (2024-01-01)
+- 初始版本发布
+- 实现基础多模态分析功能
+- 支持面试和科研评估场景
+- 提供API服务接口
+
 ## 许可证
 
-本项目仅供学习和研究使用。
+Copyright © JingXin Team. All rights reserved.
 
 ## 联系方式
 
-如有问题或建议，请通过以下方式联系：
-- 提交Issue
-- 发送邮件至：[your-email@example.com]
+- 项目主页: https://github.com/yourusername/jingxin
+- 问题反馈: https://github.com/yourusername/jingxin/issues
+- 邮箱: contact@jingxin.team
 
 ## 致谢
 
-感谢以下开源项目：
+感谢以下开源项目的支持：
 - MediaPipe
-- OpenCV
 - Vosk
+- Librosa
+- OpenCV
 - FastAPI
-- 通义千问 (DashScope)

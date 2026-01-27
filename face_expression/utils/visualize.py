@@ -6,6 +6,24 @@ import numpy as np
 from typing import Optional, Dict, Any
 from pathlib import Path
 
+# 处理导入路径，支持直接运行和模块导入
+try:
+    from ..config import FACE_EXPRESSION_OUTPUT_DIR
+except ImportError:
+    # 直接运行时，从当前路径获取配置
+    import sys
+    config_dir = Path(__file__).parent.parent
+    sys.path.insert(0, str(config_dir))
+    try:
+        from config import FACE_EXPRESSION_OUTPUT_DIR
+    except ImportError as e:
+        # 如果还是失败，手动设置默认路径
+        print(f"⚠️ 无法导入配置文件: {e}")
+        # 获取项目根目录
+        project_root = config_dir.parent
+        FACE_EXPRESSION_OUTPUT_DIR = project_root / 'data' / 'output' / 'face_expression'
+        FACE_EXPRESSION_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
 # === 新增辅助函数：获取项目根目录 ===
 def get_project_root() -> Path:
     """获取项目根目录（包含 jingxin/ 的父目录）"""
@@ -197,12 +215,14 @@ def plot_features_from_csv(csv_path: str = "") -> bool:
                 axes[3, 1].set_title('末帧情绪雷达图')
 
         plt.tight_layout()
-        save_img_path = csv_path.replace('.csv', '_enhanced_analysis.png')
+        # 保存到output/face_expression目录
+        log_filename = Path(csv_path).stem
+        save_img_path = os.path.join(FACE_EXPRESSION_OUTPUT_DIR, f'{log_filename}_enhanced_analysis.png')
         plt.savefig(save_img_path, dpi=150, bbox_inches='tight')
         plt.show()
 
-        # 单独保存雷达图
-        radar_path = csv_path.replace('.csv', '_emotion_radar.png')
+        # 单独保存雷达图到output/face_expression目录
+        radar_path = os.path.join(FACE_EXPRESSION_OUTPUT_DIR, f'{log_filename}_emotion_radar.png')
         if not df['emotion_vector'].empty:
             last_emotion = df['emotion_vector'].iloc[-1]
             if isinstance(last_emotion, dict):

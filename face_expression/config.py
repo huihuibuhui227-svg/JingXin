@@ -16,8 +16,11 @@ INPUT_DIR = os.path.join(DATA_DIR, 'input')      # 存放输入图片/视频
 OUTPUT_DIR = os.path.join(DATA_DIR, 'output')    # 存放输出结果
 LOGS_DIR = os.path.join(DATA_DIR, 'logs')        # 存放日志文件
 
+# 输出子目录配置
+FACE_EXPRESSION_OUTPUT_DIR = os.path.join(OUTPUT_DIR, 'face_expression')  # 面部表情分析输出目录
+
 # 确保必要的目录存在
-for directory in [DATA_DIR, INPUT_DIR, OUTPUT_DIR, LOGS_DIR]:
+for directory in [DATA_DIR, INPUT_DIR, OUTPUT_DIR, LOGS_DIR, FACE_EXPRESSION_OUTPUT_DIR]:
     os.makedirs(directory, exist_ok=True)
 
 # ====== MediaPipe 配置 ======

@@ -6,21 +6,20 @@ FastAPI应用
 提供手势和肩部情绪分析的Web API接口
 """
 
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import cv2
 import numpy as np
 import base64
-from typing import Optional
 
-from ..analyzers import HandAnalyzer, ShoulderAnalyzer
+from gesture_analysis.analyzers import HandAnalyzer, ShoulderAnalyzer, ArmAnalyzer
 from ..inference import EmotionInferencer
 from ..config import API_CONFIG, MEDIAPIPE_CONFIG
 import mediapipe as mp
 
 app = FastAPI(
     title="Gesture Analysis API",
-    description="手势和肩部情绪分析API"
+    description="手势、肩部和手臂情绪分析API"
 )
 
 # 初始化MediaPipe模型
@@ -34,6 +33,8 @@ pose = mp_pose.Pose(**MEDIAPIPE_CONFIG['pose'])
 left_hand_analyzer = HandAnalyzer(hand_id=0)
 right_hand_analyzer = HandAnalyzer(hand_id=1)
 shoulder_analyzer = ShoulderAnalyzer()
+left_arm_analyzer = ArmAnalyzer(arm_id='left')
+right_arm_analyzer = ArmAnalyzer(arm_id='right')
 emotion_inferencer = EmotionInferencer()
 
 
@@ -106,6 +107,17 @@ async def analyze_image(request: ImageRequest):
             shoulder_analyzer.update(shoulder_results_raw.pose_landmarks.landmark)
             shoulder_score = shoulder_analyzer.get_results()['shoulder_score']
 
+        # 处理手臂
+        left_arm_score = 50.0
+        right_arm_score = 50.0
+        if shoulder_results_raw.pose_landmarks:
+            left_arm_analyzer.update(shoulder_results_raw.pose_landmarks.landmark)
+            right_arm_analyzer.update(shoulder_results_raw.pose_landmarks.landmark)
+            left_arm_result = left_arm_analyzer.get_results()
+            right_arm_result = right_arm_analyzer.get_results()
+            left_arm_score = left_arm_result.get('arm_score', 50.0) if left_arm_result.get('is_valid') else 50.0
+            right_arm_score = right_arm_result.get('arm_score', 50.0) if right_arm_result.get('is_valid') else 50.0
+
         # 计算手部平均分
         if detected_hands == 1:
             hand_score = hand_scores[0]
@@ -117,7 +129,14 @@ async def analyze_image(request: ImageRequest):
         # 推断情绪
         hand_results = {"resilience_score": hand_score}
         shoulder_results = {"shoulder_score": shoulder_score}
-        emotion_result = emotion_inferencer.infer_emotion(hand_results, shoulder_results)
+        left_arm_results = {"arm_score": left_arm_score}
+        right_arm_results = {"arm_score": right_arm_score}
+        emotion_result = emotion_inferencer.infer_emotion(
+            hand_results, 
+            shoulder_results, 
+            left_arm_results, 
+            right_arm_results
+        )
 
         # 返回结果
         return {
@@ -125,10 +144,13 @@ async def analyze_image(request: ImageRequest):
             "detected_hands": detected_hands,
             "hand_score": hand_score,
             "shoulder_score": shoulder_score,
+            "left_arm_score": left_arm_score,
+            "right_arm_score": right_arm_score,
             "overall_score": emotion_result["overall_score"],
             "emotion_state": emotion_result["emotion_state"],
             "emoji": emotion_result["emoji"],
-            "feedback": emotion_result["feedback"]
+            "feedback": emotion_result["feedback"],
+            "used_features": emotion_result["used_features"]
         }
 
     except Exception as e:
@@ -147,6 +169,8 @@ async def reset_analyzers():
         left_hand_analyzer.reset()
         right_hand_analyzer.reset()
         shoulder_analyzer.reset()
+        left_arm_analyzer.reset()
+        right_arm_analyzer.reset()
         return {"status": "success", "message": "分析器已重置"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"重置失败: {str(e)}")

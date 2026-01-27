@@ -16,9 +16,10 @@ import wave
 import io
 
 # 导入项目模块
-from ..analyzers import TTSEngine
-from ..assessment import InterviewAssessment, ResearchAssessment
+from ..pipeline.tts_pipeline import TTSPipeline as TTSEngine
+from ..pipeline.assessment_pipeline import InterviewAssessmentPipeline, ResearchAssessmentPipeline
 from ..config import API_CONFIG
+from ..utils.logger import VoiceLogger
 
 app = FastAPI(
     title="Voice Interaction API",
@@ -28,8 +29,9 @@ app = FastAPI(
 # ================== 初始化组件 ==================
 
 tts_engine = TTSEngine()
-interview_assessment = InterviewAssessment()
-research_assessment = ResearchAssessment()
+interview_assessment = InterviewAssessmentPipeline()
+research_assessment = ResearchAssessmentPipeline()
+voice_logger = VoiceLogger(log_type='interview')
 
 # --- Vosk 语音识别模型 ---
 MODEL_PATH = os.path.join(os.path.dirname(__file__), '..', '..', 'vosk-model-small-cn-0.22')
@@ -192,6 +194,34 @@ async def submit_answer_audio(audio: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"语音回答处理失败: {str(e)}")
 
 
+@app.get("/interview/evaluation")
+async def get_interview_evaluation():
+    """获取面试评估结果并保存日志"""
+    try:
+        result = interview_assessment.get_comprehensive_evaluation()
+
+        # 保存日志到文件
+        log_path = interview_assessment.save_log()
+
+        # 记录结构化日志
+        voice_logger.log_assessment(
+            total_questions=len(interview_assessment.questions),
+            answered_questions=len(interview_assessment.qa_pairs),
+            ai_model="qwen-plus",
+            max_tokens=300,
+            evaluation_result=result
+        )
+
+        return {
+            "evaluation": result,
+            "log_path": log_path,
+            "csv_log": voice_logger.get_csv_path(),
+            "json_log": voice_logger.get_json_path()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取评估结果失败: {str(e)}")
+
+
 # ========== 科研评估接口 ==========
 
 @app.post("/research/start")
@@ -256,5 +286,34 @@ async def submit_research_answer_audio(audio: UploadFile = File(...)):
         return {"status": "success", "recognized_text": text}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"语音回答处理失败: {str(e)}")
+
+
+@app.get("/research/evaluation")
+async def get_research_evaluation():
+    """获取科研评估结果并保存日志"""
+    try:
+        result = research_assessment.get_comprehensive_evaluation()
+
+        # 保存日志到文件
+        log_path = research_assessment.save_log()
+
+        # 创建科研评估的日志记录器
+        research_logger = VoiceLogger(log_type='research')
+        research_logger.log_assessment(
+            total_questions=len(research_assessment.questions),
+            answered_questions=len(research_assessment.qa_pairs),
+            ai_model="qwen-plus",
+            max_tokens=300,
+            evaluation_result=result
+        )
+
+        return {
+            "evaluation": result,
+            "log_path": log_path,
+            "csv_log": research_logger.get_csv_path(),
+            "json_log": research_logger.get_json_path()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取评估结果失败: {str(e)}")
 
 

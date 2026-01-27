@@ -29,8 +29,11 @@ INPUT_DIR = DATA_DIR / "input"
 OUTPUT_DIR = DATA_DIR / "output"
 LOGS_DIR = DATA_DIR / "logs"
 
+# 输出子目录配置
+GESTURE_OUTPUT_DIR = OUTPUT_DIR / "gesture_analysis"  # 手势分析输出目录
+
 # 确保必要目录存在（使用 pathlib 更安全）
-for directory in [DATA_DIR, INPUT_DIR, OUTPUT_DIR, LOGS_DIR]:
+for directory in [DATA_DIR, INPUT_DIR, OUTPUT_DIR, LOGS_DIR, GESTURE_OUTPUT_DIR]:
     directory.mkdir(parents=True, exist_ok=True)
 
 # ======================
@@ -41,6 +44,7 @@ MediaPipeHandsConfig = Dict[str, Any]
 MediaPipePoseConfig = Dict[str, Any]
 HandAnalysisConfig = Dict[str, float]
 ShoulderAnalysisConfig = Dict[str, float]
+ArmAnalysisConfig = Dict[str, float]
 EmotionScoreRanges = Dict[Literal[
     "very_relaxed", "relaxed", "neutral", "slightly_nervous", "nervous"
 ], int]
@@ -78,6 +82,20 @@ HAND_CONFIG: HandAnalysisConfig = {
 }
 
 # ======================
+# 手臂分析配置
+# ======================
+
+ARM_CONFIG: ArmAnalysisConfig = {
+    'history_length': 30,  # 历史数据长度（帧）
+    'jitter_multiplier': 1500.0,  # 抖动惩罚系数
+    'ideal_angle_min': 70.0,  # 理想手臂角度最小值（度）
+    'ideal_angle_max': 110.0,  # 理想手臂角度最大值（度）
+    'acceptable_angle_min': 50.0,  # 可接受手臂角度最小值（度）
+    'acceptable_angle_max': 130.0,  # 可接受手臂角度最大值（度）
+    'stability_bonus': 20.0,  # 稳定性奖励系数
+}
+
+# ======================
 # 肩部分析配置
 # ======================
 
@@ -95,8 +113,9 @@ SHOULDER_CONFIG: ShoulderAnalysisConfig = {
 # ======================
 
 EMOTION_CONFIG: Dict[str, Any] = {
-    'hand_weight': 0.6,  # 手部特征权重
-    'shoulder_weight': 0.4,  # 肩部特征权重
+    'hand_weight': 0.4,  # 手部特征权重
+    'shoulder_weight': 0.3,  # 肩部特征权重
+    'arm_weight': 0.3,  # 手臂特征权重
     'score_ranges': {
         'very_relaxed': 80,
         'relaxed': 65,

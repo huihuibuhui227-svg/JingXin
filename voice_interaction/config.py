@@ -27,8 +27,11 @@ INPUT_DIR = DATA_DIR / "input"
 OUTPUT_DIR = DATA_DIR / "output"
 LOGS_DIR = DATA_DIR / "logs"
 
+# 输出子目录配置
+VOICE_OUTPUT_DIR = OUTPUT_DIR / "voice_interaction"  # 语音交互输出目录
+
 # 确保必要目录存在
-for directory in [DATA_DIR, INPUT_DIR, OUTPUT_DIR, LOGS_DIR]:
+for directory in [DATA_DIR, INPUT_DIR, OUTPUT_DIR, LOGS_DIR, VOICE_OUTPUT_DIR]:
     directory.mkdir(parents=True, exist_ok=True)
 
 # ======================

@@ -34,27 +34,34 @@ class VoiceLogger:
         # 生成带时间戳的日志文件名
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         if log_type == 'interview':
-            csv_file = LOG_CONFIG['interview_log_file'].replace('.txt', '.csv').format(timestamp=timestamp)
-            json_file = LOG_CONFIG['interview_log_file'].replace('.txt', '.json').format(timestamp=timestamp)
+            csv_file = f'interview_emotion_log_{timestamp}.csv'
+            json_file = f'interview_emotion_log_{timestamp}.json'
         else:
-            csv_file = LOG_CONFIG['research_log_file'].replace('.txt', '.csv').format(timestamp=timestamp)
-            json_file = LOG_CONFIG['research_log_file'].replace('.txt', '.json').format(timestamp=timestamp)
+            csv_file = f'research_emotion_log_{timestamp}.csv'
+            json_file = f'research_emotion_log_{timestamp}.json'
 
         self.csv_file = self.log_dir / csv_file
         self.json_file = self.log_dir / json_file
 
-        # 定义 CSV 字段
+        # 定义 CSV 字段 - 详细语音特征
         self.fieldnames = [
-            "timestamp",  # ISO 8601 时间戳
             "unix_timestamp",  # Unix 时间戳
-            "log_type",  # 日志类型
-            "total_questions",  # 总问题数
-            "answered_questions",  # 已回答问题数
-            "ai_model",  # 使用的 AI 模型
-            "max_tokens",  # 最大 token 数
-            "evaluation_text",  # AI 评估文本
-            "is_valid",  # 评估是否成功
-            "error_message"  # 错误信息（如果有）
+            "timestamp",  # ISO 8601 时间戳
+            "pitch_mean",  # 平均音调
+            "pitch_variation",  # 音调变化
+            "pitch_trend",  # 语调趋势（Hz）
+            "pitch_direction",  # 语调方向（上扬/下降/平稳）
+            "energy_mean",  # 平均能量
+            "energy_variation",  # 能量变化
+            "speech_ratio",  # 语音比例
+            "duration_sec",  # 持续时间
+            "pause_duration_mean",  # 平均停顿时间
+            "pause_duration_max",  # 最长停顿时间
+            "pause_frequency",  # 停顿频率（每分钟停顿次数）
+            "emotion",  # 情绪状态
+            "feedback",  # 反馈信息
+            "question_index",  # 问题索引
+            "is_valid"  # 是否有效
         ]
 
         # 写入 CSV 文件头
@@ -67,6 +74,62 @@ class VoiceLogger:
                 writer = csv.DictWriter(f, fieldnames=self.fieldnames)
                 writer.writeheader()
 
+    def log_prosody(
+            self,
+            prosody_data: Dict[str, Any],
+            question_index: int,
+            emotion: str,
+            feedback: str,
+            is_valid: bool = True
+    ) -> bool:
+        """
+        记录语音特征到结构化日志
+
+        参数:
+            prosody_data: 语音特征字典，包含 pitch_mean, pitch_variation, energy_mean, energy_variation, speech_ratio, duration_sec
+            question_index: 问题索引
+            emotion: 情绪状态
+            feedback: 反馈信息
+            is_valid: 是否有效
+
+        返回:
+            是否成功写入
+        """
+        try:
+            now = datetime.now()
+            data = {
+                "unix_timestamp": now.timestamp(),
+                "timestamp": now.isoformat(),
+                "pitch_mean": prosody_data.get("pitch_mean", 0),
+                "pitch_variation": prosody_data.get("pitch_variation", 0),
+                "pitch_trend": prosody_data.get("pitch_trend", 0),
+                "pitch_direction": prosody_data.get("pitch_direction", "无法判断"),
+                "energy_mean": prosody_data.get("energy_mean", 0),
+                "energy_variation": prosody_data.get("energy_variation", 0),
+                "speech_ratio": prosody_data.get("speech_ratio", 0),
+                "duration_sec": prosody_data.get("duration_sec", 0),
+                "pause_duration_mean": prosody_data.get("pause_duration_mean", 0),
+                "pause_duration_max": prosody_data.get("pause_duration_max", 0),
+                "pause_frequency": prosody_data.get("pause_frequency", 0),
+                "emotion": emotion,
+                "feedback": feedback,
+                "question_index": question_index,
+                "is_valid": is_valid
+            }
+
+            # 写入 CSV
+            with open(self.csv_file, 'a', newline='', encoding='utf-8') as f:
+                writer = csv.DictWriter(f, fieldnames=self.fieldnames)
+                writer.writerow(data)
+
+            return True
+
+        except Exception as e:
+            print(f"❌ 语音特征日志记录失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
     def log_assessment(
             self,
             total_questions: int,
@@ -76,7 +139,7 @@ class VoiceLogger:
             evaluation_result: Dict[str, Any]
     ) -> bool:
         """
-        记录评估结果到结构化日志
+        记录评估结果到结构化日志（已废弃，请使用 log_prosody）
 
         参数:
             total_questions: 总问题数
@@ -88,39 +151,8 @@ class VoiceLogger:
         返回:
             是否成功写入
         """
-        try:
-            now = datetime.now()
-            data = {
-                "timestamp": now.isoformat(),
-                "unix_timestamp": now.timestamp(),
-                "log_type": self.log_type,
-                "total_questions": total_questions,
-                "answered_questions": answered_questions,
-                "ai_model": ai_model,
-                "max_tokens": max_tokens,
-                "evaluation_text": evaluation_result.get("text", ""),
-                "is_valid": evaluation_result.get("is_valid", False),
-                "error_message": evaluation_result.get("error", "")
-            }
-
-            # 写入 CSV
-            with open(self.csv_file, 'a', newline='', encoding='utf-8') as f:
-                writer = csv.DictWriter(f, fieldnames=self.fieldnames)
-                writer.writerow(data)
-
-            # 写入 JSON（完整数据快照）
-            json_data = {
-                "metadata": data,
-                "full_assessment": evaluation_result
-            }
-            with open(self.json_file, 'w', encoding='utf-8') as f:
-                json.dump(json_data, f, ensure_ascii=False, indent=2)
-
-            return True
-
-        except Exception as e:
-            print(f"❌ 结构化日志记录失败: {e}")
-            return False
+        print("⚠️  log_assessment 方法已废弃，请使用 log_prosody 方法")
+        return False
 
     def get_csv_path(self) -> str:
         """获取 CSV 日志文件路径"""
