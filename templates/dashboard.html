@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title><!-- D:\jingxin\report_frontend\templates\dashboard.html -->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>JingXin 多模态评估总控台</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        h1 { text-align: center; color: #333; }
+        
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-top: 30px; }
+        
+        .card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); text-align: center; transition: transform 0.2s; }
+        .card:hover { transform: translateY(-5px); }
+        .card h3 { margin-top: 0; color: #2E86AB; }
+        .card p { color: #666; font-size: 0.9em; }
+        
+        button { background: #2E86AB; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-size: 1em; margin-top: 10px; }
+        button:hover { background: #1a5c7a; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+
+        .gallery { margin-top: 20px; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+        .gallery img, .gallery iframe { width: 100%; height: 150px; object-fit: cover; border-radius: 5px; border: 1px solid #ddd; }
+        
+        #log-area { background: #222; color: #0f0; padding: 15px; border-radius: 5px; margin-top: 30px; font-family: monospace; height: 200px; overflow-y: scroll; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔬 JingXin 多模态评估总控台</h1>
+        <p style="text-align: center;">选择模块进行分析或查看历史结果</p>
+
+        <div class="grid">
+            <!-- 面部模块 -->
+            <div class="card">
+                <h3>👤 面部与眼动分析</h3>
+                <p>提取微表情、AU 单元及眼动轨迹特征。</p>
+                <button onclick="runTask('face')" id="btn-face">运行分析</button>
+                <div id="gallery-face" class="gallery"></div>
+            </div>
+
+            <!-- 肢体模块 -->
+            <div class="card">
+                <h3>🖐️ 肢体姿态分析</h3>
+                <p>分析手势抖动、开放度及肢体语言。</p>
+                <button onclick="runTask('gesture')" id="btn-gesture">运行分析</button>
+                <div id="gallery-gesture" class="gallery"></div>
+            </div>
+
+            <!-- 语音模块 -->
+            <div class="card">
+                <h3>🎤 语音交互评估</h3>
+                <p>Interview / Research 场景语音情感与逻辑分析。</p>
+                <button onclick="runTask('voice')" id="btn-voice">运行分析</button>
+                <div id="gallery-voice" class="gallery"></div>
+            </div>
+
+            <!-- 报告模块 -->
+            <div class="card" style="border: 2px solid #2E86AB;">
+                <h3>📑 生成综合判推报告</h3>
+                <p>整合所有数据，生成 HTML 深度评估文书。</p>
+                <button onclick="runTask('report')" id="btn-report" style="background:#A23B72;">生成报告</button>
+                <div id="gallery-report" class="gallery"></div>
+            </div>
+        </div>
+
+        <h3>📜 运行日志</h3>
+        <div id="log-area">等待任务启动...</div>
+    </div>
+
+    <script>
+        // 运行任务
+        async function runTask(module) {
+            const btn = document.getElementById(`btn-${module}`);
+            const logArea = document.getElementById('log-area');
+            
+            btn.disabled = true;
+            btn.innerText = "运行中...";
+            logArea.innerText = `正在启动 ${module} 任务...`;
+
+            try {
+                const response = await fetch(`/api/run/${module}`, { method: 'POST' });
+                const data = await response.json();
+                
+                if (data.status === 'started') {
+                    logArea.innerText += `\n✅ ${data.message}\n⏳ 任务已在后台运行，请稍后刷新页面查看结果。`;
+                } else {
+                    logArea.innerText += `\n❌ ${data.message}`;
+                }
+            } catch (e) {
+                logArea.innerText += `\n❌ 请求失败：${e}`;
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "重新运行";
+                loadFiles(module); // 刷新图片列表
+            }
+        }
+
+        // 加载文件列表
+        async function loadFiles(module) {
+            // 映射模块名到文件夹名
+            const folderMap = {
+                'face': 'face_expression',
+                'gesture': 'gesture_analysis',
+                'voice': 'voice_interaction',
+                'report': '' // 报告直接在 output 根目录或特定逻辑
+            };
+            
+            const folder = folderMap[module];
+            if (!folder) return;
+
+            const gallery = document.getElementById(`gallery-${module}`);
+            gallery.innerHTML = '<p>加载中...</p>';
+
+            try {
+                const res = await fetch(`/api/files/${folder}`);
+                const files = await res.json();
+                
+                gallery.innerHTML = '';
+                if (files.length === 0) {
+                    gallery.innerHTML = '<p>暂无文件</p>';
+                    return;
+                }
+
+                files.slice(0, 6).forEach(file => {
+                    if (file.name.endsWith('.html')) {
+                        // 如果是 HTML 报告，用 iframe 预览
+                        const iframe = document.createElement('iframe');
+                        iframe.src = file.url;
+                        iframe.onclick = () => window.open(file.url, '_blank');
+                        iframe.style.cursor = 'pointer';
+                        gallery.appendChild(iframe);
+                    } else {
+                        // 图片
+                        const img = document.createElement('img');
+                        img.src = file.url;
+                        img.onclick = () => window.open(file.url, '_blank');
+                        img.style.cursor = 'pointer';
+                        gallery.appendChild(img);
+                    }
+                });
+            } catch (e) {
+                gallery.innerHTML = `<p>加载失败：${e}</p>`;
+            }
+        }
+
+        // 页面加载时获取一次文件列表
+        window.onload = () => {
+            ['face', 'gesture', 'voice', 'report'].forEach(loadFiles);
+        };
+    </script>
+</body>
+</html></title>
+</head>
+<body>
+
+</body>
+</html>

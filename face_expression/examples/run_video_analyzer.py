@@ -40,21 +40,42 @@ def main():
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"face_au_log_{session_id}.csv"
 
-    # ✅ 完整字段列表（包含所有新增 AU + 视线追踪）
-    KEY_FIELDS = [
-        "session_id", "timestamp", "focus_score", "symmetry_score",
+    # === 完整字段列表（182+ 列，严格匹配 face_logs 表结构）===
+    BASE_AU_FIELDS = [
         "au1_inner_brow_raise", "au2_outer_brow_raise", "au4_frown",
         "au6_cheek_raise", "au7_eye_squeeze", "au9_nose_wrinkle",
         "au10_upper_lip_raise", "au12_smile", "au14_dimpler",
         "au15_mouth_down", "au20_lip_stretcher", "au23_lip_compression",
-        "au25_mouth_open", "au26_jaw_drop", "head_yaw", "head_pitch",
-        "blink_rate_per_min", "eye_closed_sec",
-        "psychological_signals", "micro_expressions",
-        "emotion_vector", "dominant_emotion", "confidence", "tension_level",
-        # ✅ 新增：视线追踪字段
+        "au25_mouth_open", "au26_jaw_drop", "avg_ear"
+    ]
+
+    HEAD_GAZE_FIELDS = [
+        "head_yaw", "head_pitch", "symmetry_score",
+        "blink_rate_per_min", "eye_closed_sec", "is_blink",
         "left_iris_x", "left_iris_y", "right_iris_x", "right_iris_y",
         "gaze_direction_x", "gaze_direction_y", "gaze_deviation"
     ]
+
+    TS_PREFIXES = BASE_AU_FIELDS + HEAD_GAZE_FIELDS
+    TS_FIELDS = []
+    for prefix in TS_PREFIXES:
+        for suffix in ["_trend", "_volatility", "_change_rate"]:
+            TS_FIELDS.append(prefix + suffix)
+
+    KEY_FIELDS = [
+        "session_id", "timestamp", "focus_score",
+        *BASE_AU_FIELDS,
+        *HEAD_GAZE_FIELDS,
+        "tension_score", "tension_level",
+        "tension_sources_brow_furrow",
+        "tension_sources_lip_compression",
+        "tension_sources_eye_closure",
+        "tension_sources_expression_instability",
+        "tension_sources_emotional_influence",
+        "micro_exp_au_name", "micro_exp_intensity",
+        "micro_exp_duration_frames", "micro_exp_onset_frame",
+        "dominant_emotion", "confidence", "emotion_state", "is_valid"
+    ] + TS_FIELDS
 
     with open(log_path, 'w', newline='', encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=KEY_FIELDS)
@@ -100,7 +121,7 @@ def main():
                     connection_drawing_spec=mp_drawing_styles.get_default_face_mesh_iris_connections_style()
                 )
 
-        # === 实时显示全部 AU 特征 ===
+        # === 实时显示全部 AU 特征（完整 16 行）===
         if features:
             tension_info = features.get('psychological_signals', {})
             tension_level = tension_info.get('tension_level', 'unknown')
@@ -135,54 +156,19 @@ def main():
         # === 日志输出 ===
         if features:
             current_time_str = time.strftime('%H:%M:%S')
-            tension_info = features.get('psychological_signals', {})
-            tension_level = tension_info.get('tension_level', 'low')
+            tension_level = features.get('tension_level', 'low')
             dominant_emotion = features.get('dominant_emotion', 'unknown')
             confidence = features.get('confidence', 0.0)
 
             print(f"[{current_time_str}] 情绪: {dominant_emotion} "
                   f"(置信度: {confidence:.2f}), "
-                  f"紧张度: {tension_level.upper()}")
+                  f"紧张度: {tension_level.upper()}, "
+                  f"Tension Score: {features.get('tension_score', 0):.3f}")
 
-            # 构建日志行（全部使用 .get() 避免 KeyError）
-            row = {
-                "session_id": features.get("session_id", session_id),
-                "timestamp": features.get("timestamp", time.time()),
-                "focus_score": features.get("focus_score", 0.0),
-                "symmetry_score": features.get("symmetry_score", 1.0),
-                "au1_inner_brow_raise": features.get("au1_inner_brow_raise", 0),
-                "au2_outer_brow_raise": features.get("au2_outer_brow_raise", 0),
-                "au4_frown": features.get("au4_frown", 0),
-                "au6_cheek_raise": features.get("au6_cheek_raise", 0),
-                "au7_eye_squeeze": features.get("au7_eye_squeeze", 0),
-                "au9_nose_wrinkle": features.get("au9_nose_wrinkle", 0),
-                "au10_upper_lip_raise": features.get("au10_upper_lip_raise", 0),
-                "au12_smile": features.get("au12_smile", 0),
-                "au14_dimpler": features.get("au14_dimpler", 0),
-                "au15_mouth_down": features.get("au15_mouth_down", 0),
-                "au20_lip_stretcher": features.get("au20_lip_stretcher", 0),
-                "au23_lip_compression": features.get("au23_lip_compression", 0),
-                "au25_mouth_open": features.get("au25_mouth_open", 0),
-                "au26_jaw_drop": features.get("au26_jaw_drop", 0),
-                "head_yaw": features.get("head_yaw", 0),
-                "head_pitch": features.get("head_pitch", 0),
-                "blink_rate_per_min": features.get("blink_rate_per_min", 0),
-                "eye_closed_sec": features.get("eye_closed_sec", 0),
-                "psychological_signals": str(features.get("psychological_signals", {})),
-                "micro_expressions": str(features.get("micro_expressions", {})),
-                "emotion_vector": str(features.get("emotion_vector", {})),
-                "dominant_emotion": dominant_emotion,
-                "confidence": confidence,
-                "tension_level": tension_level,
-                # ✅ 新增：视线追踪字段
-                "left_iris_x": features.get("left_iris_x", 0.0),
-                "left_iris_y": features.get("left_iris_y", 0.0),
-                "right_iris_x": features.get("right_iris_x", 0.0),
-                "right_iris_y": features.get("right_iris_y", 0.0),
-                "gaze_direction_x": features.get("gaze_direction_x", 0.0),
-                "gaze_direction_y": features.get("gaze_direction_y", 0.0),
-                "gaze_deviation": features.get("gaze_deviation", 0.0)
-            }
+            # 构建完整日志行（使用 features 字典，它来自 result.to_dict()）
+            row = {}
+            for key in KEY_FIELDS:
+                row[key] = features.get(key, "")
 
             # 安全写入 CSV
             try:

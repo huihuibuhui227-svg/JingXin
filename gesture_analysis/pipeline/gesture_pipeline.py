@@ -1,4 +1,3 @@
-
 """
 手势分析管道
 
@@ -119,13 +118,18 @@ class GesturePipeline:
                     break
                 label = handedness.classification[0].label
                 if label == "Left":
+                    # ✅ 修正：先更新分析器状态，再获取结果
+                    self.left_hand_analyzer.update(landmarks.landmark)
+                    analysis = self.left_hand_analyzer.get_results()
+                    # 特征提取（用于日志记录）
                     features = self.left_hand_extractor.extract(landmarks.landmark)
-                    analysis = self.left_hand_analyzer.analyze(features)
                     results["hand"]["left"]["features"] = features
                     results["hand"]["left"]["analysis"] = analysis
                 else:
+                    # ✅ 修正：同上
+                    self.right_hand_analyzer.update(landmarks.landmark)
+                    analysis = self.right_hand_analyzer.get_results()
                     features = self.right_hand_extractor.extract(landmarks.landmark)
-                    analysis = self.right_hand_analyzer.analyze(features)
                     results["hand"]["right"]["features"] = features
                     results["hand"]["right"]["analysis"] = analysis
 
@@ -134,25 +138,32 @@ class GesturePipeline:
             pose = pose_landmarks.pose_landmarks.landmark
 
             # 手臂
+            # ✅ 修正：ArmAnalyzer 也应使用 update/get_results 模式
+            self.left_arm_analyzer.update(pose)
+            left_arm_analysis = self.left_arm_analyzer.get_results()
             left_arm_features = self.left_arm_extractor.extract(pose)
-            left_arm_analysis = self.left_arm_analyzer.analyze(left_arm_features)
             results["arm"]["left"]["features"] = left_arm_features
             results["arm"]["left"]["analysis"] = left_arm_analysis
 
+            self.right_arm_analyzer.update(pose)
+            right_arm_analysis = self.right_arm_analyzer.get_results()
             right_arm_features = self.right_arm_extractor.extract(pose)
-            right_arm_analysis = self.right_arm_analyzer.analyze(right_arm_features)
             results["arm"]["right"]["features"] = right_arm_features
             results["arm"]["right"]["analysis"] = right_arm_analysis
 
             # 肩部
+            # ✅ 修正：ShoulderAnalyzer 使用 update/get_results
+            self.shoulder_analyzer.update(pose)
+            shoulder_analysis = self.shoulder_analyzer.get_results()
             shoulder_features = self.shoulder_extractor.extract(pose)
-            shoulder_analysis = self.shoulder_analyzer.analyze(shoulder_features)
             results["shoulder"]["features"] = shoulder_features
             results["shoulder"]["analysis"] = shoulder_analysis
 
             # 上肢
+            # ✅ 修正：UpperBodyAnalyzer 使用 update/get_results
+            self.upper_body_analyzer.update(pose)
+            upper_body_analysis = self.upper_body_analyzer.get_results()
             upper_body_features = self.upper_body_extractor.extract(pose)
-            upper_body_analysis = self.upper_body_analyzer.analyze(upper_body_features)
             results["upper_body"]["features"] = upper_body_features
             results["upper_body"]["analysis"] = upper_body_analysis
 

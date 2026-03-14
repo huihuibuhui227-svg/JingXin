@@ -1,102 +1,137 @@
 # JingXin 多模态面试评估系统
 
-## 概述
+[![Python Version](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![License](https://img.shields.io/badge/license-proprietary-red.svg)](LICENSE)
 
-JingXin是一个智能多模态面试评估系统，通过同时分析面试者的面部表情、手势姿态和语音内容，提供全面、客观的面试评估报告。系统采用先进的计算机视觉和语音处理技术，能够实时监测和分析面试者的情绪状态、紧张程度和表达能力。
+## 项目简介
+
+JingXin是一个智能多模态面试评估系统，通过同时分析面试者的面部表情、手势姿态、语音内容和眼动轨迹，提供全面、客观的面试评估报告。系统采用先进的计算机视觉和语音处理技术，能够实时监测和分析面试者的情绪状态、紧张程度和表达能力，并生成专业的科研能力评估报告。
 
 ## 核心特性
 
 ### 多模态分析
-- **面部表情分析**: 检测面部动作单元，识别情绪状态和专注度
-- **手势姿态分析**: 评估手部动作、肩部稳定性、手臂角度
+- **面部表情分析**: 检测面部动作单元(AU)，识别情绪状态、微表情和紧张度
+- **手势姿态分析**: 评估手部动作、肩部稳定性、手臂角度和肢体语言
 - **语音交互分析**: 分析音调、能量、流畅度等语音特征
+- **眼动追踪**: 分析注视轨迹、稳定性和眼动模式
 
 ### 智能评估
 - **面试评估**: 针对面试场景的综合能力评估
-- **科研评估**: 针对科研场景的专业能力评估
+- **科研评估**: 针对科研场景的专业能力评估，包含五个核心维度
+  - 认知效率
+  - 沟通流畅度
+  - 自信水平
+  - 逻辑思维
+  - 压力韧性
 - **情绪融合**: 多模态情绪状态综合评估
 - **实时反馈**: 提供即时的分析结果和建议
 
 ### 数据管理
 - **结构化日志**: CSV和JSON格式的详细日志记录
-- **可视化报告**: 热力图、统计图表等可视化输出
+- **可视化报告**: 热力图、雷达图、轨迹图等可视化输出
+- **HTML报告**: 自动生成交互式HTML评估报告
 - **历史追踪**: 支持历史数据对比和趋势分析
+- **数据库存储**: 支持SQL Server数据库存储
+
+### Web界面
+- **总控平台**: 统一的Web控制台，方便操作和查看结果
+- **模块化运行**: 独立运行各分析模块
+- **实时日志**: 在线查看运行日志和输出结果
 
 ## 系统架构
 
 ```
 jingxin/
-├── face_expression/        # 面部表情分析模块
-│   ├── core/             # 核心分析引擎
-│   ├── models/           # 数据模型
-│   ├── pipeline/         # 处理流程
-│   ├── utils/           # 工具函数
-│   └── examples/        # 示例代码
-├── gesture_analysis/      # 手势姿态分析模块
-│   ├── core/             # 核心分析引擎
-│   ├── models/           # 数据模型
-│   ├── pipeline/         # 处理流程
-│   ├── utils/           # 工具函数
-│   └── examples/        # 示例代码
-├── voice_interaction/     # 语音交互分析模块
-│   ├── core/             # 核心分析引擎
-│   ├── models/           # 数据模型
-│   ├── pipeline/         # 处理流程
-│   ├── utils/           # 工具函数
-│   └── examples/        # 示例代码
-├── main/                # 多模态集成模块
-│   ├── api/             # 集成API
-│   ├── examples/        # 集成示例
-│   └── integrator.py    # 集成器
-├── data/                # 数据目录
-│   ├── input/           # 输入数据
-│   ├── output/          # 输出结果
-│   │   ├── face_expression/
-│   │   ├── gesture_analysis/
-│   │   └── voice_interaction/
-│   └── logs/            # 日志文件
-└── requirements.txt      # 依赖列表
+├── app.py                          # Flask Web应用主入口
+├── templates/
+│   └── dashboard.html              # Web总控台界面
+├── face_expression/                # 面部表情分析模块
+│   ├── core/
+│   │   ├── analysis/              # 情绪、微表情、紧张度分析
+│   │   └── feature_extraction/    # AU特征提取
+│   ├── models/                   # 数据模型
+│   ├── pipeline/                 # 处理流程
+│   ├── utils/                   # 工具函数
+│   └── examples/                # 示例代码
+├── gesture_analysis/              # 手势姿态分析模块
+│   ├── core/
+│   │   ├── analysis/              # 手部、手臂、肩部、上身分析
+│   │   └── feature_extraction/    # 特征提取
+│   ├── models/                   # 数据模型
+│   ├── pipeline/                 # 处理流程
+│   ├── utils/                   # 工具函数
+│   └── examples/                # 示例代码
+├── voice_interaction/             # 语音交互分析模块
+│   ├── core/
+│   │   ├── analysis/              # 韵律分析
+│   │   └── feature_extraction/    # 音频特征提取
+│   ├── models/                   # 数据模型
+│   ├── pipeline/                 # 处理流程
+│   ├── utils/                   # 工具函数
+│   └── examples/                # 示例代码
+├── main/                        # 多模态集成模块
+│   ├── api/                     # 集成API
+│   ├── examples/                # 集成示例
+│   ├── integrator.py            # 多模态集成器
+│   └── storage.py              # 数据存储模块
+├── report_frontend/              # 报告生成前端模块
+│   ├── data_loader.py           # 数据加载器
+│   ├── feature_engine.py        # 心理特征提取引擎
+│   ├── research_mapper.py       # 科研能力映射器
+│   ├── report_generator.py      # 报告生成器
+│   └── visualizer.py          # 可视化工具
+├── data/                        # 数据目录
+│   ├── input/                  # 输入数据
+│   ├── output/                 # 输出结果
+│   └── logs/                  # 日志文件
+├── vosk-model-cn-0.22/         # Vosk中文语音模型
+└── requirements.txt              # 依赖列表
 ```
 
-## 安装指南
+## 环境要求
 
-### 环境要求
 - Python 3.8+
 - Windows/Linux/macOS
 - 摄像头
 - 麦克风
-
-### 安装步骤
-
-1. 克隆项目
-```bash
-git clone https://github.com/yourusername/jingxin.git
-cd jingxin
-```
-
-2. 创建虚拟环境（推荐）
-```bash
-python -m venv venv
-source venv/bin/activate  # Linux/macOS
-venv\Scriptsctivate  # Windows
-```
-
-3. 安装依赖
-```bash
-pip install -r requirements.txt
-```
-
-4. 下载语音模型
-```bash
-# 下载Vosk中文模型
-cd vosk-model-cn-0.22
-# 模型文件已包含在项目中
-```
+- SQL Server (可选，用于数据库存储)
 
 ## 快速开始
 
-### 1. 面部表情分析
+### 1. 安装依赖
 
+```bash
+# 克隆项目
+git clone https://github.com/yourusername/jingxin.git
+cd jingxin
+
+# 创建虚拟环境(推荐)
+python -m venv venv
+
+# 激活虚拟环境
+# Windows:
+venv\Scripts\activate
+# Linux/macOS:
+source venv/bin/activate
+
+# 安装依赖
+pip install -r requirements.txt
+```
+
+### 2. 启动Web总控平台
+
+```bash
+# 运行主应用
+python app.py
+```
+
+然后在浏览器中访问 http://127.0.0.1:5000
+
+### 3. 使用各分析模块
+
+通过Web界面或命令行运行各模块：
+
+**面部表情分析**
 ```python
 from face_expression import VideoPipeline
 import cv2
@@ -118,8 +153,7 @@ while True:
 cap.release()
 ```
 
-### 2. 手势姿态分析
-
+**手势姿态分析**
 ```python
 from gesture_analysis import GestureEmotionPipeline
 import cv2
@@ -142,8 +176,7 @@ while True:
 cap.release()
 ```
 
-### 3. 语音交互分析
-
+**语音交互分析**
 ```python
 from voice_interaction import InterviewAssessmentPipeline
 
@@ -160,65 +193,84 @@ print(evaluation)
 log_path = pipeline.save_log()
 ```
 
-### 4. 多模态集成分析
-
+**多模态集成分析**
 ```python
 from main import JingXinIntegrator
 
+# 初始化集成器
 integrator = JingXinIntegrator()
-integrator.start_interview_session()
+
+# 启动会话
+integrator.start_session()
+
+# 处理视频帧
+frame_rgb = ...  # 从摄像头获取的RGB帧
+integrator.process_video_frame(frame_rgb)
+
+# 处理手势关键点
+hand_lms, pose_lms = ...  # MediaPipe关键点
+integrator.process_gesture_landmarks(hand_lms, pose_lms)
+
+# 处理语音输入
+audio_data = ...  # 音频数据或文本
+integrator.process_voice_input(audio_data)
+
+# 获取评估报告
+report = integrator.get_assessment_report()
+print(report)
+
+# 结束会话
+integrator.end_session()
 ```
 
-## API服务
+### 4. 生成科研能力评估报告
 
-### 启动API服务
+```python
+from report_frontend.report_generator import ReportGenerator
 
-```bash
-# 面部表情API
-python -m face_expression.api.app
-
-# 手势分析API
-python -m gesture_analysis.api.app
-
-# 语音交互API
-python -m voice_interaction.api.app
-
-# 集成API
-python -m main.api.app
+generator = ReportGenerator()
+report_path = generator.generate_report()
 ```
+
+## Web总控平台功能
+
+### 主界面
+- **面部与眼动分析**: 运行面部特征提取和眼动分析
+- **肢体姿态分析**: 运行手势和姿态分析
+- **语音交互评估**: 运行语音评估（Interview/Research场景）
+- **生成综合判推报告**: 整合所有数据生成HTML评估报告
 
 ### API端点
-
-#### 面部表情API
-- `POST /analyze/image`: 分析单张图片
-- `POST /analyze/video`: 分析视频文件
-- `GET /health`: 健康检查
-
-#### 手势分析API
-- `POST /analyze/frame`: 分析单帧图像
-- `POST /analyze/video`: 分析视频流
-- `GET /health`: 健康检查
-
-#### 语音交互API
-- `POST /recognize`: 语音识别
-- `POST /synthesize`: 语音合成
-- `POST /assess/interview`: 面试评估
-- `POST /assess/research`: 科研评估
-- `POST /visualize`: 数据可视化
-- `GET /health`: 健康检查
+- `GET /`: 访问总控台主页
+- `GET /api/files/<folder_name>`: 获取输出目录下的文件列表
+- `GET /output/<filename>`: 访问输出文件
+- `POST /api/run/<module>`: 触发模块运行
+  - `face`: 面部特征提取
+  - `gesture`: 肢体分析
+  - `voice`: 语音评估
+  - `report`: 报告生成
 
 ## 数据目录结构
 
 ```
 data/
-├── input/              # 输入数据
-│   ├── images/        # 图片文件
-│   └── videos/        # 视频文件
-├── output/            # 输出结果
-│   ├── face_expression/     # 面部表情输出
-│   ├── gesture_analysis/    # 手势分析输出
-│   └── voice_interaction/  # 语音交互输出
-└── logs/              # 日志文件
+├── input/                          # 输入数据
+│   ├── images/                      # 图片文件
+│   └── videos/                      # 视频文件
+├── output/                         # 输出结果
+│   ├── face_expression/              # 面部表情输出
+│   │   ├── face_au_log_*.png       # AU分析图表
+│   │   └── emotion_radar.png       # 情绪雷达图
+│   ├── gesture_analysis/             # 手势分析输出
+│   │   └── gesture_analysis_*.png  # 手势分析图表
+│   ├── voice_interaction/           # 语音交互输出
+│   │   ├── interview_analysis_*.png # 面试分析图表
+│   │   └── heatmap.png            # 热力图
+│   ├── Research_Assessment_Report_*.html  # 科研评估报告
+│   ├── evidence_*.html             # 各维度证据报告
+│   ├── radar_chart_*.html         # 雷达图
+│   └── gaze_trajectory_*.html     # 眼动轨迹图
+└── logs/                          # 日志文件
     ├── face_au_log.csv
     ├── static_face_log.csv
     ├── gesture_emotion_log_*.csv
@@ -226,28 +278,68 @@ data/
     └── research_emotion_log_*.csv
 ```
 
+## 科研能力评估维度
+
+系统从多模态数据中提取特征，映射到以下五个核心维度：
+
+### 1. 认知效率 (Cognitive Efficiency)
+- 面部表情复杂度
+- 眼动稳定性
+- 微表情频率
+- 注意力集中度
+
+### 2. 沟通流畅度 (Communication Fluency)
+- 语音流畅度
+- 手势协调性
+- 表达连贯性
+- 停顿频率
+
+### 3. 自信水平 (Confidence Level)
+- 语调变化
+- 音量稳定性
+- 肢体开放度
+- 眼神接触
+
+### 4. 逻辑思维 (Logical Thinking)
+- 论证结构
+- 关键词密度
+- 推理深度
+- 批判性思维指标
+
+### 5. 压力韧性 (Stress Resilience)
+- 紧张度变化
+- 恢复速度
+- 情绪调节能力
+- 抗压表现
+
 ## 配置说明
 
 ### 环境变量
-
 ```bash
 # 自定义数据目录
 export JINGXIN_DATA_DIR=/custom/path/to/data
 ```
 
 ### 路径配置
-
 所有模块统一使用以下路径结构：
 - `DATA_DIR`: 数据根目录
 - `INPUT_DIR`: 输入文件目录
 - `OUTPUT_DIR`: 输出结果目录
 - `LOGS_DIR`: 日志文件目录
 
-### 各模块输出目录
-
-- `face_expression`: `data/output/face_expression`
-- `gesture_analysis`: `data/output/gesture_analysis`
-- `voice_interaction`: `data/output/voice_interaction`
+### 数据库配置
+修改`main/storage.py`中的数据库配置：
+```python
+config = {
+    'host': 'localhost',
+    'server': 'YOUR_SERVER_NAME',
+    'port': '1433',
+    'user': 'YOUR_USERNAME',
+    'password': 'YOUR_PASSWORD',
+    'database': 'jingxin',
+    'charset': 'UTF-8'
+}
+```
 
 ## 使用场景
 
@@ -323,6 +415,38 @@ pip install --upgrade -r requirements.txt
 pip cache purge
 ```
 
+## 技术栈
+
+### Web框架
+- Flask: Web应用框架
+- Werkzeug: WSGI工具库
+
+### 计算机视觉
+- MediaPipe: 手势和姿态检测
+- OpenCV: 图像处理和可视化
+
+### 语音处理
+- Vosk: 语音识别
+- Librosa: 音频特征提取
+
+### 数据处理
+- NumPy: 数值计算
+- Pandas: 数据处理
+
+### 数据存储
+- SQL Server: 结构化数据存储
+- JSONL: 日志文件格式
+
+### 可视化
+- Matplotlib: 基础图表
+- Seaborn: 统计图表
+- Plotly: 交互式图表
+- Pillow: 图像处理
+
+### 并发处理
+- Threading: 多线程处理
+- Lock: 线程安全
+
 ## 项目贡献
 
 欢迎贡献代码、报告问题或提出建议！
@@ -334,6 +458,14 @@ pip cache purge
 5. 开启Pull Request
 
 ## 版本历史
+
+### v2.0.0 (2024-03-14)
+- 新增Web总控平台
+- 新增科研能力评估报告生成
+- 新增眼动追踪分析
+- 新增五个核心评估维度
+- 优化多模态数据融合
+- 改进可视化报告
 
 ### v1.0.0 (2024-01-01)
 - 初始版本发布
@@ -358,4 +490,5 @@ Copyright © JingXin Team. All rights reserved.
 - Vosk
 - Librosa
 - OpenCV
-- FastAPI
+- Flask
+- Plotly
