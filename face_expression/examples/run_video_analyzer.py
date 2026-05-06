@@ -88,9 +88,15 @@ def main():
     mp_drawing = mp_drawing_styles = mp_face_mesh = None
     try:
         import mediapipe as mp
-        mp_drawing = mp.solutions.drawing_utils
-        mp_drawing_styles = mp.solutions.drawing_styles
-        mp_face_mesh = mp.solutions.face_mesh
+        try:
+            mp_drawing = mp.solutions.drawing_utils
+            mp_drawing_styles = mp.solutions.drawing_styles
+            mp_face_mesh = mp.solutions.face_mesh
+        except AttributeError:
+            from mediapipe import solutions
+            mp_drawing = solutions.drawing_utils
+            mp_drawing_styles = solutions.drawing_styles
+            mp_face_mesh = solutions.face_mesh
         print("✓ MediaPipe 已加载")
     except ImportError:
         print("⚠️ MediaPipe 未安装")

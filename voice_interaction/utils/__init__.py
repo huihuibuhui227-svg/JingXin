@@ -7,6 +7,7 @@
 """
 
 from .logger import VoiceLogger
-from .visualize import plot_interview_logs, plot_research_logs, plot_heatmap
+from .visualize import visualize_voice_log, find_latest_log_file
 
-__all__ = ['VoiceLogger', 'plot_interview_logs', 'plot_research_logs', 'plot_heatmap']
+__all__ = ['VoiceLogger', 'visualize_voice_log', 'find_latest_log_file']
+

@@ -1,29 +1,41 @@
-# D:\jingxin\app.py
-
 import os
 import sys
 import subprocess
 import threading
 from flask import Flask, render_template, jsonify, request, send_from_directory
+from flask_cors import CORS
 from datetime import datetime
 
-app = Flask(__name__, static_folder='report_frontend/static', template_folder='report_frontend/templates')
+# ... existing code ...
+
+app = Flask(__name__, static_folder='report_frontend/static', template_folder='templates')
+
+CORS(app, resources={r"/*": {"origins": "*"}})
+
+# ... existing code ...
+
 
 # 配置输出目录
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), 'data', 'output')
 
 
 # --- 辅助函数：安全地运行 Python 脚本 ---
+# ... existing code ...
+
 def run_script(module_name):
     """在后台线程运行脚本，避免阻塞网页"""
     try:
-        # 构造命令：python -m report_frontend.module_name
-        # 注意：这里假设你在 D:\jingxin 目录下运行 app.py
         cmd = [sys.executable, '-m', f'report_frontend.{module_name}']
         print(f"🚀 正在启动任务：{cmd}")
 
-        # 运行并捕获输出
-        result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.path.dirname(__file__))
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            cwd=os.path.dirname(__file__),
+            encoding='utf-8',
+            errors='replace'
+        )
 
         if result.returncode == 0:
             return {"status": "success", "message": "任务完成！", "logs": result.stdout}
@@ -32,6 +44,7 @@ def run_script(module_name):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+# ... existing code ...
 
 # --- 路由：主页 ---
 @app.route('/')
