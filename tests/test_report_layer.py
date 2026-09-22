@@ -168,3 +168,31 @@ def test_radar_has_no_norm_baseline():
     assert "常模基准" not in names
     # 正向断言:否则"一张轨迹都没有的图"也会通过,候选分轨迹的存续无人钉住
     assert names == ["候选人得分"]
+
+
+# ⚠️ 计划里的 test_deep_analysis_has_no_banned_words(禁止词断言)暂未落盘。
+# 叙事层重写后自身已 0 命中(实测见 task-6-report.md),但该函数会渲染
+# research_mapper 自己拥有的两个标签:"抗压与情绪稳定性"(dimensions[*].display_name)
+# 与"面部紧张度"(evidence_chain[*].human_name 及证据缺口文案)。
+# 这两个字符串住在 research_mapper.py,属 Task 7「改维度名与描述」的范围;
+# 且 human_name 在 spec §7.1 与 Task 7 的改名表里都没有被拍板过新名字,
+# 故该断言在 Task 6 内不可满足 —— 改名落定后再补回(禁止词表见 Task 7 Step 1)。
+
+
+def test_deep_analysis_handles_none_scores():
+    """零证据时不得崩溃(score 为 None,不能参与排序)。"""
+    from report_frontend.report_generator import ReportGenerator
+
+    result = ResearchCapabilityMapper().map_features_to_scores({})
+    html = ReportGenerator()._generate_deep_text_analysis({}, result)
+    assert "证据不足" in html
+
+
+def test_no_hardcoded_gaze_claim():
+    """spec §5.4:那句'未出现异常的回避行为'是纯硬编码。"""
+    from report_frontend.report_generator import ReportGenerator
+
+    result = ResearchCapabilityMapper().map_features_to_scores({})
+    html = ReportGenerator()._generate_deep_text_analysis({}, result)
+    assert "未出现异常的回避行为" not in html
+    assert "如外科医生般" not in html

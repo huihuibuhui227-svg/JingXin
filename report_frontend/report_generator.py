@@ -10,6 +10,10 @@ from .feature_engine import PsychologicalFeatureEngine
 from .research_mapper import ResearchCapabilityMapper
 from .visualizer import ReportVisualizer
 
+# 置信度四档的高低顺序(取"置信度上限"时用)。
+# research_mapper.confidence_from 只会产出这四档,键必须与之保持一致。
+_CONF_ORDER = {"无": 0, "低": 1, "中": 2, "高": 3}
+
 
 class ReportGenerator:
     """
@@ -120,149 +124,56 @@ class ReportGenerator:
         else:
             return f"<span style='background:#f8d7da; color:#721c24; padding:2px 6px; border-radius:4px;'>Bottom {p}% (待提升)</span>"
 
+    def _render_dimension_block(self, dim_key: str, dim: Dict[str, Any]) -> str:
+        """渲染单个维度的证据状态。不解读,不推断,不加形容词。"""
+        if dim["score"] is None:
+            gaps = "".join(f"<li>{g}</li>" for g in dim.get("evidence_gaps", []))
+            return f"""
+            <h3>{dim['display_name']}</h3>
+            <p><strong>证据不足</strong> —— 本次未采集到足以评估该行为线索的有效样本。</p>
+            <ul>{gaps}</ul>
+            """
+
+        rows = "".join(
+            f"<tr><td>{e['human_name']}</td><td>{e['raw_value']}</td>"
+            f"<td>{e['normalized_score']}</td><td>{e['weight']}</td></tr>"
+            for e in dim["evidence_chain"]
+        )
+        return f"""
+        <h3>{dim['display_name']}</h3>
+        <p>依据 {dim['matched_indicators']} 个指标；置信度：<strong>{dim['confidence']}</strong>。</p>
+        <table><thead><tr><th>指标</th><th>原始值</th><th>归一值</th><th>权重</th></tr></thead>
+        <tbody>{rows}</tbody></table>
+        """
+
     def _generate_deep_text_analysis(self, features: Dict[str, Any], result: Dict[str, Any]) -> str:
-        """生成终极丰满版文字报告"""
-        # 过渡短接:Task 3 起 score 可能为 None。经 Task 3 + 槽位级封停后,
-        # 真实会话上 5 个维度全部 0/4 —— "无任何维度出分"是当前唯一可达情形。
-        # 此情形下直接给诚实的空报告,不进入下面那些基于 .get(..., 0) 默认值的段落,
-        # 否则会打印"候选人在证据不足维度表现最为突出,显示出良好的科研天赋"这类
-        # 零证据下的才能断言 —— 正是本次改动要消灭的伪造。Task 6 会整段重写本函数。
-        scored = [(k, v) for k, v in result['dimensions'].items() if v['score'] is not None]
-        if not scored:
-            gaps = "".join(f"<li>{g}</li>" for g in result.get("evidence_gaps", []))
-            return (
-                "<h3>行为观测摘要</h3>"
-                "<p><strong>本次会话未采集到足以支撑评估的有效证据。</strong></p>"
-                f"<ul>{gaps}</ul>"
+        """只陈述本次实际测到了什么,不做任何解读、推断与形容词修饰。
+
+        原实现把分数映射为固定阈值下的评语,并在字段缺失时用 .get(..., 0) 兜底,
+        于是无论数据是否存在都会打印同几句结论 —— 恒定在默认值上的伪造百分位、
+        与数据无关的微表情判断、以及基于默认分差值挑选出来的"突出维度"。
+        现改为:出分则列出实际过门的指标及其原始值/权重,不出分则直说证据不足并列出缺口;
+        全部维度都无证据时,只给诚实的空报告摘要。
+        参数 features 保留是为了调用方签名稳定;本函数不再从原始特征里另取默认值。
+        """
+        parts = []
+        total = result["total_score"]
+        if total is None:
+            parts.append("<p>本次会话未采集到足以支撑评估的有效证据。</p>")
+        else:
+            conf_cap = max((d["confidence"] for d in result["dimensions"].values()),
+                           key=_CONF_ORDER.get)
+            parts.append(
+                f"<p>综合行为观测摘要：{result['total_level']}"
+                f"(置信度上限：{conf_cap})</p>"
             )
-
-        face_feats = features.get('face', {})
-        gesture_feats = features.get('gesture', {})
-
-        # 提取更多统计量
-        tension_mean = face_feats.get('face_tension_score_mean', 0)
-        tension_std = face_feats.get('face_tension_score_std', 0)
-        symmetry_mean = face_feats.get('face_symmetry_score_mean', 0)
-        jitter_mean = gesture_feats.get('gesture_left_hand_jitter_mean', 0)
-        jitter_std = gesture_feats.get('gesture_left_hand_jitter_std', 0)
-        hand_score_mean = gesture_feats.get('gesture_left_hand_score_mean', 0)
-        gaze_stab = face_feats.get('face_gaze_stability_mean', 0)
-        eye_contact = face_feats.get('face_eye_contact_ratio', 0)
-        au4_freq = face_feats.get('face_micro_exp_au_name_au4_freq', 0)
-        au7_freq = face_feats.get('face_micro_exp_au_name_au7_freq', 0)
-
-        # 获取维度统计数据 (含百分位)
-        dim_stats = {}
-        for k, v in result['dimensions'].items():
-            if 'stats' in v:
-                dim_stats[k] = v['stats']
-
-        html_parts = []
-
-        # --- 头部 ---
-        level = result['total_level'].split()[0]
-        html_parts.append(f"""
-        <div style="background:#f8f9fa; padding:20px; border-left:5px solid #2E86AB; margin-bottom:25px;">
-            <p style="margin:0; font-size:1.1em; line-height:1.8;">
-                本报告基于 JingXin 多模态心理特征分析引擎，对候选人在模拟科研面试全过程中的 <strong>面部微表情 (Face)</strong>、
-                <strong>肢体姿态 (Gesture)</strong>、<strong>眼动轨迹 (Gaze)</strong> 及 <strong>语音韵律 (Voice)</strong> 进行了毫秒级量化分析。
-                系统共提取了 <strong>{sum(len(v) for v in features.values())}</strong> 个量化指标，并通过常模参照模型进行了深度判推。
-                <br><br>
-                <strong>综合结论：</strong> 候选人综合科研潜力评分为 <span style="color:#2E86AB; font-weight:bold; font-size:1.2em;">{result['total_score']}</span> 分，
-                评级为 <strong>{level}</strong>。
-            </p>
-        </div>
-        """)
-
-        # --- 1. 情绪与抗压 (深度版) ---
-        stress_stats = dim_stats.get('stress_resilience', {})
-        tension_p = stress_stats.get('tension_score', {}).get('percentile', 50)
-        badge = self._get_percentile_badge(100 - tension_p)  # 紧张度越低越好，所以用 100-p
-
-        analysis_text = f"候选人的面部紧张度均值为 <strong>{tension_mean:.2f}</strong> (标准差 {tension_std:.2f})。"
-        if tension_mean > 0.6:
-            analysis_text += "该数值处于较高水平，表明候选人在面试过程中经历了显著的心理压力。"
-        elif tension_mean > 0.3:
-            analysis_text += "该数值处于适中范围，表明候选人具备一定的抗压能力，但在关键节点仍有波动。"
-        else:
-            analysis_text += "该数值处于较低水平，展现了极佳的情绪控制力和心理稳定性。"
-
-        analysis_text += f" 在人群常模中，其情绪稳定性表现优于 {100 - tension_p}% 的受试者，{badge}。"
-
-        if au4_freq > 0.1 or au7_freq > 0.1:
-            analysis_text += f" 微表情分析检测到皱眉 (AU4) 频率为 {au4_freq:.1%}，眼部挤压 (AU7) 频率为 {au7_freq:.1%}，这通常是认知负荷过高或焦虑的直接生理信号。"
-        else:
-            analysis_text += " 微表情监测未检测到显著的焦虑特征 (AU4/AU7 频率低)，表明表面情绪较为平稳。"
-
-        html_parts.append(f"""
-        <h3>1. 情绪状态与抗压能力深度剖析</h3>
-        <p>{analysis_text}</p>
-        <div style="background:#fff; border:1px solid #eee; padding:15px; border-radius:5px; margin-top:10px;">
-            <strong>💡 科研场景映射：</strong> 
-            {'在高强度科研攻关或答辩场景下，候选人可能需要额外的时间来调节情绪，建议进行脱敏训练。' if tension_mean > 0.5 else '候选人具备在压力下保持冷静的潜质，适合承担具有挑战性的科研任务。'}
-        </div>
-        """)
-
-        # --- 2. 肢体与自信 (深度版) ---
-        conf_stats = dim_stats.get('confidence_level', {})
-        jitter_p = conf_stats.get('jitter', {}).get('percentile', 50)
-        badge_jitter = self._get_percentile_badge(100 - jitter_p)
-
-        body_text = f"肢体遥测数据显示，候选人左手抖动均值为 <strong>{jitter_mean:.4f}</strong> (标准差 {jitter_std:.4f})。"
-        if jitter_mean > 0.03:
-            body_text += "显著的生理性震颤通常与交感神经兴奋（紧张）相关。"
-        elif jitter_mean > 0.01:
-            body_text += "轻微的抖动属于正常生理现象，但在高压下略有放大。"
-        else:
-            body_text += "极低的抖动值展现了如外科医生般的肢体控制稳定性。"
-        body_text += f" 该指标在人群中处于 {100 - jitter_p}% 的水平，{badge_jitter}。"
-        body_text += f" 手势自信度评分为 <strong>{hand_score_mean:.1f}</strong>，结合肩部放松度指标，"
-        body_text += "反映了候选人肢体语言的开放性。"
-
-        html_parts.append(f"""
-        <h3>2. 肢体语言与自信心量化评估</h3>
-        <p>{body_text}</p>
-        """)
-
-        # --- 3. 眼动与专注 (深度版) ---
-        logic_stats = dim_stats.get('logical_thinking', {})
-        gaze_p = logic_stats.get('gaze_stability', {}).get('percentile', 50)
-        badge_gaze = self._get_percentile_badge(gaze_p)
-
-        gaze_text = f"眼动追踪算法计算出视线稳定性指数为 <strong>{gaze_stab:.2f}</strong>，眼神接触比例高达 <strong>{eye_contact:.2%}</strong>。"
-        if gaze_stab > 0.75:
-            gaze_text += "极高的稳定性意味着候选人能够长时间将注意力锁定在目标上，这是深度科研工作者的核心特质。"
-        elif gaze_stab > 0.5:
-            gaze_text += "良好的稳定性表明候选人具备正常的专注力，但在复杂信息处理时偶有扫视。"
-        else:
-            gaze_text += "较低的稳定性提示注意力可能存在分散，或在思考时倾向于通过眼球运动来辅助认知加工。"
-        gaze_text += f" 该专注力水平超越了 {gaze_p}% 的人群，{badge_gaze}。"
-
-        html_parts.append(f"""
-        <h3>3. 视线追踪与专注力判读</h3>
-        <p>{gaze_text}</p>
-        <div style="background:#fff; border:1px solid #eee; padding:15px; border-radius:5px; margin-top:10px;">
-            <strong>👁️ 视觉热点分析：</strong> 
-            结合眼动热力图（见下文），候选人的视觉关注点主要集中在中心区域，符合正常的交流注视模式，未出现异常的回避行为。
-        </div>
-        """)
-
-        # --- 4. 总结与建议 ---
-        # scored 由函数顶部的过渡短接处提供(全无证据已在上面 return,此处 scored 必非空)
-        sorted_dims = sorted(scored, key=lambda x: x[1]['score'], reverse=True)
-        top_dim = sorted_dims[0][1]['display_name']
-        bottom_dim = sorted_dims[-1][1]['display_name']
-
-        summary_text = f"综上所述，候选人在 <strong>{top_dim}</strong> 维度表现最为突出，显示出良好的科研天赋。"
-        summary_text += f" 然而，在 <strong>{bottom_dim}</strong> 维度上得分相对较低，是主要的短板所在。"
-        summary_text += " 建议后续针对该短板进行专项训练（如模拟高压面试、正念冥想等）。总体而言，该候选人具备从事科研工作的基本心理素质。"
-
-        html_parts.append(f"""
-        <h3>4. 综合结论与发展建议</h3>
-        <p>{summary_text}</p>
-        """)
-
-        return "".join(html_parts)
+        for dim_key, dim in result["dimensions"].items():
+            parts.append(self._render_dimension_block(dim_key, dim))
+        if result.get("evidence_gaps"):
+            parts.append("<h3>证据缺口</h3><ul>"
+                         + "".join(f"<li>{g}</li>" for g in result["evidence_gaps"])
+                         + "</ul>")
+        return "".join(parts)
 
     def _build_html_report(self, result: Dict[str, Any], chart_paths: Dict[str, Any],
                            features: Dict[str, Any], data: Dict[str, pd.DataFrame],
