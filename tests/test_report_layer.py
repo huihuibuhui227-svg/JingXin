@@ -14,24 +14,47 @@ def test_zero_input_produces_no_scores():
 
 
 def test_no_fake_resume_fallback():
-    """spec §5.3:假简历兜底必须删除。"""
-    r = ResearchCapabilityMapper().map_features_to_scores({})
-    for dim in r["dimensions"].values():
-        for ev in dim["evidence_chain"]:
-            assert ev["feature"] != "logic_keyword_density", "假简历兜底仍在"
-            assert "BASELINE" not in ev["feature"], "BASELINE_FILL 仍可达"
-            assert "代理" not in ev["feature"], "硬编码代理仍在"
+    """spec §5.3:假简历兜底与 BASELINE_FILL 必须不可达。
+
+    ⚠️ 原版用零输入 fixture,证据链为空 → 循环零断言,对任何实现都通过。
+    改为喂一个只让 1 个槽过门的输入,断言 matched 恰为 1/4 且缺口为 3。
+    若 BASELINE_FILL 回归,缺失的 3 个槽会被填空 → matched 变 4/4 → 本测试变红。
+    控制器已实测该 fixture 输出:score=100.0 / conf=低 / matched=1/4 / 缺口 3。
+    """
+    feats = {"voice_research": {"logic_keyword_density": 0.05,
+                                "logic_keyword_density_std": 0.01,
+                                "_n_rows": 100.0}}
+    dim = ResearchCapabilityMapper().map_features_to_scores(feats)["dimensions"]["logical_thinking"]
+
+    assert dim["matched_indicators"] == "1/4", "缺失槽被填充(BASELINE_FILL 回归?)"
+    assert len(dim["evidence_gaps"]) == 3
+    for ev in dim["evidence_chain"]:
+        # 裸键名是假简历兜底的签名;带模态前缀才是真测量
+        assert ev["feature"] != "logic_keyword_density", "裸键名 = 假简历兜底的签名"
+        assert "BASELINE" not in ev["feature"]
+        assert "代理" not in ev["feature"]
 
 
 def test_quarantined_columns_are_rejected():
-    """spec §5.2:封停列即使有值也不得进入证据链。"""
-    feats = {"face": {"face_focus_score_mean": 0.3,
-                      "face_symmetry_score_mean": 0.98}}
-    r = ResearchCapabilityMapper().map_features_to_scores(feats)
-    for dim in r["dimensions"].values():
-        for ev in dim["evidence_chain"]:
-            assert "focus_score" not in ev["feature"]
-            assert "symmetry_score" not in ev["feature"]
+    """spec §5.2:封停列即使有值也不得进入证据链。
+
+    ⚠️ 原版只喂封停列 → 全部被拒 → 链为空 → 循环零断言。
+    改为同时喂一个干净列让链非空,再断言封停列不在其中。
+    若 G4 被移除,focus_score 会进链 → 本测试变红。
+    控制器已实测:链为 [voice_research_logic_keyword_density],focus_score 不在其中。
+    """
+    feats = {"voice_research": {"logic_keyword_density": 0.05,
+                                "logic_keyword_density_std": 0.01,
+                                "_n_rows": 100.0},
+             "face": {"face_focus_score_mean": 0.3,
+                      "face_focus_score_std": 0.05,
+                      "_n_rows": 100.0}}
+    dim = ResearchCapabilityMapper().map_features_to_scores(feats)["dimensions"]["logical_thinking"]
+
+    assert dim["evidence_chain"], "证据链为空 —— 本测试退化为空断言"
+    for ev in dim["evidence_chain"]:
+        assert "focus_score" not in ev["feature"]
+        assert "symmetry_score" not in ev["feature"]
 
 
 def test_confidence_can_be_none_and_low():
