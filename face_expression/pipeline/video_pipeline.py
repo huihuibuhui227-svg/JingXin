@@ -194,3 +194,100 @@ class VideoPipeline:
         elif abs(yaw) > 0.08:
             return 0.3
         return 0.5
+
+    def get_summary(self) -> dict:
+        """返回当前会话的聚合统计数据。遍历 au_history 计算均值/波动/情绪分布等。"""
+        if len(self.au_history) == 0:
+            return {
+                "session_id": self.session_id,
+                "frame_count": 0,
+                "fps": self.fps,
+                "duration_sec": 0,
+            }
+
+        au_fields = [
+            "au1_inner_brow_raise", "au2_outer_brow_raise", "au4_frown",
+            "au6_cheek_raise", "au7_eye_squeeze", "au9_nose_wrinkle",
+            "au10_upper_lip_raise", "au12_smile", "au14_dimpler",
+            "au15_mouth_down", "au20_lip_stretcher", "au23_lip_compression",
+            "au25_mouth_open", "au26_jaw_drop", "avg_ear",
+            "head_yaw", "head_pitch", "symmetry_score",
+            "blink_rate_per_min", "eye_closed_sec", "gaze_deviation",
+        ]
+
+        # AU 特征聚合
+        au_summary = {}
+        for field in au_fields:
+            values = [getattr(f, field, 0.0) for f in self.au_history if hasattr(f, field)]
+            if not values:
+                continue
+            arr = np.array(values, dtype=np.float32)
+            trend = 0.0
+            if len(arr) >= 2:
+                coeffs = np.polyfit(np.arange(len(arr)), arr, 1)
+                trend = "increasing" if coeffs[0] > 0.001 else ("decreasing" if coeffs[0] < -0.001 else "stable")
+            au_summary[field] = {
+                "mean": round(float(np.mean(arr)), 4),
+                "std": round(float(np.std(arr)), 4),
+                "min": round(float(np.min(arr)), 4),
+                "max": round(float(np.max(arr)), 4),
+                "trend": trend,
+            }
+
+        # 情绪分布
+        emotion_counts = {}
+        for f in self.au_history:
+            if hasattr(f, "dominant_emotion"):
+                emotion_counts[f.dominant_emotion] = emotion_counts.get(f.dominant_emotion, 0) + 1
+        dominant = max(emotion_counts, key=emotion_counts.get) if emotion_counts else "unknown"
+
+        # 紧张度
+        tension_vals = [getattr(f, "tension_score", 0.0) for f in self.au_history if hasattr(f, "tension_score")]
+        avg_tension = float(np.mean(tension_vals)) if tension_vals else 0.0
+        tension_level = "low" if avg_tension < 0.3 else ("medium" if avg_tension < 0.6 else "high")
+
+        # 注视稳定性
+        gaze_vals = [getattr(f, "gaze_deviation", 0.0) for f in self.au_history if hasattr(f, "gaze_deviation")]
+        avg_gaze = float(np.mean(gaze_vals)) if gaze_vals else 0.0
+        gaze_stability = 1.0 - min(avg_gaze * 10, 1.0) if gaze_vals else 0.8
+
+        # 眨眼统计
+        now = time.time()
+        recent_blinks = sum(1 for t in self.blink_times if now - t < 60)
+        total_blinks = len(self.blink_times)
+        duration_min = (len(self.au_history) / self.fps) / 60.0 if self.fps > 0 else 0
+        avg_blink_rate = recent_blinks / 1.0 if duration_min < 0.1 else (recent_blinks / max(duration_min, 0.01))
+
+        frame_count = len(self.au_history)
+        duration_sec = frame_count / self.fps if self.fps > 0 else 0
+
+        # 专注度
+        focus_vals = [getattr(f, "focus_score", 0.5) for f in self.au_history if hasattr(f, "focus_score")]
+        avg_focus = float(np.mean(focus_vals)) if focus_vals else 0.5
+
+        return {
+            "session_id": self.session_id,
+            "frame_count": frame_count,
+            "fps": self.fps,
+            "duration_sec": round(duration_sec, 2),
+            "au_features": au_summary,
+            "emotion": {
+                "dominant": dominant,
+                "distribution": emotion_counts,
+            },
+            "tension": {
+                "avg_score": round(avg_tension, 4),
+                "avg_level": tension_level,
+            },
+            "gaze": {
+                "avg_deviation": round(avg_gaze, 4),
+                "stability": round(gaze_stability, 4),
+            },
+            "blink": {
+                "total_blinks": total_blinks,
+                "recent_blinks_per_min": round(avg_blink_rate, 1),
+            },
+            "focus": {
+                "avg_score": round(avg_focus, 4),
+            },
+        }

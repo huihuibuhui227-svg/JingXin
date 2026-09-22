@@ -2,31 +2,39 @@ import os
 import sys
 import subprocess
 import threading
+import uuid
+import time
+import logging
 from flask import Flask, render_template, jsonify, request, send_from_directory
 from flask_cors import CORS
-from datetime import datetime
+from werkzeug.utils import secure_filename
+from logging_config import setup_logging
 
-# ... existing code ...
+setup_logging()
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__, static_folder='report_frontend/static', template_folder='templates')
 
-CORS(app, resources={r"/*": {"origins": "*"}})
-
-# ... existing code ...
-
+# CORS 配置：通过环境变量 CORS_ORIGINS 设置允许的来源，默认仅允许本地
+cors_origins = os.getenv('CORS_ORIGINS', 'http://127.0.0.1:5000,http://localhost:5000,http://localhost:5173,http://127.0.0.1:5173').split(',')
+CORS(app, resources={r"/*": {"origins": cors_origins}})
 
 # 配置输出目录
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), 'data', 'output')
 
+# 允许访问的子目录白名单
+ALLOWED_FOLDERS = {'face_expression', 'gesture_analysis', 'voice_interaction'}
 
-# --- 辅助函数：安全地运行 Python 脚本 ---
-# ... existing code ...
+# 任务状态追踪
+task_status = {}
 
-def run_script(module_name):
+
+def run_script(task_id, module_name):
     """在后台线程运行脚本，避免阻塞网页"""
+    task_status[task_id]["status"] = "running"
     try:
         cmd = [sys.executable, '-m', f'report_frontend.{module_name}']
-        print(f"🚀 正在启动任务：{cmd}")
+        logger.info(f"正在启动任务 {task_id}：{cmd}")
 
         result = subprocess.run(
             cmd,
@@ -38,13 +46,26 @@ def run_script(module_name):
         )
 
         if result.returncode == 0:
-            return {"status": "success", "message": "任务完成！", "logs": result.stdout}
+            task_status[task_id].update({
+                "status": "success",
+                "message": "任务完成！",
+                "logs": result.stdout,
+                "finished_at": time.time()
+            })
         else:
-            return {"status": "error", "message": "任务失败", "logs": result.stderr}
+            task_status[task_id].update({
+                "status": "error",
+                "message": "任务失败",
+                "logs": result.stderr,
+                "finished_at": time.time()
+            })
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        task_status[task_id].update({
+            "status": "error",
+            "message": str(e),
+            "finished_at": time.time()
+        })
 
-# ... existing code ...
 
 # --- 路由：主页 ---
 @app.route('/')
@@ -52,10 +73,13 @@ def index():
     return render_template('dashboard.html')
 
 
-# --- API: 获取 output 目录下的文件列表 (用于展示热力图等) ---
+# --- API: 获取 output 目录下的文件列表 ---
 @app.route('/api/files/<folder_name>')
 def get_files(folder_name):
-    """列出 data/output/<folder_name> 下的图片文件"""
+    """列出 data/output/<folder_name> 下的文件"""
+    if folder_name not in ALLOWED_FOLDERS:
+        return jsonify({"status": "error", "message": "不允许访问该目录"}), 403
+
     folder_path = os.path.join(OUTPUT_DIR, folder_name)
     if not os.path.exists(folder_path):
         return jsonify([])
@@ -67,12 +91,11 @@ def get_files(folder_name):
                 "name": f,
                 "url": f"/output/{folder_name}/{f}"
             })
-    # 按时间排序，最新的在前
     files.sort(key=lambda x: x['name'], reverse=True)
     return jsonify(files)
 
 
-# --- API: 提供静态文件访问 (图片和报告) ---
+# --- API: 提供静态文件访问 ---
 @app.route('/output/<path:filename>')
 def serve_output(filename):
     return send_from_directory(OUTPUT_DIR, filename)
@@ -81,21 +104,15 @@ def serve_output(filename):
 # --- API: 触发各个模块运行 ---
 @app.route('/api/run/<module>', methods=['POST'])
 def trigger_module(module):
-    """
-    接收前端请求，运行对应的模块
-    module 参数可以是：
-    - feature_engine (面部+眼动)
-    - gesture_analysis (肢体 - 需你自己封装一个运行脚本)
-    - voice_assessment (语音 - 需你自己封装)
-    - report_generator (生成报告)
-    """
+    # 实时报告走独立流程（需要 session_id）
+    if module == "report_live":
+        return _trigger_live_report()
 
-    # 映射前端传来的名字到实际的 python 模块名
     module_map = {
-        "face": "feature_engine",  # 运行面部特征提取
-        "gesture": "visualizer",  # 假设你有一个脚本专门画肢体图，或者复用 visualizer
-        "voice": "run_interview_assessment_voice",  # 假设这是你的语音脚本
-        "report": "report_generator"  # 运行报告生成
+        "face": "feature_engine",
+        "gesture": "visualizer",
+        "voice": "run_interview_assessment_voice",
+        "report": "report_generator"
     }
 
     target_module = module_map.get(module)
@@ -103,17 +120,123 @@ def trigger_module(module):
     if not target_module:
         return jsonify({"status": "error", "message": "未知的模块"})
 
-    # 在新线程中运行，防止网页卡死
-    thread = threading.Thread(target=run_script, args=(target_module,))
+    task_id = str(uuid.uuid4())[:8]
+    task_status[task_id] = {
+        "module": module,
+        "status": "pending",
+        "started_at": time.time(),
+        "finished_at": None,
+        "message": "",
+        "logs": ""
+    }
+
+    thread = threading.Thread(target=run_script, args=(task_id, target_module))
     thread.start()
 
-    return jsonify({"status": "started", "message": f"任务 [{module}] 已启动，请在后台查看日志或稍后刷新页面。"})
+    return jsonify({
+        "status": "started",
+        "task_id": task_id,
+        "message": f"任务 [{module}] 已启动，task_id: {task_id}"
+    })
+
+
+def _trigger_live_report():
+    """触发实时报告生成"""
+    body = request.get_json(silent=True) or {}
+    session_id = body.get("session_id", "").strip()
+
+    if not session_id:
+        return jsonify({"status": "error", "message": "缺少 session_id 参数"}), 400
+
+    task_id = str(uuid.uuid4())[:8]
+    task_status[task_id] = {
+        "module": "report_live",
+        "status": "pending",
+        "session_id": session_id,
+        "started_at": time.time(),
+        "finished_at": None,
+        "message": "",
+        "logs": ""
+    }
+
+    thread = threading.Thread(target=_run_live_report, args=(task_id, session_id))
+    thread.start()
+
+    return jsonify({
+        "status": "started",
+        "task_id": task_id,
+        "session_id": session_id,
+        "message": f"实时报告任务已启动，session: {session_id}, task_id: {task_id}"
+    })
+
+
+def _run_live_report(task_id, session_id):
+    """在后台线程中运行实时报告生成"""
+    task_status[task_id]["status"] = "running"
+    try:
+        from report_frontend.report_generator import ReportGenerator
+        gen = ReportGenerator()
+        path = gen.generate_report_live(session_id)
+        task_status[task_id].update({
+            "status": "success",
+            "message": "实时报告生成完成！",
+            "logs": f"报告路径: {path}" if path else "生成失败",
+            "finished_at": time.time()
+        })
+    except Exception as e:
+        logger.exception("实时报告生成失败")
+        task_status[task_id].update({
+            "status": "error",
+            "message": str(e),
+            "finished_at": time.time()
+        })
+
+
+# --- API: 查询任务状态 ---
+@app.route('/api/task/<task_id>')
+def get_task_status(task_id):
+    """查询后台任务的执行状态"""
+    status = task_status.get(task_id)
+    if not status:
+        return jsonify({"status": "error", "message": "任务不存在"}), 404
+    return jsonify({"task_id": task_id, **status})
+
+
+# --- API: 获取结构化评估报告 JSON ---
+@app.route('/api/report/structured')
+def get_structured_report():
+    """
+    运行 report_generator 流水线，返回结构化评估 JSON。
+    可选参数: type=interview|research (过滤日志类型)
+    """
+    try:
+        from report_frontend.data_loader import LogDataLoader
+        from report_frontend.feature_engine import PsychologicalFeatureEngine
+        from report_frontend.research_mapper import ResearchCapabilityMapper
+
+        loader = LogDataLoader()
+        data = loader.get_fused_latest_data()
+
+        if not data:
+            return jsonify({"status": "error", "message": "未找到评估日志数据"})
+
+        engine = PsychologicalFeatureEngine(data)
+        features = engine.extract_all_features()
+
+        mapper = ResearchCapabilityMapper()
+        result = mapper.map_features_to_scores(features)
+
+        return jsonify({"status": "success", "result": result})
+
+    except Exception as e:
+        logger.exception("获取结构化评估报告失败")
+        return jsonify({"status": "error", "message": str(e)})
 
 
 if __name__ == '__main__':
-    print("=" * 50)
-    print("🌐 JingXin 总控平台启动中...")
-    print("📂 数据目录:", OUTPUT_DIR)
-    print("🔗 访问地址：http://127.0.0.1:5000")
-    print("=" * 50)
+    logger.info("=" * 50)
+    logger.info("JingXin 总控平台启动中...")
+    logger.info(f"数据目录: {OUTPUT_DIR}")
+    logger.info("访问地址：http://127.0.0.1:5000")
+    logger.info("=" * 50)
     app.run(debug=True, port=5000)

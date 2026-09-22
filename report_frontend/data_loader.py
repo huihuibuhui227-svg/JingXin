@@ -1,10 +1,13 @@
 # report_frontend/data_loader.py
 
 import os
+import json
 import pandas as pd
 from pathlib import Path
 from typing import Dict, List, Optional
 import re
+import urllib.request
+import urllib.error
 
 
 class LogDataLoader:
@@ -167,6 +170,121 @@ class LogDataLoader:
             print("💥 最终结果：没有成功加载任何有效数据。")
 
         return data_frames
+
+    def get_live_data(self, session_id: str,
+                       face_port: int = 8000,
+                       gesture_port: int = 8002,
+                       voice_port: int = 8001,
+                       timeout: int = 5) -> Dict[str, pd.DataFrame]:
+        """【实时数据源】通过 HTTP 从三个 API 获取指定会话的内存数据。
+
+        :param session_id: 目标会话 ID
+        :param face_port: 面部分析 API 端口 (默认 8000)
+        :param gesture_port: 手势分析 API 端口 (默认 8002)
+        :param voice_port: 语音交互 API 端口 (默认 8001)
+        :param timeout: 单个请求超时秒数 (默认 5)
+        :return: 与 get_fused_latest_data() 同格式的 DataFrame 字典
+        """
+        data_frames: Dict[str, pd.DataFrame] = {}
+
+        # --- 面部数据 ---
+        try:
+            url = f"http://127.0.0.1:{face_port}/session/{session_id}/summary"
+            face_json = self._http_get_json(url, timeout)
+            if face_json and face_json.get("status") == "success":
+                summary = face_json["data"]
+                # 将聚合统计数据展平为单行 DataFrame
+                row: Dict[str, float] = {}
+                row["frame_count"] = summary.get("frame_count", 0)
+                row["duration_sec"] = summary.get("duration_sec", 0)
+                row["tension_score"] = summary.get("tension", {}).get("avg_score", 0)
+                row["focus_score"] = summary.get("focus", {}).get("avg_score", 0.5)
+                row["gaze_deviation"] = summary.get("gaze", {}).get("avg_deviation", 0)
+                row["gaze_stability"] = summary.get("gaze", {}).get("stability", 0.8)
+                row["symmetry_score"] = summary.get("au_features", {}).get("symmetry_score", {}).get("mean", 1.0)
+                # 展开各 AU 均值
+                for au_name, au_stat in summary.get("au_features", {}).items():
+                    row[au_name] = au_stat.get("mean", 0)
+                # 展开情绪分布
+                for emo, count in summary.get("emotion", {}).get("distribution", {}).items():
+                    row[f"emotion_{emo}"] = count
+                # 眨眼
+                row["blink_rate_per_min"] = summary.get("blink", {}).get("recent_blinks_per_min", 0)
+                df = pd.DataFrame([row])
+                df["timestamp"] = pd.Timestamp.now()
+                data_frames["face"] = df
+                print(f"   📥 [FACE] 实时数据加载成功：{summary.get('frame_count', 0)} 帧")
+        except Exception as e:
+            print(f"   ⚠️  [FACE] 实时数据获取失败: {e}")
+
+        # --- 手势数据 ---
+        try:
+            url = f"http://127.0.0.1:{gesture_port}/session/{session_id}/summary"
+            gesture_json = self._http_get_json(url, timeout)
+            if gesture_json and gesture_json.get("status") == "success":
+                gd = gesture_json["data"]
+                row: Dict[str, float] = {}
+                row["hand_score"] = gd.get("hand", {}).get("average_score", 50)
+                row["left_hand_score"] = gd.get("hand", {}).get("left", {}).get("resilience_score", 50)
+                row["right_hand_score"] = gd.get("hand", {}).get("right", {}).get("resilience_score", 50)
+                row["hand_jitter"] = gd.get("hand", {}).get("left", {}).get("jitter", 0)
+                row["shoulder_score"] = gd.get("shoulder", {}).get("shoulder_score", 50)
+                row["shrug_level"] = gd.get("shoulder", {}).get("shrug_level", 0)
+                row["left_arm_score"] = gd.get("arm", {}).get("left", {}).get("arm_score", 50)
+                row["right_arm_score"] = gd.get("arm", {}).get("right", {}).get("arm_score", 50)
+                row["emotion_score"] = gd.get("emotion", {}).get("overall_score", 50)
+                row["emotion_state"] = gd.get("emotion", {}).get("emotion_state", "neutral")
+                df = pd.DataFrame([row])
+                df["timestamp"] = pd.Timestamp.now()
+                data_frames["gesture"] = df
+                print(f"   📥 [GESTURE] 实时数据加载成功")
+        except Exception as e:
+            print(f"   ⚠️  [GESTURE] 实时数据获取失败: {e}")
+
+        # --- 语音数据（面试） ---
+        try:
+            url = f"http://127.0.0.1:{voice_port}/session/{session_id}/summary?type=interview"
+            voice_json = self._http_get_json(url, timeout)
+            if voice_json and voice_json.get("status") == "success":
+                vd = voice_json["data"]
+                qa_pairs = vd.get("qa_pairs", [])
+                if qa_pairs:
+                    rows = []
+                    for qa in qa_pairs:
+                        answer = qa.get("answer", "")
+                        rows.append({
+                            "question": qa.get("question", ""),
+                            "answer": answer,
+                            "answer_length": len(answer),
+                            "has_valid_answer": qa.get("has_valid_answer", False),
+                        })
+                    df = pd.DataFrame(rows)
+                    df["timestamp"] = pd.Timestamp.now()
+                    df["evaluation"] = vd.get("evaluation", "")
+                    data_frames["voice_interview"] = df
+                    print(f"   📥 [VOICE_INTERVIEW] 实时数据加载成功：{len(qa_pairs)} 个问答")
+                else:
+                    print(f"   ⚠️  [VOICE_INTERVIEW] 暂无问答数据")
+        except Exception as e:
+            print(f"   ⚠️  [VOICE_INTERVIEW] 实时数据获取失败: {e}")
+
+        return data_frames
+
+    @staticmethod
+    def _http_get_json(url: str, timeout: int = 5) -> Optional[Dict]:
+        """HTTP GET 请求，返回解析后的 JSON。"""
+        try:
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                body = resp.read().decode("utf-8")
+                return json.loads(body)
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", errors="ignore")
+            print(f"      HTTP {e.code}: {body[:200]}")
+            return None
+        except Exception as e:
+            print(f"      HTTP 请求异常: {e}")
+            return None
 
     def _read_csv_safe(self, file_path: Path) -> Optional[pd.DataFrame]:
         """安全读取 CSV，尝试多种编码"""

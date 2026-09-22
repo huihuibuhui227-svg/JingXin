@@ -22,10 +22,9 @@ class ReportGenerator:
             os.makedirs(self.output_dir)
 
     def generate_report(self, session_id: Optional[str] = None) -> str:
-        # ... (generate_report 方法保持不变，略) ...
-        # 确保调用 _build_html_report 时传入了 features 和 result
+        """从磁盘 CSV 文件生成评估报告（批处理模式）"""
         print("\n" + "=" * 70)
-        print("🚀 启动 JingXin 科研能力评估报告生成系统 (终极丰满版)")
+        print("🚀 启动 JingXin 科研能力评估报告生成系统 (批量模式)")
         print("=" * 70)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -34,7 +33,7 @@ class ReportGenerator:
 
         try:
             loader = LogDataLoader()
-            data = loader.get_fused_latest_data() if not session_id else loader.load_session_data(session_id)
+            data = loader.get_fused_latest_data()
             if not data or 'face' not in data: raise ValueError("无面部数据")
 
             engine = PsychologicalFeatureEngine(data)
@@ -54,6 +53,48 @@ class ReportGenerator:
 
             webbrowser.open('file://' + os.path.realpath(report_path))
             print(f"\n✅ 报告已生成并打开：{report_path}")
+            return report_path
+
+        except Exception as e:
+            print(f"❌ 错误：{e}")
+            return ""
+
+    def generate_report_live(self, session_id: str) -> str:
+        """从运行中的 API 服务获取实时内存数据，生成评估报告（实时模式）"""
+        print("\n" + "=" * 70)
+        print("🚀 启动 JingXin 科研能力评估报告生成系统 (实时模式)")
+        print(f"📋 会话 ID: {session_id}")
+        print("=" * 70)
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        report_filename = f"Research_Assessment_Report_Live_{timestamp}.html"
+        report_path = os.path.join(self.output_dir, report_filename)
+
+        try:
+            loader = LogDataLoader()
+            data = loader.get_live_data(session_id)
+            if not data:
+                raise ValueError("无法从 API 获取实时数据，请确认三个分析服务 (8000/8001/8002) 已启动且会话存在")
+            if 'face' not in data:
+                print("   ⚠️  未获取到面部数据，继续使用其他模态生成报告")
+
+            engine = PsychologicalFeatureEngine(data)
+            features = engine.extract_all_features()
+
+            mapper = ResearchCapabilityMapper()
+            result = mapper.map_features_to_scores(features)
+
+            viz = ReportVisualizer(output_dir=self.output_dir)
+            chart_paths = viz.generate_all_charts(result, df_face=data.get('face'))
+            static_images = self._scan_static_images()
+
+            html_content = self._build_html_report(result, chart_paths, features, data, static_images)
+
+            with open(report_path, 'w', encoding='utf-8') as f:
+                f.write(html_content)
+
+            webbrowser.open('file://' + os.path.realpath(report_path))
+            print(f"\n✅ 实时报告已生成并打开：{report_path}")
             return report_path
 
         except Exception as e:
