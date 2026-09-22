@@ -1,0 +1,38 @@
+# 统一行尾为 LF。
+#
+# 背景:本仓库在 WSL(Linux)与 Windows 双系统下编辑,部分文件曾以 CRLF 存盘、
+# 而 HEAD 中是 LF,导致 git diff 把整文件显示为改写(visualizer.py 592 行、
+# research_mapper.py 820 行),code review 无法进行。
+#
+# text=auto 让 git 在读取工作区时自动归一化,因此已存在的 CRLF 工作区文件
+# 会立即被视为"无改动",无需一次性大提交。
+# eol=lf 保证检出时也是 LF,防止 CRLF 再次进入仓库。
+
+* text=auto eol=lf
+
+# 二进制文件不参与任何文本转换
+*.pyc    binary
+*.pyo    binary
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.ico    binary
+*.npy    binary
+*.npz    binary
+*.pkl    binary
+*.pickle binary
+*.zip    binary
+*.tar    binary
+*.gz     binary
+*.woff   binary
+*.woff2  binary
+*.ttf    binary
+*.otf    binary
+*.pt     binary
+*.onnx   binary
+*.bin    binary
+*.model  binary
+*.fst    binary
+*.mdl    binary
+*.post   binary
