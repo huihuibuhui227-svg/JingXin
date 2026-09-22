@@ -170,13 +170,36 @@ def test_radar_has_no_norm_baseline():
     assert names == ["候选人得分"]
 
 
-# ⚠️ 计划里的 test_deep_analysis_has_no_banned_words(禁止词断言)暂未落盘。
-# 叙事层重写后自身已 0 命中(实测见 task-6-report.md),但该函数会渲染
-# research_mapper 自己拥有的两个标签:"抗压与情绪稳定性"(dimensions[*].display_name)
-# 与"面部紧张度"(evidence_chain[*].human_name 及证据缺口文案)。
-# 这两个字符串住在 research_mapper.py,属 Task 7「改维度名与描述」的范围;
-# 且 human_name 在 spec §7.1 与 Task 7 的改名表里都没有被拍板过新名字,
-# 故该断言在 Task 6 内不可满足 —— 改名落定后再补回(禁止词表见 Task 7 Step 1)。
+BANNED = ["焦虑", "紧张", "压力", "抗压", "情绪稳定", "说谎", "诚信",
+          "录用", "人格", "心理画像", "常模"]
+
+
+def test_deep_analysis_has_no_banned_words():
+    """spec §5.4 + §5.6:叙事层不得含情绪/心理/诚信构念。
+
+    ⚠️ 只覆盖**叙事层自己写的句子**。报告里出现的禁止词有另一个来源:
+    `research_mapper` 提供的两个标签 —— `display_name`「抗压与情绪稳定性」
+    (含 抗压、情绪稳定)与 `human_name`「面部紧张度」(含 紧张)。
+    实测确认全 mapper 只有这两处命中。
+
+    它们属 **Task 7** 的改名范围(Task 7 改完 `display_name` 与 `human_name`
+    后,**须恢复全量扫描** —— 见计划 Task 7 Step 3a)。
+    本测试用剔除这两个标签的方式,把叙事层自己的输出隔离出来测。
+    剔除是精确字符串替换,所以叙事层**自己在别处**写出的禁止词仍会被抓到。
+    """
+    from report_frontend.report_generator import ReportGenerator
+
+    feats = {"face": {"face_tension_score_mean": 0.5},
+             "gesture": {"gesture_left_hand_jitter_mean": 0.02}}
+    result = ResearchCapabilityMapper().map_features_to_scores(feats)
+    html = ReportGenerator()._generate_deep_text_analysis(feats, result)
+
+    # 剔除 mapper 提供的标签(Task 7 修复后本段移除,恢复全量)
+    for label in ("抗压与情绪稳定性", "面部紧张度"):
+        html = html.replace(label, "")
+
+    for word in BANNED:
+        assert word not in html, f"叙事层出现禁止词:{word}"
 
 
 def test_deep_analysis_handles_none_scores():
