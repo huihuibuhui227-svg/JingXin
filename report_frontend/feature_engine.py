@@ -8,6 +8,9 @@ import re
 
 warnings.filterwarnings('ignore')
 
+# 数值列跳过规则：这些列是行号/主键/时间戳，不是行为协变量。
+_SKIP_COLS = ('id', 'unnamed', 'timestamp')
+
 
 class PsychologicalFeatureEngine:
     """
@@ -125,7 +128,11 @@ class PsychologicalFeatureEngine:
         numeric_cols = df.select_dtypes(include=[np.number]).columns
 
         for col in numeric_cols:
-            if any(x in col.lower() for x in ['id', 'index', 'unnamed', 'timestamp']):
+            if any(x in col.lower() for x in _SKIP_COLS):
+                continue
+            # 放行 question_index 作为协变量：它含 'index' 但描述的是题号，
+            # 是心理测量审查指出的「最明显的遗漏」，必须保留。
+            if 'index' in col.lower() and 'question' not in col.lower():
                 continue
             series = df[col].dropna()
             if len(series) == 0: continue
@@ -295,13 +302,10 @@ class PsychologicalFeatureEngine:
                 if 'pause' in col_lower and 'duration' in col_lower and 'mean' in col_lower:
                     features[f"{prefix}_pause_duration_mean"] = stats.get(f"{base_name}_mean", 0)
 
-                # 4. 【新增】流畅度代理计算 (如果没有直接分数)
-                # 假设：说话占比高 + 停顿短 + 语速适中 = 流畅
-                if 'speech_ratio' in col_lower and 'mean' in col_lower:
-                    ratio = stats.get(f"{base_name}_mean", 0)
-                    # 简单代理：直接用占比作为流畅度基础 (0-1 -> 0-100)
-                    features[f"{prefix}_fluency_score_mean"] = ratio * 100
-                    features[f"{prefix}_fluency_proxy"] = ratio * 100
+                # 4. 停顿映射(续) —— 原「流畅度代理」分支已删除：
+                # 它的条件要求列名同时含 speech_ratio 与 mean，而真实日志列名是
+                # speech_ratio，故该分支从未触发(死代码，spec §5.3)。
+                # 真 VAD 落地前不再伪造 fluency_score / fluency_proxy。
 
             # C. 【核心修复】文本列强制扫描
             elif 'text' in col.lower() or 'content' in col.lower() or 'answer' in col.lower() or 'script' in col.lower():

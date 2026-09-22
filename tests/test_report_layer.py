@@ -82,3 +82,34 @@ def test_all_slot_level_quarantine_keys_are_pinned():
     for entry in ("gaze_stability", "au4_freq", "au7_freq", "jitter",
                   "speech_ratio", "eye_contact", "fluency_score"):
         assert is_quarantined(entry) is not None, f"{entry} 未被封停"
+
+
+def test_question_index_is_not_dropped():
+    """spec §8-3:question_index 曾被 'index' 跳过规则静默丢弃。"""
+    import pandas as pd
+
+    from report_frontend.feature_engine import PsychologicalFeatureEngine
+
+    df = pd.DataFrame({"question_index": [0, 1, 2], "pitch_mean": [100.0, 120.0, 110.0]})
+    feats = PsychologicalFeatureEngine({"voice_research": df}).extract_all_features()
+    keys = " ".join(feats.get("voice_research", {}).keys())
+    assert "question_index" in keys, "question_index 仍被丢弃"
+
+
+def test_dead_fluency_branch_removed():
+    """spec §5.3:该分支要求列名同时含 speech_ratio 与 mean,故为死代码。
+
+    真实日志列名为 speech_ratio,永远不含 mean,故该分支从未触发;
+    这里额外用 speech_ratio_mean 这个「能触发该分支」的列名钉死它已被删除,
+    否则仅用 speech_ratio 时本用例在改动前后都会通过(空断言)。
+    """
+    import pandas as pd
+
+    from report_frontend.feature_engine import PsychologicalFeatureEngine
+
+    for col in ("speech_ratio", "speech_ratio_mean"):
+        df = pd.DataFrame({col: [0.9, 0.8, 0.95]})
+        feats = PsychologicalFeatureEngine({"voice_research": df}).extract_all_features()
+        keys = " ".join(feats.get("voice_research", {}).keys())
+        assert "fluency_score" not in keys, f"{col} 触发了已删除的 fluency_score 死分支"
+        assert "fluency_proxy" not in keys, f"{col} 触发了已删除的 fluency_proxy 死分支"
