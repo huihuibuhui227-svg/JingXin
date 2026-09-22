@@ -52,3 +52,13 @@ def test_dimension_weights_sum_to_one():
     for dim_key, rule in m.mapping_rules.items():
         total = sum(w for _, w, _, _, _ in rule["indicators"])
         assert abs(total - 1.0) < 1e-9, f"{dim_key} 权重和为 {total}"
+
+
+def test_slot_level_quarantine_covers_spec_5_3():
+    """spec §5.3 的槽位级封停必须反映到 QUARANTINE,否则这些指标绕过 G4 直接进打分。"""
+    from report_frontend.evidence_gate import is_quarantined
+
+    for key in ("face_gaze_stability_mean", "face_micro_exp_au_name_au4_freq",
+                "face_micro_exp_au_name_au7_freq", "gesture_left_hand_jitter_mean",
+                "voice_research_research_speech_ratio_mean", "face_eye_contact_ratio"):
+        assert is_quarantined(key) is not None, f"{key} 未被封停"

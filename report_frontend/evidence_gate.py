@@ -54,6 +54,16 @@ QUARANTINE: dict[str, Quarantine] = {
     "head_score": Quarantine("可由同 block jitter 精确重构", "M3"),
     "torso_score": Quarantine("可由同 block jitter 精确重构", "M3"),
     "fist_status": Quarantine("fist_threshold=0.08 -> 有效帧 100% 判握拳", "M3"),
+    # ↓ 这 7 条来自 spec §5.3 的**槽位级**处置,§5.2 的列级表没覆盖它们。
+    #   仅靠 §5.2 会让这 7 个指标绕过 G4 直接进打分(实测其中 3 个真的出了分)。
+    #   已由 Task 3 的修复轮补入(Task 2 完成时遗漏)。
+    "gaze_stability": Quarantine("由被封停的 gaze_deviation 派生", "M3 修 gaze_direction_x"),
+    "au4_freq": Quarantine("从 micro_exp 字符串解析出的垃圾匹配", "M3 修 au4 landmark"),
+    "au7_freq": Quarantine("au7 + avg_ear 恒等 1.0,与 au4 互补", "M3"),
+    "jitter": Quarantine("经 x5 归一化恒饱和", "M3 归一化(除肩宽除时间)"),
+    "speech_ratio": Quarantine("自指阈值,87.9% 恰为 1.0", "M3 真 VAD"),
+    "eye_contact": Quarantine("iris 图像坐标到画面中心距离,是取景代理", "M3 改眼内相对坐标"),
+    "fluency_score": Quarantine("生产分支为死代码,实测走 BASELINE_FILL", "M3 真 VAD"),
     # 永久封停:unblock 是给人看的显示文本,逻辑判断一律用 permanent 字段。
     # 不要用 unblock == "永不" 反推 —— 字符串是显示层,不是逻辑层。
     "upper_body_head_tilt": Quarantine("参考系错位 180 度,分支命中率 0%", "永不", permanent=True),

@@ -234,9 +234,15 @@ class ReportGenerator:
         """)
 
         # --- 4. 总结与建议 ---
-        sorted_dims = sorted(result['dimensions'].items(), key=lambda x: x[1]['score'], reverse=True)
-        top_dim = sorted_dims[0][1]['display_name']
-        bottom_dim = sorted_dims[-1][1]['display_name']
+        # 过渡防护:Task 3 起 score 可能为 None,而 None 不能参与排序。
+        # Task 6 会整段重写本函数,此处只为让中间态可用。
+        scored = [(k, v) for k, v in result['dimensions'].items() if v['score'] is not None]
+        if scored:
+            sorted_dims = sorted(scored, key=lambda x: x[1]['score'], reverse=True)
+            top_dim = sorted_dims[0][1]['display_name']
+            bottom_dim = sorted_dims[-1][1]['display_name']
+        else:
+            top_dim = bottom_dim = "证据不足"
 
         summary_text = f"综上所述，候选人在 <strong>{top_dim}</strong> 维度表现最为突出，显示出良好的科研天赋。"
         summary_text += f" 然而，在 <strong>{bottom_dim}</strong> 维度上得分相对较低，是主要的短板所在。"
