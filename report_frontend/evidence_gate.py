@@ -80,10 +80,15 @@ _THRESHOLD_FILE = Path(__file__).resolve().parent / "evidence_thresholds.json"
 def load_thresholds() -> dict:
     with _THRESHOLD_FILE.open(encoding="utf-8") as f:
         data = json.load(f)
-    if "_provisional" not in data or "_version" not in data:
+    if data.get("_provisional") is not True or not data.get("_version"):
         raise ValueError(
-            "evidence_thresholds.json 必须带 _provisional 与 _version —— "
+            "evidence_thresholds.json 必须带 _provisional: true 与 _version —— "
             "临时阈值必须可被识别为临时(spec §5.1)"
+        )
+    if "_default_n_valid" not in data:
+        raise ValueError(
+            "evidence_thresholds.json 必须带 _default_n_valid —— "
+            "未登记指标的默认阈值也属于临时值,不得写成代码里的裸常量(spec §5.1)"
         )
     return data
 
@@ -95,11 +100,13 @@ def _threshold_for(key: str) -> int:
     "pause" 的子串(p-au-se),会让所有 pause_* 键静默拿到 au 的阈值 30
     而不是自己登记的 2。同模块内两套匹配规则是缺陷。
     """
-    thresholds = load_thresholds()["thresholds"]
+    data = load_thresholds()
+    thresholds = data["thresholds"]
     k = key.lower()
     matched = [name for name in thresholds if name in k]
     if not matched:
-        return 10  # 未登记指标的保守默认
+        # 默认值也来自 JSON —— 不得写成裸常量(spec §5.1)
+        return int(data["_default_n_valid"])
     return thresholds[max(matched, key=len)]
 
 

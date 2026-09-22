@@ -101,6 +101,14 @@ class TestThresholds:
         assert t["_provisional"] is True
         assert t["_version"]
 
+    def test_default_threshold_lives_in_json(self):
+        """未登记指标的默认阈值也必须是登记过的临时值,不得是代码里的裸常量。"""
+        from report_frontend.evidence_gate import _threshold_for
+
+        data = load_thresholds()
+        assert "_default_n_valid" in data
+        assert _threshold_for("some_unregistered_metric") == data["_default_n_valid"]
+
     def test_longest_match_wins(self):
         """阈值表里 "au" 早于 "pause" 且是其子串(p-au-se)。
 

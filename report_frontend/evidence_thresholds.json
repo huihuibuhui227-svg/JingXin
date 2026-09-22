@@ -3,6 +3,7 @@
   "_provisional": true,
   "_note": "临时阈值。依据=物理下限,非标定值。M5 标定到位后必须替换,替换即新模型版本(spec §5.1)。",
   "_units": "n_valid 的单位随指标而定:frames 或 segments",
+  "_default_n_valid": 10,
   "thresholds": {
     "blink": 20,
     "gaze": 30,
