@@ -116,12 +116,23 @@ def test_dead_fluency_branch_removed():
 
 
 def test_no_fabricated_percentile():
-    """spec §5.5:百分位只能来自真实常模。"""
-    feats = {"voice_research": {"interview_pause_duration_mean": 0.8}}
+    """spec §5.5:百分位只能来自真实常模。
+
+    ⚠️ 必须喂**能过证据门**的输入。否则 evidence_chain 全为空、嵌套循环零断言,
+    本测试对**任何**实现都通过 —— 包括把百分位加回来的实现。
+    Task 5 复审实测:原输入 `interview_pause_duration_mean` 让 5 个维度全部
+    score=None / chain=[],是彻底的空断言("回归守卫"的标签夸大了它)。
+    """
+    feats = {"voice_research": {"logic_keyword_density": 0.05,
+                                "logic_keyword_density_std": 0.01,
+                                "_n_rows": 100.0}}
     r = ResearchCapabilityMapper().map_features_to_scores(feats)
+
+    total = sum(len(d["evidence_chain"]) for d in r["dimensions"].values())
+    assert total > 0, "输入未过证据门,本测试退化为空断言"
     for dim in r["dimensions"].values():
         for ev in dim["evidence_chain"]:
-            assert ev.get("percentile") is None
+            assert "percentile" not in ev or ev["percentile"] is None
 
 
 def test_radar_has_no_norm_baseline():
@@ -132,3 +143,5 @@ def test_radar_has_no_norm_baseline():
     fig = ReportVisualizer(output_dir="/tmp")._build_radar_figure(result)
     names = [t.name for t in fig.data]
     assert "常模基准" not in names
+    # 正向断言:否则"一张轨迹都没有的图"也会通过,候选分轨迹的存续无人钉住
+    assert names == ["候选人得分"]

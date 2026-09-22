@@ -60,7 +60,7 @@ class ReportVisualizer:
         self.generated_files.append(full_path)
         return full_path
 
-    def _build_radar_figure(self, result: Dict[str, Any]):
+    def _build_radar_figure(self, result: Dict[str, Any]) -> go.Figure:
         """构造雷达图,不落盘 —— 便于测试(spec §6)。"""
         dimensions = result['dimensions']
         categories = []
