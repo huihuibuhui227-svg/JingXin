@@ -95,6 +95,29 @@ class TestConfidence:
             assert confidence_from(n_ok, 10) != "高"
 
 
+class TestUserMessage:
+    def test_user_message_hides_maintainer_text(self):
+        """报告层只能用 user_message;封停理由等内部文案不得外泄(spec §5.6)。"""
+        from report_frontend.evidence_gate import user_message
+
+        c = gate("face_focus_score_mean", 0.3, 500, values=[0.3, 0.4])
+        assert c.ok is False
+        msg = user_message(c)
+        assert msg, "缺口文案不得为空"
+        for leak in ("封停", "jitter", "M3", "精确重构"):
+            assert leak not in msg, f"内部文案外泄:{leak}"
+
+    def test_user_message_per_gate(self):
+        from report_frontend.evidence_gate import user_message
+
+        assert user_message(gate("pitch_median", None, 100)) == "未采集到对应数据"
+        assert user_message(gate("pitch_median", 1.0, 100, std=0.0)) == "本次会话内无变化"
+        assert user_message(gate("pitch_median", 1.0, 3, values=[1.0, 2.0])) == "有效样本不足"
+        assert user_message(
+            gate("face_focus_score_mean", 0.3, 500, values=[0.3, 0.4])
+        ) == "该指标本轮停用"
+
+
 class TestThresholds:
     def test_thresholds_are_marked_provisional(self):
         t = load_thresholds()

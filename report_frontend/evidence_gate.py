@@ -190,6 +190,25 @@ def gate(key: str, value, n_valid: int,
     return Check(True)
 
 
+_USER_MESSAGES: dict[str, str] = {
+    "G1": "未采集到对应数据",
+    "G2": "本次会话内无变化",
+    "G3": "有效样本不足",
+    "G4": "该指标本轮停用",
+}
+
+
+def user_message(check: Check) -> str:
+    """面向用户的证据缺口说明。
+
+    ⚠️ 报告层只准用这个,**不得直接渲染 `check.reason`** —— reason 面向维护者,
+    含封停理由等内部信息(如"可由同 block jitter 精确重构")。spec §5.6 对
+    quarantine 文本的豁免只覆盖"留在代码里不进输出";一旦渲染进报告就不再是
+    内部文本,而报告必须中性、可辩护。
+    """
+    return _USER_MESSAGES.get(check.gate_name, "证据不足")
+
+
 def confidence_from(n_ok: int, n_slots: int) -> Confidence:
     """置信度三值化。'高' 在本轮不可达(spec §5.1)。"""
     if n_ok <= 0:
