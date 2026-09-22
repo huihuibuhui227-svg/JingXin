@@ -122,6 +122,20 @@ class ReportGenerator:
 
     def _generate_deep_text_analysis(self, features: Dict[str, Any], result: Dict[str, Any]) -> str:
         """生成终极丰满版文字报告"""
+        # 过渡短接:Task 3 起 score 可能为 None。经 Task 3 + 槽位级封停后,
+        # 真实会话上 5 个维度全部 0/4 —— "无任何维度出分"是当前唯一可达情形。
+        # 此情形下直接给诚实的空报告,不进入下面那些基于 .get(..., 0) 默认值的段落,
+        # 否则会打印"候选人在证据不足维度表现最为突出,显示出良好的科研天赋"这类
+        # 零证据下的才能断言 —— 正是本次改动要消灭的伪造。Task 6 会整段重写本函数。
+        scored = [(k, v) for k, v in result['dimensions'].items() if v['score'] is not None]
+        if not scored:
+            gaps = "".join(f"<li>{g}</li>" for g in result.get("evidence_gaps", []))
+            return (
+                "<h3>行为观测摘要</h3>"
+                "<p><strong>本次会话未采集到足以支撑评估的有效证据。</strong></p>"
+                f"<ul>{gaps}</ul>"
+            )
+
         face_feats = features.get('face', {})
         gesture_feats = features.get('gesture', {})
 
@@ -234,15 +248,10 @@ class ReportGenerator:
         """)
 
         # --- 4. 总结与建议 ---
-        # 过渡防护:Task 3 起 score 可能为 None,而 None 不能参与排序。
-        # Task 6 会整段重写本函数,此处只为让中间态可用。
-        scored = [(k, v) for k, v in result['dimensions'].items() if v['score'] is not None]
-        if scored:
-            sorted_dims = sorted(scored, key=lambda x: x[1]['score'], reverse=True)
-            top_dim = sorted_dims[0][1]['display_name']
-            bottom_dim = sorted_dims[-1][1]['display_name']
-        else:
-            top_dim = bottom_dim = "证据不足"
+        # scored 由函数顶部的过渡短接处提供(全无证据已在上面 return,此处 scored 必非空)
+        sorted_dims = sorted(scored, key=lambda x: x[1]['score'], reverse=True)
+        top_dim = sorted_dims[0][1]['display_name']
+        bottom_dim = sorted_dims[-1][1]['display_name']
 
         summary_text = f"综上所述，候选人在 <strong>{top_dim}</strong> 维度表现最为突出，显示出良好的科研天赋。"
         summary_text += f" 然而，在 <strong>{bottom_dim}</strong> 维度上得分相对较低，是主要的短板所在。"
@@ -264,6 +273,9 @@ class ReportGenerator:
             return f'<iframe src="{os.path.basename(path)}" width="100%" height="{height}px" frameborder="0"></iframe>'
 
         deep_analysis_html = self._generate_deep_text_analysis(features, result)
+
+        # 无证据时 total_score 为 None,直接插值会印出"None 分"
+        _score_display = result['total_score'] if result['total_score'] is not None else "—"
 
         evidence_html_list = []
         for key, path in chart_paths.get('evidence', {}).items():
@@ -313,7 +325,7 @@ class ReportGenerator:
 
                 <div class="score-board">
                     <div class="score-card">
-                        <div class="score-number">{result['total_score']}</div>
+                        <div class="score-number">{_score_display}</div>
                         <div>综合科研潜力评分</div>
                         <div style="color:var(--primary); font-weight:bold;">{result['total_level']}</div>
                     </div>

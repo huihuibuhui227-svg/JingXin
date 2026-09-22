@@ -62,3 +62,23 @@ def test_slot_level_quarantine_covers_spec_5_3():
                 "face_micro_exp_au_name_au7_freq", "gesture_left_hand_jitter_mean",
                 "voice_research_research_speech_ratio_mean", "face_eye_contact_ratio"):
         assert is_quarantined(key) is not None, f"{key} 未被封停"
+
+
+def test_zero_evidence_report_makes_no_claims():
+    """零证据时不得出现任何才能/心理素质断言(spec §5.4)。"""
+    from report_frontend.report_generator import ReportGenerator
+
+    result = ResearchCapabilityMapper().map_features_to_scores({})
+    html = ReportGenerator(output_dir="/tmp")._generate_deep_text_analysis({}, result)
+    for claim in ("科研天赋", "心理素质", "最为突出", "表现最为"):
+        assert claim not in html, f"零证据下仍出现断言:{claim}"
+    assert "证据不足" in html or "未采集到" in html
+
+
+def test_all_slot_level_quarantine_keys_are_pinned():
+    """7 个槽位级封停键必须逐个被钉住,不能只测真实键。"""
+    from report_frontend.evidence_gate import is_quarantined
+
+    for entry in ("gaze_stability", "au4_freq", "au7_freq", "jitter",
+                  "speech_ratio", "eye_contact", "fluency_score"):
+        assert is_quarantined(entry) is not None, f"{entry} 未被封停"
