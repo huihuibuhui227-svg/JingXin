@@ -55,6 +55,17 @@ class PsychologicalFeatureEngine:
                         self.features[key] = self._normalize_keys(voice_features)
                         print(f"   ✅ [{key.upper()}] 提取完成：{len(self.features[key])} 个标准化特征")
 
+            # 4. 各模态的有效行数 —— 报告层证据门 G3(样本量)的唯一真实来源。
+            # 键名 _n_rows 经扁平化后成为 <模态>__n_rows,只被 G3 读取,
+            # 不参与指标匹配(所有 mapping_rules 关键词都不含 n_rows)。
+            # L1 的 n_valid_frames 落地后可替换本项(spec §5.1 G3)。
+            for _modality in ('face', 'gesture'):
+                if _modality in self.features:
+                    self.features[_modality]['_n_rows'] = float(len(self.data[_modality]))
+            for key in ('voice_interview', 'voice_research'):
+                if key in self.features:
+                    self.features[key]['_n_rows'] = float(len(self.data[key]))
+
         except Exception as e:
             print(f"❌ 特征提取发生严重错误：{e}")
             import traceback
