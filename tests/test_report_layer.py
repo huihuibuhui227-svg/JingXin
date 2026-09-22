@@ -113,3 +113,22 @@ def test_dead_fluency_branch_removed():
         keys = " ".join(feats.get("voice_research", {}).keys())
         assert "fluency_score" not in keys, f"{col} 触发了已删除的 fluency_score 死分支"
         assert "fluency_proxy" not in keys, f"{col} 触发了已删除的 fluency_proxy 死分支"
+
+
+def test_no_fabricated_percentile():
+    """spec §5.5:百分位只能来自真实常模。"""
+    feats = {"voice_research": {"interview_pause_duration_mean": 0.8}}
+    r = ResearchCapabilityMapper().map_features_to_scores(feats)
+    for dim in r["dimensions"].values():
+        for ev in dim["evidence_chain"]:
+            assert ev.get("percentile") is None
+
+
+def test_radar_has_no_norm_baseline():
+    """spec §5.5:[60]*5 与 '常模基准' 图例必须删除。"""
+    from report_frontend.visualizer import ReportVisualizer
+
+    result = ResearchCapabilityMapper().map_features_to_scores({})
+    fig = ReportVisualizer(output_dir="/tmp")._build_radar_figure(result)
+    names = [t.name for t in fig.data]
+    assert "常模基准" not in names

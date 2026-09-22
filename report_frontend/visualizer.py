@@ -60,12 +60,11 @@ class ReportVisualizer:
         self.generated_files.append(full_path)
         return full_path
 
-    def create_capability_radar(self, result: Dict[str, Any]) -> str:
-        """创建雷达图并保存"""
+    def _build_radar_figure(self, result: Dict[str, Any]):
+        """构造雷达图,不落盘 —— 便于测试(spec §6)。"""
         dimensions = result['dimensions']
         categories = []
         scores = []
-        baselines = [60, 60, 60, 60, 60]
 
         dim_order = ['logical_thinking', 'stress_resilience', 'communication_fluency', 'confidence_level',
                      'cognitive_efficiency']
@@ -81,13 +80,12 @@ class ReportVisualizer:
 
         categories += [categories[0]]
         scores += [scores[0]]
-        baselines += [baselines[0]]
 
         fig = go.Figure()
+        # 说明:曾有的 '常模基准' 虚线来自硬编码的 [60]*5,并无真实常模出处,
+        # 却以权威对比的形式呈现,故一并删除(spec §5.5:没有真实常模就不画常模线)。
         fig.add_trace(go.Scatterpolar(r=scores, theta=categories, fill='toself', name='候选人得分',
                                       line_color=self.colors['primary'], fillcolor='rgba(46, 134, 171, 0.4)'))
-        fig.add_trace(go.Scatterpolar(r=baselines, theta=categories, fill='none', name='常模基准',
-                                      line_color=self.colors['baseline'], line_dash='dot'))
 
         fig.update_layout(
             polar=dict(radialaxis=dict(visible=True, range=[0, 100], tickfont=dict(family=self.font_family)),
@@ -96,6 +94,11 @@ class ReportVisualizer:
             height=500, showlegend=True
         )
 
+        return fig
+
+    def create_capability_radar(self, result: Dict[str, Any]) -> str:
+        """创建雷达图并保存"""
+        fig = self._build_radar_figure(result)
         return self._save_fig(fig, "radar_chart")
 
     def create_evidence_bar_chart(self, result: Dict[str, Any], dimension_key: str) -> str:
