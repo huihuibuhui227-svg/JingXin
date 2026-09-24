@@ -14,9 +14,27 @@ def test_new_session_id_shape():
     int(sid[-4:], 16)
 
 
-def test_new_session_id_is_unique():
+def test_new_session_id_uses_two_bytes_of_secrets_hex(monkeypatch):
+    """随机段必须恰好来自 `secrets.token_hex(2)`(确定性:打桩后比对字面值)。
+
+    计划原文是「50 个 id 两两不同」,但 4 位十六进制只有 65536 种取值 ——
+    50 次抽样按生日问题**约 1.86% 的概率**出现重复(实测:8 次全套里红 1 次),
+    那是个会随机假红的断言(见 test_new_session_id_suffix_is_varied 的说明)。
+    这条改成确定性断言:随机段的来源与宽度都被钉死。
+    """
+    monkeypatch.setattr(session.secrets, "token_hex", lambda n: "ab" * n)
+    assert session.new_session_id(now=datetime(2026, 9, 24, 15, 30, 12)) == "20260924_153012_abab"
+
+
+def test_new_session_id_suffix_is_varied():
+    """同秒内连发 50 个号,随机段必须几乎不重样(挡「常量随机段」「只剩 1 字节」)。
+
+    只断言「去重后 >= 48」而不是「50 个全不同」:后者在 65536 的空间里
+    有 1.86% 的假红率(200k 次模拟)。取 48 的假红率约 1e-6(模拟 200k 次最小去重值 = 48),
+    同时仍能挡住 `token_hex(1)`(256 种取值,50 次抽样期望去重约 45.5)。
+    """
     ids = {session.new_session_id() for _ in range(50)}
-    assert len(ids) == 50
+    assert len(ids) >= 48, f"随机段不随机:50 次只得到 {len(ids)} 个不同 id"
 
 
 def test_recording_dir_is_outside_repo(tmp_path):
