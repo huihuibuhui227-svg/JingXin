@@ -2,6 +2,8 @@ import json
 import re
 import threading
 import time
+
+import pytest
 from datetime import datetime
 from pathlib import Path
 
@@ -288,4 +290,42 @@ def test_concurrent_appends_for_one_session_lose_nothing(tmp_path, monkeypatch):
     assert sorted(texts) == sorted(["种子"] + [f"回答{i}" for i in range(n)])
     assert payload["merged"]["n_segments"] == n + 1          # merged 也是全量重算后的
     assert [s["index"] for s in payload["segments"]] == list(range(n + 1))
+
+
+# ---------------------------------------------------------------------------
+# 会话 id 是客户端可控的,而它会直接当目录名用 —— 必须挡住路径穿越
+# ---------------------------------------------------------------------------
+
+def test_recording_dir_rejects_ids_that_escape_the_root(tmp_path):
+    """`../` 这类 id 不许当目录名用,而且必须**什么都没建**。
+
+    攻击面(审查 Important 1):T4 把 `session_id` 变成客户端可控参数(query/表单),
+    而 `recording_dir` 会 `mkdir(parents=True)` ——
+    `curl -F audio=@a.wav '/asr?session_id=../../jingxin/x'` 能在录制根**之外**
+    建目录并写入含原句的 transcript.json,把"原句绝不进仓库"这条不变量打穿。
+    """
+    root = tmp_path / "rec"
+    with pytest.raises(ValueError, match="session_id"):
+        transcript_store.recording_dir("../../jingxin/LEAKDIR", root=root)
+    assert not (tmp_path.parent / "jingxin").exists(), "越界目录被建出来了"
+    assert not root.exists() or list(root.iterdir()) == [], "根目录下不该有任何东西"
+
+
+def test_append_utterance_rejects_traversal_id(tmp_path):
+    """守卫必须在端点真正走到的那条路上 —— `/asr` 调的就是 append_utterance。"""
+    root = tmp_path / "rec"
+    with pytest.raises(ValueError, match="session_id"):
+        transcript_store.append_utterance("../../LEAK", _one_segment_utt("原句"), root=root)
+    assert not (tmp_path / "LEAK").exists()
+    assert not root.exists() or list(root.iterdir()) == []
+
+
+def test_none_session_id_is_accepted(tmp_path):
+    """`NONE` 必须放行:它是"无 id"的显式占位,报告侧靠它做整体排除(spec D7)。"""
+    p = transcript_store.append_utterance(session.NONE_SESSION,
+                                          _one_segment_utt("没有id的回答"), root=tmp_path)
+    assert p == tmp_path / "NONE" / "transcript.json"
+    assert json.loads(p.read_text(encoding="utf-8"))["session_id"] == "NONE"
+    # minted id 的形状(数字_数字_十六进制)同样必须放行
+    assert transcript_store.validate_session_id("20260924_153012_9f3c") == "20260924_153012_9f3c"
 

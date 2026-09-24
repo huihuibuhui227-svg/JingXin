@@ -5,7 +5,7 @@ FastAPI应用
 提供语音交互的Web API接口
 """
 
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
@@ -28,6 +28,7 @@ from voice_interaction.utils.logger import VoiceLogger
 from voice_interaction.asr import session as session_mod, transcript_store
 from voice_interaction.asr.connective_density import connective_density
 from voice_interaction.asr.funasr_engine import load_config
+from voice_interaction.asr.transcript_store import validate_session_id
 # 转写缝:引擎只由 asr/transcribe.py 持有,这里按名字取那一层转发(不直接摸引擎)。
 # 换引擎(测试/验收)只需动那一个模块,不必碰本文件。
 from voice_interaction.asr.transcribe import transcribe as _transcribe
@@ -90,6 +91,35 @@ async def _transcribe_async(pcm: bytes):
     return await asyncio.to_thread(_transcribe, pcm)
 
 
+async def _resolve_session_id(request: Request, session_id: str | None) -> str:
+    """取本次请求的会话 id:query 参数 `session_id` 或 multipart **表单字段**同名键。
+
+    为什么两个位置都要认:请求体是 `multipart/form-data`(音频就是其中一个字段),前端
+    很容易把 id 当**表单字段**提交。只认 query 的话,那种请求会拿 200、回答被静默归到
+    `NONE` —— M1"三模块对上号"的目标无声失效,而且没有任何报错。
+
+    `request.form()` 这里**不会**二次消费请求体:路由声明了 `File(...)`,FastAPI 在进端点
+    之前已经把表单解析好并缓存在同一个 Request 上,这里只是读缓存(非表单请求会得到空
+    FormData,故 except 仅是兜底)。
+
+    校验也在这一步:先 `validate_session_id`(store 的公开守卫,id 会当目录名用),
+    非法的 id 直接 400 —— 不必先花一次识别的时间再让它 500。
+    """
+    if not session_id:
+        try:
+            form = await request.form()
+        except Exception:            # 不是表单请求 / 体已损坏 → 当作没给
+            form = None
+        if form is not None:
+            value = form.get("session_id")
+            if isinstance(value, str) and value:
+                session_id = value
+    try:
+        return validate_session_id(session_id or session_mod.NONE_SESSION)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 class TextRequest(BaseModel):
     """文本请求模型"""
     text: str
@@ -143,18 +173,21 @@ async def text_to_speech(request: TextRequest):
 
 
 @app.post("/asr")
-async def speech_to_text(audio: UploadFile = File(...), session_id: str = None):
+async def speech_to_text(request: Request, audio: UploadFile = File(...),
+                         session_id: str = None):
     """
     语音识别（ASR）：接收音频文件，返回识别文本
     支持：WAV、WebM、MP3 等格式（自动转换为 16kHz WAV）
 
-    `session_id` 可省:给了就把这次识别累积进**仓库外**的该会话 transcript.json
-    (缺省落 NONE,报告侧整体排除)。纯 ASR 不写语音特征行 —— 那是回答的语义。
+    `session_id` 可省:query 参数(`?session_id=…`)或 multipart 表单字段都能给
+    (见 `_resolve_session_id`)。给了就把这次识别累积进**仓库外**的该会话
+    transcript.json(缺省落 NONE,报告侧整体排除)。纯 ASR 不写语音特征行 ——
+    那是回答的语义。id 必须匹配 `[A-Za-z0-9_-]{1,128}`,否则 400。
     """
     import tempfile
     import subprocess
 
-    sid = session_id or session_mod.NONE_SESSION
+    sid = await _resolve_session_id(request, session_id)
 
     try:
         logger.info(f"收到ASR请求: {audio.filename}")
@@ -308,9 +341,14 @@ async def submit_answer(request: AnswerRequest):
 
 
 @app.post("/interview/answer_audio")
-async def submit_answer_audio(audio: UploadFile = File(...), session_id: str = None):
-    """提交语音回答，自动识别后记录"""
-    sid = session_id or session_mod.NONE_SESSION
+async def submit_answer_audio(request: Request, audio: UploadFile = File(...),
+                              session_id: str = None):
+    """提交语音回答，自动识别后记录
+
+    `session_id` 可省:query 参数或 multipart 表单字段都能给(见 `_resolve_session_id`);
+    非法 id(含路径分隔符/`..`)直接 400,不会拿去当目录名。
+    """
+    sid = await _resolve_session_id(request, session_id)
     try:
         # 复用 /asr 逻辑
         contents = await audio.read()
@@ -458,9 +496,13 @@ async def submit_research_answer(request: AnswerRequest):
 
 
 @app.post("/research/answer_audio")
-async def submit_research_answer_audio(audio: UploadFile = File(...), session_id: str = None):
-    """提交语音回答，自动识别后记录"""
-    sid = session_id or session_mod.NONE_SESSION
+async def submit_research_answer_audio(request: Request, audio: UploadFile = File(...),
+                                       session_id: str = None):
+    """提交语音回答，自动识别后记录
+
+    `session_id` 可省:query 参数或 multipart 表单字段都能给(见 `_resolve_session_id`);非法 id 400。
+    """
+    sid = await _resolve_session_id(request, session_id)
     try:
         contents = await audio.read()
         if not contents.startswith(b'RIFF'):

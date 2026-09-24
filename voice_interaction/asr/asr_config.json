@@ -15,5 +15,10 @@
     "value": 10,
     "_provisional": true,
     "basis": "低于 10 字时,任意一次命中即产生 >10 的密度,比值不稳定(spec §6.5)"
+  },
+  "silence_energy_floor": {
+    "value": 0.01,
+    "_provisional": true,
+    "basis": "16 bit PCM 归一化后的 RMS 下限 = -40 dBFS(满刻度的 1%)。正常增益下说话 RMS 约 0.05–0.2,安静房间底噪约 <0.005,0.01 取在两者之间。⚠️ 定义性下限,**未经本机实测**(开发机无麦克风;`_provisional` 即为此)—— 现场若发现说话也低于它(录音增益过低),按实测改这一个数,不要在代码里改。用途:listen_for_speech 判静音(能量不高于它即为静音)"
   }
 }

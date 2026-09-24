@@ -11,13 +11,58 @@
 
 import logging
 import queue
+import time
 import numpy as np
-from typing import Tuple, Optional
+from typing import Sequence, Tuple, Optional
 import sounddevice as sd
-from ..asr.funasr_engine import FunASREngine
+from ..asr.funasr_engine import FunASREngine, load_config
 from ..models.voice_models import AudioData, SpeechRecognitionResult
 
 logger = logging.getLogger(__name__)
+
+# 采集块大小(帧):16 kHz 下一块 = 0.5 s,停录判定的粒度就是它(见 should_stop)。
+# 这是**设备参数**而不是可调阈值,故留在代码里做具名常量;真正的阈值(静音能量下限)
+# 一律来自 asr_config.json,停顿秒数则由调用方传参。
+BLOCKSIZE = 8000
+
+
+def chunk_energy(chunk: bytes) -> float:
+    """一块 16 bit 单声道 PCM 的能量 = 归一化 RMS(0..1)。空块 → 0.0。
+
+    判静音必须看**幅值**,不能看"有没有收到数据":静音也是数据 ——
+    `sd.RawInputStream` 每 0.5 s 必送一块,而全零的 `bytes` 在 Python 里是真值。
+    """
+    if not chunk:
+        return 0.0
+    samples = np.frombuffer(chunk, dtype=np.int16)
+    if samples.size == 0:
+        return 0.0
+    return float(np.sqrt(np.mean((samples.astype(np.float32) / 32768.0) ** 2)))
+
+
+def should_stop(chunk_energies: Sequence[float], pause_threshold_s: float,
+                chunk_seconds: float, energy_floor: float) -> bool:
+    """末尾连续静音已达 `pause_threshold_s` → 该停录了。
+
+    - **静音** = 能量不高于 `energy_floor`(安静房间的低幅底噪也算静音)
+    - 只数**末尾**那一段连续静音:说话中的短暂停顿(不足阈值)不算说完,否则一句话会
+      被从中间截断
+    - 还没开口(所有块都没有超过下限)时恒为 False:留给 `timeout` 兜底,否则一进循环
+      就停,用户来不及说第一句
+    - 粒度是**一块**(`chunk_seconds` = 0.5 s):阈值低于一块时实际等同于一块
+      (第一块静音就停)
+
+    `energy_floor` 由调用方传入(pipeline 在 `__init__` 里从 asr_config.json 取),
+    本函数因此是纯函数:不读配置、不碰设备、可离线测。
+    """
+    if not any(energy > energy_floor for energy in chunk_energies):
+        return False
+    quiet_chunks = 0
+    for energy in reversed(chunk_energies):
+        if energy > energy_floor:
+            break
+        quiet_chunks += 1
+    return quiet_chunks * chunk_seconds >= pause_threshold_s
 
 
 class SpeechRecognitionPipeline:
@@ -33,6 +78,8 @@ class SpeechRecognitionPipeline:
         self.sample_rate = sample_rate
         # 引擎从 asr_config.json 取 host/port/timeout(构造是纯读配置,不连网)
         self.engine = FunASREngine()
+        # 静音能量下限同样只来自配置 —— 不在代码里写裸常量(缺键就在这里响亮地炸)
+        self.silence_energy_floor = float(load_config()["silence_energy_floor"]["value"])
         logger.info("FunASR 引擎就绪")
 
     def recognize_from_file(self, audio_file: str) -> SpeechRecognitionResult:
@@ -112,15 +159,22 @@ class SpeechRecognitionPipeline:
         返回:
             (语音识别结果, 音频数据)
 
-        旧后端靠逐块 partial 判"还在不在说";FunASR 这条链路没有 partial,于是
-        判据换成"还有没有音频块进来",`pause_threshold` 因此第一次真正生效
-        (它此前是签名里从未被用到的参数)。没开口之前不会因为静音而提前结束 ——
-        要等 `audio_chunks` 非空,否则一进来就会立刻超时返回空结果。
+        停录判据是**能量**(`chunk_energy` → `should_stop`),不是"队列里还有没有数据":
+        `sd.RawInputStream` 每 0.5 s 必送一块,**静音也是音频数据**(全零的 `bytes`
+        也是真值),所以按"有没有数据"判静音会让计时被每一块重置、`pause_threshold`
+        永远到不了、每次录音都录满 `timeout`(这条死规则在本任务的第一版里真实存在过,
+        审查用假设备复现后才修掉)。
+
+        粒度是一块(0.5 s):`pause_threshold` 低于 0.5 s 时等同于 0.5 s(第一块静音就停)
+        —— 句中停顿比这短就会被截断,调用方要按自己的场景给够。
+        还没开口时不会因为静音而提前停(`should_stop` 的前置判断),交给 `timeout` 兜底。
         """
         q = queue.Queue()
         audio_chunks = []
+        chunk_seconds = BLOCKSIZE / self.sample_rate
 
         def callback(indata, frames, time, status):
+            # 注意:形参 `time` 只在本回调作用域内遮蔽时间模块(回调里不用时间函数)
             if status:
                 logger.warning(f"录音状态: {status}")
             if not isinstance(indata, bytes):
@@ -133,31 +187,25 @@ class SpeechRecognitionPipeline:
         try:
             with sd.RawInputStream(
                 samplerate=self.sample_rate,
-                blocksize=8000,
+                blocksize=BLOCKSIZE,
                 dtype='int16',
                 channels=1,
                 callback=callback
             ):
-                silence_sec = 0.0
-                total_time = 0.0
+                chunk_energies: list[float] = []
+                started = time.monotonic()
 
-                while True:
-                    if total_time > timeout:
-                        break
+                while time.monotonic() - started <= timeout:
                     try:
                         data = q.get(timeout=0.1)
                     except queue.Empty:
-                        silence_sec += 0.1
-                        total_time += 0.1
-                        # 必须已经收到过音频:否则开头 1.2 秒的安静就被当成"说完了"
-                        if audio_chunks and silence_sec >= pause_threshold:
-                            print("⏸  停顿超过阈值，结束录音")
-                            break
-                        continue
+                        continue          # 没块到:计时由 timeout 管,静音由能量管
 
-                    total_time += 0.1
-                    if data:
-                        silence_sec = 0.0          # 还在说
+                    chunk_energies.append(chunk_energy(data))
+                    if should_stop(chunk_energies, pause_threshold, chunk_seconds,
+                                   self.silence_energy_floor):
+                        print("⏸  连续静音超过阈值，结束录音")
+                        break
 
                 # 合并音频
                 full_bytes = b''.join(audio_chunks) if audio_chunks else b''

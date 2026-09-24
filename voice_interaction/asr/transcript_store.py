@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -15,6 +16,27 @@ DEFAULT_ROOT = Path.home() / "shared" / "jingxin_recordings"          # D:\Share
 TRANSCRIPT_FILENAME = "transcript.json"        # spec §6.4:一个会话一个文件,累积写
 LOG_PREFIXES = {"face": "face_au_log", "gesture": "gesture_emotion_log",
                 "voice": "interview_emotion_log"}
+
+# 会话 id 直接当目录名用,而它是【客户端可控】的(query/表单参数),所以必须限量。
+SESSION_ID_PAT = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+
+
+def validate_session_id(session_id: str) -> str:
+    """守卫:会话 id 只允许 `[A-Za-z0-9_-]{1,128}`(minted 形状与 `NONE` 都在内)。
+
+    为什么必须在 store 这一层拦:端点把 `session_id` 当 query/表单参数收下(客户端可控),
+    而这个值会被拼进 `recording_dir` 的路径再 `mkdir(parents=True)` ——
+    `../../jingxin/x` 这类值能在录制根**之外**建目录并写入含原句的 transcript.json,
+    把"原句绝不进仓库"(spec D2)这条不变量整个打穿。
+    放在这里而不是端点里:任何调用方(含以后的 face/gesture)都自动受保护。
+    公开出来是给端点用的:端点在跑识别之前先校验,好回 400 而不是等落盘时炸成 500。
+    """
+    if not isinstance(session_id, str) or not SESSION_ID_PAT.fullmatch(session_id):
+        raise ValueError(
+            f"非法 session_id: {session_id!r} —— 只允许字母/数字/下划线/连字符,1–128 位"
+            f"(它是目录名,不接受路径分隔符与 '..')")
+    return session_id
+
 
 # 每个 session_id 一把锁,保护 append_utterance 的读-改-写(见 _session_lock)。
 # 放进程内:这个服务是单进程的 uvicorn;若以后多进程/多机部署,这里要换成文件锁。
@@ -45,7 +67,7 @@ def _root(root: str | Path | None) -> Path:
 
 
 def recording_dir(session_id: str, root: str | Path | None = None) -> Path:
-    d = _root(root) / session_id
+    d = _root(root) / validate_session_id(session_id)
     d.mkdir(parents=True, exist_ok=True)
     return d
 
