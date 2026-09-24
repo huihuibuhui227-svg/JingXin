@@ -3,11 +3,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import tempfile
 import os
+import re
 import cv2
 import numpy as np
-import uuid
 import time
-from datetime import datetime
 import logging
 from logging_config import setup_logging
 
@@ -16,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 try:
     from face_expression.pipeline.video_pipeline import VideoPipeline
-    from face_expression.utils.logger import DataLogger
+    from face_expression.utils.logger import DataLogger, NONE_SESSION
     from face_expression.config import LOGS_DIR
     import mediapipe as mp
 except ImportError as e:
@@ -46,6 +45,31 @@ session_pipelines = {}
 session_loggers = {}  # 每个会话的 DataLogger 实例
 SESSION_TIMEOUT = 300  # 会话超时时间（秒）
 
+# 会话 id 直接进日志文件名（`face_au_log_{session_id}.csv`），而它是客户端可控的
+# （query 参数），所以只收 `[A-Za-z0-9_-]{1,128}` —— 路径分隔符与 `..` 一概不收。
+# `NONE`（无 id 时的占位）按此模式本来就合法，不必为它开口子。
+# 与 voice_interaction/asr/transcript_store.py 的守卫同模式，但**各持一份**：
+# face 从 voice 包导入方向是反的，还会把 TTS/ASR 整条 import 链拉起来（见 Ruling M1-2）。
+SESSION_ID_PAT = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+
+
+def validate_session_id(session_id: str) -> str:
+    """校验客户端给的 session_id：非法一律 400。
+
+    为什么必须在这一层拦：face 不写 transcript，`transcript_store.recording_dir()` 那道
+    中央守卫覆盖不到它；而这个 id 会被拼进日志文件名 —— `../../x` 能让
+    `face_au_log_../../x.csv` 落到日志目录**之外**。
+
+    为什么不"顺手改成 NONE"：坏输入被吞掉之后客户端拿到的是 200 和一份看着正常的响应，
+    问题只在报告里以"数据对不上"的形式浮出来。本项目一贯要求坏输入响亮失败。
+    """
+    if isinstance(session_id, str) and SESSION_ID_PAT.fullmatch(session_id):
+        return session_id
+    raise HTTPException(
+        status_code=400,
+        detail=f"非法 session_id: {session_id!r} —— 只允许字母/数字/下划线/连字符，1–128 位"
+               f"（它会进日志文件名，不接受路径分隔符与 '..'）")
+
 
 def get_or_create_pipeline(session_id: str, fps: int = 30) -> VideoPipeline:
     """获取或创建 VideoPipeline 实例"""
@@ -66,10 +90,11 @@ def get_or_create_pipeline(session_id: str, fps: int = 30) -> VideoPipeline:
         try:
             pipeline = VideoPipeline(fps=fps, session_id=session_id)
             session_pipelines[session_id] = (pipeline, current_time)
-            # 同一会话的所有帧写入同一个文件
-            session_ts = datetime.fromtimestamp(current_time).strftime('%Y%m%d_%H%M%S')
-            log_path = os.path.join(LOGS_DIR, f'face_au_log_{session_ts}.csv')
+            # 同一会话的所有帧写入同一个文件，文件名带会话 id（报告侧按它归堆、NONE 单独一桶）
+            log_path = os.path.join(LOGS_DIR, f'face_au_log_{session_id}.csv')
             face_logger = DataLogger(log_type='video', session_id=session_id)
+            # 构造后再覆盖 log_file：Task 3 的 log() 会在新路径缺表头时补写，
+            # 所以这样覆盖出来的仍是合法 CSV
             face_logger.log_file = log_path
             session_loggers[session_id] = (face_logger, current_time)
             logger.info(f"创建新会话: {session_id}, 日志: {log_path}")
@@ -120,7 +145,7 @@ async def analyze_frame(
 
     参数:
         file: 视频帧图片
-        session_id: 会话ID（可选，不提供则自动生成）
+        session_id: 会话ID（可选，不提供则记入 NONE 桶；形状非法回 400）
         fps: 帧率（默认30）
 
     返回:
@@ -129,9 +154,8 @@ async def analyze_frame(
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="上传的文件必须是图片格式")
 
-    # 生成或使用提供的 session_id
-    if not session_id:
-        session_id = str(uuid.uuid4())
+    # 无 id → NONE（不再每请求 mint 一个 uuid：那会让每一帧都变成新会话、写出新日志文件）
+    session_id = validate_session_id(session_id or NONE_SESSION)
 
     try:
         logger.info(f"收到帧上传请求: session={session_id}, file={file.filename}")

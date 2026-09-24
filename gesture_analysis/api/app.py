@@ -4,7 +4,7 @@ from pydantic import BaseModel
 import cv2
 import numpy as np
 import base64
-import uuid
+import re
 import time
 import os
 import logging
@@ -17,7 +17,7 @@ from gesture_analysis.core.analysis.hand_analyzer import HandAnalyzer
 from gesture_analysis.core.analysis.shoulder_analyzer import ShoulderAnalyzer
 from gesture_analysis.core.analysis.arm_analyzer import ArmAnalyzer
 from gesture_analysis.core.analysis.emotion_inferencer import EmotionInferencer
-from gesture_analysis.utils.logger import GestureLogger
+from gesture_analysis.utils.logger import GestureLogger, NONE_SESSION
 from gesture_analysis.config import API_CONFIG, MEDIAPIPE_CONFIG, LOGS_DIR
 import mediapipe as mp
 
@@ -50,6 +50,31 @@ session_analyzers = {}
 session_loggers = {}  # 每个会话的 GestureLogger 实例
 SESSION_TIMEOUT = 300
 
+# 会话 id 直接进日志文件名（`gesture_emotion_log_{session_id}.csv`），而它是客户端可控的
+# （query 参数），所以只收 `[A-Za-z0-9_-]{1,128}` —— 路径分隔符与 `..` 一概不收。
+# `NONE`（无 id 时的占位）按此模式本来就合法，不必为它开口子。
+# 与 voice_interaction/asr/transcript_store.py 的守卫同模式，但**各持一份**：
+# gesture 从 voice 包导入方向是反的，还会把 TTS/ASR 整条 import 链拉起来（见 Ruling M1-2）。
+SESSION_ID_PAT = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+
+
+def validate_session_id(session_id: str) -> str:
+    """校验客户端给的 session_id：非法一律 400。
+
+    为什么必须在这一层拦：gesture 不写 transcript，`transcript_store.recording_dir()` 那道
+    中央守卫覆盖不到它；而这个 id 会被拼进日志文件名 —— `../../x` 能让
+    `gesture_emotion_log_../../x.csv` 落到日志目录**之外**。
+
+    为什么不"顺手改成 NONE"：坏输入被吞掉之后客户端拿到的是 200 和一份看着正常的响应，
+    问题只在报告里以"数据对不上"的形式浮出来。本项目一贯要求坏输入响亮失败。
+    """
+    if isinstance(session_id, str) and SESSION_ID_PAT.fullmatch(session_id):
+        return session_id
+    raise HTTPException(
+        status_code=400,
+        detail=f"非法 session_id: {session_id!r} —— 只允许字母/数字/下划线/连字符，1–128 位"
+               f"（它会进日志文件名，不接受路径分隔符与 '..'）")
+
 
 def get_or_create_analyzers(session_id: str):
     """获取或创建会话的分析器实例"""
@@ -75,11 +100,12 @@ def get_or_create_analyzers(session_id: str):
             'emotion': EmotionInferencer()
         }
         session_analyzers[session_id] = (analyzers, current_time)
-        # 同一会话的所有帧写入同一个文件（用会话创建时间戳作为文件名）
-        from datetime import datetime
-        session_ts = datetime.fromtimestamp(current_time).strftime('%Y%m%d_%H%M%S')
-        log_path = str(LOGS_DIR / f'gesture_emotion_log_{session_ts}.csv')
-        session_loggers[session_id] = (GestureLogger(log_file_path=log_path), log_path, current_time)
+        # 同一会话的所有帧写入同一个文件，文件名带会话 id（报告侧按它归堆、NONE 单独一桶）
+        log_path = str(LOGS_DIR / f'gesture_emotion_log_{session_id}.csv')
+        # session_id 必须一起传：logger 用它写 CSV 首列（Task 3 的契约），只传路径的话
+        # 首列会写成 NONE，而文件名写着真实 id —— 两边对不上，报告侧按首列归堆就漏了这些行
+        session_loggers[session_id] = (GestureLogger(log_file_path=log_path, session_id=session_id),
+                                       log_path, current_time)
         logger.info(f"创建手势分析会话: {session_id}, 日志: {log_path}")
     else:
         analyzers, _ = session_analyzers[session_id]
@@ -129,13 +155,13 @@ async def analyze_image(
 
     参数:
         file: 上传的图片文件（FormData格式）
-        session_id: 会话ID（可选，不提供则自动生成）
+        session_id: 会话ID（可选，不提供则记入 NONE 桶；形状非法回 400）
 
     返回:
         分析结果
     """
-    if not session_id:
-        session_id = str(uuid.uuid4())
+    # 无 id → NONE（不再每请求 mint 一个 uuid：那会让每一帧都变成新会话、写出新日志文件）
+    session_id = validate_session_id(session_id or NONE_SESSION)
 
     try:
         logger.info(f"收到手势分析请求: session={session_id}, file={file.filename}")
