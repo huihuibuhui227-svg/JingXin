@@ -43,9 +43,23 @@ class LogDataLoader:
 
         print(f"✅ 日志根目录已定位：{self.log_dir}")
 
-        # 正则表达式匹配文件名
-        # 格式：{type}_{desc}_log_{YYYYMMDD}_{HHMMSS}.csv
-        self.file_pattern = re.compile(r"^(face|gesture|interview|research)_(.+?)_log_(\d{8})_(\d{6})\.csv$")
+        # 正则表达式匹配文件名。**两种形态都接受**,报告侧只认文件名里的时间戳
+        # (不读 mtime、不读内容、也不读 session_id 列):
+        #   旧形态  {type}_{desc}_log_{YYYYMMDD}_{HHMMSS}.csv              —— 历史日志
+        #   M1 形态 {type}_{desc}_log_{YYYYMMDD}_{HHMMSS}_{4 位十六进制}.csv
+        #           session_id = new_session_id()(voice_interaction/asr/session.py):
+        #           时间段给人看,随机段防撞。T3 起三个模块的文件名都带它
+        #           (face/gesture 的 API、voice 的 logger),即**没有产出方**会再写出
+        #           纯时间戳形态 —— 只认旧形态会让报告路径一份日志都加载不到。
+        # ⚠️ 紧跟在 `_log_` 后面的**时间戳一段不是可选的**,NONE 桶因此进不来:
+        #   无 id 会话落盘为 `..._log_NONE_{YYYYMMDD}_{HHMMSS}.csv`(三个 API 都把缺省 id
+        #   解析成字面量 "NONE" 后传给 logger),它的尾部**同样长得像时间戳**。若把时间戳
+        #   放宽成"可选",这些跨天增长的文件会重新可见,一次聚合就会把不同天、不同客户端的
+        #   行混在一起(此前"它们从不进入任何聚合"这一保证正依赖于它们不可见)。
+        self.file_pattern = re.compile(
+            r"^(face|gesture|interview|research)_(.+?)_log_(\d{8})_(\d{6})"
+            r"(?:_([0-9a-f]{4}))?\.csv$"
+        )
 
     def _scan_and_group_files(self) -> Dict[str, List[Dict]]:
         """
@@ -71,12 +85,14 @@ class LogDataLoader:
                 modality = match.group(1)
                 date_str = match.group(3)
                 time_str = match.group(4)
-                # 生成用于比较的整数时间戳 YYYYMMDDHHMMSS
+                sid_suffix = match.group(5)          # M1 形态的随机段;旧形态为 None
+                # 生成用于比较的整数时间戳 YYYYMMDDHHMMSS(随机段不参与排序)
                 timestamp_val = int(f"{date_str}{time_str}")
 
                 file_info = {
                     "path": file_path,
-                    "session_id": f"{date_str}_{time_str}",
+                    # 自报的会话 = 文件名里那一段(旧形态只有时间戳,M1 形态带随机段)
+                    "session_id": f"{date_str}_{time_str}" + (f"_{sid_suffix}" if sid_suffix else ""),
                     "timestamp_val": timestamp_val
                 }
 

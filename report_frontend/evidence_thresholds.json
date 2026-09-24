@@ -12,7 +12,15 @@
     "pause": 2,
     "pitch": 10,
     "energy": 10,
-    "speech": 2
+    "speech": 2,
+    "density": 5
+  },
+  "_thresholds_basis_note": "阈值同属临时值(spec §5.1):数值住在 thresholds 里——代码只读那一处,不得在代码里再写一份;依据写在这里,逐族登记。未登记的族走 _default_n_valid。",
+  "_thresholds_basis": {
+    "density": {
+      "basis": "该指标每段回答一个样本(_n_rows = 语音日志行数 = 回答段数),登记门槛 5。默认 10 当初是按**帧级**列设的,被一个每回答一个样本的指标继承,是单位错配:题库每场只有 8 题,答满全场也才 8 段,10 段**不可达**。一个永不达标的门槛不等于更严的诚实门,它等价于该指标永久不可用(永远显示「有效样本不足」)。暂用 5(≈ 半场答题量),M5 标定到位后替换。",
+      "_provisional": true
+    }
   },
   "_scale_factors_note": "报告层的量纲折算因子:把指标原始值折到 0–1。原为 research_mapper._dynamic_normalize 里的裸常量(×50 / ×5 / ×250 / ÷30 / ÷80 与 pause 分箱),违反 spec §5.1「临时值不得写成代码里的裸常量」,故逐族登记在此。basis_kind 的含义:definitional = 定义性(如比率天然落在 0–1)/ physical = 物理下限 / legacy_arbitrary = 历史遗留,无物理或定义依据 —— 登记只为让它可被审查与替换,不代表它有依据。",
   "_scale_factors_basis_note": "legacy_arbitrary 各族的诚实读法:它们是未标定标尺上的历史满量程取值。它们不再决定报告里任何一句对人的表述(点分与档位已停止渲染),仅影响 payload 里的复合分与证据图上的相对贡献。M5 标定或 M4 指标层重定义后逐族替换。",

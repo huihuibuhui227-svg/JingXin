@@ -438,6 +438,9 @@ def test_observed_interval_is_session_derived():
         assert claim not in html, f"报告出现人群位置表述:{claim}"
 
     # 无 _mean 后缀的键:同一个 _std 取法,`<键>_std` 那条分支
+    # ⚠️ 这是**合成 fixture**(T6 审查结论):生产键里没有「有 _std 兄弟姐妹、却没有 _mean」
+    #    的形态,故这条分支对真实数据目前不起作用。保留只为钉住取法本身 —— 日后真有人
+    #    写出这种键时,别才发现它静默拿不到标准差。
     bare = {"face": {"face_energy": 0.5, "face_energy_std": 0.1, "_n_rows": 100.0}}
     dim = ResearchCapabilityMapper().map_features_to_scores(bare)["dimensions"]["confidence_level"]
     ev = next(e for e in dim["evidence_chain"] if e["human_name"] == "语音能量")

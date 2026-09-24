@@ -1,5 +1,5 @@
 # tests/test_feature_key_rename.py
-"""连接词密度在报告侧只留一处定义,且量程随新定义走。
+"""连接词密度在报告侧只留一处定义,量程与样本量门槛都随新定义走。
 
 背景:该指标曾有两份定义 —— 语音模块按「每百字连接词数」写入日志列 `connective_density`
 (Task 3),报告层 `feature_engine` 又从文本列按「命中数÷字符数」硬算一份同名指标。
@@ -138,3 +138,41 @@ def test_density_scale_matches_the_per_hundred_definition():
     assert mapper._dynamic_normalize(5.0, "connective_density_mean") == 0.5, \
         "每百字 5 个应落在量程中点"
     assert mapper._dynamic_normalize(10.0, "connective_density_mean") == 1.0
+
+
+def test_density_has_its_own_n_valid_threshold():
+    """M1-28:`density` 族必须登记自己的样本量门槛,否则该槽永远不可达。
+
+    单位错配:`_n_rows` = 语音日志行数 = **回答段数**(每段回答一个样本),而
+    `_default_n_valid` = 10 当初是按**帧级**列设的。面试题库每场只有 8 题,答满全场
+    也只有 8 段 —— 10 段不可达,该槽会被 G3 永久拦成「有效样本不足」。
+    一个永不达标的门槛不是"更严的诚实门",等价于该指标永久不可用。
+
+    红在两处(都已实测):
+    - 消费路径:`_threshold_for(<密度键>)` 落到默认值 10 → 下面第一条断言红(10 != 5);
+    - 登记表:`load_thresholds()["thresholds"]["density"]` → `KeyError: 'density'`;
+    - 端到端:8 段回答(满场)在修前被 G3 拦下 → 证据链为空。
+    """
+    from report_frontend.evidence_gate import _threshold_for, load_thresholds
+
+    # 先钉行为:真正判样本量的是这个函数,登记的 5 必须传到它手里(而不是默认 10)
+    assert _threshold_for("voice_research_research_connective_density_mean") == 5, (
+        f"密度键没拿到自己登记的门槛,落到了默认值:"
+        f"{_threshold_for('voice_research_research_connective_density_mean')}"
+    )
+    assert _threshold_for("connective_density") == 5
+    # 再钉登记表本身:数值与依据都要在表里(依据写在 _thresholds_basis 里)
+    data = load_thresholds()
+    assert data["thresholds"]["density"] == 5, "density 族没登记自己的门槛"
+    assert data["_thresholds_basis"]["density"]["_provisional"] is True
+    assert "8" in data["_thresholds_basis"]["density"]["basis"], (
+        "依据必须写明题库每场 8 题导致 10 段不可达"
+    )
+
+    # 端到端:满场 8 段回答必须过 G3(修前 8 < 10 → 被拦)
+    feats = {"voice_research": {"connective_density_mean": 3.5,
+                                "connective_density_std": 0.4,
+                                "_n_rows": 8.0}}
+    dim = ResearchCapabilityMapper().map_features_to_scores(feats)["dimensions"]["logical_thinking"]
+    assert dim["evidence_chain"], f"8 段回答(满场)仍被 G3 拦下:{dim['evidence_gaps']}"
+    assert dim["evidence_chain"][0]["n_valid"] == 8
