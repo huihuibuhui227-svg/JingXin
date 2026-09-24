@@ -97,8 +97,10 @@ voice 服务 ── ② 生成 session_id;建 {RECORDINGS_DIR}/{session_id}/sess
 | `face_expression/api/app.py`、`gesture_analysis/api/app.py` | 改 | `/analyze` 接受 `session_id` |
 | `face_expression/utils/logger.py`、`gesture_analysis/utils/logger.py` | 改 | 同 logger |
 | `report_frontend/feature_engine.py` | 改 | 新列名映射;`_std` / `_n_rows` 成对写入 |
-| `report_frontend/research_mapper.py`、`evidence_gate.py`、`evidence_thresholds.json` | 改 | 槽位改名「连接词密度」 |
-| `experiments/duration_audit/whitelist_C.json`、`whitelist_Cplus.json` | 改 | 新列名进白名单(否则被静默丢弃) |
+| `report_frontend/research_mapper.py`、`evidence_gate.py`、`evidence_thresholds.json` | 改 | 槽位改名「连接词密度」;`density` 折算族的量程随新定义更新 |
+| `voice_interaction/pipeline/speech_recognition_pipeline.py`、`voice_interaction/__init__.py`、`examples/*` | 改 | **vosk 的导入链必须一并拆掉** —— `__init__.py` 会导入该 pipeline,而它在**模块级**要求 vosk 模型存在,删模型即 `ImportError` |
+
+**⚠️ 已从 M1 范围移除(2026-09-24 接口核实后修正):** 原计划把「新列名进 `experiments/duration_audit/whitelist_C.json`」列为 M1 项,但核实发现 ① 该白名单服务的是**论文线的 C/C+ 实验**(从历史特征矩阵重聚合),而历史数据里根本没有新列;② 指定文件名 `whitelist_Cplus.json` **不存在**(C+ 是 `whitelist_C.json` 里的 `Cplus_extra` 键)。→ 新列是否进 C/C+ 是**将来真出现该列时的单独决定**,不属于 M1。
 
 ## 6. 接口契约
 
@@ -163,6 +165,11 @@ voice 服务 ── ② 生成 session_id;建 {RECORDINGS_DIR}/{session_id}/sess
                "因此", "另外", "其实", "首先", "其次", "最后", "总之", "比如", "例如"]}
   ```
 - 计算在**采集时**完成(D8),原句不进仓库、不进报告路径
+
+**量化与折算(接口核实后补写)**
+
+- 原始值是**每百字连接词数**(典型 0~10 量级),与旧公式 `命中数 ÷ 字符数`(典型 0~0.1)**相差约 100 倍**。因此 `evidence_thresholds.json` 里 `density` 折算族(现为 `full_scale: 0.02`、`basis_kind: "legacy_arbitrary"`、依据写的是"旧实现 val×50")**必须随新定义更新**,并带 `_provisional`。
+- ⚠️ **同一个指标现在有两份定义**:`report_frontend/feature_engine.py` 里有两张硬编码关键词表(主分支 19 词、兜底分支 9 词)在算**同名**的 `logic_keyword_density`。M1 必须**把这两张表与两段计算一起删掉** —— 只留 voice 侧一处定义。否则"报告里的数字是哪一份"取决于哪条分支先命中,而兜底分支在 pandas 3 下判 `dtype == 'object'` 恒假、实际是死代码(① 的最终复审已实测)。
 
 ## 7. 数据流(一段回答)
 
