@@ -1,4 +1,7 @@
 # tests/test_report_layer.py
+import ast
+from pathlib import Path
+
 from report_frontend.research_mapper import ResearchCapabilityMapper
 
 
@@ -195,15 +198,18 @@ _MIXED = {"voice_research": {"logic_keyword_density": 0.05,
 def test_deep_analysis_has_no_banned_words():
     """spec §5.4 + §5.6:叙事层不得含情绪/心理/诚信构念。
 
-    ⚠️ 只覆盖**叙事层自己写的句子**。报告里出现的禁止词有另一个来源:
-    `research_mapper` 提供的两个标签 —— `display_name`「抗压与情绪稳定性」
-    (含 抗压、情绪稳定)与 `human_name`「面部紧张度」(含 紧张)。
-    实测确认全 mapper 只有这两处命中。
+    ⚠️ 只覆盖**渲染出来的那一段 HTML**。全仓字符串字面量由
+    `test_no_banned_words_in_output_strings` 守(那个覆盖面更大)。
 
-    它们属 **Task 7** 的改名范围(Task 7 改完 `display_name` 与 `human_name`
-    后,**须恢复全量扫描** —— 见计划 Task 7 Step 3a)。
-    本测试用剔除这两个标签的方式,把叙事层自己的输出隔离出来测。
-    剔除是精确字符串替换,所以叙事层**自己在别处**写出的禁止词仍会被抓到。
+    报告里出现的禁止词有两个来源,本测试两者都扫:
+    1. 叙事层自己写的句子(report_generator);
+    2. `research_mapper` 提供的标签 —— `display_name` 与 `human_name`,
+       它们经 `_render_dimension_block` 进指标表与缺口清单。
+
+    来源 2 的两个旧标签「抗压与情绪稳定性」「面部紧张度」曾由 Task 6
+    以精确字符串替换剔除(否则本测试结构性不可满足);Task 7 改完
+    `display_name` 与 `human_name` 后,剔除逻辑已删除,恢复全量扫描。
+    **不要再把标签剔除加回来** —— 那会让本测试对 mapper 标签回归失明。
 
     ⚠️ fixture 必须是 _MIXED:禁止词原本住在出分路径上,零证据输入只扫"无证据"那几句。
     """
@@ -214,10 +220,6 @@ def test_deep_analysis_has_no_banned_words():
     assert result["total_score"] is not None, "fixture 未出分,本测试退化为空断言"
     html = ReportGenerator()._generate_deep_text_analysis(_MIXED, result)
 
-    # 剔除 mapper 提供的标签(Task 7 修复后本段移除,恢复全量)
-    for label in ("抗压与情绪稳定性", "面部紧张度"):
-        html = html.replace(label, "")
-
     for word in BANNED:
         assert word not in html, f"叙事层出现禁止词:{word}"
 
@@ -226,7 +228,7 @@ def test_deep_analysis_handles_none_scores():
     """score 为 None 的维度不得参与排序/取最大值,且仍要渲染成"证据不足"。
 
     ⚠️ fixture 必须是 _MIXED:零证据输入会让 total_score 直接为 None,
-    根本走不到 max(..., key=_CONF_ORDER.get) 那一行,本测试就守不住它。
+    根本走不到 max(..., key=CONF_ORDER.get) 那一行,本测试就守不住它。
     _MIXED 下 logical_thinking 出分、其余 4 维为 None,两条路径同时被走到。
     """
     from report_frontend.report_generator import ReportGenerator
@@ -253,3 +255,40 @@ def test_no_hardcoded_gaze_claim():
     html = ReportGenerator()._generate_deep_text_analysis(_MIXED, result)
     assert "未出现异常的回避行为" not in html
     assert "如外科医生般" not in html
+
+
+# 全仓扫描范围。**以本文件位置为准**,不用裸相对路径 —— 后者会让扫描
+# 静默依赖当前工作目录:在仓库外跑 pytest 时 SCOPE 全部不存在,
+# rglob 返回空,offenders 恒空,本测试对任何实现都通过。
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+SCOPE = [_REPO_ROOT / "report_frontend", _REPO_ROOT / "templates"]
+
+# 扫描到的文件数下限(现为 9:report_frontend 8 个 + templates/__init__.py)。
+# 用于反空断言:SCOPE 写错时文件数为 0,offenders 恒空,测试会假装通过。
+_MIN_SCANNED_FILES = 5
+
+
+def test_no_banned_words_in_output_strings():
+    """spec §5.6:禁止词不得出现在**任何字符串字面量**里(含 docstring)。
+
+    注释不算 AST Constant(`ast.Constant` 只覆盖字面量),所以说明性注释不受
+    本测试约束 —— 维护者解释"为什么删掉某个词"的注释是允许的。
+
+    这是 Task 7 的全仓底线:维度名、描述、提示语、控制台 print 全在内,
+    而 `test_deep_analysis_has_no_banned_words` 只守渲染出来的那一段 HTML。
+
+    禁止词表复用模块级 BANNED(Task 6 引入),不另立同名常量。
+    """
+    offenders = []
+    scanned = 0
+    for root in SCOPE:
+        for path in sorted(root.rglob("*.py")):
+            scanned += 1
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                    for word in BANNED:
+                        if word in node.value:
+                            offenders.append(f"{path}:{node.lineno} {word}")
+    assert scanned >= _MIN_SCANNED_FILES, f"只扫到 {scanned} 个文件,本测试退化为空断言"
+    assert not offenders, "字符串字面量含禁止词:\n" + "\n".join(offenders)

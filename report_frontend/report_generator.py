@@ -7,17 +7,16 @@ from datetime import datetime
 from typing import Dict, Any, Optional, List
 from .data_loader import LogDataLoader
 from .feature_engine import PsychologicalFeatureEngine
-from .research_mapper import ResearchCapabilityMapper
+from .research_mapper import CONF_ORDER, ResearchCapabilityMapper
 from .visualizer import ReportVisualizer
-
-# 置信度四档的高低顺序(取"置信度上限"时用)。
-# research_mapper.confidence_from 只会产出这四档,键必须与之保持一致。
-_CONF_ORDER = {"无": 0, "低": 1, "中": 2, "高": 3}
 
 
 class ReportGenerator:
     """
-    科研能力评估报告生成器 (终极丰满版)
+    行为观测报告生成器
+
+    报告只陈述本次实际测到了什么:过门的指标、原始值、权重、缺口与置信度。
+    不解读、不推断、不做形容词修饰(spec §5.4)。
     """
 
     def __init__(self, output_dir: str = "data/output"):
@@ -28,7 +27,7 @@ class ReportGenerator:
     def generate_report(self, session_id: Optional[str] = None) -> str:
         """从磁盘 CSV 文件生成评估报告（批处理模式）"""
         print("\n" + "=" * 70)
-        print("🚀 启动 JingXin 科研能力评估报告生成系统 (批量模式)")
+        print("🚀 启动 JingXin 面试行为观测报告生成系统 (批量模式)")
         print("=" * 70)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -66,7 +65,7 @@ class ReportGenerator:
     def generate_report_live(self, session_id: str) -> str:
         """从运行中的 API 服务获取实时内存数据，生成评估报告（实时模式）"""
         print("\n" + "=" * 70)
-        print("🚀 启动 JingXin 科研能力评估报告生成系统 (实时模式)")
+        print("🚀 启动 JingXin 面试行为观测报告生成系统 (实时模式)")
         print(f"📋 会话 ID: {session_id}")
         print("=" * 70)
 
@@ -159,7 +158,7 @@ class ReportGenerator:
             parts.append("<p>本次会话未采集到足以支撑评估的有效证据。</p>")
         else:
             conf_cap = max((d["confidence"] for d in result["dimensions"].values()),
-                           key=_CONF_ORDER.get)
+                           key=CONF_ORDER.get)
             parts.append(
                 f"<p>综合行为观测摘要：{result['total_level']}"
                 f"(置信度上限：{conf_cap})</p>"
@@ -188,11 +187,13 @@ class ReportGenerator:
         for key, path in chart_paths.get('evidence', {}).items():
             dim_name = result['dimensions'][key]['display_name']
             ev_html = get_chart_iframe(path, "400")
+            # 此处曾有「🧠 判推」框,渲染 result['dimensions'][key]['narrative']。
+            # 该字段的产出方(template 填空式推断)已随 spec §5.4 一并删除,
+            # 且报告本就不该给判推 —— 故整框移除,只留证据图。
             evidence_html_list.append(f"""
             <div class="card">
                 <h3>🔍 {dim_name} - 证据链</h3>
                 <div class="chart-container">{ev_html}</div>
-                <div class="narrative-box"><strong>🧠 判推：</strong> {result['dimensions'][key]['narrative']}</div>
             </div>
             """)
 
@@ -201,7 +202,7 @@ class ReportGenerator:
         <html lang="zh-CN">
         <head>
             <meta charset="UTF-8">
-            <title>JingXin 科研能力深度评估报告</title>
+            <title>JingXin 面试行为观测报告</title>
             <style>
                 :root {{ --primary: #2E86AB; --bg: #f4f7f6; }}
                 body {{ font-family: 'Microsoft YaHei', sans-serif; background: var(--bg); color: #333; margin: 0; padding: 20px; line-height: 1.8; }}
@@ -215,16 +216,14 @@ class ReportGenerator:
                 h2 {{ border-left: 5px solid var(--primary); padding-left: 15px; color: var(--primary); }}
                 h3 {{ color: #444; border-bottom: 1px solid #eee; padding-bottom: 10px; }}
                 .chart-container {{ margin: 20px 0; border: 1px solid #eee; border-radius: 5px; }}
-                .narrative-box {{ background: #eef2f5; padding: 15px; border-left: 4px solid var(--primary); margin-top: 15px; }}
-                .grid-2 {{ display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }}
-                @media (max-width: 768px) {{ .grid-2 {{ grid-template-columns: 1fr; }} .score-board {{ flex-direction: column; }} }}
+                @media (max-width: 768px) {{ .score-board {{ flex-direction: column; }} }}
             </style>
         </head>
         <body>
             <div class="container">
                 <header>
-                    <h1>🔬 JingXin 科研能力评估报告</h1>
-                    <div>基于多模态心理特征的深度分析与判推</div>
+                    <h1>🔬 JingXin 面试行为观测报告</h1>
+                    <div>基于多模态行为量的结构化观测</div>
                     <div style="margin-top:10px; font-size:0.9em; opacity:0.8;">
                         {datetime.now().strftime("%Y-%m-%d %H:%M")} | {result['model_metadata']['version']}
                     </div>
@@ -233,7 +232,7 @@ class ReportGenerator:
                 <div class="score-board">
                     <div class="score-card">
                         <div class="score-number">{_score_display}</div>
-                        <div>综合科研潜力评分</div>
+                        <div>综合行为观测评分</div>
                         <div style="color:var(--primary); font-weight:bold;">{result['total_level']}</div>
                     </div>
                     <div class="score-card" style="flex:2; text-align:left; display:flex; align-items:center;">
@@ -244,21 +243,15 @@ class ReportGenerator:
                     </div>
                 </div>
 
-                <!-- 深度文字报告 -->
+                <!-- 逐维观测明细:过门指标 + 未过门缺口 -->
                 <div class="card">
-                    <h2>📑 深度心理特征分析报告</h2>
+                    <h2>📑 行为指标观测明细</h2>
                     {deep_analysis_html}
                 </div>
 
-                <div class="grid-2">
-                    <div class="card">
-                        <h3>📊 五维能力模型</h3>
-                        <div class="chart-container">{get_chart_iframe(chart_paths.get('radar'), '500')}</div>
-                    </div>
-                    <div class="card">
-                        <h3>👁️ 眼动行为分析</h3>
-                        <div class="chart-container">{get_chart_iframe(chart_paths.get('gaze'), '500')}</div>
-                    </div>
+                <div class="card">
+                    <h3>📊 五维行为观测</h3>
+                    <div class="chart-container">{get_chart_iframe(chart_paths.get('radar'), '500')}</div>
                 </div>
 
                 <h2>🔍 分维度证据链</h2>
@@ -272,9 +265,6 @@ class ReportGenerator:
         </html>
         """
         return html
-
-    def _generate_gaze_insight(self, data):
-        return "详见上方眼动图表分析。"
 
 
 if __name__ == "__main__":

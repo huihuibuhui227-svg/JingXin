@@ -11,10 +11,15 @@ from .evidence_gate import confidence_from, gate, user_message
 
 warnings.filterwarnings('ignore')
 
+# 置信度从低到高的顺序。取值域由 evidence_gate.Confidence 定义(高在本轮不可达)。
+# 报告层取"置信度上限"时用 max(..., key=CONF_ORDER.get);本模块是产出置信度的
+# 一方,故顺序表定义在这里,由 report_generator 导入 —— 两处各存一份会漂移。
+CONF_ORDER = {"无": 0, "低": 1, "中": 2, "高": 3}
+
 
 class ResearchCapabilityMapper:
     """
-    科研能力映射引擎 (最终修复版 - 包含 stats 字段)
+    行为指标映射引擎 (最终修复版 - 包含 stats 字段)
     """
 
     def __init__(self):
@@ -23,10 +28,9 @@ class ResearchCapabilityMapper:
         # 得到常量,后者既伪造证据又产出杜撰百分位(spec §5.3 / §5.5)。
         self.mapping_rules = {
             "logical_thinking": {
-                "name": "逻辑思维与专注度",
-                "description": "评估思维严密性、语言逻辑结构及视觉注意力集中程度。",
+                "name": "话语结构特征",
+                "description": "观测文本结构与面部动作单元相关的可测量。",
                 "algorithm": "加权线性组合 + 认知负荷推断",
-                "inference_template": "候选人在逻辑构建上表现{level}，结合其{gaze_info}，显示出{conclusion}的科研思维潜质。",
                 "indicators": [
                     ("logic_keyword_density", 0.4, True, "逻辑关键词密度", "core"),
                     ("focus_score", 0.3, True, "面部专注度", "core"),
@@ -35,12 +39,11 @@ class ResearchCapabilityMapper:
                 ]
             },
             "stress_resilience": {
-                "name": "抗压与情绪稳定性",
-                "description": "评估高压下的情绪控制力、生理指标平稳度及焦虑水平。",
+                "name": "情境行为稳定性",
+                "description": "观测会话中的可测行为量。",
                 "algorithm": "多模态生理信号融合 (面部 + 肢体 + 眼动)",
-                "inference_template": "在压力情境下，候选人表现出{level}的生理稳定性，{jitter_info}，预示其{conclusion}的科研抗压能力。",
                 "indicators": [
-                    ("tension_score", 0.3, False, "面部紧张度", "core"),
+                    ("tension_score", 0.3, False, "眉间收缩与唇部压缩", "core"),
                     ("jitter", 0.3, False, "肢体抖动", "core"),
                     ("gaze_deviation", 0.2, False, "视线偏差", "core"),
                     ("symmetry_score", 0.2, True, "面部对称性", "support"),
@@ -48,9 +51,8 @@ class ResearchCapabilityMapper:
             },
             "communication_fluency": {
                 "name": "沟通表达流畅度",
-                "description": "评估语言组织能力、语调丰富度及表达连贯性。",
+                "description": "观测语音韵律与停顿相关的可测量。",
                 "algorithm": "韵律特征与停顿分析",
-                "inference_template": "语言表达流畅度{level}，{pitch_info}，反映出其{conclusion}的学术沟通能力。",
                 "indicators": [
                     ("fluency_score", 0.4, True, "语音流畅度", "core"),
                     ("speech_ratio", 0.3, True, "有效说话占比", "core"),
@@ -59,10 +61,9 @@ class ResearchCapabilityMapper:
                 ]
             },
             "confidence_level": {
-                "name": "自信度",
-                "description": "评估自我效能感、肢体开放度及眼神交流质量。",
+                "name": "行为表现活跃度",
+                "description": "观测肢体与注视相关的可测量。",
                 "algorithm": "眼动 - 肢体多模态耦合模型",
-                "inference_template": "自信水平{level}，眼神接触{eye_info}，手势{hand_info}，表明其{conclusion}的科研自信心。",
                 "indicators": [
                     ("hand_score", 0.3, True, "手势自信分", "core"),
                     ("shoulder_score", 0.2, True, "肩部放松度", "support"),
@@ -71,10 +72,9 @@ class ResearchCapabilityMapper:
                 ]
             },
             "cognitive_efficiency": {
-                "name": "认知负荷效率",
-                "description": "评估处理复杂信息时的脑力消耗效率。",
+                "name": "言语流畅特征",
+                "description": "观测面部动作单元频率与回答长度的可测量。",
                 "algorithm": "微表情频率分析与响应延迟回归",
-                "inference_template": "认知处理效率{level}，{au_info}，暗示其{conclusion}的复杂问题解决能力。",
                 "indicators": [
                     ("au7_freq", 0.3, False, "眼部挤压 (费力)", "core"),
                     ("blink_rate", 0.2, True, "眨眼频率", "support"),
@@ -93,7 +93,7 @@ class ResearchCapabilityMapper:
         }
 
     def map_features_to_scores(self, features: Dict[str, Any]) -> Dict[str, Any]:
-        print("\n⚖️ 正在执行深度映射与心理科研能力判推...")
+        print("\n⚖️ 正在执行行为指标映射...")
         print("-" * 70)
 
         # 1. 扁平化
@@ -207,7 +207,6 @@ class ResearchCapabilityMapper:
                     "display_name": rule_config["name"],
                     "score": None,
                     "level": "证据不足",
-                    "narrative": "本次未采集到足以评估该行为线索的有效样本。",
                     "evidence_chain": [],
                     "evidence_gaps": dim_gaps,
                     "confidence": "无",
@@ -220,18 +219,15 @@ class ResearchCapabilityMapper:
             score = round(max(0.0, min(100.0, weighted_sum / total_weight * 100)), 2)
             level = self._get_level(score)
 
-            narrative = self._generate_deep_inference(rule_config, score, level, inference_data, positive_factors,
-                                                      negative_factors)
-
+            # 说明:此处曾产出 narrative / simple_narrative(模板填空式评语),
+            # 已随 `_generate_deep_inference` 一并删除(spec §5.4:不解读、不推断)。
+            # 报告层改为直接渲染证据状态,不再有可填空的句子。
             dimension_results[dim_key] = {
                 "display_name": rule_config["name"],
                 "description": rule_config["description"],
                 "algorithm": rule_config["algorithm"],
                 "score": score,
                 "level": level,
-                "narrative": narrative,
-                "simple_narrative": self._generate_simple_narrative(rule_config["name"], score, level,
-                                                                    positive_factors, negative_factors),
                 "evidence_chain": evidence_chain,
                 "positive_factors": positive_factors,
                 "negative_factors": negative_factors,
@@ -300,12 +296,6 @@ class ResearchCapabilityMapper:
         else:
             return "待提升"
 
-    def _generate_simple_narrative(self, dim_name, score, level, positives, negatives):
-        text = f"在**{dim_name}**方面，评估结果为**{level}**（{score}分）。"
-        if positives: text += f" 优势：{', '.join(positives)}。"
-        if negatives: text += f" 建议：{', '.join(negatives)}。"
-        return text
-
     def _fuzzy_match(self, keyword: str, all_features: Dict[str, Any]):
         """按关键词在扁平化特征里找第一个数值指标。
 
@@ -327,35 +317,29 @@ class ResearchCapabilityMapper:
 
         return None, None
 
-    def _generate_deep_inference(self, rule_config, score, level, data, positives, negatives):
-        template = rule_config.get("inference_template", "")
-        level_desc = "出色" if score >= 80 else "良好" if score >= 70 else "一般"
-        conclusion = "极具潜力胜任高强度科研工作" if score >= 80 else "具备优秀科研素养" if score >= 70 else "具备基本素养，需加强训练"
-
-        # 这三句原本由杜撰常模算出的百分位驱动。常模百分位已删(spec §5.5),
-        # 因此不再产出"超过常人 X%""正常/偏低"这类无常模支撑的断言,直接留空。
-        gaze_info = ""
-        jitter_info = ""
-        au_info = ""
-
-        try:
-            narrative = template.format(level=level_desc, gaze_info=gaze_info, jitter_info=jitter_info,
-                                        pitch_info="语调丰富", eye_info="眼神交流充分", hand_info="手势自然",
-                                        au_info=au_info, conclusion=conclusion)
-        except KeyError:
-            narrative = self._generate_simple_narrative(rule_config["name"], score, level, positives, negatives)
-
-        return narrative
-
     def _generate_summary_narrative(self, dimensions, total_score):
-        # score 现在可能是 None(证据不足),不能用 > 0 比较
-        valid_dims = {k: v for k, v in dimensions.items() if v['score'] is not None}
-        if not valid_dims: return "数据不足。"
-        top_dim = max(valid_dims.items(), key=lambda x: x[1]['score'])
-        bottom_dim = min(valid_dims.items(), key=lambda x: x[1]['score'])
-        summary = f"综合科研潜力评分：**{total_score}** ({self._get_level(total_score)})。"
-        summary += f" 核心优势在于**{top_dim[1]['display_name']}**；建议关注**{bottom_dim[1]['display_name']}**的提升。"
-        return summary
+        """只陈述本次的覆盖与置信度,不排序、不比较、不评价。
+
+        原实现按分数挑出 top/bottom 两个维度,写成"核心优势在于 X;建议关注 Y 的提升"
+        —— 那是把 max/min 名次当成对候选人的结论,又加上一句无依据的改进建议。
+        现改为只报事实:多少指标槽过了证据门、综合分是多少、置信度上限是多少。
+
+        传入的 dimensions 齐全(每个维度都带 matched_indicators),槽数直接取自
+        各维自己渲染的那两个数字 —— 与报告正文用的是同一个来源。
+        """
+        passed = 0
+        slots = 0
+        for dim in dimensions.values():
+            got, _, total = dim["matched_indicators"].partition("/")
+            passed += int(got)
+            slots += int(total)
+
+        if total_score is None:
+            return f"本次会话 {slots} 个指标槽中 0 个通过证据门，未产出综合分。"
+
+        conf_cap = max((d["confidence"] for d in dimensions.values()), key=CONF_ORDER.get)
+        return (f"本次会话 {slots} 个指标槽中 {passed} 个通过证据门，"
+                f"综合行为观测评分 {total_score}（置信度上限：{conf_cap}）。")
 
 
 if __name__ == "__main__":

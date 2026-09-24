@@ -2,7 +2,6 @@
 
 import plotly.graph_objects as go
 import plotly.express as px
-from plotly.subplots import make_subplots
 import pandas as pd
 import numpy as np
 from typing import Dict, Any, List, Optional, Tuple
@@ -18,12 +17,13 @@ PLOTLY_FONT_FAMILY = "Microsoft YaHei, PingFang SC, SimHei, sans-serif"
 
 class ReportVisualizer:
     """
-    科研能力评估报告可视化引擎 (终极版：含眼动轨迹 + 自动保存)
+    行为观测报告可视化引擎 (雷达图 + 逐维证据图 + 自动保存)
 
-    【功能升级】
-    1. 新增眼动热力轨迹图：直观展示视线聚焦区域与扫描路径。
-    2. 自动保存机制：所有图表自动保存至 data/output 目录。
-    3. 路径管理：返回相对路径，方便 HTML 报告引用。
+    【说明】
+    1. 眼动图:M3 之前不生成 —— 现有坐标撑不起"注视"这个构念,见
+       create_gaze_plot_from_df 的说明(spec §5.5)。
+    2. 自动保存机制:所有图表自动保存至 data/output 目录。
+    3. 路径管理:返回图表文件路径,方便 HTML 报告引用。
     """
 
     def __init__(self, output_dir: str = "data/output"):
@@ -90,7 +90,7 @@ class ReportVisualizer:
         fig.update_layout(
             polar=dict(radialaxis=dict(visible=True, range=[0, 100], tickfont=dict(family=self.font_family)),
                        angularaxis=dict(tickfont=dict(family=self.font_family), rotation=90, direction='clockwise')),
-            title=dict(text="📊 科研能力五维模型评估", x=0.5, font=dict(family=self.font_family, size=18)),
+            title=dict(text="📊 五维行为观测", x=0.5, font=dict(family=self.font_family, size=18)),
             height=500, showlegend=True
         )
 
@@ -139,97 +139,20 @@ class ReportVisualizer:
 
         return self._save_fig(fig, f"evidence_{dimension_key}")
 
-    def create_gaze_trajectory_heatmap(self, features: Dict[str, Any]) -> Optional[str]:
-        """
-        【新增】基于眼动坐标绘制视线轨迹与热力图
-        输入：features 字典 (需包含 face_gaze_direction_x/y_mean 等，或者最好有原始 DataFrame)
-        *注意*：由于 features 是统计值，这里我们模拟或尝试从 features 中寻找序列数据。
-        如果 feature_engine 没有输出序列，我们需要从 data_loader 传入原始 df。
-
-        *修正策略*：为了演示效果，如果传入的是统计值，我们绘制一个示意性的“关注区域图”。
-        如果后续能传入原始 df，则绘制真实轨迹。
-        此处假设我们无法直接访问原始 df，我们将利用统计值绘制一个“虚拟分布”或提示需要原始数据。
-
-        *最佳实践*：修改函数签名，允许传入原始 data_frames。
-        """
-        # 这里为了完整性，我们假设 visualizer 可以接收原始数据 frames
-        # 但在当前架构下，我们主要依赖 features。
-        # 如果 features 里没有序列，我们创建一个基于统计值的“注意力焦点图”
-
-        # 尝试提取 gaze 相关的统计值来推断焦点
-        # 如果没有具体序列，我们画一个标准的“中心聚焦”示意图作为占位，或者跳过
-        # *真正有用的实现*：需要修改 generate_all_charts 接收 data_frames
-
-        # 既然你要求基于“眼动坐标数据”，我假设我们可以访问到原始数据或者 feature_engine 输出了足够的信息。
-        # 但目前的 feature_engine 只输出了 mean/std。
-        # **解决方案**：我们在 generate_all_charts 中传入原始 data，在这里使用。
-        # 为了保持接口简洁，我先写一个接收 data_frames 的版本，并在下方调用处说明。
-        return None
-
     def create_gaze_plot_from_df(self, df_face: pd.DataFrame) -> Optional[str]:
+        """M3 之前不生成眼动图。
+
+        gaze_direction_y 是解剖常量、iris_x/y 是图像归一化坐标(编码人脸位置),
+        两者都不能支撑"注视热力图"这个标题。见 spec §5.5。
+
+        原实现在此画两张图:左图是 gaze_direction_x/y 的二维直方图(其中 y 恒负),
+        右图是左右眼 iris 的连线(实为"人脸在画面里怎么动"),另有一处
+        add_shape(rect, x0=-1, y0=-1, x1=1, y1=1) —— 而 iris 坐标归一化在 [0,1],
+        画 [-1,1] 的框没有语义。三处一并删除,待 M3 换成眼内相对坐标后再实现。
+
+        参数与返回值保持不变:调用方(generate_all_charts)无需改动,M3 可直接续写。
         """
-        真正的眼动绘图函数：接收原始 Face DataFrame
-        绘制：1. 视线散点热力图 2. 左右眼 iris 移动轨迹
-        """
-        if df_face is None or df_face.empty:
-            return None
-
-        # 检查是否有眼动列
-        has_left = 'left_iris_x' in df_face.columns and 'left_iris_y' in df_face.columns
-        has_right = 'right_iris_x' in df_face.columns and 'right_iris_y' in df_face.columns
-        has_gaze = 'gaze_direction_x' in df_face.columns and 'gaze_direction_y' in df_face.columns
-
-        if not (has_left or has_right or has_gaze):
-            return None
-
-        fig = make_subplots(rows=1, cols=2,
-                            subplot_titles=("👁️ 视线注视热力图 (Gaze Heatmap)", "👀 虹膜运动轨迹 (Iris Trajectory)"))
-
-        # 1. 热力图 (使用 gaze_direction 或 平均 iris 位置)
-        if has_gaze:
-            x_col, y_col = 'gaze_direction_x', 'gaze_direction_y'
-            # 注意：gaze_direction 可能是相对值，这里直接画散点密度
-            fig.add_trace(go.Histogram2dContour(
-                x=df_face[x_col], y=df_face[y_col],
-                colorscale='Viridis', showscale=True,
-                hoverinfo='skip'
-            ), row=1, col=1)
-
-            # 添加中心参考点 (假设 0,0 或 0.5,0.5 是中心，根据数据分布调整)
-            # 这里添加一个矩形框表示屏幕/摄像头范围
-            fig.add_shape(type="rect", x0=-1, y0=-1, x1=1, y1=1, line=dict(color="Red", width=2), row=1, col=1)
-
-        # 2. 轨迹图 (左右眼)
-        if has_left:
-            fig.add_trace(go.Scatter(
-                x=df_face['left_iris_x'], y=df_face['left_iris_y'],
-                mode='lines+markers', name='左眼 (Left)',
-                line=dict(color='Blue', width=1), marker=dict(size=4),
-                opacity=0.7
-            ), row=1, col=2)
-
-        if has_right:
-            fig.add_trace(go.Scatter(
-                x=df_face['right_iris_x'], y=df_face['right_iris_y'],
-                mode='lines+markers', name='右眼 (Right)',
-                line=dict(color='Red', width=1), marker=dict(size=4),
-                opacity=0.7
-            ), row=1, col=2)
-
-        # 统一布局
-        fig.update_layout(
-            title=dict(text="🧠 眼动行为深度分析 (视线聚焦与运动轨迹)", x=0.5,
-                       font=dict(family=self.font_family, size=18)),
-            height=500, showlegend=True,
-            font=dict(family=self.font_family)
-        )
-
-        fig.update_xaxes(title_text="X 坐标", row=1, col=1)
-        fig.update_yaxes(title_text="Y 坐标", row=1, col=1)
-        fig.update_xaxes(title_text="X 坐标", row=1, col=2)
-        fig.update_yaxes(title_text="Y 坐标", row=1, col=2)
-
-        return self._save_fig(fig, "gaze_trajectory")
+        return None
 
     def generate_all_charts(self, result: Dict[str, Any], df_face: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
         """
@@ -252,18 +175,9 @@ class ReportVisualizer:
                 charts['evidence'][key] = path
                 print(f"   📈 已保存：[{key}] 证据图 -> {path}")
 
-        # 3. 【新增】眼动轨迹图
-        if df_face is not None:
-            gaze_path = self.create_gaze_plot_from_df(df_face)
-            if gaze_path:
-                charts['gaze'] = gaze_path
-                print(f"   👁️ 已保存：眼动轨迹图 -> {gaze_path}")
-            else:
-                charts['gaze'] = None
-                print("   ⚠️ 未找到眼动数据，跳过眼动图生成。")
-        else:
-            charts['gaze'] = None
-            print("   ⚠️ 未传入面部原始数据，跳过眼动图生成。")
+        # 3. 眼动图 —— M3 前恒为 None(spec §5.5),故不再区分"有/无数据"两种分支
+        charts['gaze'] = self.create_gaze_plot_from_df(df_face)
+        print("   ℹ️ 眼动图:M3 前不生成(现有坐标不能支撑'注视'构念,spec §5.5)。")
 
         return charts
 
@@ -274,7 +188,7 @@ if __name__ == "__main__":
     from feature_engine import PsychologicalFeatureEngine
     from research_mapper import ResearchCapabilityMapper
 
-    print("=== 测试 Visualizer (含眼动 + 自动保存) ===")
+    print("=== 测试 Visualizer (雷达图 + 证据图 + 自动保存) ===")
 
     # 1. 准备数据
     loader = LogDataLoader()

@@ -461,20 +461,20 @@ def inspect_gaze_features(engine: PsychologicalFeatureEngine):
         stability_val = face_feats.get('face_gaze_stability_mean', 0)
         contact_val = face_feats.get('face_eye_contact_ratio', 0)
 
-        print("\n💡 智能分析结论:")
+        print("\n💡 量表概览:")
         if stability_val > 0.8:
-            print("   ✅ 被测者视线非常稳定，显示出极高的专注度。")
+            print("   ✅ 视线稳定性指标高于 0.8。")
         elif stability_val > 0.5:
-            print("   ➖ 被测者视线稳定性适中。")
+            print("   ➖ 视线稳定性指标介于 0.5 与 0.8 之间。")
         else:
-            print("   ⚠️ 被测者视线波动较大，可能注意力分散或紧张。")
+            print("   ⚠️ 视线稳定性指标低于 0.5。")
 
         if contact_val > 0.7:
-            print("   ✅ 被测者眼神接触良好，表现出较强的自信心。")
+            print("   ✅ 眼神接触比例高于 0.7。")
         elif contact_val > 0.4:
-            print("   ➖ 被测者眼神接触一般。")
+            print("   ➖ 眼神接触比例介于 0.4 与 0.7 之间。")
         else:
-            print("   ⚠️ 被测者眼神接触较少，可能存在回避或紧张情绪。")
+            print("   ⚠️ 眼神接触比例低于 0.4。")
     else:
         print("   ❌ 未提取到预期的核心眼动特征。")
     print("=" * 70)
