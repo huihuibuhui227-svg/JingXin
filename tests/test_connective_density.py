@@ -65,3 +65,32 @@ def test_no_marker_is_a_substring_of_another():
     ms = load_markers()["markers"]
     pairs = [(a, b) for a in ms for b in ms if a != b and a in b]
     assert pairs == [], f"标记表出现子串包含,会计数膨胀: {pairs}"
+    # 字面重复的标记同样双计,而上面的 a != b 过滤按构造放过了"完全相同的串"这一对,
+    # 所以重复必须单独断言 —— 否则同一轴上的静默膨胀照样没人拦(审查 Important/Minor 3)。
+    assert len(ms) == len(set(ms)), f"标记表有字面重复项: {ms}"
+
+
+def test_denominator_is_char_count_not_hit_count():
+    """每百字的**分母**必须是被除数(字数),不是常数 100。
+
+    这条用例的长度刻意**不是** 100 字:100 字的 fixture 会让 `hits / chars * 100`
+    退化成 `hits`,于是"把 ÷ chars 整个删掉"也能全绿(审查实测确认)。50 字、命中 1
+    → 2.0;删掉分母归一化会得 1.0,红在断言不等而不是异常。真实语音回答永远不会
+    正好 100 字,而跨句长可比正是这个指标存在的理由(Task 4 要写进日志的就是它)。
+    """
+    assert connective_density("然后" + "字" * 48, min_chars=10) == 2.0
+
+
+def test_chars_equal_to_floor_still_yields_a_value():
+    """下限是 `<` 不是 `<=`:spec §6.5 写的是 `n_chars < min_chars_for_density`,
+    所以**恰好等于下限要出值**。改成 `chars <= floor` 会得 None,红在断言不等。"""
+    assert connective_density("然后" + "字" * 8, min_chars=10) == 10.0   # 正好 10 字
+
+
+def test_repeated_marker_is_counted_once():
+    """口径是"出现即计一次"(presence),不是出现次数(occurrence)——
+    docstring 写了但此前只有手工验证。改成 `text.count(m)` 会得 6.0,红在断言不等。
+
+    长度算清:`然后` × 3 = 6 字,加 `字` × 44,共 50 字;命中 1 → 2.0。
+    """
+    assert connective_density("然后" * 3 + "字" * 44, min_chars=10) == 2.0
