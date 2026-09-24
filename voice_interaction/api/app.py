@@ -31,6 +31,7 @@ from voice_interaction.asr.funasr_engine import load_config
 from voice_interaction.asr.transcript_store import validate_session_id
 # 转写缝:引擎只由 asr/transcribe.py 持有,这里按名字取那一层转发(不直接摸引擎)。
 # 换引擎(测试/验收)只需动那一个模块,不必碰本文件。
+from voice_interaction.asr.transcribe import log_recognition
 from voice_interaction.asr.transcribe import transcribe as _transcribe
 
 app = FastAPI(
@@ -212,7 +213,7 @@ async def speech_to_text(request: Request, audio: UploadFile = File(...),
                     if text:                       # 空结果不落盘:不留一场没有段的会话文件
                         transcript_store.append_utterance(sid, utt)
 
-                    logger.info(f"识别结果: '{text}'")
+                    log_recognition(utt)
                     return {"text": text, "session_id": sid}
                 else:
                     logger.info("格式不匹配，需要转换")
@@ -271,7 +272,7 @@ async def speech_to_text(request: Request, audio: UploadFile = File(...),
             if text:
                 transcript_store.append_utterance(sid, utt)
 
-            logger.info(f"识别结果: '{text}'")
+            log_recognition(utt)
             return {"text": text, "session_id": sid}
         finally:
             if input_path and os.path.exists(input_path):
