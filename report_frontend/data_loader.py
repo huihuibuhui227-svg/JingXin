@@ -116,7 +116,12 @@ class LogDataLoader:
         但"存在这样一批行"这件事本身要告诉读者 —— 否则有帧没归入本场而无人知晓。
         """
         total = 0
-        for p in self.log_dir.rglob("*_log_NONE_*.csv"):
+        # ⚠️ 通配要写成 `*_log_NONE*.csv`(**不带** `_`):face/gesture 的 NONE 文件
+        # **没有尾段**(`face_au_log_NONE.csv`),而 voice 的带(`..._NONE_<ts>.csv` ——
+        # 它无 id 时写成 `NONE_<时间戳>`)。写成 `*_log_NONE_*.csv` 会漏掉前两者:
+        # 2026-09-24 复审实测 —— 盘上 224 行,数出来 0,于是"报告头会点出 NONE 桶"
+        # 这句话在真实数据上完全不成立。
+        for p in self.log_dir.rglob("*_log_NONE*.csv"):
             try:
                 df = self._read_csv_safe(p)
                 total += 0 if df is None else len(df)

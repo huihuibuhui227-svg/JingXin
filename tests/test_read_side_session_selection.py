@@ -143,6 +143,46 @@ def test_none_bucket_is_never_treated_as_a_session(tmp_path):
     assert loader.resolve_target_session(None) is None, "只有 NONE 桶时不该当成一场会话"
 
 
+def test_none_bucket_counts_the_form_without_a_trailing_segment(tmp_path):
+    """★ 复审 I1:face/gesture 的 NONE 文件**没有尾段**(`face_au_log_NONE.csv`),
+    而 glob 写的是 `*_log_NONE_*.csv` —— 实测盘上 224 行、数出来 **0**,
+    于是"`NONE` 必须出现在披露里"这条在真实数据上完全不成立,
+    而账本里那条 `RealtimeAnalysis` 裁决的论据正是依赖它。
+
+    红法:glob 退回 `*_log_NONE_*.csv` → 只数到 1 行(带尾段那份)。
+    """
+    _scene(tmp_path)
+    _write(tmp_path, "face_au_log_NONE.csv", [_voice_row("NONE", 1.0)])
+    _write(tmp_path, "interview_emotion_log_NONE_20260924_221800.csv", [_voice_row("NONE", 2.0)])
+
+    loader = LogDataLoader(str(tmp_path))
+    loader.get_fused_latest_data(session_id=_NEW)
+
+    assert loader.selected_sessions.get("none_bucket", {}).get("rows") == 2, (
+        f"NONE 桶只数到 {loader.selected_sessions.get('none_bucket')} —— "
+        f"无尾段那种形态被 glob 漏了")
+
+
+def test_live_sources_uses_the_same_three_state_shape():
+    """★ 复审 C1:`generate_report_live` 那条路还在传**旧形状**(`Dict[str, str]`),
+    于是 `sources_disclosure` 里的 `info["status"]` 抛
+    `TypeError: string indices must be integers` —— 而面板报 `success`。
+    又一个静默失败,而且**全仓没有任何测试碰这条路径**。
+
+    红法:让 `live_sources` 返回 `{k: session_id}`(旧形状)。
+    """
+    import pandas as pd
+
+    from report_frontend.report_generator import live_sources
+
+    data = {"face": pd.DataFrame({"a": [1, 2]}), "gesture": pd.DataFrame({"a": [1]})}
+    sources = live_sources("20260924_221811_9212", data)
+
+    assert sources["face"] == {"session_id": "20260924_221811_9212",
+                               "status": "loaded", "rows": 2}, sources
+    sources_disclosure(sources)      # 形状不对的话这里会 TypeError
+
+
 def test_none_bucket_is_disclosed_when_the_target_session_is_loaded(tmp_path):
     """`NONE` 桶里的行**不进聚合**(既有不变量),但存在时必须让读者知道有帧没归入本场。
 

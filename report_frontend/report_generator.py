@@ -72,6 +72,20 @@ def sources_disclosure(sources: Dict[str, Dict]) -> str:
     return "<br>".join(lines)
 
 
+def live_sources(session_id: str, data: Dict[str, Any]) -> Dict[str, Dict]:
+    """实时路径的数据来源:模态 → 三态条目(与批处理路径**同一个形状**)。
+
+    实时路径是按**这一个 `session_id`** 去内存里取的(不像批处理要在磁盘上选文件),
+    所以凡取到数据的模态都是 `loaded`。
+
+    ⚠️ 形状必须与批处理一致。这条曾经漏改(2026-09-24 复审 C1):旧形状是
+    `{k: session_id}`,而 `sources_disclosure` 会做 `info["status"]` → `TypeError`,
+    **而面板照样报 success** —— 又一个静默失败,且全仓没有测试碰过这条路径。
+    """
+    return {k: {"session_id": session_id, "status": "loaded", "rows": len(v)}
+            for k, v in data.items()}
+
+
 class ReportGenerator:
     """
     行为观测报告生成器
@@ -164,7 +178,7 @@ class ReportGenerator:
             # 那种跨场拼接;所以来源就是这一个 id(逐个列出真正取到数据的模态)。
             html_content = self._build_html_report(result, chart_paths, features, data,
                                                    static_images,
-                                                   sources={k: session_id for k in data})
+                                                   sources=live_sources(session_id, data))
 
             with open(report_path, 'w', encoding='utf-8') as f:
                 f.write(html_content)
