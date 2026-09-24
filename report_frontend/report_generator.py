@@ -31,28 +31,45 @@ _MODALITY_LABELS = {
 }
 
 
-def sources_disclosure(sources: Dict[str, str]) -> str:
-    """披露「这份报告是哪些日志装配的」:逐模态点名,并标明是否同场。
+def sources_disclosure(sources: Dict[str, Dict]) -> str:
+    """披露「本报告描述的是哪一场、每个模态进来了没有」(M2 spec §5.2)。
 
-    为什么这一行是**必须**的:三个模态各自按文件名时间戳取最新,而某个模态本场没产出时
-    (验收配置下 gesture 服务起不来),报告会把**本场的 face+voice** 与**上一场的 gesture**
-    静默配在一起。选择策略(按 id 选、不匹配回 409)是 M2 的事;但**披露**很便宜,而且它是
-    让"策略还没修"这件事**可见**的那一步 —— 没有它,那个缺陷在报告里是隐形的。
+    输入是 `LogDataLoader.selected_sessions`,值是三态之一:
+    `loaded` / `unreadable`(文件在但读不出)/ `missing`(本场没有);
+    另有一个特殊键 `none_bucket`(没带 session_id 的行,不进聚合但要说一声)。
 
-    措辞刻意两态都给足:同场也要说"同场",否则读者无法区分"检查过且一致"与"根本没检查"。
+    **为什么"未读到数据"必须显式出面**:I4 的实现只列真正读出来的模态,于是读不出来的
+    那些**静默消失**,而报告还写着「以上模态来自同一场会话」—— 2026-09-24 实测:语音整个
+    没了,读者却以为一切正常(spec §3.3)。
+
+    同场/不同场那句话**已取消**:按 id 选之后不存在"不同场"这个状态,真正要报的是
+    "哪几个模态没进来、为什么"。
     """
     if not sources:
         return "本报告没有装配任何模态日志。"
 
-    listed = "；".join(f"{_MODALITY_LABELS.get(k, k)} · {v}"
-                       for k, v in sorted(sources.items()))
-    if len(set(sources.values())) == 1:
-        verdict = "以上模态来自<strong>同一场会话</strong>。"
-    else:
-        verdict = ('<strong style="color:#A23B72;">⚠️ 以上模态来自不同的会话</strong>'
-                   ' —— 本报告装配在一起的多模态并非同一场面试，'
-                   '请勿把它们当作同一场次的观测。')
-    return f"数据来源：{listed}。{verdict}"
+    none_bucket = sources.get("none_bucket")
+    items = {k: v for k, v in sources.items() if k != "none_bucket"}
+    if not items:
+        return "本报告没有装配任何模态日志。"
+
+    target = next(iter(items.values()))["session_id"]
+    lines = [f"本场会话：<strong>{target}</strong>"]
+    for key, info in sorted(items.items()):
+        label = _MODALITY_LABELS.get(key, key)
+        if info["status"] == "loaded":
+            lines.append(f"{label} · 已读入（{info['rows']} 行）")
+        elif info["status"] == "unreadable":
+            lines.append(f'<strong style="color:#A23B72;">{label} · 未读到数据</strong>'
+                         f'（文件在，但读不出来：空文件或损坏）')
+        else:
+            lines.append(f"{label} · 缺失（本场没有这个模态的日志）")
+
+    if none_bucket:
+        lines.append(f'<em>另有 NONE 桶 {none_bucket["rows"]} 行 —— '
+                     f'那些请求没带 session_id，不属于本场，未参与计算。</em>')
+
+    return "<br>".join(lines)
 
 
 class ReportGenerator:
@@ -71,7 +88,11 @@ class ReportGenerator:
             os.makedirs(self.output_dir)
 
     def generate_report(self, session_id: Optional[str] = None) -> str:
-        """从磁盘 CSV 文件生成评估报告（批处理模式）"""
+        """从磁盘 CSV 文件生成评估报告（批处理模式）。
+
+        `session_id`:本报告要描述的那一场(M2)。**不给就取最新一场**,并在报告头写明是谁
+        —— 这个参数在 M2 之前是"收下就丢"的。
+        """
         print("\n" + "=" * 70)
         print("🚀 启动 JingXin 面试行为观测报告生成系统 (批量模式)")
         print("=" * 70)
@@ -82,7 +103,7 @@ class ReportGenerator:
 
         try:
             loader = LogDataLoader()
-            data = loader.get_fused_latest_data()
+            data = loader.get_fused_latest_data(session_id)
             if not data or 'face' not in data: raise ValueError("无面部数据")
 
             engine = PsychologicalFeatureEngine(data)
@@ -339,4 +360,10 @@ class ReportGenerator:
 
 
 if __name__ == "__main__":
-    ReportGenerator().generate_report()
+    # M2:报告要描述**哪一场**可以显式指定;不给就取最新一场(报告头会写明是哪一场)。
+    import argparse
+
+    _ap = argparse.ArgumentParser(description="生成行为观测报告")
+    _ap.add_argument("--session-id", default=None,
+                     help="要描述的那场会话 id;缺省取最新一场")
+    ReportGenerator().generate_report(_ap.parse_args().session_id)

@@ -107,85 +107,105 @@ class LogDataLoader:
 
         return groups
 
-    def get_fused_latest_data(self) -> Dict[str, pd.DataFrame]:
+    NONE_SESSION = "NONE"
+
+    def _none_bucket_rows(self) -> int:
+        """数 NONE 桶里有多少行。
+
+        NONE 文件**刻意不被 `file_pattern` 匹配**(见那段注释):它们不进任何聚合。
+        但"存在这样一批行"这件事本身要告诉读者 —— 否则有帧没归入本场而无人知晓。
         """
-        【主入口】获取各模态最新文件的融合数据
-        :return: {'face': df, 'gesture': df, 'voice_interview': df, 'voice_research': df}
+        total = 0
+        for p in self.log_dir.rglob("*_log_NONE_*.csv"):
+            try:
+                df = self._read_csv_safe(p)
+                total += 0 if df is None else len(df)
+            except Exception:
+                pass
+        return total
+
+    def resolve_target_session(self, session_id: Optional[str] = None) -> Optional[str]:
+        """定这一场报告以哪个 `session_id` 为准(M2 spec §5.1)。
+
+        * 显式给了 -> 就用它(`NONE` 除外 —— 那不是一场会话,是"没给 id"的占位)
+        * 没给     -> 取**文件名时间戳最大**的那一场的 id
+        * 一份都没有 -> `None`。调用方据此说"本场没有任何日志",**不许回退去拼别的场次**
+
+        为什么不能沿用"每模态各取最新":那正是把三场会话拼在一起的机制
+        (2026-09-24 真实前端使用实测 → 报告恒为「0 / 20」,spec §3.1)。
         """
-        print("\n🔍 正在扫描并筛选各模态的最新日志...")
+        if session_id:
+            return None if session_id == self.NONE_SESSION else session_id
+
+        candidates = [f for files in self._scan_and_group_files().values() for f in files
+                      if f["session_id"] != self.NONE_SESSION]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda x: x["timestamp_val"])["session_id"]
+
+    def get_fused_latest_data(self, session_id: Optional[str] = None) -> Dict[str, pd.DataFrame]:
+        """【主入口】按**目标会话**取各模态日志。
+
+        M2 起:`session_id` 定了之后,**每个模态只找该 id 的文件** —— 不再"每模态各取最新"
+        (那会把不同场次拼在一起)。每个模态的结果是三态之一,写进 `self.selected_sessions`:
+
+            loaded / unreadable(文件在但读不出) / missing(本场没有这个模态)
+
+        ⚠️ `selected_sessions` 的值**从 `str` 变成了 `dict`** —— 这是破坏性变更,
+        所有消费点(`report_generator.sources_disclosure` 等)必须一起改。
+        """
+        print("\n🔍 按 session_id 取日志...")
         print("-" * 70)
 
-        groups = self._scan_and_group_files()
-        selected_files = []
-
-        # 遍历每个模态组，选出时间最新的一个
-        for modality, files in groups.items():
-            if not files:
-                print(f"   ⚠️  [{modality.upper()}] 未找到相关日志文件。")
-                continue
-
-            # 按时间戳排序，取最后一个（最新）
-            latest_file = max(files, key=lambda x: x['timestamp_val'])
-            selected_files.append({
-                "modality": modality,
-                "info": latest_file
-            })
-
-            rel_path = latest_file['path'].relative_to(self.log_dir)
-            print(f"   ✅ [{modality.upper()}] 选中最新文件：{rel_path}")
-            print(f"       会话时间：{latest_file['session_id']}")
-
-        if not selected_files:
-            print("-" * 70)
-            print("❌ 错误：未发现任何符合命名规范的日志文件。")
+        target = self.resolve_target_session(session_id)
+        self.selected_sessions = {}
+        if target is None:
+            print("❌ 没有可用于本报告的会话(只有 NONE 桶,或没有任何符合命名规范的日志)。")
             return {}
+        print(f"   目标会话:{target}")
+
+        none_rows = self._none_bucket_rows()
+        if none_rows:
+            self.selected_sessions["none_bucket"] = {
+                "session_id": self.NONE_SESSION, "status": "present", "rows": none_rows}
+            print(f"   ℹ️  另有 NONE 桶 {none_rows} 行(未归入任何会话,不进聚合)")
 
         print("-" * 70)
-        print(f"🚀 开始加载 {len(selected_files)} 个模态数据...")
 
         data_frames = {}
-        # 与 data_frames 同步重置:只记**真正读出来**的模态,重复调用也不累积上一次的结果
-        # (一个被选中却读不出来的文件不该出现在"数据来源"里 —— 那比不说还坏)。
-        self.selected_sessions = {}
+        groups = self._scan_and_group_files()
 
-        for item in selected_files:
-            modality = item['modality']
-            file_info = item['info']
-            file_path = file_info['path']
-
+        for modality, files in groups.items():
             # 统一模态键名，方便后续处理
-            if modality == 'interview':
-                key = 'voice_interview'
-            elif modality == 'research':
-                key = 'voice_research'
-            else:
-                key = modality
+            key = {'interview': 'voice_interview',
+                   'research': 'voice_research'}.get(modality, modality)
 
+            mine = [f for f in files if f["session_id"] == target]
+            if not mine:
+                self.selected_sessions[key] = {"session_id": target, "status": "missing", "rows": 0}
+                print(f"   ⚠️  [{key.upper()}] 本场没有这个模态")
+                continue
+
+            # 同一会话同一模态理论上只有一份;万一有多份,取时间戳最大的那份
+            chosen = max(mine, key=lambda x: x["timestamp_val"])
             try:
-                # 自动识别编码读取 CSV
-                df = self._read_csv_safe(file_path)
-
+                df = self._read_csv_safe(chosen["path"])
                 if df is None or df.empty:
-                    print(f"   ⚠️  [{key.upper()}] 文件为空或读取失败。")
+                    self.selected_sessions[key] = {"session_id": target,
+                                                   "status": "unreadable", "rows": 0}
+                    print(f"   ⚠️  [{key.upper()}] 文件在但读不出(空或损坏):{chosen['path'].name}")
                     continue
 
-                # --- 数据标准化处理 ---
                 df = self._normalize_dataframe(df)
-
                 data_frames[key] = df
-                self.selected_sessions[key] = file_info['session_id']
+                self.selected_sessions[key] = {"session_id": target,
+                                               "status": "loaded", "rows": len(df)}
                 print(f"   📥 [{key.upper()}] 加载成功：{len(df)} 行，{len(df.columns)} 列")
 
-                # 打印关键列预览
-                key_cols = [c for c in ['timestamp', 'au_1', 'au_12', 'emotion', 'score', 'jitter', 'fluency'] if
-                            c in df.columns]
-                if key_cols:
-                    print(f"      🔑 关键列检测：{key_cols}")
-
             except Exception as e:
-                print(f"   ❌ [{key.upper()}] 加载过程中发生异常：{e}")
-                import traceback
-                traceback.print_exc()
+                self.selected_sessions[key] = {"session_id": target,
+                                               "status": "unreadable", "rows": 0}
+                print(f"   ❌ [{key.upper()}] 读取出错：{e}")
 
         print("-" * 70)
 

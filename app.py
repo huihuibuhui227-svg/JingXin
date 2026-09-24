@@ -29,11 +29,16 @@ ALLOWED_FOLDERS = {'face_expression', 'gesture_analysis', 'voice_interaction'}
 task_status = {}
 
 
-def run_script(task_id, module_name):
-    """在后台线程运行脚本，避免阻塞网页"""
+def run_script(task_id, module_name, extra_args=None):
+    """在后台线程运行脚本，避免阻塞网页。
+
+    `extra_args`:附加到命令行的参数(M2 起用来透传 `--session-id`)。
+    """
     task_status[task_id]["status"] = "running"
     try:
         cmd = [sys.executable, '-m', f'report_frontend.{module_name}']
+        if extra_args:
+            cmd.extend(extra_args)
         logger.info(f"正在启动任务 {task_id}：{cmd}")
 
         result = subprocess.run(
@@ -130,7 +135,13 @@ def trigger_module(module):
         "logs": ""
     }
 
-    thread = threading.Thread(target=run_script, args=(task_id, target_module))
+    # M2:报告模块接受 `--session-id`,由调用方(query 参数)决定描述哪一场
+    extra = None
+    sid = request.args.get("session_id")
+    if module == "report" and sid:
+        extra = ["--session-id", sid]
+
+    thread = threading.Thread(target=run_script, args=(task_id, target_module, extra))
     thread.start()
 
     return jsonify({
@@ -214,8 +225,10 @@ def get_structured_report():
         from report_frontend.feature_engine import PsychologicalFeatureEngine
         from report_frontend.research_mapper import ResearchCapabilityMapper
 
+        # M2:报告要描述**哪一场**由调用方指定;不给就取最新一场(加载器会在报告头写明)。
+        session_id = request.args.get("session_id") or None
         loader = LogDataLoader()
-        data = loader.get_fused_latest_data()
+        data = loader.get_fused_latest_data(session_id)
 
         if not data:
             return jsonify({"status": "error", "message": "未找到评估日志数据"})

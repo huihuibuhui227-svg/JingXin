@@ -42,10 +42,14 @@ def test_m1_session_named_logs_are_loadable(tmp_path):
     红在:修复前选取正则要求 `..._log_<8 digits>_<6 digits>.csv`,M1 形态
     (`..._log_<YYYYMMDD>_<HHMMSS>_<4 hex>.csv`)尾部多一段十六进制 → 不匹配
     → `get_fused_latest_data()` 返回 `{}`,本测试第一句就红(实测:MODALITIES: [])。
+
+    ⚠️ M2 起 fixture 改成**三个模态同一个 session_id**:一场会话只有一个 id(这正是 M1
+    铸号的意义),而 M2 的选取是"先定目标 id、再按 id 取"。老 fixture 里三个模态各用
+    一个 id,那是"跨场次拼接"的形态 —— 现在按 id 选时只会取到其中一场。
     """
     _write_csv(tmp_path / "face_au_log_20260924_120000_a1b2.csv", "m1_face")
-    _write_csv(tmp_path / "gesture_emotion_log_20260924_120000_c3d4.csv", "m1_gesture")
-    _write_csv(tmp_path / "interview_emotion_log_20260924_120000_e5f6.csv", "m1_interview")
+    _write_csv(tmp_path / "gesture_emotion_log_20260924_120000_a1b2.csv", "m1_gesture")
+    _write_csv(tmp_path / "interview_emotion_log_20260924_120000_a1b2.csv", "m1_interview")
 
     markers = _markers(tmp_path)
 
@@ -56,22 +60,24 @@ def test_m1_session_named_logs_are_loadable(tmp_path):
 
 
 def test_selection_accepts_legacy_and_m1_forms_but_never_none(tmp_path):
-    """四种文件同处一个目录时的取舍矩阵。
+    """旧形态要认、NONE 桶永远不参与。
 
     红在:① 修复前 M1 形态与 NONE 形态**都**不被识别,face 会选到旧形态那份
-    (或 research 根本没有候选);② 若有人把正则放宽成「时间戳可选后缀」,更"新"的
-    `gesture_emotion_log_NONE_20260924_235959.csv` 会赢过 M1 那份 → gesture 的 marker 变
+    (或 research 根本没有候选);② 若有人把正则放宽成「时间戳可选后缀」,名字更"新"的
+    `gesture_emotion_log_NONE_20260924_235959.csv` 会赢过真日志 → gesture 的 marker 变
     `none_gesture`,NONE 桶重新可见并跨天混行。
+
+    M2 之后本测试的 fixture 改成**一场旧形态会话**(三个模态同一个 id):选取是"先定目标
+    `session_id`、再按 id 取",所以"同一模态两种形态取更新那份"这种比较不再成立 ——
+    session_id 就是从文件名推出来的,两种形态必然是两个不同的 id、两场不同的会话。
     """
-    # 同一模态两种形态:旧形态更旧,M1 形态更新 → M1 必须赢(证明 M1 形态进了候选)
+    # 一场**旧形态**(纯时间戳)会话的三份日志 —— 旧形态必须仍被识别,否则历史日志读不到
+    # 一场**旧形态**(纯时间戳)会话的三份日志 —— 旧形态必须仍被识别,否则历史日志读不到
     _write_csv(tmp_path / "face_au_log_20260923_090000.csv", "legacy_face")
-    _write_csv(tmp_path / "face_au_log_20260924_120000_a1b2.csv", "m1_face")
-    # 只有旧形态的模态 → 旧形态必须仍被接受
+    _write_csv(tmp_path / "gesture_emotion_log_20260923_090000.csv", "legacy_gesture")
     _write_csv(tmp_path / "research_emotion_log_20260923_090000.csv", "legacy_research")
-    # 手势:M1 形态 vs 名字更"新"的 NONE 形态 —— NONE 必须落选
-    _write_csv(tmp_path / "gesture_emotion_log_20260924_120000_c3d4.csv", "m1_gesture")
+    # 两种 NONE 形状的名字都比上面"新" —— 它们必须**不进候选**(既不进聚合,也不当目标)
     _write_csv(tmp_path / "gesture_emotion_log_NONE_20260924_235959.csv", "none_gesture")
-    # 两种 NONE 形状都要被拒(单文件形态 + 带时间戳形态)
     _write_csv(tmp_path / "face_au_log_NONE.csv", "none_face")
     # 非日志文件:没有模态前缀 / 模态名不在名单里
     _write_csv(tmp_path / "notes.csv", "not_a_log")
@@ -82,14 +88,15 @@ def test_selection_accepts_legacy_and_m1_forms_but_never_none(tmp_path):
     assert set(markers) == {"face", "gesture", "voice_research"}, (
         f"三模态没齐全(interview 不在本目录;research 模态在加载器里的键是 voice_research):{markers}"
     )
-    assert markers["face"] == "m1_face", (
-        f"同模态两种形态应取更新的 M1 那份:{markers}"
+    assert markers["face"] == "legacy_face", (
+        f"旧形态必须仍被接受(否则历史日志再也读不到):{markers}"
     )
     assert markers["voice_research"] == "legacy_research", (
         f"旧形态必须仍被接受(否则历史日志再也读不到):{markers}"
     )
-    assert markers["gesture"] == "m1_gesture", (
-        f"NONE 桶重新可见了 —— 它跨天增长,一次聚合会把不同天的行混在一起:{markers}"
+    assert markers["gesture"] == "legacy_gesture", (
+        f"NONE 桶重新可见了(名字更新的 NONE 文件赢过了真日志)—— "
+        f"它跨天增长,一次聚合会把不同天的行混在一起:{markers}"
     )
     assert "none_gesture" not in markers.values() and "none_face" not in markers.values()
     assert "not_a_log" not in markers.values() and "wrong_modality" not in markers.values()
