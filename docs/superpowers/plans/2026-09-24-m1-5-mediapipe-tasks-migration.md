@@ -1197,6 +1197,22 @@ cd ~/shared/mp_frames
 
 ---
 
+## 修复波次之后,下面这些名字已经变了(重跑本计划时看这里)
+
+最终审查判了 4 条 Important,修复波次改掉了本计划里描述的若干实现细节。**照上面的文字
+原样重跑会写出假红测试** —— 以这里为准:
+
+| 本计划原文 | 现在的实现 |
+|---|---|
+| 两处 TTL 回收 / `/reset` 直接调 `d.close()` | 改走 **`close_detached(d)`**(两个封装各一份,模块级 `ThreadPoolExecutor(max_workers=1)`)。原因:`close()` 实测**恒 5.0s** 且在请求路径同步执行 → `/reset` 20.04s、并发 `/health` 19.73s(基线 0.0019s)。**别改回同步。** |
+| (无) | `close_detached` 里有 **`add_done_callback(_log_close_failure)`**。它不是装饰:`concurrent.futures` 不报"没人取回的异常",去掉它后台 close 的失败就完全静默 → native 句柄静默泄漏(复审 N1 抓到,已修)。 |
+| TTL 回收测试原地断言 `hands.closed` | 改成 **等条件**(`_wait_until`)—— 接口从同步变异步后,原地断言量到的是"还没跑"而非"没跑",那是假红。 |
+| `tests/test_detector_contract.py` 的既有条目 | 修复波次在这个文件里又加了 `close_detached` 不阻塞、gesture `verify_models`、以及**同会话复用同一探测器**(`test_gesture_detector_wiring.py`)三组钉子。 |
+
+**还没做、明确留到后面的**(别当成漏了):
+- **spec §10.4 的 VIDEO 模式等价性门** —— 本次所有数值都来自 IMAGE 模式;VIDEO 那道的口径见 `docs/下一步.md` §3 第 15 条。
+- **spec §12.1 的 M3 阈值重登记** —— 见 §3 第 16 条。
+
 ## Self-Review
 
 **1. Spec 覆盖**:spec §1 的 8 项在范围内事项 → ① 探测器 T2/T3;② 同;③ D3 → T3;④ 模型路径 → T1;⑤ config → T1;⑥ requirements → T1;⑦ 测试替身 → T3;⑧ 阈值重登记 → **spec §0 第 3 条已收窄成"指名 + 依据",具体改数留 M3**,本计划不实现数值改动,由最终审查核对 §3.4 的数据被引用。spec §10.1 的五条契约测 → T1(4 条)+ T3(1 条)。§10.4 的 VIDEO 门 → **明确留到迁移后**(plan 不实现,已在 spec 记档)。

@@ -15,16 +15,34 @@ Ruling M1-2 同:三个包各自持有守卫副本是有意为之,跨包 import �
 from __future__ import annotations
 
 import concurrent.futures
+import logging
 from pathlib import Path
 from typing import Callable
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 # close() 的后台执行器。**一个模块一份**(与 `_default_hand_factory` 同理:这两个封装
 # 本来是刻意不共享的,合并会反转依赖方向)。max_workers=1 是刻意的:close() 是 native
 # 释放,串行更安全,而且它本来就慢(5.0s),开并行只会同时占住更多句柄。
 _CLOSER = concurrent.futures.ThreadPoolExecutor(max_workers=1,
                                                 thread_name_prefix="detector-close")
+
+
+def _log_close_failure(fut) -> None:
+    """后台 close 失败了**必须留痕**。
+
+    为什么不能不管:`concurrent.futures` 不会报告"没人取回的异常" —— 不取 `.exception()`
+    的话,`detector.close()` 里抛的东西**完全静默**(无 traceback、无 warning、退出码 0)。
+    而 `.close()` 只在成功后才把 `_landmarker` 置 None,于是失败时 **native 句柄静默泄漏**
+    —— 正是 spec §6.3 加 close() 要防的那件事。改回同步 close 时失败是看得见的(端点会 500);
+    挪到线程之后,这份可见性必须由这里补回来。
+    """
+    exc = fut.exception()
+    if exc is not None:
+        logger.error("探测器后台 close 失败,native 句柄可能未释放:%r", exc,
+                     exc_info=exc)
 
 
 def close_detached(detector) -> None:
@@ -34,8 +52,10 @@ def close_detached(detector) -> None:
     —— TTL 回收 2 个探测器 = +10s、无 id 的 /reset = +20s,期间整个事件循环被冻住
     (并发 /health 实测 19.73s,基线 0.0019s)。挪到线程后请求立刻返回,native 句柄
     仍会被释放(晚几秒)。**别"顺手"把它改回同步** —— 那会把这个停顿带回来。
+
+    ⚠️ `add_done_callback` 不是装饰:去掉它,close 的失败就变成静默的(见上面那条)。
     """
-    _CLOSER.submit(detector.close)
+    _CLOSER.submit(detector.close).add_done_callback(_log_close_failure)
 
 
 def _default_hand_factory(model_path: Path, *, num_hands: int,

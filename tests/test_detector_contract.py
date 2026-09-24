@@ -5,6 +5,8 @@
 这既是"模块级不 import mediapipe"这条设计的证明,也让这些测试跑得飞快、不依赖那 21 MB 模型。
 """
 
+import logging
+import time
 from pathlib import Path
 
 import numpy as np
@@ -157,6 +159,33 @@ def test_two_sessions_get_different_detectors():
     b.detect(_FRAME)
 
     assert h1["l"] is not h2["l"], "两个会话共用了同一个探测器实例"
+
+
+def test_close_detached_surfaces_failures_instead_of_swallowing_them(caplog):
+    """★ N1(复审抓到的、**修复 I1 时引入的回归**):后台 close 抛异常必须留痕。
+
+    失效形态(修复 I1 之后实测):`concurrent.futures` 不会报告"没人取回的异常",所以
+    `_CLOSER.submit(detector.close)` 里抛的东西**完全静默** —— 无 traceback、无 warning、
+    退出码 0。而 `.close()` 只在成功后才把 `_landmarker` 置 None,于是失败时
+    **native 句柄静默泄漏** —— 正是 spec §6.3 加 `close()` 要防的那件事。
+    改之前(同步 close)失败是**看得见**的:端点会 500、`/reset` 会回 500。
+
+    红法:去掉 `add_done_callback` 里的异常记录(或整个回调)。
+    """
+    class Boom:
+        def close(self):
+            raise RuntimeError("close 炸了")
+
+    for name, fn in (("face", close_detached), ("gesture", gesture_close_detached)):
+        with caplog.at_level(logging.ERROR):
+            caplog.clear()
+            fn(Boom())            # 不许把异常抛回调用方(那就白挪线程了)
+            time.sleep(0.4)       # 等后台线程跑完
+
+        assert caplog.records, f"{name}: 后台 close 的异常被静默吞掉了(无任何日志)"
+        assert any("close" in r.getMessage().lower() or "炸了" in r.getMessage()
+                   for r in caplog.records), \
+            f"{name}: 有日志但没说是 close 失败:{[r.getMessage() for r in caplog.records]}"
 
 
 def test_verify_models_fails_loudly_when_the_file_is_missing(tmp_path):
