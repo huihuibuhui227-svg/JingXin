@@ -133,6 +133,39 @@ Spec: `docs/superpowers/specs/2026-09-24-m1-5-mediapipe-tasks-migration-design.m
 
 ### Task 3: complete (commits db3cca1..8cbe149, 控制器独立核验:全量 193 passed + 实跑 200)
 
+### 最终全分支审查:complete(`final-review-report.md`,审查者全新视角、未派子智能体)
+
+产出 4 条 Important(I1 close() 阻塞 / I2 下一步未更新 / I3 两处钉子只钉一半 /
+I4 logging_config 未跟踪)+ 9 条 Minor,无 Critical。裁决:全部并入**修复波次 1**。
+
+### 修复波次 1:complete(`fix-wave-1-report.md`,提交 `4609d8b`)
+
+**4 条 Important 全修,无遗漏、无超范围改动;TDD 三条代码/测试改动逐条反向复现过。**
+全量 193 → **198 passed**;合并门 0 / 2835510。
+
+| 条 | 落地 |
+|---|---|
+| I1 | 两个模块各加模块级 `close_detached()`(刻意不共享);**6 处调用点**改走它(TTL ×3、`/reset` ×3)。**实测**:`/reset`(无 id,2 会话)20.04s → **0.01s**;期间并发 `/health` max 20.03s → **0.00s**(基线 1.05ms) |
+| I2 | `docs/下一步.md` §0/§2/§3/§5/§6 按报告清单改;账本 + 任务报告 + 最终审查报告归档进**被跟踪的** `docs/superpowers/sdd/2026-09-24-m1-5-mediapipe-tasks-migration/` |
+| I3(a) | gesture `verify_models` 补 2 条(缺 hand / 缺 pose 各一半 + 文件在则不抛) |
+| I3(b) | 补"同会话复用同一探测器对象"1 条(红法:去掉缓存 → 该条红,其余 193 条全绿) |
+| I4 | `logging_config.py` 入 git(`git check-ignore` exit 1 = 未被忽略,无需加例外) |
+
+**执行期的两处判断(记档):**
+
+- **Ruling: `test_expired_sessions_close_their_detectors` 改成等条件落地。**
+  — 理由:I1 把 app 侧的 close 变成异步之后,原地读 `hands.closed` 量到的是"还没跑"
+  而不是"没跑" —— 那是**假红**。改成轮询(超时 5s 仍 False 才红)后语义没放宽:
+  close 一次不调照样红。改前 5/5 红、改后 3/3 绿。代价:该测试多花最多 5s(实测毫秒级)。
+- **Ruling: gesture 的 `api/app.py` 只按名字 import `close_detached`,不把
+  `HandDetector`/`PoseDetector` 提到模块级。** — 理由:那两个名字必须留在
+  `get_or_create_detectors` 体内按调用时解析,否则 `test_analyze_session_fallback.py`
+  对 `detectors.HandDetector` 的 monkeypatch 会静默失效(模块级 import 绑死补丁前的值)。
+  代价:同一模块里两种 import 风格并存(已就地写注释说明)。
+
+**未做(按裁决不属本轮)**:spec §10.4 的 VIDEO 模式等价性门(登记进 `docs/下一步.md` §3
+第 15 条)、spec §12.1 的 M3 阈值重登记(第 16 条)、Minor M1/M2/M5/M6/M7/M8 均未动。
+
 ### 控制器执行期发现(记档,不属于 M1.5 范围)
 
 - **deferred: gesture 的分数哨兵值 50.0 与真实值域撞车。** 四个分析器的 `reset()` 都把
