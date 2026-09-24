@@ -411,3 +411,9 @@ T6 报 `_default_n_valid = 10`;控制器**逐项核实**:
 5. 一处注释的因果措辞不准(该形态其实来自 logger 的 **falsy-id** 分支,而非"解析成字面量 NONE")。
 
 **⚠️ 给 T7 的一条实操警告(控制器补充):** 8 段回答**必须是内容不同的**。若用同一段音频重复提交,每行密度相同 → `_std = 0` → **G2 会(按设计)判「本次会话内无变化」** 而拦下该槽 —— 别把这条路走成自己的坑。
+
+## 补记:漏账的一条裁决
+
+- **Ruling M1-14(下达于 T4 派发词,当时未落账,2026-09-24 补记):** brief 让把转写接缝 `_transcribe` + 模块级 `asr_engine` 放进 `voice_interaction/api/app.py`,而它的测试要 `importlib.import_module("voice_interaction.api.app")` —— **那会在 import 时构造 TTS 与评估管线**。裁定:**接缝放进轻模块 `voice_interaction/asr/transcribe.py`**,测试只 import 它。 — 若判断错,代价 = 多一个小文件;反向代价 = 那条测试拖着重依赖跑,且可能因无音频设备而失败。(已由 T4 落地:`api/app.py:33` 以 `from voice_interaction.asr.transcribe import transcribe as _transcribe` 引入。)
+
+**裁决编号说明:** M1-1 … M1-29 中,**M1-24、M1-25 未使用**(编号在写 T5/T6 派发前被 M1-26/M1-27 占用,故跳号)。清单以本账本中实际出现者为准。
