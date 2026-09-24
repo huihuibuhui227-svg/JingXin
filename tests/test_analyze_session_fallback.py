@@ -46,35 +46,22 @@ BAD_SID = "../../x"
 # ---------------------------------------------------------------------------
 
 def _install_env_shims() -> None:
-    """补两个缝,否则两个 app 模块在本环境根本 import 不进来:
+    """补一个缝,否则 `face_expression/api/app.py` 在本环境根本 import 进来:
 
     - `face_expression/api/app.py` 用了 `File(...)`:FastAPI 在**定义路由时**就要
       `python_multipart`(未装;本任务不许装新包)。替身只要一个够大的 `__version__`。
-    - `gesture_analysis/api/app.py` **模块级**构造 `mp.solutions.hands.Hands(...)`,
-      而本环境的 mediapipe 1.0 已删掉 `solutions` 命名空间。替身只需满足 import 期的形状:
-      `process()` 返回"没有手也没有姿态"的空结果,端点后半段的真实逻辑照常跑。
 
-    两处都与"会话 id → 日志文件名"无关:被测逻辑一行都不在替身里。
+    gesture 那边原来还有一个缝(M1.5 T3 之前:`gesture_analysis/api/app.py` **模块级**
+    构造 `mp.solutions.hands.Hands(...)`,而本环境的 mediapipe 1.0 已删掉 `solutions`
+    命名空间)—— **它已经消失**:探测器改成按会话懒建之后,import 期不再碰 mediapipe,
+    这里也就不再需要替身。缝少一个本身就是 D3 生效的证据。
+
+    剩下的这处与"会话 id → 日志文件名"无关:被测逻辑一行都不在替身里。
     """
     if "python_multipart" not in sys.modules:
         stub = types.ModuleType("python_multipart")
         stub.__version__ = "0.0.20"          # FastAPI 只做字符串大小比较
         sys.modules["python_multipart"] = stub
-
-    import mediapipe as mp
-    if not hasattr(mp, "solutions"):
-        def _process(self, _image):
-            return types.SimpleNamespace(multi_hand_landmarks=None, pose_landmarks=None)
-
-        def _ctor(self, **_kwargs):
-            pass
-
-        mp.solutions = types.SimpleNamespace(
-            hands=types.SimpleNamespace(
-                Hands=type("Hands", (), {"__init__": _ctor, "process": _process})),
-            pose=types.SimpleNamespace(
-                Pose=type("Pose", (), {"__init__": _ctor, "process": _process})),
-        )
 
 
 _install_env_shims()
@@ -147,6 +134,32 @@ class _FakeFacePipeline:
         TTL 回收那条路 —— 少了这个方法,`get_or_create_pipeline` 会 AttributeError。
         替身必须跟着真接口长,否则测的就不是"会话 → 日志文件"的接线了。
         """
+        self.closed = True
+
+
+class _FakeGestureDetector:
+    """替 `HandDetector` / `PoseDetector`(M1.5 T3)。
+
+    迁移前这里靠一个 `mp.solutions` 替身:探测器在 **import 期**构造,不替身就 import 不进来。
+    T3 之后探测器改成**按会话懒建**,替身点也就跟着从 import 期移到**构造处** ——
+    替身的形式变了,它要守住的东西没变:本文件测的是"会话 → 日志文件"的接线,不是视觉,
+    所以不该依赖那两个共 21 MB 的 `.task` 模型存在(步长证据:不替身时本文件从 ~2s 涨到
+    32s,并且会加载真模型)。
+
+    交出"这一帧里没有手也没有姿态"的空结果,与迁移前替身的形状一致,于是端点后半段的
+    真实逻辑照常跑(`HandDetector.detect` → `[]`;`PoseDetector.detect` → `None`)。
+    """
+
+    def __init__(self, *args, **kwargs):
+        self.closed = False
+
+    def detect(self, _image_rgb):
+        return []
+
+    def reset(self):
+        pass
+
+    def close(self):
         self.closed = True
 
 
@@ -235,11 +248,20 @@ def face_env(tmp_path, monkeypatch):
 def gesture_env(tmp_path, monkeypatch):
     """同上。gesture 这边 app 传的是 `log_file_path`,logger 自己的 LOGS_DIR 用不上;
     仍然一起改掉,免得哪次接线写歪就往仓库里落文件(测试要能响亮地失败在 tmp_path 上)。
+
+    探测器也换成替身(见 `_FakeGestureDetector`):`analyze_image` 现在会真的构造探测器,
+    不替身就要加载 21 MB 模型。`detectors` 表同 `session_analyzers` 一样是模块级状态,
+    跨测试会残留 —— 一起清掉。
     """
+    import gesture_analysis.core.detectors as det
+
     monkeypatch.setattr(gesture_app, "LOGS_DIR", tmp_path)
     monkeypatch.setattr(gesture_logger_module, "LOGS_DIR", tmp_path)
+    monkeypatch.setattr(det, "HandDetector", _FakeGestureDetector)
+    monkeypatch.setattr(det, "PoseDetector", _FakeGestureDetector)
     gesture_app.session_analyzers.clear()
     gesture_app.session_loggers.clear()
+    gesture_app.detectors.clear()
     return tmp_path
 
 

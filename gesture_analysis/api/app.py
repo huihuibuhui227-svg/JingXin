@@ -19,7 +19,6 @@ from gesture_analysis.core.analysis.arm_analyzer import ArmAnalyzer
 from gesture_analysis.core.analysis.emotion_inferencer import EmotionInferencer
 from gesture_analysis.utils.logger import GestureLogger, NONE_SESSION
 from gesture_analysis.config import API_CONFIG, MEDIAPIPE_CONFIG, LOGS_DIR
-import mediapipe as mp
 
 app = FastAPI(
     title="Gesture Analysis API",
@@ -38,17 +37,15 @@ app.add_middleware(
 
 # ... existing code ...
 
-# 初始化MediaPipe模型
-mp_hands = mp.solutions.hands
-mp_pose = mp.solutions.pose
-
-hands = mp_hands.Hands(**MEDIAPIPE_CONFIG['hands'])
-pose = mp_pose.Pose(**MEDIAPIPE_CONFIG['pose'])
-
 # 会话管理
 session_analyzers = {}
 session_loggers = {}  # 每个会话的 GestureLogger 实例
 SESSION_TIMEOUT = 300
+
+# 按会话的探测器表（与 session_analyzers 同生命周期、同 TTL 回收 —— spec §6.3）。
+# 迁移前 `hands`/`pose` 是模块级单例，所有客户端共用；tasks 的 VIDEO 模式把跟踪状态
+# 挂在探测器实例上，单例会让并发会话互相污染跟踪（spec §3.5）。
+detectors: dict = {}
 
 # 会话 id 直接进日志文件名（`gesture_emotion_log_{session_id}.csv`），而它是客户端可控的
 # （query 参数），所以只收 `[A-Za-z0-9_-]{1,128}` —— 路径分隔符与 `..` 一概不收。
@@ -130,6 +127,10 @@ def get_or_create_analyzers(session_id: str):
     for sid in expired_sessions:
         del session_analyzers[sid]
         session_loggers.pop(sid, None)
+        dets = detectors.pop(sid, None)
+        if dets is not None:
+            for d in dets.values():
+                d.close()          # 必须显式关:持 native 句柄(spec §6.3)
 
     # 获取或创建新会话
     if session_id not in session_analyzers:
@@ -157,6 +158,31 @@ def get_or_create_analyzers(session_id: str):
             session_loggers[session_id] = (entry[0], entry[1], current_time)
 
     return session_analyzers[session_id][0]
+
+
+def get_or_create_detectors(session_id: str):
+    """取或建本会话的探测器。VIDEO 模式的跟踪状态挂在实例上,所以必须按会话(spec D3)。"""
+    current_time = time.time()
+
+    expired = [sid for sid, (_, last) in session_analyzers.items()
+               if current_time - last > SESSION_TIMEOUT]
+    for sid in expired:
+        dets = detectors.pop(sid, None)
+        if dets is not None:
+            for d in dets.values():
+                d.close()
+
+    if session_id not in detectors:
+        from gesture_analysis.core.detectors import HandDetector, PoseDetector
+        from gesture_analysis.config import HAND_MODEL, POSE_MODEL
+        detectors[session_id] = {
+            'hands': HandDetector(HAND_MODEL, **{
+                k: v for k, v in MEDIAPIPE_CONFIG['hands'].items()}),
+            'pose': PoseDetector(POSE_MODEL, **{
+                k: v for k, v in MEDIAPIPE_CONFIG['pose'].items() if k != 'tier'}),
+        }
+        logger.info(f"创建手势探测器会话: {session_id}")
+    return detectors[session_id]
 
 
 class ImageRequest(BaseModel):
@@ -226,33 +252,31 @@ async def analyze_image(
         # 获取或创建分析器
         analyzers = get_or_create_analyzers(session_id)
 
-        # 处理手部
-        hand_results_raw = hands.process(image_rgb)
+        dets = get_or_create_detectors(session_id)
+
+        hand_groups = dets['hands'].detect(image_rgb)
         detected_hands = 0
         hand_scores = []
 
-        if hand_results_raw.multi_hand_landmarks:
-            for hand_id, lm_obj in enumerate(hand_results_raw.multi_hand_landmarks):
-                if hand_id >= 2: break
-                analyzer_key = 'left_hand' if hand_id == 0 else 'right_hand'
-                analyzers[analyzer_key].update(lm_obj.landmark)
-                hand_scores.append(analyzers[analyzer_key].get_results()['resilience_score'])
-                detected_hands += 1
+        for hand_id, landmarks in enumerate(hand_groups):
+            if hand_id >= 2: break
+            analyzer_key = 'left_hand' if hand_id == 0 else 'right_hand'
+            analyzers[analyzer_key].update(landmarks)
+            hand_scores.append(analyzers[analyzer_key].get_results()['resilience_score'])
+            detected_hands += 1
 
-        # 处理肩部
-        shoulder_results_raw = pose.process(image_rgb)
+        pose_landmarks = dets['pose'].detect(image_rgb)
         shoulder_score = 50.0
 
-        if shoulder_results_raw.pose_landmarks:
-            analyzers['shoulder'].update(shoulder_results_raw.pose_landmarks.landmark)
+        if pose_landmarks:
+            analyzers['shoulder'].update(pose_landmarks)
             shoulder_score = analyzers['shoulder'].get_results()['shoulder_score']
 
-        # 处理手臂
         left_arm_score = 50.0
         right_arm_score = 50.0
-        if shoulder_results_raw.pose_landmarks:
-            analyzers['left_arm'].update(shoulder_results_raw.pose_landmarks.landmark)
-            analyzers['right_arm'].update(shoulder_results_raw.pose_landmarks.landmark)
+        if pose_landmarks:
+            analyzers['left_arm'].update(pose_landmarks)
+            analyzers['right_arm'].update(pose_landmarks)
             left_arm_result = analyzers['left_arm'].get_results()
             right_arm_result = analyzers['right_arm'].get_results()
             left_arm_score = left_arm_result.get('arm_score', 50.0) if left_arm_result.get('is_valid') else 50.0
@@ -443,13 +467,20 @@ async def reset_analyzers(session_id: str = None):
     """
     try:
         if session_id:
+            dets = detectors.pop(session_id, None)
+            if dets is not None:
+                for d in dets.values():
+                    d.close()
             if session_id in session_analyzers:
                 del session_analyzers[session_id]
                 session_loggers.pop(session_id, None)
                 return {"status": "success", "message": f"会话 {session_id} 已重置"}
-            else:
-                return {"status": "not_found", "message": f"会话 {session_id} 不存在"}
+            return {"status": "not_found", "message": f"会话 {session_id} 不存在"}
         else:
+            for dets in detectors.values():
+                for d in dets.values():
+                    d.close()
+            detectors.clear()
             session_analyzers.clear()
             session_loggers.clear()
             return {"status": "success", "message": "所有会话已重置"}
@@ -459,6 +490,9 @@ async def reset_analyzers(session_id: str = None):
 
 if __name__ == "__main__":
     import uvicorn
+
+    from gesture_analysis.core.detectors import verify_models
+    verify_models()
 
     uvicorn.run(app, host=API_CONFIG['host'], port=API_CONFIG['port'])
 
