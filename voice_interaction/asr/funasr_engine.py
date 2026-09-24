@@ -4,7 +4,10 @@
   1. 逐字时间戳在 raw['timestamp'],不在 ASRResult 属性上
   2. VAD 多段 —— 客户端已拼接,这里保留逐段原文并标记 vad_split
   3. 段内相对时间戳 —— 不假装是绝对时间(带 ts_origin 标记)
-  4. 客户端会吞异常/卡住 —— 这里把异常上抛、给每次调用加超时
+  4. 这条同步路径(`recognize_pcm` → `arecognize_pcm`)本身不吞异常(吞异常的是
+     `ASRSession` 那条线),这里同样不吞、直接上抛;构造函数里的 `timeout_s` 只作为
+     客户端的 `timeout` 传下去,而它**只兜住推完音频后收尾 drain 的等待** ——
+     不是"中途卡死的看门狗":推流过程中 socket 若挂住,本适配层不会自己中断
 """
 from __future__ import annotations
 
@@ -20,7 +23,8 @@ _CJK = re.compile(r"[㐀-䶿一-鿿]")
 _CONFIG_PATH = Path(__file__).with_name("asr_config.json")
 
 
-def _config() -> dict[str, Any]:
+def load_config() -> dict[str, Any]:
+    """读采集侧配置(公开访问器:store 与 Task 2 的端点都从这里取,别跨模块用私有名)。"""
     return json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
 
 
@@ -41,7 +45,7 @@ class AsrUtterance:
 class FunASREngine:
     def __init__(self, client: Any = None, host: str | None = None,
                  port: int | None = None, timeout_s: float | None = None):
-        cfg = _config()
+        cfg = load_config()
         self.host = host or cfg["funasr_host"]
         self.port = port or cfg["funasr_port"]
         self.timeout_s = timeout_s or float(cfg["timeout_s"])

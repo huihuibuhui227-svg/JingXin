@@ -37,8 +37,31 @@ def test_new_session_id_suffix_is_varied():
     assert len(ids) >= 48, f"随机段不随机:50 次只得到 {len(ids)} 个不同 id"
 
 
-def test_recording_dir_is_outside_repo(tmp_path):
+def test_recording_dir_honours_explicit_root(tmp_path):
+    """显式传 root 时落在该 root 下(测试用的隔离路径)。"""
     d = transcript_store.recording_dir("20260924_153012_9f3c", root=tmp_path)
+    assert d == tmp_path / "20260924_153012_9f3c"
+    assert d.exists()
+
+
+def test_default_root_is_outside_the_repo():
+    """spec D2 的绝对约束:默认落盘位置必须在仓库外。
+
+    这条【不传 root】,守的正是生产路径(`recording_dir(sid)` / `append_utterance(…, root=None)`)。
+    只断言"传了 root 就在 root 下"的测试永远不可能因为"原句被写进仓库"而变红 ——
+    这个不变量此前覆盖率为零。
+    """
+    repo_root = Path(__file__).resolve().parents[1]
+    default_root = Path(transcript_store.DEFAULT_ROOT).resolve()
+    assert default_root.is_absolute(), f"默认落盘位置是相对路径,会随 CWD 漂:{default_root}"
+    assert repo_root not in (default_root, *default_root.parents), \
+        f"默认落盘位置落在仓库内,面试原句会被写进 git:{default_root}"
+
+
+def test_recording_dir_default_root_honours_env_override(tmp_path, monkeypatch):
+    """`JINGXIN_RECORDINGS_DIR` 能整体挪走落盘根(不传 root 时也真的读了它)。"""
+    monkeypatch.setenv("JINGXIN_RECORDINGS_DIR", str(tmp_path))
+    d = transcript_store.recording_dir("20260924_153012_9f3c")
     assert d == tmp_path / "20260924_153012_9f3c"
     assert d.exists()
 
@@ -124,6 +147,29 @@ def test_asr_block_follows_asr_config(tmp_path, monkeypatch):
     asr = json.loads(p.read_text(encoding="utf-8"))["asr"]
     assert asr["endpoint"] == "ws://10.1.2.3:4321"
     assert asr["models"] == {"asr_offline": "…2pass-offline"}
+
+
+def test_asr_models_records_the_four_contract_keys(tmp_path):
+    """spec §6.4 的 models 有四个键;下游会索引 `models["vad"]`,给空字典就是 KeyError。"""
+    p = transcript_store.append_utterance("20260924_153012_9f3c",
+                                         _one_segment_utt("你好"), root=tmp_path)
+    models = json.loads(p.read_text(encoding="utf-8"))["asr"]["models"]
+    assert set(models) == {"asr_online", "asr_offline", "vad", "punc"}
+    assert all(models.values()), f"四个键都得有真值,不能是 None 或空串:{models}"
+
+
+def test_store_reads_config_through_the_public_accessor(tmp_path, monkeypatch):
+    """Task 2 要跨模块取配置 —— 走公开访问器 `funasr_engine.load_config`,
+    私有名一改就静默断在写盘那一刻(所以这里打桩公开名,断 store 真的走它)。"""
+    assert callable(funasr_engine.load_config), "配置读取必须是公开访问器"
+    monkeypatch.setattr(funasr_engine, "load_config",
+                        lambda: {"funasr_host": "9.9.9.9", "funasr_port": 1,
+                                 "timeout_s": 1.0, "models": {"vad": "X"}})
+    p = transcript_store.append_utterance("20260924_153012_9f3c",
+                                         _one_segment_utt("你好"), root=tmp_path)
+    asr = json.loads(p.read_text(encoding="utf-8"))["asr"]
+    assert asr["endpoint"] == "ws://9.9.9.9:1"
+    assert asr["models"] == {"vad": "X"}
 
 
 def test_append_utterance_accumulates_across_calls(tmp_path):

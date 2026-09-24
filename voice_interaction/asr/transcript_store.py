@@ -37,13 +37,14 @@ def _transcript_path(session_id: str, root=None) -> Path:
 def _asr_meta() -> dict[str, Any]:
     """provenance 块(spec §6.4)。
 
-    engine/endpoint/models 从 `asr_config.json` 现取 —— 不在这里再存一份 host/port。
+    engine/endpoint/models 从 `asr_config.json` 现取(经公开访问器 `load_config`)——
+    不在这里再存一份 host/port。
     `asr_confidence` 恒为 null 且 `asr_confidence_source` 恒为 "unavailable":
     该部署的 raw 里没有置信度字段(实测,spec §3),必须显式落盘而非省略(spec §9.1)。
     """
-    from .funasr_engine import _config
+    from .funasr_engine import load_config
 
-    cfg = _config()
+    cfg = load_config()
     return {
         "engine": "funasr",
         "endpoint": f"ws://{cfg['funasr_host']}:{cfg['funasr_port']}",

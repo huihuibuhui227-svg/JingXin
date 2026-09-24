@@ -4,8 +4,13 @@
   "funasr_host": "192.168.72.30",
   "funasr_port": 10095,
   "timeout_s": 60.0,
-  "models": {},
-  "models_basis": "服务端不回传模型信息(实测 raw 键仅 is_final/mode/punc_array/segment_count/spk_name/spk_score/text/timestamp/wav_name),故此处留空、transcript.json 的 asr.models 亦为空——宁可空,不写没核实过的模型名。部署方按实际 FunASR 配置填入即可,不改代码",
+  "models": {
+    "asr_online": "iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-online",
+    "asr_offline": "iic/speech_seaco_paraformer_large_asr_nat-zh-cn-16k-common-vocab8404-pytorch",
+    "vad": "iic/speech_fsmn_vad_zh-cn-16k-common-pytorch",
+    "punc": "iic/punc_ct-transformer_zh-cn-common-vad_realtime-vocab272727"
+  },
+  "models_basis": "来源 = 服务端日志 ~/huihuibui/logs/server.err.log 的 `Loading ckpt: ... status: <All keys matched successfully>` 行(部署方在 192.168.72.30 上读取),【不是】API 返回 —— 本部署的 raw 键只有 is_final/mode/punc_array/segment_count/spk_name/spk_score/text/timestamp/wav_name,不含任何模型信息。服务端另载 iic/speech_campplus_sv_zh-cn_16k-common(声纹验证,即 raw 里 spk_score 的来源),但它不属于 spec §6.4 的四个契约键,故不记入 models",
   "min_chars_for_density": {
     "value": 10,
     "_provisional": true,
