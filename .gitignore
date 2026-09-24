@@ -45,6 +45,10 @@ ENV/
 data/logs/
 data/output/
 
+# 实验产物(生成物,约 1.1 GB / 1 万个文件;experiments/ 下的脚本仍未被跟踪,
+# 是否入库属论文线决定,故此处只忽略纯数据目录,不掩盖脚本的未跟踪状态)
+experiments/results/
+
 # ======================
 # Vosk large model (MUST IGNORE)
 # ======================
