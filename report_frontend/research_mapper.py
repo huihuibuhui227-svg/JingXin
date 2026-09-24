@@ -54,7 +54,7 @@ class ResearchCapabilityMapper:
 
     def __init__(self):
         # 说明:曾有的 self.demo_text_data(内置演示文本)与 self.baselines(无出处的
-        # 常模均值/标准差)已删除 —— 前者让 logic_keyword_density 在无文本列时凭空
+        # 常模均值/标准差)已删除 —— 前者让连接词密度在无文本列时凭空
         # 得到常量,后者既伪造证据又产出杜撰百分位(spec §5.3 / §5.5)。
         self.mapping_rules = {
             "logical_thinking": {
@@ -62,7 +62,7 @@ class ResearchCapabilityMapper:
                 "description": "观测文本结构与面部动作单元相关的可测量。",
                 "algorithm": "加权线性组合 + 认知负荷推断",
                 "indicators": [
-                    ("logic_keyword_density", 0.4, True, "逻辑关键词密度", "core"),
+                    ("connective_density", 0.4, True, "连接词密度", "core"),
                     ("focus_score", 0.3, True, "面部专注度", "core"),
                     ("gaze_stability", 0.2, True, "视线稳定性", "core"),
                     ("au4_freq", 0.1, False, "困惑微表情 (皱眉)", "support"),
@@ -172,8 +172,8 @@ class ResearchCapabilityMapper:
                     continue
 
                 # 伴随的 _std 用于 G2(常量判定);模态行数用于 G3(样本量)。
-                # 取法两种都试:真实数据的列形如 `<基名>_mean` + `<基名>_std`,而 ASR
-                # 派生的键(如 logic_keyword_density)没有 _mean 后缀 —— 只查前者会让
+                # 取法两种都试:真实数据的列形如 `<基名>_mean` + `<基名>_std`,而有些
+                # 键(如 face_eye_contact_ratio)没有 _mean 后缀 —— 只查前者会让
                 # 这些键**静默**拿不到标准差:G2 退回 fail-open,区间也失去变异信息。
                 std = None
                 for std_key in (

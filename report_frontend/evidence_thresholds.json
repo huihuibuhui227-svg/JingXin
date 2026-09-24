@@ -1,5 +1,5 @@
 {
-  "_version": "0.2.0-provisional",
+  "_version": "0.3.0-provisional",
   "_provisional": true,
   "_note": "临时阈值。依据=物理下限,非标定值。M5 标定到位后必须替换,替换即新模型版本(spec §5.1)。",
   "_units": "n_valid 的单位随指标而定:frames 或 segments",
@@ -51,9 +51,9 @@
     },
     "density": {
       "kind": "full_scale",
-      "full_scale": 0.02,
-      "basis_kind": "legacy_arbitrary",
-      "basis": "0.02 记为满量程(旧实现 val×50)。密度按定义落在 0–1,此满量程无物理依据,且有把已归一的量再放大 50 倍之嫌;可辩护的替代是按 ratio 族处理(恒等),待 M5 或 M4 决定。"
+      "full_scale": 10.0,
+      "basis_kind": "definitional",
+      "basis": "连接词密度的定义是每百字连接词数(语音日志列 connective_density),满量程按该定义记为 10.0:每百字 10 个连接词。旧值 0.02 是旧公式「命中数÷字符数」的量程,在新单位下等价于 2.0(0.02×100) —— 单位换算只是把满量程换成 2.0,而 10.0 是按新定义重设的:该量无天然上界(每百字 10 个并非物理上限),10.0 是当前可辩护的参考量程,M5 标定到位后替换。"
     },
     "jitter": {
       "kind": "full_scale",

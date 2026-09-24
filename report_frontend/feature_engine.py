@@ -23,7 +23,7 @@ class PsychologicalFeatureEngine:
 
     【处理策略】
     1. 命名规范化：自动清洗键名，消除冗余符号，统一格式。
-    2. 类型自适应：数值列计算统计矩，文本列 (AU/语音) 计算频率与密度。
+    2. 类型自适应：数值列计算统计矩，AU 字符串列解析动作单元频率。
     3. 样本感知：大样本计算时间趋势，小样本聚焦全量统计。
     4. 眼动专项分析：针对 iris/gaze 列计算稳定性、注视中心度等指标。
     5. 智能别名映射：为语音特征生成标准关键词别名，确保 Mapper 精准匹配。
@@ -255,7 +255,7 @@ class PsychologicalFeatureEngine:
         return features
 
     # ---------------------------------------------------------
-    # 3. 语音特征提取 (终极修复版：强制文本扫描 + 流畅度代理)
+    # 3. 语音特征提取 (数值列扫描)
     # ---------------------------------------------------------
     def _extract_voice_features(self, modality_key: str) -> Optional[Dict[str, Any]]:
         if modality_key not in self.data or self.data[modality_key].empty:
@@ -276,8 +276,6 @@ class PsychologicalFeatureEngine:
                 features[f'{prefix}_emotion_diversity'] = float(df['emotion'].nunique())
 
         # B. 数值列扫描与别名映射
-        text_cols_found = []
-
         for col in df.columns:
             if col == 'emotion' or 'timestamp' in col.lower() or 'id' in col.lower():
                 continue
@@ -307,45 +305,14 @@ class PsychologicalFeatureEngine:
                 # speech_ratio，故该分支从未触发(死代码，spec §5.3)。
                 # 真 VAD 落地前不再伪造 fluency_score / fluency_proxy。
 
-            # C. 【核心修复】文本列强制扫描
-            elif 'text' in col.lower() or 'content' in col.lower() or 'answer' in col.lower() or 'script' in col.lower():
-                text_cols_found.append(col)
-                lengths = df[col].apply(lambda x: len(str(x)) if pd.notna(x) else 0)
-                features[f'{prefix}_{col}_avg_length'] = float(lengths.mean())
-
-                # 强制计算逻辑密度
-                if 'text' in col.lower() or 'content' in col.lower() or 'answer' in col.lower():
-                    text_concat = " ".join(df[col].dropna().astype(str)).lower()
-                    if len(text_concat) > 10:  # 确保有内容
-                        logic_keywords = ['因为', '所以', '但是', '然而', '分析', '认为', '假设', '实验', '数据',
-                                          '首先', '其次', '最后', '因此', '由于', '尽管', '如果', '那么', '综上所述']
-                        hit_count = sum(1 for k in logic_keywords if k in text_concat)
-                        density = float(hit_count / max(1, len(text_concat)))
-
-                        # 【关键】写入不带模态前缀的通用键名，确保 Mapper 一定能搜到！
-                        # 同时也写入带前缀的
-                        features[f'logic_keyword_density'] = density
-                        features[f'{prefix}_logic_keyword_density'] = density
-                        features[f'{prefix}_{col}_logic_density'] = density
-
-        # D. 【兜底】如果没找到文本列，尝试查找任何包含中文字符的列
-        if not text_cols_found:
-            for col in df.columns:
-                if df[col].dtype == 'object':
-                    sample = df[col].dropna().head(1)
-                    if not sample.empty and any('\u4e00' <= c <= '\u9fff' for c in str(sample.iloc[0])):
-                        # 发现潜在文本列
-                        text_concat = " ".join(df[col].dropna().astype(str)).lower()
-                        if len(text_concat) > 10:
-                            logic_keywords = ['因为', '所以', '但是', '然而', '分析', '认为', '假设', '实验', '数据']
-                            hit_count = sum(1 for k in logic_keywords if k in text_concat)
-                            density = float(hit_count / max(1, len(text_concat)))
-                            features[f'logic_keyword_density'] = density
-                            features[f'{prefix}_logic_keyword_density'] = density
-                            print(f"      💡 自动发现文本列 '{col}' 并计算逻辑密度。")
-                            break
+        # 文本列不再扫描。连接词密度由语音模块按「每百字连接词数」直接写进日志列
+        # (connective_density/connective_density_std,Task 3),报告层走上面那条通用
+        # 数值路径(_extract_numeric_stats 产出 _mean/_std),不需要任何特判。
+        # 此处曾有一份**同名不同义**的第二定义(命中数÷字符数)与两张硬编码关键词表:
+        # 同一个显示名下面挂着两个量,报告里的名字便无法回答"它指的是哪个量"。
 
         return features
+
     def get_summary_report(self, limit_per_modality: int = 20) -> str:
         if not self.features: return "未提取到任何有效特征。"
         lines = ["\n=== 📊 标准化特征量化摘要 ==="]
@@ -506,8 +473,6 @@ if __name__ == "__main__":
             # 检查语音别名是否生成
             if 'voice_interview' in features:
                 vi = features['voice_interview']
-                if 'interview_logic_keyword_density' in vi:
-                    print("✅ [验证] 语音逻辑密度别名生成成功。")
                 if 'interview_pitch_variation_mean' in vi:
                     print("✅ [验证] 语音语调变化别名生成成功。")
 

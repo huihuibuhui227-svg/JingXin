@@ -1,0 +1,43 @@
+# JingXin 多模态面试评估系统 - 完整依赖清单
+# 由原 requirements.txt + Windows conda 环境实际使用的包合并生成
+# 已排除代码中未 import 的包（torch/torchvision/torchaudio/pymssql）
+
+# Web框架
+Flask>=2.0.0
+flask-cors>=3.0.0
+fastapi>=0.68.0
+uvicorn>=0.15.0
+python-multipart>=0.0.9
+
+# 计算机视觉
+opencv-python>=4.5.0
+mediapipe>=0.8.0
+
+# 科学计算
+numpy>=1.21.0
+scipy>=1.7.0
+
+# 数据处理
+pandas>=1.3.0
+scikit-learn>=1.0.0
+
+# 可视化
+matplotlib>=3.0.0
+seaborn>=0.11.0
+plotly>=5.0.0
+Pillow>=8.0.0
+
+# 语音处理
+librosa>=0.9.0
+soundfile>=0.11.0
+sounddevice>=0.4.0
+websockets>=12.0
+pyttsx3>=2.90
+
+# AI评测
+openai>=1.0.0
+requests>=2.0.0
+
+# 工具库
+python-dotenv>=0.19.0
+pyyaml>=5.4.0

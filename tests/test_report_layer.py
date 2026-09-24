@@ -22,10 +22,12 @@ def test_no_fake_resume_fallback():
     ⚠️ 原版用零输入 fixture,证据链为空 → 循环零断言,对任何实现都通过。
     改为喂一个只让 1 个槽过门的输入,断言 matched 恰为 1/4 且缺口为 3。
     若 BASELINE_FILL 回归,缺失的 3 个槽会被填空 → matched 变 4/4 → 本测试变红。
-    控制器已实测该 fixture 输出:score=100.0 / conf=低 / matched=1/4 / 缺口 3。
+    Task 6 换键(connective_density)后实测该 fixture 输出:score=0.5 / conf=低 /
+    matched=1/4 / 缺口 3 —— 0.05(每百字)在新量程 10 下归一为 0.005,故分数不再是
+    旧量程下的 100.0;本测试断言的是 matched 与缺口,两者不受换键影响。
     """
-    feats = {"voice_research": {"logic_keyword_density": 0.05,
-                                "logic_keyword_density_std": 0.01,
+    feats = {"voice_research": {"connective_density_mean": 0.05,
+                                "connective_density_std": 0.01,
                                 "_n_rows": 100.0}}
     dim = ResearchCapabilityMapper().map_features_to_scores(feats)["dimensions"]["logical_thinking"]
 
@@ -33,7 +35,7 @@ def test_no_fake_resume_fallback():
     assert len(dim["evidence_gaps"]) == 3
     for ev in dim["evidence_chain"]:
         # 裸键名是假简历兜底的签名;带模态前缀才是真测量
-        assert ev["feature"] != "logic_keyword_density", "裸键名 = 假简历兜底的签名"
+        assert ev["feature"] != "connective_density", "裸键名 = 假简历兜底的签名"
         assert "BASELINE" not in ev["feature"]
         assert "代理" not in ev["feature"]
 
@@ -50,8 +52,8 @@ def test_quarantined_columns_are_rejected():
     若删掉它的封停条目且喂入该列,它会进链、缺口里便不再有它 → 本测试变红。
     控制器实测:stress_resilience 链=0、缺口=4、缺口含「面部对称性」。
     """
-    feats = {"voice_research": {"logic_keyword_density": 0.05,
-                                "logic_keyword_density_std": 0.01,
+    feats = {"voice_research": {"connective_density_mean": 0.05,
+                                "connective_density_std": 0.01,
                                 "_n_rows": 100.0},
              "face": {"face_focus_score_mean": 0.3,
                       "face_focus_score_std": 0.05,
@@ -173,8 +175,8 @@ def test_no_fabricated_percentile():
     Task 5 复审实测:原输入 `interview_pause_duration_mean` 让 5 个维度全部
     score=None / chain=[],是彻底的空断言("回归守卫"的标签夸大了它)。
     """
-    feats = {"voice_research": {"logic_keyword_density": 0.05,
-                                "logic_keyword_density_std": 0.01,
+    feats = {"voice_research": {"connective_density_mean": 0.05,
+                                "connective_density_std": 0.01,
                                 "_n_rows": 100.0}}
     r = ResearchCapabilityMapper().map_features_to_scores(feats)
 
@@ -207,7 +209,7 @@ BANNED = ["焦虑", "紧张", "压力", "抗压", "情绪稳定", "说谎", "诚
 # 期望值按**打补丁后的登记值**手工推算:若某族又被写回代码里的裸常量,
 # 该行的期望值不会出现(例如 density 会恒为 1.0 而不是 0.05)。
 _SCALE_CASES = [
-    ("logic_keyword_density", ("scale_factors", "density", "full_scale"), 1.0, 0.05, 0.05),
+    ("connective_density", ("scale_factors", "density", "full_scale"), 1.0, 0.05, 0.05),
     ("jitter", ("scale_factors", "jitter", "full_scale"), 0.4, 0.1, 0.25),
     ("gaze_deviation", ("scale_factors", "deviation", "full_scale"), 0.4, 0.1, 0.25),
     ("text_avg_length", ("scale_factors", "length", "full_scale"), 60.0, 30.0, 0.5),
@@ -291,14 +293,16 @@ def test_every_registered_scale_factor_declares_a_basis():
 # 叙事层里禁止词与硬编码句原本住在**出分路径**上,零证据输入会在组合那几句之前
 # 就短接掉 —— 用零证据 fixture 的测试因此对改动前后都通过(本计划已栽过八次)。
 # 本 fixture 让三条叙事层测试同时走到出分路径与无证据路径。
-_MIXED = {"voice_research": {"logic_keyword_density": 0.05,
-                             "logic_keyword_density_std": 0.01,
+# 键名与量程同源:真实日志列 connective_density 经 feature_engine 的通用数值路径
+# 产出 _mean/_std,量程是「每百字 10 个」—— 10.0 正好落在满量程上(分数饱和端)。
+_MIXED = {"voice_research": {"connective_density_mean": 10.0,
+                             "connective_density_std": 1.0,
                              "_n_rows": 100.0}}
 
 # 低分混合 fixture:同一槽过门,但归一值为 0 → 旧实现给出 0.0 分 + 档位「待提升」。
 # 审查者在真实 ASR 转写上复现的正是这条路径(报告头渲染「0.0 / 综合行为观测评分 / 待提升」)。
-_LOW = {"voice_research": {"logic_keyword_density": 0.0,
-                           "logic_keyword_density_std": 0.01,
+_LOW = {"voice_research": {"connective_density_mean": 0.0,
+                           "connective_density_std": 0.01,
                            "_n_rows": 100.0}}
 
 # 五档评语(spec §5.4 :157-158 的处置对象:它们是对人的评级,不得再出现在报告里)
@@ -335,7 +339,7 @@ def test_report_renders_no_candidate_rating():
     # 正向断言:否则"把整段都删掉"也能让本测试通过
     assert "观测区间" in html, "聚合呈现缺区间(spec §5.6:区间 + 置信度 + 依据)"
     assert "置信度上限" in html, "聚合呈现缺置信度"
-    assert "逻辑关键词密度" in html, "聚合呈现缺依据"
+    assert "连接词密度" in html, "聚合呈现缺依据"
 
 
 def test_zero_value_scored_session_renders_no_verdict():
@@ -410,23 +414,37 @@ def test_radar_plots_coverage_not_scores():
 def test_observed_interval_is_session_derived():
     """spec §5.6:聚合/维度呈现的区间只能来自本场会话自己的测量。
 
-    `_MIXED` 里 `logic_keyword_density` 的会话内标准差是 0.01、均值 0.05 →
-    区间 0.04–0.06。这条同时钉住 `_std` 的取法:只按 `<基名>_std`(要求键以 `_mean`
-    结尾)去找会让没有 `_mean` 后缀的键(如 ASR 派生的 logic_keyword_density)**静默**
-    拿不到标准差 —— 于是 G2 退回 fail-open、区间变成"未采集到会话内变异信息"。
+    `_MIXED` 里 `connective_density_mean` 的会话内标准差是 1.0、均值 10.0 →
+    区间 9.0–11.0;`_n_rows` 100。
+
+    这条同时钉住 `_std` 的取法 —— 两条分支都要活着:
+    - 键以 `_mean` 结尾 → 查 `<基名>_std`(connective_density 走这条);
+    - 键不带 `_mean`(如 `face_energy`)→ 只能查 `<键>_std`。
+      删掉后一条分支,face_energy 会**静默**拿不到标准差:G2 退回 fail-open、
+      区间变成"未采集到会话内变异信息" → 下面的断言变红。Task 6 把密度键从
+      「无 _mean 后缀」改成了「带 _mean」,故第二条分支改由 face_energy 单独钉住。
     """
     result = ResearchCapabilityMapper().map_features_to_scores(_MIXED)
     slot = result["coverage"]["passed_slots"][0]
 
-    assert slot["observed_interval"] == [0.04, 0.06], \
+    assert slot["observed_interval"] == [9.0, 11.0], \
         f"区间未由本场会话的均值/标准差构成:{slot['observed_interval']}"
     assert slot["n_valid"] == 100
 
     html = _rendered_html(result, _MIXED)
-    assert "0.04 – 0.06" in html, "会话内实测区间没有渲染出来"
+    assert "9.0 – 11.0" in html, "会话内实测区间没有渲染出来"
     # 反向:不得出现任何暗示人群位置的表述
     for claim in ("百分位", "优于", "Top", "分位"):
         assert claim not in html, f"报告出现人群位置表述:{claim}"
+
+    # 无 _mean 后缀的键:同一个 _std 取法,`<键>_std` 那条分支
+    bare = {"face": {"face_energy": 0.5, "face_energy_std": 0.1, "_n_rows": 100.0}}
+    dim = ResearchCapabilityMapper().map_features_to_scores(bare)["dimensions"]["confidence_level"]
+    ev = next(e for e in dim["evidence_chain"] if e["human_name"] == "语音能量")
+    assert ev["feature"] == "face_energy", f"钉的键变了:{ev['feature']}"
+    assert ev["observed_interval"] == [0.4, 0.6], (
+        f"不带 _mean 的键没取到伴随标准差:{ev['observed_interval']}"
+    )
 
 
 def test_deep_analysis_has_no_banned_words():
