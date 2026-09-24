@@ -46,3 +46,22 @@ def test_floor_is_read_from_config_not_hardcoded(tmp_path, monkeypatch):
     p.write_text(json.dumps({"min_chars_for_density": {"value": 200}}), encoding="utf-8")
     monkeypatch.setattr(funasr_engine, "_CONFIG_PATH", p)
     assert connective_density("然后" + "字" * 98) is None      # 100 字 < 200
+
+
+def test_empty_text_returns_none_even_with_zero_floor():
+    """空文本 → None 必须无条件成立,不能只是"下限恰好大于 0"的副产品。
+
+    这是公开纯函数的契约:守卫写成 `chars < floor` 的话,min_chars=0 时放行到
+    `hits / chars`,空文本直接 ZeroDivisionError —— 而 M3 之后的实验很可能传别的下限。
+    """
+    assert connective_density("", min_chars=0) is None
+
+
+def test_no_marker_is_a_substring_of_another():
+    """守卫的是**标记表这份数据**,不是生产代码:计数按"是否出现"做子串匹配,
+    表里一旦出现包含关系(例如加一个 `为`),`因为` 会被两个标记各计一次,
+    密度静默膨胀而没有任何东西会红。所以这条测试故意在被改坏的表上红。
+    """
+    ms = load_markers()["markers"]
+    pairs = [(a, b) for a in ms for b in ms if a != b and a in b]
+    assert pairs == [], f"标记表出现子串包含,会计数膨胀: {pairs}"

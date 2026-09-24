@@ -5,7 +5,12 @@
 正是本项目栽过的"1410 维被时长污染"那条(spec D4)。比率按字算,不是速率。
 
 每命中一个标记只计一次(判"这个标记出现过"),不数出现次数:重复说同一个
-连接词是冗词问题,不是结构丰富度,两者不该混在同一个数字里。
+连接词是冗词问题,不是结构丰富度,两者不该混在同一个数字里。匹配是子串匹配,
+所以标记表内部不能有包含关系(否则一个词被两个标记各计一次);这条不变量由
+tests/test_connective_density.py 里的表守卫测试压着,改表时它会红。
+
+式中的 100 是"每百字"这个**单位**,不是可调阈值 —— 单位不写进数据文件,
+免得"这个数字可以调"变成一种错觉。
 
 密度下限从 asr_config.json 的 min_chars_for_density 读,不在代码里写死。
 低于下限或空文本返回 None,而不是 0.0 —— "没测出值"和"测出来是 0"是两件
@@ -36,7 +41,8 @@ def connective_density(text: str, markers: list[str] | None = None,
     cfg = load_config()["min_chars_for_density"]
     floor = min_chars if min_chars is not None else int(cfg["value"])
     chars = (counter or count_cjk_chars)(text or "")
-    if chars < floor:
+    # `not chars` 单独写:空文本恒返 None,不依赖"下限恰好大于 0",也免去除零。
+    if not chars or chars < floor:
         return None
     table = markers if markers is not None else load_markers()["markers"]
     hits = sum(1 for m in table if m in (text or ""))
