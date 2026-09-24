@@ -89,6 +89,15 @@ pkgutil.iter_modules(mediapipe.__path__)  # ['tasks']
 - **face**:`video_pipeline.py:51-52` 把结果**摊平成 `[(pt.x, pt.y)]` 元组**,下游只吃浮点数;`results` 原始对象在 `api/app.py:226` 绑给 `mesh_results` 后**再没被读过**。
 - **gesture**:分析器拿**裸 landmark 列表**、用 `.x/.y` **属性访问**(~112 处数字下标)—— `tasks.NormalizedLandmark` 暴露同样的 `.x/.y/.z/.visibility`。**四个分析器 + 四个特征抽取器零改动。**
 
+  ⚠️ **这条"零改动"有前提,而且踩错是静默的**(2026-09-24 实测):前提是**把 landmark 对象原样交下去**。若"顺手"摊平成 `(x, y)` 元组(face 那侧就是这么做的,容易顺手照搬),分析器**不抛异常**,只是 `is_valid=False`、分数回落到默认的 `50.0`:
+
+  | 喂进去的形状 | `HandAnalyzer` | `ArmAnalyzer` |
+  |---|---|---|
+  | `(x, y)` 元组 | `is_valid=False`,`resilience=50.0` | `is_valid=False`,`arm_score=50.0` |
+  | 带 `.x/.y` 的对象 | `is_valid=True`,`resilience=51.47` | `is_valid=True`,`arm_score=90.0` |
+
+  也就是说:**报告里会印着一个数,而它什么都不代表,且不留任何日志**。所以两个封装的返回形状**刻意不对称** —— face 摊平成元组(`au_calculator` 吃元组),gesture 原样交对象。这条不变量要有测试钉住(见实施计划 T1 / T3)。
+
 **478 点拓扑保留**:`tasks.FaceLandmarker` 默认输出含虹膜的 478 点,`au_calculator.py:220-221` 读的 `468-476` **一个下标都不用改**。
 
 **金标侧**:`~/mp-ref`(由项目环境 python 建的 venv,`mediapipe==0.10.5`,`solutions` 在)下,**现行 `video_pipeline.py` 原样可跑** —— 也就是说"旧实现"不需要另写,它就是仓库里现在这份代码。
