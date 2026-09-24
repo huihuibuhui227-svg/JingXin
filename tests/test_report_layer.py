@@ -41,20 +41,30 @@ def test_quarantined_columns_are_rejected():
     ⚠️ 原版只喂封停列 → 全部被拒 → 链为空 → 循环零断言。
     改为同时喂一个干净列让链非空,再断言封停列不在其中。
     若 G4 被移除,focus_score 会进链 → 本测试变红。
-    控制器已实测:链为 [voice_research_logic_keyword_density],focus_score 不在其中。
+
+    symmetry_score 属 stress_resilience 维度,而该维四个槽全部封停、链必为空,
+    故不能靠"链里没有它"来钉(那恒真)。改为断它**出现在证据缺口里** ——
+    若删掉它的封停条目且喂入该列,它会进链、缺口里便不再有它 → 本测试变红。
+    控制器实测:stress_resilience 链=0、缺口=4、缺口含「面部对称性」。
     """
     feats = {"voice_research": {"logic_keyword_density": 0.05,
                                 "logic_keyword_density_std": 0.01,
                                 "_n_rows": 100.0},
              "face": {"face_focus_score_mean": 0.3,
                       "face_focus_score_std": 0.05,
+                      "face_symmetry_score_mean": 0.98,
+                      "face_symmetry_score_std": 0.02,
                       "_n_rows": 100.0}}
-    dim = ResearchCapabilityMapper().map_features_to_scores(feats)["dimensions"]["logical_thinking"]
+    dims = ResearchCapabilityMapper().map_features_to_scores(feats)["dimensions"]
 
-    assert dim["evidence_chain"], "证据链为空 —— 本测试退化为空断言"
-    for ev in dim["evidence_chain"]:
+    lt = dims["logical_thinking"]
+    assert lt["evidence_chain"], "证据链为空 —— 本测试退化为空断言"
+    for ev in lt["evidence_chain"]:
         assert "focus_score" not in ev["feature"]
-        assert "symmetry_score" not in ev["feature"]
+
+    sr = dims["stress_resilience"]
+    assert sr["evidence_chain"] == [], "封停列进了链"
+    assert any("对称" in g for g in sr["evidence_gaps"]), "对称性槽未被处理"
 
 
 def test_confidence_can_be_none_and_low():
@@ -173,6 +183,14 @@ def test_radar_has_no_norm_baseline():
 BANNED = ["焦虑", "紧张", "压力", "抗压", "情绪稳定", "说谎", "诚信",
           "录用", "人格", "心理画像", "常模"]
 
+# 混合 fixture:让 logical_thinking 真的出分(1/4 槽过门),其余 4 维仍为 score=None。
+# 叙事层里禁止词与硬编码句原本住在**出分路径**上,零证据输入会在组合那几句之前
+# 就短接掉 —— 用零证据 fixture 的测试因此对改动前后都通过(本计划已栽过八次)。
+# 本 fixture 让三条叙事层测试同时走到出分路径与无证据路径。
+_MIXED = {"voice_research": {"logic_keyword_density": 0.05,
+                             "logic_keyword_density_std": 0.01,
+                             "_n_rows": 100.0}}
+
 
 def test_deep_analysis_has_no_banned_words():
     """spec §5.4 + §5.6:叙事层不得含情绪/心理/诚信构念。
@@ -186,13 +204,15 @@ def test_deep_analysis_has_no_banned_words():
     后,**须恢复全量扫描** —— 见计划 Task 7 Step 3a)。
     本测试用剔除这两个标签的方式,把叙事层自己的输出隔离出来测。
     剔除是精确字符串替换,所以叙事层**自己在别处**写出的禁止词仍会被抓到。
+
+    ⚠️ fixture 必须是 _MIXED:禁止词原本住在出分路径上,零证据输入只扫"无证据"那几句。
     """
     from report_frontend.report_generator import ReportGenerator
 
-    feats = {"face": {"face_tension_score_mean": 0.5},
-             "gesture": {"gesture_left_hand_jitter_mean": 0.02}}
-    result = ResearchCapabilityMapper().map_features_to_scores(feats)
-    html = ReportGenerator()._generate_deep_text_analysis(feats, result)
+    result = ResearchCapabilityMapper().map_features_to_scores(_MIXED)
+    # 断言 fixture 真的走出了分路径 —— 否则本测试退化为只扫无证据文案
+    assert result["total_score"] is not None, "fixture 未出分,本测试退化为空断言"
+    html = ReportGenerator()._generate_deep_text_analysis(_MIXED, result)
 
     # 剔除 mapper 提供的标签(Task 7 修复后本段移除,恢复全量)
     for label in ("抗压与情绪稳定性", "面部紧张度"):
@@ -203,19 +223,33 @@ def test_deep_analysis_has_no_banned_words():
 
 
 def test_deep_analysis_handles_none_scores():
-    """零证据时不得崩溃(score 为 None,不能参与排序)。"""
+    """score 为 None 的维度不得参与排序/取最大值,且仍要渲染成"证据不足"。
+
+    ⚠️ fixture 必须是 _MIXED:零证据输入会让 total_score 直接为 None,
+    根本走不到 max(..., key=_CONF_ORDER.get) 那一行,本测试就守不住它。
+    _MIXED 下 logical_thinking 出分、其余 4 维为 None,两条路径同时被走到。
+    """
     from report_frontend.report_generator import ReportGenerator
 
-    result = ResearchCapabilityMapper().map_features_to_scores({})
-    html = ReportGenerator()._generate_deep_text_analysis({}, result)
+    result = ResearchCapabilityMapper().map_features_to_scores(_MIXED)
+    html = ReportGenerator()._generate_deep_text_analysis(_MIXED, result)
+
+    assert result["total_score"] is not None, "fixture 未出分,本测试守不住 conf_cap 那一行"
+    assert any(d["score"] is None for d in result["dimensions"].values()), \
+        "fixture 无 None 维度,本测试守不住'证据不足'渲染"
     assert "证据不足" in html
 
 
 def test_no_hardcoded_gaze_claim():
-    """spec §5.4:那句'未出现异常的回避行为'是纯硬编码。"""
+    """spec §5.4:那句'未出现异常的回避行为'是纯硬编码。
+
+    ⚠️ fixture 必须是 _MIXED:零证据输入会在组合那三句之前短接,
+    本测试在改动前后都会通过(实测原版即如此)。
+    """
     from report_frontend.report_generator import ReportGenerator
 
-    result = ResearchCapabilityMapper().map_features_to_scores({})
-    html = ReportGenerator()._generate_deep_text_analysis({}, result)
+    result = ResearchCapabilityMapper().map_features_to_scores(_MIXED)
+    assert result["total_score"] is not None, "fixture 未出分,本测试退化为空断言"
+    html = ReportGenerator()._generate_deep_text_analysis(_MIXED, result)
     assert "未出现异常的回避行为" not in html
     assert "如外科医生般" not in html

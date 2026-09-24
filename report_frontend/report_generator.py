@@ -113,19 +113,13 @@ class ReportGenerator:
                     images.append(f)
         return images
 
-    def _get_percentile_badge(self, p: int) -> str:
-        """根据百分位返回颜色徽章"""
-        if p >= 90:
-            return f"<span style='background:#d4edda; color:#155724; padding:2px 6px; border-radius:4px; font-weight:bold;'>Top {100 - p}% (卓越)</span>"
-        elif p >= 70:
-            return f"<span style='background:#d1ecf1; color:#0c5460; padding:2px 6px; border-radius:4px; font-weight:bold;'>Top {100 - p}% (优秀)</span>"
-        elif p >= 40:
-            return f"<span style='background:#fff3cd; color:#856404; padding:2px 6px; border-radius:4px;'>中等</span>"
-        else:
-            return f"<span style='background:#f8d7da; color:#721c24; padding:2px 6px; border-radius:4px;'>Bottom {p}% (待提升)</span>"
-
     def _render_dimension_block(self, dim_key: str, dim: Dict[str, Any]) -> str:
-        """渲染单个维度的证据状态。不解读,不推断,不加形容词。"""
+        """渲染单个维度的证据状态。不解读,不推断,不加形容词。
+
+        每个维度自己带全自己的缺口 —— 出分维度也要列出未过门的槽。
+        否则那些缺口只能靠顶层的汇总段兜底,而汇总段的所有条目都已被逐维列表
+        覆盖过一遍(evidence_gaps 就是各维缺口的并集),同一批字符串会被打印两次。
+        """
         if dim["score"] is None:
             gaps = "".join(f"<li>{g}</li>" for g in dim.get("evidence_gaps", []))
             return f"""
@@ -139,11 +133,14 @@ class ReportGenerator:
             f"<td>{e['normalized_score']}</td><td>{e['weight']}</td></tr>"
             for e in dim["evidence_chain"]
         )
+        gaps = "".join(f"<li>{g}</li>" for g in dim.get("evidence_gaps", []))
+        gaps_block = f"<p>未过门的指标：</p><ul>{gaps}</ul>" if gaps else ""
         return f"""
         <h3>{dim['display_name']}</h3>
         <p>依据 {dim['matched_indicators']} 个指标；置信度：<strong>{dim['confidence']}</strong>。</p>
         <table><thead><tr><th>指标</th><th>原始值</th><th>归一值</th><th>权重</th></tr></thead>
         <tbody>{rows}</tbody></table>
+        {gaps_block}
         """
 
     def _generate_deep_text_analysis(self, features: Dict[str, Any], result: Dict[str, Any]) -> str:
@@ -169,10 +166,9 @@ class ReportGenerator:
             )
         for dim_key, dim in result["dimensions"].items():
             parts.append(self._render_dimension_block(dim_key, dim))
-        if result.get("evidence_gaps"):
-            parts.append("<h3>证据缺口</h3><ul>"
-                         + "".join(f"<li>{g}</li>" for g in result["evidence_gaps"])
-                         + "</ul>")
+        # 原本此处另有一段顶层「证据缺口」汇总,现已删除 —— 它的每一条都来自
+        # result["evidence_gaps"](各维缺口的并集),而逐维块已经把各自的缺口列全,
+        # 于是同一批字符串会在报告里出现两遍。缺口现在只有逐维这一处来源(带维度归属)。
         return "".join(parts)
 
     def _build_html_report(self, result: Dict[str, Any], chart_paths: Dict[str, Any],
