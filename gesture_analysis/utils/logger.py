@@ -12,12 +12,14 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 from ..config import LOGS_DIR, LOG_CONFIG
 
+NONE_SESSION = "NONE"          # 无 id 时的显式占位,与另两个 logger 及 asr/session.py 同值(测试守住)
+
 
 class GestureLogger:
     """手势分析日志记录器"""
 
     def __init__(self, log_dir: Optional[str] = None, log_file_name: Optional[str] = None,
-                 log_file_path: Optional[str] = None):
+                 log_file_path: Optional[str] = None, session_id: Optional[str] = None):
         """
         初始化日志记录器
 
@@ -25,20 +27,27 @@ class GestureLogger:
             log_dir: 日志目录路径，若为 None 则使用 config.LOGS_DIR
             log_file_name: 日志文件名模板，若为 None 则使用 config 中的模板
             log_file_path: 直接指定日志文件完整路径（提供后忽略 log_dir/log_file_name）
+            session_id: 会话ID，用作文件名的一部分（缺省时退回 NONE + 时间戳）
         """
+        self.session_id = session_id or NONE_SESSION
+
         if log_file_path:
             self.log_file = Path(log_file_path)
             self.log_dir = self.log_file.parent
         else:
             self.log_dir = Path(log_dir) if log_dir else Path(LOGS_DIR)
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            sid_part = self.session_id if session_id else f"{NONE_SESSION}_{timestamp}"
             file_template = log_file_name or LOG_CONFIG['gesture_log_file']
-            self.log_file = self.log_dir / file_template.format(timestamp=timestamp)
+            self.log_file = self.log_dir / file_template.format(timestamp=sid_part)
 
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
         # 定义字段名（包含所有原始特征数据和屏幕显示的角度）
         self.fieldnames = [
+            # 会话
+            "session_id",               # 会话ID（首列：报告侧按它归堆/排除）
+
             # 时间戳
             "timestamp",                # Unix 时间戳（秒）
             "timestamp_iso",            # ISO 8601 格式时间（便于阅读）
@@ -156,6 +165,9 @@ class GestureLogger:
         try:
             now = datetime.now()
             data = {
+                # 会话
+                "session_id": self.session_id,
+
                 # 时间戳
                 "timestamp": now.timestamp(),
                 "timestamp_iso": now.isoformat(),

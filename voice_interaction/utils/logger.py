@@ -12,39 +12,41 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 from ..config import LOGS_DIR, LOG_CONFIG
 
+NONE_SESSION = "NONE"          # 无 id 时的显式占位,与另两个 logger 及 asr/session.py 同值(测试守住)
+
 
 class VoiceLogger:
     """语音交互结构化日志记录器"""
 
-    def __init__(self, log_type: str = 'interview', log_dir: Optional[str] = None):
+    def __init__(self, log_type: str = 'interview', log_dir: Optional[str] = None,
+                 session_id: Optional[str] = None):
         """
         初始化日志记录器
 
         参数:
             log_type: 日志类型 ('interview' 或 'research')
             log_dir: 日志目录路径，若为 None 则使用 config.LOGS_DIR
+            session_id: 会话ID，用作文件名的一部分（缺省时退回 NONE + 时间戳）
         """
         if log_type not in ('interview', 'research'):
             raise ValueError("log_type 必须为 'interview' 或 'research'")
 
         self.log_type = log_type
+        self.session_id = session_id or NONE_SESSION
         self.log_dir = Path(log_dir) if log_dir else Path(LOGS_DIR)
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
-        # 生成带时间戳的日志文件名
+        # 文件名带会话ID：同一会话的日志归一堆，跨会话错配一眼可见
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        if log_type == 'interview':
-            csv_file = f'interview_emotion_log_{timestamp}.csv'
-            json_file = f'interview_emotion_log_{timestamp}.json'
-        else:
-            csv_file = f'research_emotion_log_{timestamp}.csv'
-            json_file = f'research_emotion_log_{timestamp}.json'
+        sid_part = self.session_id if session_id else f"{NONE_SESSION}_{timestamp}"
+        prefix = 'interview_emotion_log' if log_type == 'interview' else 'research_emotion_log'
 
-        self.csv_file = self.log_dir / csv_file
-        self.json_file = self.log_dir / json_file
+        self.csv_file = self.log_dir / f'{prefix}_{sid_part}.csv'
+        self.json_file = self.log_dir / f'{prefix}_{sid_part}.json'
 
         # 定义 CSV 字段 - 详细语音特征
         self.fieldnames = [
+            "session_id",  # 会话ID（首列：报告侧按它归堆/排除）
             "unix_timestamp",  # Unix 时间戳
             "timestamp",  # ISO 8601 时间戳
             "pitch_mean",  # 平均音调
@@ -61,7 +63,10 @@ class VoiceLogger:
             "emotion",  # 情绪状态
             "feedback",  # 反馈信息
             "question_index",  # 问题索引
-            "is_valid"  # 是否有效
+            "is_valid",  # 是否有效
+            "connective_density",  # 连接词密度（每百字，过短不出值 → 空）
+            "connective_density_std",  # 该回答分句密度的标准差
+            "n_rows"  # 参与密度计算的句数
         ]
 
         # 写入 CSV 文件头
@@ -80,7 +85,10 @@ class VoiceLogger:
             question_index: int,
             emotion: str,
             feedback: str,
-            is_valid: bool = True
+            is_valid: bool = True,
+            connective_density: Optional[float] = None,
+            connective_density_std: Optional[float] = None,
+            n_rows: Optional[int] = None
     ) -> bool:
         """
         记录语音特征到结构化日志
@@ -91,6 +99,9 @@ class VoiceLogger:
             emotion: 情绪状态
             feedback: 反馈信息
             is_valid: 是否有效
+            connective_density: 连接词密度（每百字），未计算时保持 None（**不写 0**）
+            connective_density_std: 分句密度的标准差
+            n_rows: 参与密度计算的句数
 
         返回:
             是否成功写入
@@ -98,6 +109,7 @@ class VoiceLogger:
         try:
             now = datetime.now()
             data = {
+                "session_id": self.session_id,
                 "unix_timestamp": now.timestamp(),
                 "timestamp": now.isoformat(),
                 "pitch_mean": prosody_data.get("pitch_mean", 0),
@@ -114,7 +126,10 @@ class VoiceLogger:
                 "emotion": emotion,
                 "feedback": feedback,
                 "question_index": question_index,
-                "is_valid": is_valid
+                "is_valid": is_valid,
+                "connective_density": connective_density,
+                "connective_density_std": connective_density_std,
+                "n_rows": n_rows
             }
 
             # 写入 CSV
