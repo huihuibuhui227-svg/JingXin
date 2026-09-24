@@ -61,36 +61,52 @@ class ReportVisualizer:
         return full_path
 
     def _build_radar_figure(self, result: Dict[str, Any]) -> go.Figure:
-        """构造雷达图,不落盘 —— 便于测试(spec §6)。"""
+        """构造证据覆盖雷达图,不落盘 —— 便于测试(spec §6)。
+
+        ⚠️ 半径**不再是维度得分**。0–100 的维度分是未标定标尺上的复合点分,spec §5.4
+        :157-158 / §5.6 只允许它以「区间 + 置信度 + 依据」出现,而一条雷达轴既不是区间
+        也不是依据 —— 画出来等于把被停用的点分又渲染一遍(实测 1/20 覆盖下会画出
+        一根指到 100 的轴,读起来就是"这一维满分")。
+        改画**证据覆盖**:每个维度有几个指标槽通过了证据门(0 到该维槽数)。
+        """
         dimensions = result['dimensions']
         categories = []
-        scores = []
+        passed_counts = []
+        slot_counts = []
 
         dim_order = ['logical_thinking', 'stress_resilience', 'communication_fluency', 'confidence_level',
                      'cognitive_efficiency']
 
         for key in dim_order:
             if key in dimensions:
-                cat_name = dimensions[key]['display_name'].replace("与", "&").replace("度", "")
+                dim = dimensions[key]
+                cat_name = dim['display_name'].replace("与", "&").replace("度", "")
+                got, _, total = dim['matched_indicators'].partition("/")
                 categories.append(cat_name)
-                scores.append(dimensions[key]['score'])
+                passed_counts.append(int(got))
+                slot_counts.append(int(total))
             else:
                 categories.append("未知")
-                scores.append(0)
+                passed_counts.append(0)
+                slot_counts.append(0)
 
+        # 闭合多边形(与原先的候选分多边形同一处理)
         categories += [categories[0]]
-        scores += [scores[0]]
+        passed_counts += [passed_counts[0]]
 
         fig = go.Figure()
         # 说明:曾有的 '常模基准' 虚线来自硬编码的 [60]*5,并无真实常模出处,
         # 却以权威对比的形式呈现,故一并删除(spec §5.5:没有真实常模就不画常模线)。
-        fig.add_trace(go.Scatterpolar(r=scores, theta=categories, fill='toself', name='候选人得分',
+        fig.add_trace(go.Scatterpolar(r=passed_counts, theta=categories, fill='toself',
+                                      name='通过证据门的指标槽数',
                                       line_color=self.colors['primary'], fillcolor='rgba(46, 134, 171, 0.4)'))
 
         fig.update_layout(
-            polar=dict(radialaxis=dict(visible=True, range=[0, 100], tickfont=dict(family=self.font_family)),
+            polar=dict(radialaxis=dict(visible=True, range=[0, max(slot_counts) or 1],
+                                       tickfont=dict(family=self.font_family)),
                        angularaxis=dict(tickfont=dict(family=self.font_family), rotation=90, direction='clockwise')),
-            title=dict(text="📊 五维行为观测", x=0.5, font=dict(family=self.font_family, size=18)),
+            title=dict(text="📊 五维证据覆盖（通过证据门的指标槽数）", x=0.5,
+                       font=dict(family=self.font_family, size=18)),
             height=500, showlegend=True
         )
 

@@ -7,14 +7,44 @@ from typing import Dict, Any, List, Optional
 import warnings
 import json
 
-from .evidence_gate import confidence_from, gate, user_message
+from .evidence_gate import confidence_from, gate, normalize_value, user_message
 
 warnings.filterwarnings('ignore')
 
 # 置信度从低到高的顺序。取值域由 evidence_gate.Confidence 定义(高在本轮不可达)。
-# 报告层取"置信度上限"时用 max(..., key=CONF_ORDER.get);本模块是产出置信度的
-# 一方,故顺序表定义在这里,由 report_generator 导入 —— 两处各存一份会漂移。
+# 取"置信度上限"时用 max(..., key=CONF_ORDER.get);上限由本模块算进 coverage,
+# 报告层直接渲染该字段,不再自己排一次序 —— 两处各存一份顺序表会漂移。
 CONF_ORDER = {"无": 0, "低": 1, "中": 2, "高": 3}
+
+# 聚合呈现的说明句(spec §5.6:综合分改为「区间 + 置信度 + 依据」)。
+# 本系统没有标定样本,不同指标的量纲无法折算到同一尺度,故不给综合分,也不给评级。
+# 覆盖事实与区间由 coverage(payload)与报告头部的覆盖卡承载,这里不重复计数。
+NO_COMPOSITE_STATEMENT = ("未产出综合评分，也不给评级：本系统尚无标定样本，"
+                          "不同指标的量纲无法折算为同一尺度。")
+
+
+def _as_float(value) -> Optional[float]:
+    """能当有限浮点数用就返回它,否则 None(非数值 / NaN / inf 一律 None)。"""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    return f if math.isfinite(f) else None
+
+
+def _observed_interval(mean, std) -> Optional[List[float]]:
+    """本场会话内的实测区间 = 该指标会话内均值 ± 会话内标准差。
+
+    ⚠️ 这是**本场会话自己的测量**:不是人群中位置、不是置信区间、不是任何人群参照
+    —— spec §5.5 禁止一切暗示本系统拥有人群基线的区间。标准差为 0(常量)时没有
+    区间可言(那种槽本就过不了 G2),返回 None,由报告层写明"未采集到变异信息"。
+    下界截到 0:这些指标都是非负量纲。
+    """
+    spread = _as_float(std)
+    center = _as_float(mean)
+    if spread is None or center is None or spread <= 0:
+        return None
+    return [max(0.0, round(center - spread, 4)), round(center + spread, 4)]
 
 
 class ResearchCapabilityMapper:
@@ -141,9 +171,18 @@ class ResearchCapabilityMapper:
                     dim_gaps.append(f"{human_name}: 未采集到对应数据")
                     continue
 
-                # 伴随的 _std 用于 G2(常量判定);模态行数用于 G3(样本量)
-                std_key = (found_key[:-len("_mean")] + "_std") if found_key.endswith("_mean") else None
-                std = all_features.get(std_key) if std_key else None
+                # 伴随的 _std 用于 G2(常量判定);模态行数用于 G3(样本量)。
+                # 取法两种都试:真实数据的列形如 `<基名>_mean` + `<基名>_std`,而 ASR
+                # 派生的键(如 logic_keyword_density)没有 _mean 后缀 —— 只查前者会让
+                # 这些键**静默**拿不到标准差:G2 退回 fail-open,区间也失去变异信息。
+                std = None
+                for std_key in (
+                    (found_key[:-len("_mean")] + "_std") if found_key.endswith("_mean") else None,
+                    found_key + "_std",
+                ):
+                    if std_key and std_key in all_features:
+                        std = all_features[std_key]
+                        break
                 modality = next((m for m in n_rows_by_modality if found_key.startswith(m + "_")), None)
                 n_valid = int(n_rows_by_modality.get(modality, 0))
 
@@ -153,13 +192,18 @@ class ResearchCapabilityMapper:
                     # 而 dim_gaps 会被渲染进报告的"证据缺口"一节 —— 直接用会外泄内部信息。
                     dim_gaps.append(f"{human_name}: {user_message(chk)}")
                     continue
-                matched.append((keyword, weight, is_positive, human_name, found_val, found_key))
+                # std 与 n_valid 一并带下去:报告要按 spec §5.4 的
+                # 「值 + 有效样本量 + 置信度 + evidence_gaps」渲染,样本量是其中一项;
+                # 会话内标准差用于给出**本场实测区间**(spec §5.6 的"区间"只能来自
+                # 本场会话自己的测量)。
+                matched.append((keyword, weight, is_positive, human_name, found_val,
+                                found_key, std, n_valid))
 
             # 本维缺口并入顶层
             all_evidence_gaps.extend(dim_gaps)
 
             # 4. 计算 —— 只有过门的指标参与加权
-            for keyword, weight, is_positive, human_name, matched_val, matched_key in matched:
+            for keyword, weight, is_positive, human_name, matched_val, matched_key, std, n_valid in matched:
                 normalized_val = self._dynamic_normalize(matched_val, keyword)
 
                 if is_positive:
@@ -193,6 +237,11 @@ class ResearchCapabilityMapper:
                     "status": status,
                     "direction": "正向" if is_positive else "反向",
                     "weight": weight,
+                    # spec §5.4 的「值 + 有效样本量 + 置信度 + evidence_gaps」需要样本量;
+                    # 区间只由本场会话自己的测量构成(spec §5.5/§5.6)。
+                    "n_valid": n_valid,
+                    "std": _as_float(std),
+                    "observed_interval": _observed_interval(matched_val, std),
                 }
                 evidence_chain.append(evidence_item)
 
@@ -236,7 +285,10 @@ class ResearchCapabilityMapper:
                 "matched_indicators": f"{len(matched)}/{len(indicators)}",
                 "stats": inference_data
             }
-            print(f"   ✅ [{rule_config['name']}] 得分：{score} ({level})")
+            # 控制台输出同样不得印未标定标尺上的点分与档位 —— 报告层一个字都不渲染
+            # 复合分/评级(spec §5.4 :157-158),控制台是同一个主张的另一个出口。
+            print(f"   ✅ [{rule_config['name']}] 过门指标 {len(matched)}/{len(indicators)}，"
+                  f"置信度：{confidence}")
 
         # 总分 —— 只在有维度过门时产出;一个都没有时 total_score 为 None(spec §6.1)
         valid = [d for d in dimension_results.values() if d["score"] is not None]
@@ -249,40 +301,64 @@ class ResearchCapabilityMapper:
                       for k, d in dimension_results.items() if d["score"] is not None)
             final_total = round(num / den, 2)
 
+        coverage = self._coverage(dimension_results)
+
         return {
             "total_score": final_total,
             "total_level": self._get_level(final_total) if final_total is not None else "证据不足",
             "dimensions": dimension_results,
-            "summary_narrative": self._generate_summary_narrative(dimension_results, final_total),
+            # ⚠️ total_score / total_level 只为 API 稳定保留:它们是**未标定标尺**上的
+            # 复合点分与五档评语,报告层一个字都不渲染(spec §5.4 :157-158 / §5.6)。
+            # 聚合呈现改用 coverage(覆盖事实 + 逐指标实测区间 + 置信度上限)。
+            "coverage": coverage,
+            "summary_narrative": NO_COMPOSITE_STATEMENT,
             "evidence_gaps": all_evidence_gaps,
-            "model_metadata": {"version": "JingXin-Mapper-v10.1-FixedStats",
+            "model_metadata": {"version": "JingXin-Mapper-v11-EvidenceGate",
                                "timestamp": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")}
         }
 
+    def _coverage(self, dimension_results: Dict[str, Any]) -> Dict[str, Any]:
+        """本次观测的覆盖事实 —— 聚合呈现的**唯一**来源(spec §5.4 / §5.6)。
+
+        为什么不是分数:spec §5.4 :157-158 要求「综合…评分为 X 分,评级为 Y」改为
+        区间 + 置信度;§5.6 要求「科研潜力评分 X 分」改为区间 + 置信度 + 依据。
+        而系统没有标定样本(§5.5 禁止一切人群参照区间),所以能给的只有本场会话
+        自己的测量:每个过门指标的实测区间。覆盖率低的会话(今天 1/20 槽)在旧渲染下
+        会印出「100.0 / 卓越」或「0.0 / 待提升」—— 那是把未标定标尺上的点分当对人的评定。
+
+        槽数取自各维自己渲染的那两个数字(matched_indicators),与报告正文同源。
+        """
+        passed_slots = []
+        n_slots = 0
+        for dim_key, dim in dimension_results.items():
+            got, _, total = dim["matched_indicators"].partition("/")
+            n_slots += int(total)
+            for ev in dim["evidence_chain"]:
+                passed_slots.append({
+                    "dimension": dim_key,
+                    "display_name": dim["display_name"],
+                    "indicator": ev["human_name"],
+                    "feature": ev["feature"],
+                    "raw_value": ev["raw_value"],
+                    "observed_interval": ev["observed_interval"],
+                    "n_valid": ev["n_valid"],
+                    "confidence": dim["confidence"],
+                })
+        return {
+            "n_slots": n_slots,
+            "n_passed": len(passed_slots),
+            "confidence_cap": max((d["confidence"] for d in dimension_results.values()),
+                                  key=CONF_ORDER.get),
+            "passed_slots": passed_slots,
+        }
+
     def _dynamic_normalize(self, val: float, keyword: str) -> float:
-        val = float(val)
-        if any(k in keyword for k in ['freq', 'ratio', 'stability', 'contact']):
-            return min(1.0, max(0.0, val))
-        if 'score' in keyword:
-            return min(1.0, max(0.0, val / 100.0 if val > 1 else val))
-        if 'density' in keyword:
-            return min(1.0, max(0.0, val * 50))
-        if any(k in keyword for k in ['jitter', 'deviation']):
-            return min(1.0, max(0.0, val * 5))
-        if 'pause' in keyword:
-            if 0.5 <= val <= 3.0:
-                return 0.0
-            elif val < 0.5:
-                return 0.5
-            else:
-                return min(1.0, (val - 3.0) / 5.0)
-        if 'length' in keyword:
-            return min(1.0, max(0.0, val / 30.0))
-        if 'energy' in keyword:
-            return min(1.0, max(0.0, val * 250.0))
-        if 'pitch' in keyword and 'variation' in keyword:
-            return min(1.0, max(0.0, val / 80.0))
-        return min(1.0, max(0.0, val / 10.0)) if val >= 0 else 0.0
+        """按登记表把原始值折到 0–1(spec §5.1)。
+
+        实现全部搬进 `evidence_gate.normalize_value` —— 满量程、分箱边界一律读
+        `evidence_thresholds.json`;本方法保留只为既有调用点稳定,体内不得再出现裸常量。
+        """
+        return normalize_value(val, keyword)
 
     def _get_level(self, score: float) -> str:
         if score >= 90:
@@ -316,31 +392,6 @@ class ResearchCapabilityMapper:
                 return f_key, f_val
 
         return None, None
-
-    def _generate_summary_narrative(self, dimensions, total_score):
-        """只陈述本次的覆盖与置信度,不排序、不比较、不评价。
-
-        原实现按分数挑出 top/bottom 两个维度,写成"核心优势在于 X;建议关注 Y 的提升"
-        —— 那是把 max/min 名次当成对候选人的结论,又加上一句无依据的改进建议。
-        现改为只报事实:多少指标槽过了证据门、综合分是多少、置信度上限是多少。
-
-        传入的 dimensions 齐全(每个维度都带 matched_indicators),槽数直接取自
-        各维自己渲染的那两个数字 —— 与报告正文用的是同一个来源。
-        """
-        passed = 0
-        slots = 0
-        for dim in dimensions.values():
-            got, _, total = dim["matched_indicators"].partition("/")
-            passed += int(got)
-            slots += int(total)
-
-        if total_score is None:
-            return f"本次会话 {slots} 个指标槽中 0 个通过证据门，未产出综合分。"
-
-        conf_cap = max((d["confidence"] for d in dimensions.values()), key=CONF_ORDER.get)
-        return (f"本次会话 {slots} 个指标槽中 {passed} 个通过证据门，"
-                f"综合行为观测评分 {total_score}（置信度上限：{conf_cap}）。")
-
 
 if __name__ == "__main__":
     from data_loader import LogDataLoader

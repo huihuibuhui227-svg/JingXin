@@ -1,5 +1,5 @@
 {
-  "_version": "0.1.0-provisional",
+  "_version": "0.2.0-provisional",
   "_provisional": true,
   "_note": "临时阈值。依据=物理下限,非标定值。M5 标定到位后必须替换,替换即新模型版本(spec §5.1)。",
   "_units": "n_valid 的单位随指标而定:frames 或 segments",
@@ -13,5 +13,86 @@
     "pitch": 10,
     "energy": 10,
     "speech": 2
+  },
+  "_scale_factors_note": "报告层的量纲折算因子:把指标原始值折到 0–1。原为 research_mapper._dynamic_normalize 里的裸常量(×50 / ×5 / ×250 / ÷30 / ÷80 与 pause 分箱),违反 spec §5.1「临时值不得写成代码里的裸常量」,故逐族登记在此。basis_kind 的含义:definitional = 定义性(如比率天然落在 0–1)/ physical = 物理下限 / legacy_arbitrary = 历史遗留,无物理或定义依据 —— 登记只为让它可被审查与替换,不代表它有依据。",
+  "_scale_factors_basis_note": "legacy_arbitrary 各族的诚实读法:它们是未标定标尺上的历史满量程取值。它们不再决定报告里任何一句对人的表述(点分与档位已停止渲染),仅影响 payload 里的复合分与证据图上的相对贡献。M5 标定或 M4 指标层重定义后逐族替换。",
+  "_default_scale_factor": {
+    "kind": "full_scale",
+    "full_scale": 10.0,
+    "basis_kind": "legacy_arbitrary",
+    "basis": "未登记族的兜底满量程,沿用旧实现 val/10。无物理或定义依据。"
+  },
+  "scale_factors": {
+    "score": {
+      "kind": "identity_or_percent",
+      "percent_divisor": 100.0,
+      "basis_kind": "definitional",
+      "basis": "score 族是 0–100 分制字段;>1 时按 /100 折算,≤1 时视为已是 0–1。"
+    },
+    "freq": {
+      "kind": "identity",
+      "basis_kind": "definitional",
+      "basis": "频率类字段上游已折到 0–1。"
+    },
+    "ratio": {
+      "kind": "identity",
+      "basis_kind": "definitional",
+      "basis": "比率类字段按定义落在 0–1,无需再折。"
+    },
+    "stability": {
+      "kind": "identity",
+      "basis_kind": "definitional",
+      "basis": "稳定度类字段上游已折到 0–1。"
+    },
+    "contact": {
+      "kind": "identity",
+      "basis_kind": "definitional",
+      "basis": "占比类字段按定义落在 0–1。"
+    },
+    "density": {
+      "kind": "full_scale",
+      "full_scale": 0.02,
+      "basis_kind": "legacy_arbitrary",
+      "basis": "0.02 记为满量程(旧实现 val×50)。密度按定义落在 0–1,此满量程无物理依据,且有把已归一的量再放大 50 倍之嫌;可辩护的替代是按 ratio 族处理(恒等),待 M5 或 M4 决定。"
+    },
+    "jitter": {
+      "kind": "full_scale",
+      "full_scale": 0.2,
+      "basis_kind": "legacy_arbitrary",
+      "basis": "旧实现 val×5。抖动的单位未定义(未除肩宽、未除时间),无物理依据。该槽当前由 G4 封停,不可达。"
+    },
+    "deviation": {
+      "kind": "full_scale",
+      "full_scale": 0.2,
+      "basis_kind": "legacy_arbitrary",
+      "basis": "旧实现 val×5。偏离量的单位未定义,无物理依据。该槽当前由 G4 封停,不可达。"
+    },
+    "pause": {
+      "kind": "pause_bins",
+      "normal_lo": 0.5,
+      "normal_hi": 3.0,
+      "below_value": 0.5,
+      "above_span": 5.0,
+      "basis_kind": "legacy_arbitrary",
+      "basis": "旧实现的分箱:0.5–3.0s 记 0、<0.5s 记 0.5、(v-3)/5。分箱本身隐含「正常停顿区间」的判断,无出处;该槽当前由 G4 封停,不可达。"
+    },
+    "length": {
+      "kind": "full_scale",
+      "full_scale": 30.0,
+      "basis_kind": "legacy_arbitrary",
+      "basis": "30 字记为满量程(旧实现 val/30)。无物理依据 —— 回答详尽度没有天然的满量程。"
+    },
+    "energy": {
+      "kind": "full_scale",
+      "full_scale": 0.004,
+      "basis_kind": "legacy_arbitrary",
+      "basis": "旧实现 val×250。能量受设备增益与距离污染(ICC .654),跨会话不可比,故设备侧满量程无意义。该槽当前由 G4 封停,不可达。"
+    },
+    "pitch_variation": {
+      "kind": "full_scale",
+      "full_scale": 80.0,
+      "basis_kind": "legacy_arbitrary",
+      "basis": "80Hz 记为满量程(旧实现 val/80)。该槽当前由 G4 封停(代码取的是 pitch_mean,名字与计算不符),不可达。"
+    }
   }
 }

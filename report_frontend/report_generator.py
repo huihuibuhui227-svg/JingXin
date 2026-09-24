@@ -7,16 +7,29 @@ from datetime import datetime
 from typing import Dict, Any, Optional, List
 from .data_loader import LogDataLoader
 from .feature_engine import PsychologicalFeatureEngine
-from .research_mapper import CONF_ORDER, ResearchCapabilityMapper
+from .research_mapper import ResearchCapabilityMapper
 from .visualizer import ReportVisualizer
+
+
+def _interval_text(interval) -> str:
+    """本场会话内观测区间。拿不到就说清是缺什么,而不是留空。
+
+    区间是 `原始值 ± 会话内标准差`(与原始值同量纲、来自本场会话自己的测量),
+    不是人群中位置 —— spec §5.5 禁止任何暗示人群位置的区间。
+    """
+    if not interval:
+        return "未采集到会话内变异信息"
+    return f"{interval[0]} – {interval[1]}"
 
 
 class ReportGenerator:
     """
     行为观测报告生成器
 
-    报告只陈述本次实际测到了什么:过门的指标、原始值、权重、缺口与置信度。
-    不解读、不推断、不做形容词修饰(spec §5.4)。
+    报告只陈述本次实际测到了什么:每个维度按 spec §5.4 的「值 + 有效样本量 + 置信度 +
+    evidence_gaps」渲染,聚合只给「区间 + 置信度 + 依据」(spec §5.6)。
+    **不产出对候选人的评分或评级** —— 未标定标尺上的复合点分与五档评语一律不渲染。
+    不解读、不推断、不做形容词修饰。
     """
 
     def __init__(self, output_dir: str = "data/output"):
@@ -115,6 +128,12 @@ class ReportGenerator:
     def _render_dimension_block(self, dim_key: str, dim: Dict[str, Any]) -> str:
         """渲染单个维度的证据状态。不解读,不推断,不加形容词。
 
+        形态 = spec §5.4 的「整节的正确形态」:值 + 有效样本量 + 置信度 + evidence_gaps。
+        出分维度另带 §5.6 要求的提示句「该维度目前无独立效标,仅供行为描述」。
+        **不再渲染"归一值"** —— 它是未标定标尺上的点分,与档位标签一样会被读成
+        对该维度的评定,而本系统没有标定样本能给这个刻度背书。
+        表格给出的"本场会话内观测区间"只由本场测量构成(均值 ± 会话内标准差)。
+
         每个维度自己带全自己的缺口 —— 出分维度也要列出未过门的槽。
         否则那些缺口只能靠顶层的汇总段兜底,而汇总段的所有条目都已被逐维列表
         覆盖过一遍(evidence_gaps 就是各维缺口的并集),同一批字符串会被打印两次。
@@ -129,15 +148,18 @@ class ReportGenerator:
 
         rows = "".join(
             f"<tr><td>{e['human_name']}</td><td>{e['raw_value']}</td>"
-            f"<td>{e['normalized_score']}</td><td>{e['weight']}</td></tr>"
+            f"<td>{_interval_text(e.get('observed_interval'))}</td>"
+            f"<td>{e.get('n_valid', '—')}</td></tr>"
             for e in dim["evidence_chain"]
         )
         gaps = "".join(f"<li>{g}</li>" for g in dim.get("evidence_gaps", []))
         gaps_block = f"<p>未过门的指标：</p><ul>{gaps}</ul>" if gaps else ""
         return f"""
         <h3>{dim['display_name']}</h3>
-        <p>依据 {dim['matched_indicators']} 个指标；置信度：<strong>{dim['confidence']}</strong>。</p>
-        <table><thead><tr><th>指标</th><th>原始值</th><th>归一值</th><th>权重</th></tr></thead>
+        <p>过门指标 {dim['matched_indicators']}；置信度：<strong>{dim['confidence']}</strong>。
+        （该维度目前无独立效标，仅供行为描述）</p>
+        <table><thead><tr><th>指标</th><th>原始值</th><th>本场会话内观测区间</th>
+        <th>有效样本量</th></tr></thead>
         <tbody>{rows}</tbody></table>
         {gaps_block}
         """
@@ -145,24 +167,15 @@ class ReportGenerator:
     def _generate_deep_text_analysis(self, features: Dict[str, Any], result: Dict[str, Any]) -> str:
         """只陈述本次实际测到了什么,不做任何解读、推断与形容词修饰。
 
-        原实现把分数映射为固定阈值下的评语,并在字段缺失时用 .get(..., 0) 兜底,
-        于是无论数据是否存在都会打印同几句结论 —— 恒定在默认值上的伪造百分位、
-        与数据无关的微表情判断、以及基于默认分差值挑选出来的"突出维度"。
-        现改为:出分则列出实际过门的指标及其原始值/权重,不出分则直说证据不足并列出缺口;
-        全部维度都无证据时,只给诚实的空报告摘要。
+        每个维度按 spec §5.4 的「整节的正确形态」渲染,出分维度带 §5.6 的"无独立效标"
+        提示。本函数**不再输出聚合摘要**:它曾印「综合科研潜力评分为 X 分,评级为 Y」,
+        后改印「综合行为观测摘要:{档位}(置信度上限:…)」—— 两者都是把未标定标尺上的
+        点分与五档评语当对人的评定(实测报告头渲染出「0.0 / 综合行为观测评分 / 待提升」)。
+        聚合呈现移入报告头部的覆盖卡,只给「区间 + 置信度 + 依据」(spec §5.6)。
+
         参数 features 保留是为了调用方签名稳定;本函数不再从原始特征里另取默认值。
         """
         parts = []
-        total = result["total_score"]
-        if total is None:
-            parts.append("<p>本次会话未采集到足以支撑评估的有效证据。</p>")
-        else:
-            conf_cap = max((d["confidence"] for d in result["dimensions"].values()),
-                           key=CONF_ORDER.get)
-            parts.append(
-                f"<p>综合行为观测摘要：{result['total_level']}"
-                f"(置信度上限：{conf_cap})</p>"
-            )
         for dim_key, dim in result["dimensions"].items():
             parts.append(self._render_dimension_block(dim_key, dim))
         # 原本此处另有一段顶层「证据缺口」汇总,现已删除 —— 它的每一条都来自
@@ -180,8 +193,20 @@ class ReportGenerator:
 
         deep_analysis_html = self._generate_deep_text_analysis(features, result)
 
-        # 无证据时 total_score 为 None,直接插值会印出"None 分"
-        _score_display = result['total_score'] if result['total_score'] is not None else "—"
+        # 头部聚合呈现:只讲事实(spec §5.4 / §5.6)。
+        # 原分数卡渲染「点分 + 五档评语」(如「0.0 / 综合行为观测评分 / 待提升」)——
+        # 那是把未标定标尺上的复合点分当对候选人的评定。改为:覆盖事实 + 依据 +
+        # 区间,区间只能来自本场会话自己的测量(§5.5:没有真实常模就不给位置)。
+        coverage = result["coverage"]
+        basis_items = "".join(
+            f"<li>{slot['display_name']} · {slot['indicator']}："
+            f"原始值 {slot['raw_value']}；"
+            f"本场会话内观测区间 {_interval_text(slot['observed_interval'])}"
+            f"（与原始值同量纲）；有效样本量 {slot['n_valid']}</li>"
+            for slot in coverage["passed_slots"]
+        )
+        basis_html = (f"<ul>{basis_items}</ul>" if basis_items
+                      else "<p>本次会话没有指标通过证据门。</p>")
 
         evidence_html_list = []
         for key, path in chart_paths.get('evidence', {}).items():
@@ -211,7 +236,7 @@ class ReportGenerator:
                 h1 {{ margin: 0; font-size: 2.5em; }}
                 .score-board {{ display: flex; gap: 20px; margin: 20px 0; }}
                 .score-card {{ background: white; padding: 20px; border-radius: 10px; text-align: center; box-shadow: 0 2px 5px rgba(0,0,0,0.1); flex: 1; }}
-                .score-number {{ font-size: 3em; font-weight: bold; color: var(--primary); }}
+                .cover-number {{ font-size: 3em; font-weight: bold; color: var(--primary); }}
                 .card {{ background: white; padding: 30px; margin-bottom: 25px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }}
                 h2 {{ border-left: 5px solid var(--primary); padding-left: 15px; color: var(--primary); }}
                 h3 {{ color: #444; border-bottom: 1px solid #eee; padding-bottom: 10px; }}
@@ -229,17 +254,19 @@ class ReportGenerator:
                     </div>
                 </header>
 
+                <!-- 覆盖与依据:分数与档位已按 spec §5.4 :157-158 / §5.6 停止渲染 -->
                 <div class="score-board">
                     <div class="score-card">
-                        <div class="score-number">{_score_display}</div>
-                        <div>综合行为观测评分</div>
-                        <div style="color:var(--primary); font-weight:bold;">{result['total_level']}</div>
+                        <div>📊 本次观测覆盖</div>
+                        <div class="cover-number">{coverage['n_passed']} / {coverage['n_slots']}</div>
+                        <div>个指标槽通过证据门</div>
+                        <div style="color:var(--primary); font-weight:bold;">置信度上限：{coverage['confidence_cap']}</div>
                     </div>
-                    <div class="score-card" style="flex:2; text-align:left; display:flex; align-items:center;">
-                        <div>
-                            <h3 style="margin:0 0 10px 0; border:none;">📝 综合总结</h3>
-                            <p style="margin:0;">{result['summary_narrative']}</p>
-                        </div>
+                    <div class="score-card" style="flex:2; text-align:left;">
+                        <h3 style="margin:0 0 10px 0; border:none;">📝 综合总结</h3>
+                        <p style="margin:0;">{result['summary_narrative']}</p>
+                        <h3>依据：通过证据门的指标</h3>
+                        {basis_html}
                     </div>
                 </div>
 
@@ -250,7 +277,7 @@ class ReportGenerator:
                 </div>
 
                 <div class="card">
-                    <h3>📊 五维行为观测</h3>
+                    <h3>📊 五维证据覆盖</h3>
                     <div class="chart-container">{get_chart_iframe(chart_paths.get('radar'), '500')}</div>
                 </div>
 

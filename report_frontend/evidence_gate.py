@@ -86,9 +86,36 @@ QUARANTINE: dict[str, Quarantine] = {
 
 _THRESHOLD_FILE = Path(__file__).resolve().parent / "evidence_thresholds.json"
 
+# 折算因子的依据类别。`legacy_arbitrary` 是**允许的取值** —— 历史遗留的标尺可以存在,
+# 但必须显式声明它没有依据;留空会让"这条有没有依据"变成不可回答的问题(spec §5.1)。
+_ALLOWED_BASIS_KINDS = {"definitional", "physical", "legacy_arbitrary"}
 
-def load_thresholds() -> dict:
-    with _THRESHOLD_FILE.open(encoding="utf-8") as f:
+
+def _validate_scale_factors(data: dict) -> None:
+    factors = data.get("scale_factors")
+    if not isinstance(factors, dict) or not factors:
+        raise ValueError(
+            "evidence_thresholds.json 必须带非空的 scale_factors —— "
+            "折算因子不得写成代码里的裸常量(spec §5.1)"
+        )
+    default = data.get("_default_scale_factor")
+    if not isinstance(default, dict):
+        raise ValueError(
+            "evidence_thresholds.json 必须带 _default_scale_factor —— "
+            "未登记族的默认因子同样是临时值(spec §5.1)"
+        )
+    for name, spec in list(factors.items()) + [("<default>", default)]:
+        if not spec.get("basis"):
+            raise ValueError(f"scale_factors[{name}] 未声明 basis(spec §5.1)")
+        if spec.get("basis_kind") not in _ALLOWED_BASIS_KINDS:
+            raise ValueError(
+                f"scale_factors[{name}] 的 basis_kind 非法:{spec.get('basis_kind')!r}"
+                f"(应为 {sorted(_ALLOWED_BASIS_KINDS)} 之一;没有依据就写 legacy_arbitrary)"
+            )
+
+
+def load_thresholds(path: Optional[Path] = None) -> dict:
+    with (Path(path) if path is not None else _THRESHOLD_FILE).open(encoding="utf-8") as f:
         data = json.load(f)
     if data.get("_provisional") is not True or not data.get("_version"):
         raise ValueError(
@@ -100,6 +127,7 @@ def load_thresholds() -> dict:
             "evidence_thresholds.json 必须带 _default_n_valid —— "
             "未登记指标的默认阈值也属于临时值,不得写成代码里的裸常量(spec §5.1)"
         )
+    _validate_scale_factors(data)
     return data
 
 
@@ -118,6 +146,57 @@ def _threshold_for(key: str) -> int:
         # 默认值也来自 JSON —— 不得写成裸常量(spec §5.1)
         return int(data["_default_n_valid"])
     return thresholds[max(matched, key=len)]
+
+
+def scale_factor_for(key: str) -> dict:
+    """按**最长**子串匹配折算因子族(与阈值、封停名单同一套匹配规则)。
+
+    长度相同者按登记顺序取先登记者 —— 只有一个键会撞名:`pause_duration` 同时含
+    `ratio` 与 `pause`(实测 `'ratio' in 'pause_duration'` 为真),legacy 的 if 链里
+    恒等族排在 pause 之前,故它走恒等族,0.5–3.0s 的分箱从未执行。这一归因由
+    `tests/test_report_layer.py::test_pause_duration_is_shadowed_by_the_ratio_family`
+    钉住 —— 想改归因就动登记表顺序,届时测试会红。
+
+    原实现在 `research_mapper._dynamic_normalize` 里用 if/elif 顺序决定族,
+    且因子是裸常量 —— spec §5.1 明禁。现按族登记在 evidence_thresholds.json,
+    本函数只负责取出来;一个数值都不留在代码里。
+    """
+    data = load_thresholds()
+    factors = data["scale_factors"]
+    k = key.lower()
+    matched = [name for name in factors if name in k]
+    if not matched:
+        return data["_default_scale_factor"]
+    return factors[max(matched, key=len)]
+
+
+def normalize_value(val: float, key: str) -> float:
+    """把原始值按**登记的**折算因子折到 0–1。
+
+    本函数体内不得出现任何可调数值(spec §5.1):满量程、上下界、分箱边界全部来自
+    evidence_thresholds.json。这里的 0.0 / 1.0 是 0–1 值域本身的边界,不是标尺参数。
+    """
+    val = float(val)
+    spec = scale_factor_for(key)
+    kind = spec["kind"]
+    if kind == "identity":
+        out = val
+    elif kind == "identity_or_percent":
+        out = val / spec["percent_divisor"] if val > 1 else val
+    elif kind == "full_scale":
+        out = val / spec["full_scale"]
+    elif kind == "pause_bins":
+        if spec["normal_lo"] <= val <= spec["normal_hi"]:
+            out = 0.0
+        elif val < spec["normal_lo"]:
+            out = spec["below_value"]
+        else:
+            out = (val - spec["normal_hi"]) / spec["above_span"]
+    else:
+        raise ValueError(
+            f"未登记的折算类型:{kind!r} —— 代码与 evidence_thresholds.json 不同步"
+        )
+    return min(1.0, max(0.0, out))
 
 
 def is_quarantined(key: str) -> Optional[Quarantine]:
