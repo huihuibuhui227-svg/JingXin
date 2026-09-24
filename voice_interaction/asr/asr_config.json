@@ -1,0 +1,12 @@
+{
+  "_version": "0.1.0-provisional",
+  "_provisional": true,
+  "funasr_host": "192.168.72.30",
+  "funasr_port": 10095,
+  "timeout_s": 60.0,
+  "min_chars_for_density": {
+    "value": 10,
+    "_provisional": true,
+    "basis": "低于 10 字时,任意一次命中即产生 >10 的密度,比值不稳定(spec §6.5)"
+  }
+}
