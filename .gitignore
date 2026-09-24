@@ -53,3 +53,12 @@ experiments/results/
 # Vosk large model (MUST IGNORE)
 # ======================
 vosk-model-cn-0.22/
+
+# ======================
+# MediaPipe tasks 模型文件(MUST IGNORE)
+# ======================
+# 三个 .task 合计约 21 MB(face 3.6M / hand 7.5M / pose_full 9.2M),**不随 pip 包发布**,
+# 要按 spec §6.1 单独下载。仓库 .git 已经是 1.37 GiB 全松散对象,不再往里塞二进制。
+# 路径常量由各模块的 config.py 提供(face_expression.config.FACE_MODEL 等),
+# 探测器代码不硬编码路径。
+models/mediapipe/

@@ -23,14 +23,19 @@ FACE_EXPRESSION_OUTPUT_DIR = os.path.join(OUTPUT_DIR, 'face_expression')  # 面�
 for directory in [DATA_DIR, INPUT_DIR, OUTPUT_DIR, LOGS_DIR, FACE_EXPRESSION_OUTPUT_DIR]:
     os.makedirs(directory, exist_ok=True)
 
-# ====== MediaPipe 配置 ======
-MEDIAPIPE_CONFIG = {
-    'static_image_mode': False,                   # 视频模式下设为 False
-    'max_num_faces': 1,                           # 最多检测 1 张人脸
-    'refine_landmarks': True,                     # 使用精细关键点
-    'min_detection_confidence': 0.8,              # 检测置信度阈值
-    'min_tracking_confidence': 0.8                # 跟踪置信度阈值
-}
+# ====== MediaPipe 模型文件 ======
+# 2026-09-24(M1.5):原来的 `MEDIAPIPE_CONFIG` 是**死代码** —— `pipeline/video_pipeline.py`
+# 硬编码了全部 5 个 kwarg、从不 import 它(整仓唯一的消费者是 examples 和一个已被注释掉的
+# 覆盖行)。迁移到 tasks API 时**删掉而不是照搬**(spec §1 / D4)。
+#
+# 路径在这里定义、由 `pipeline/detector.py` 读取,**不硬编码在抽取代码里**(spec §6.1):
+# M3 重排特征时不该动到探测器路径。
+#
+# ⚠️ 模型文件不进 git(`.gitignore` 已排除 `models/mediapipe/`),要按 spec §6.1 单独下载。
+# ⚠️ tasks 的 `FaceLandmarker` 默认就输出含虹膜的 478 点拓扑,与旧版
+#    `refine_landmarks=True` 等价,所以 `au_calculator` 里 468–476 那些下标一个都不用改。
+MEDIAPIPE_MODELS_DIR = os.path.join(PROJECT_ROOT, 'models', 'mediapipe')
+FACE_MODEL = os.path.join(MEDIAPIPE_MODELS_DIR, 'face_landmarker.task')
 
 # ====== 眨眼检测配置 ======
 EYE_CONFIG = {
@@ -66,4 +71,4 @@ LOG_CONFIG = {
 # ====== 可选：添加环境变量覆盖支持（可选增强） ======
 # 如果你需要从环境变量覆盖配置，可以取消下面注释
 # import os
-# MEDIAPIPE_CONFIG['min_detection_confidence'] = float(os.getenv('MP_MIN_DETECTION_CONFIDENCE', 0.8))
+# FACE_MODEL = os.getenv('MP_FACE_MODEL', FACE_MODEL)

@@ -11,7 +11,9 @@ python-multipart>=0.0.9
 
 # 计算机视觉
 opencv-python>=4.5.0
-mediapipe>=0.8.0
+# 钉死(同 requirements.txt):>=0.8.0 允许 1.0 进来,而 1.0 删掉了整个 `solutions`
+# 命名空间 —— 2026-09 两个 CV 服务静默全死就是它装进来的。见 spec §5。
+mediapipe==1.0.0
 
 # 科学计算
 numpy>=1.21.0

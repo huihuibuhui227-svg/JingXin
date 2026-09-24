@@ -53,16 +53,32 @@ EmotionScoreRanges = Dict[Literal[
 # MediaPipe 配置
 # ======================
 
+# ====== MediaPipe 模型文件 ======
+# 与 face 同一棵树,但两个模块**各持一份路径常量** —— 跨包 import 会把整条依赖链拉起来
+# 并让依赖方向反转(spec §4,与 Ruling M1-2 同一条理由)。
+#
+# ⚠️ 模型文件不进 git(`.gitignore` 已排除 `models/mediapipe/`),要按 spec §6.1 单独下载。
+MEDIAPIPE_MODELS_DIR = PROJECT_ROOT / "models" / "mediapipe"
+HAND_MODEL = MEDIAPIPE_MODELS_DIR / "hand_landmarker.task"
+POSE_MODEL = MEDIAPIPE_MODELS_DIR / "pose_landmarker_full.task"
+
+# ⚠️ 与旧 config 的差别**不是改名,是换概念**(spec §6.2):
+#   * static_image_mode(布尔)→ running_mode(三态,封装内部固定 VIDEO,故不进配置)
+#   * max_num_hands        → num_hands
+#   * model_complexity     → **由加载哪个 .task 文件决定**:0/1/2 ↔ lite/full/heavy。
+#     生产用的是 1,所以 POSE_MODEL 指向 full。用 lite 会和旧实现差出 42px 的假象
+#     —— 2026-09-24 实测教训(spec D5 / §3.4)。
+#   * min_detection_confidence → 各 API 各自命名(min_hand_/min_pose_...),由封装负责映射;
+#     这里保留中性键名,免得配置跟着 mediapipe 的命名漂移。
 MEDIAPIPE_CONFIG: Dict[str, Dict[str, Any]] = {
     'hands': {
-        'static_image_mode': False,
-        'max_num_hands': 2,
+        'num_hands': 2,
         'min_detection_confidence': 0.7,
         'min_tracking_confidence': 0.5
     },
     'pose': {
-        'static_image_mode': False,
-        'model_complexity': 1,
+        'tier': 'full',
+        'num_poses': 1,
         'min_detection_confidence': 0.6,
         'min_tracking_confidence': 0.6
     }
