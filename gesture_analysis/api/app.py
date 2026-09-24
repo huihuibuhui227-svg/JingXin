@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import cv2
@@ -76,6 +76,33 @@ def validate_session_id(session_id: str) -> str:
                f"（它会进日志文件名，不接受路径分隔符与 '..'）")
 
 
+async def _resolve_session_id(request: Request, session_id: str = None) -> str:
+    """取本次请求的会话 id：query 参数 `session_id` 或 multipart **表单字段**同名键。
+
+    为什么两个位置都要认：请求体是 `multipart/form-data`（图片就是其中一个字段），前端很
+    容易把 id 当**表单字段**提交。只认 query 的话，那种请求会拿 200 却静默归进 `NONE` ——
+    M1「三模块按 session 对上号」的目标无声失效，而且所有这类客户端还会**共享同一个
+    `session_analyzers["NONE"]`**（分析器状态互相污染），报告侧看不出任何异常。
+
+    `request.form()` 这里**不会**二次消费请求体：路由声明了 `File(...)`，FastAPI 在进端点
+    之前已经把表单解析好并缓存在同一个 Request 上，这里只是读缓存；非表单请求会拿到空
+    FormData，那个 except 只是兜底（本环境连 python-multipart 都没装，`form()` 会直接抛，
+    没有兜底的话每个不带 query id 的请求都会炸成 500）。
+
+    校验放在两个来源**合并之后**：表单字段来的 id 与 query 来的一样要过守卫。
+    """
+    if not session_id:
+        try:
+            form = await request.form()
+        except Exception:            # 不是表单请求 / 体已损坏 / multipart 解析器不在 → 当作没给
+            form = None
+        if form is not None:
+            value = form.get("session_id")
+            if isinstance(value, str) and value:
+                session_id = value
+    return validate_session_id(session_id or NONE_SESSION)
+
+
 def get_or_create_analyzers(session_id: str):
     """获取或创建会话的分析器实例"""
     current_time = time.time()
@@ -147,6 +174,7 @@ async def health_check():
 
 @app.post("/analyze")
 async def analyze_image(
+        request: Request,
         file: UploadFile = File(...),
         session_id: str = None
 ):
@@ -155,13 +183,14 @@ async def analyze_image(
 
     参数:
         file: 上传的图片文件（FormData格式）
-        session_id: 会话ID（可选，不提供则记入 NONE 桶；形状非法回 400）
+        session_id: 会话ID（可选，**query 参数或 multipart 表单字段都能给**；
+                    不提供则记入 NONE 桶；形状非法回 400）
 
     返回:
         分析结果
     """
     # 无 id → NONE（不再每请求 mint 一个 uuid：那会让每一帧都变成新会话、写出新日志文件）
-    session_id = validate_session_id(session_id or NONE_SESSION)
+    session_id = await _resolve_session_id(request, session_id)
 
     try:
         logger.info(f"收到手势分析请求: session={session_id}, file={file.filename}")

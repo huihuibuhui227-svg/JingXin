@@ -10,21 +10,31 @@
 为什么要冻住时钟:`get_or_create_pipeline` 的旧实现用 `time.time()` 派生的墙上时间戳命名文件,
 同一秒内的两帧会撞进同一个文件、跨秒的两帧则各写一个。把模块时钟每次推进 1000 秒,
 "跨秒"这件事在测试里就**必然**发生 —— 旧实现因此必然给出两个文件名(见各条测试的 docstring)。
+
+**`session_id` 的两个来源**(审查后补):端点声明的是 `File(...)`,所以 id 既可能写在 query
+里,也可能按 multipart 习惯放进**表单字段**。行为测试里用一个假 `Request`(只需 `await
+request.form()`)把"表单字段那条路"也真的跑一遍 —— 被替身掉的只有 starlette 的 multipart
+**解析器**,不是被测的那几行。真实 multipart POST 在本环境跑不起来(没装 python-multipart,
+见 `_install_env_shims`),所以**端到端**的证明由 T7 的验收脚本用表单字段提交来补。
 """
 
 from __future__ import annotations
 
 import asyncio
+import ast
 import csv
+import inspect
 import itertools
 import json
 import re
+import subprocess
 import sys
 import types
 from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
+from starlette.requests import Request
 
 ROOT = Path(__file__).resolve().parent.parent
 SID = "20260924_153012_9f3c"
@@ -99,6 +109,22 @@ class _FakeUpload:
         return self._data
 
 
+class _FakeRequest:
+    """替 `starlette.requests.Request`:被测代码只 `await request.form()` 再读 `.get("session_id")`。
+
+    `fields=None` 表示"表单解析不了"(本环境没装 python-multipart 就是这个下场),
+    用来钉住取 id 那段的 except 兜底 —— 没有它,每个不带 query id 的请求都会炸成 500。
+    """
+
+    def __init__(self, fields=None):
+        self._fields = fields
+
+    async def form(self):
+        if self._fields is None:
+            raise RuntimeError('Form data requires "python-multipart" to be installed.')
+        return dict(self._fields)
+
+
 class _FakeFacePipeline:
     """真的 `VideoPipeline` 要 mediapipe FaceMesh(本环境没有),而本测试测的是
     "会话 → 日志文件"的接线,不是视觉。替身返回一帧非空结果,好让端点真的走到
@@ -133,6 +159,17 @@ def _rows(path: Path) -> list:
         return list(csv.DictReader(f))
 
 
+def _imported_modules(path: Path) -> set:
+    """该文件 import 的模块名(含函数体里的延迟 import)—— 只看 import 语句,不看注释。"""
+    names = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.Import):
+            names.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            names.add(node.module)
+    return names
+
+
 def _freeze_clock(app_module, monkeypatch) -> None:
     """把 app 模块的 `time.time()` 换成 1000, 2000, 3000, … 的假时钟。
 
@@ -144,12 +181,28 @@ def _freeze_clock(app_module, monkeypatch) -> None:
                         types.SimpleNamespace(time=lambda: next(ticks)))
 
 
-def _drive_face(session_id=None):
-    return asyncio.run(face_app.analyze_frame(file=_FakeUpload(_jpeg()), session_id=session_id))
+def _drive_face(session_id=None, form_fields=None):
+    """`form_fields=None` → 空表单(没有 id 字段);`_UNPARSEABLE` 见 `_FakeRequest`。"""
+    return asyncio.run(face_app.analyze_frame(
+        request=_FakeRequest({} if form_fields is None else form_fields),
+        file=_FakeUpload(_jpeg()), session_id=session_id))
 
 
-def _drive_gesture(session_id=None):
-    return asyncio.run(gesture_app.analyze_image(file=_FakeUpload(_jpeg()), session_id=session_id))
+def _drive_gesture(session_id=None, form_fields=None):
+    return asyncio.run(gesture_app.analyze_image(
+        request=_FakeRequest({} if form_fields is None else form_fields),
+        file=_FakeUpload(_jpeg()), session_id=session_id))
+
+
+def _drive_face_with_broken_form(session_id=None):
+    """表单解析不了(没装 python-multipart / 体坏了)时端点仍然要能工作。"""
+    return asyncio.run(face_app.analyze_frame(
+        request=_FakeRequest(None), file=_FakeUpload(_jpeg()), session_id=session_id))
+
+
+def _drive_gesture_with_broken_form(session_id=None):
+    return asyncio.run(gesture_app.analyze_image(
+        request=_FakeRequest(None), file=_FakeUpload(_jpeg()), session_id=session_id))
 
 
 @pytest.fixture
@@ -246,7 +299,41 @@ def test_face_rejects_malformed_session_id_with_400(face_env):
         _drive_face(session_id=BAD_SID)
     assert ei.value.status_code == 400
     assert BAD_SID in ei.value.detail and "session_id" in ei.value.detail, ei.value.detail
+    # 表单字段来的 id 走同一条守卫:两个来源是**合并之后**才校验的,不能只查 query 那一份
+    with pytest.raises(HTTPException) as ei_form:
+        _drive_face(form_fields={"session_id": BAD_SID})
+    assert ei_form.value.status_code == 400
     assert list(face_env.iterdir()) == [], "被拒的请求不该落任何文件"
+
+
+def test_face_accepts_session_id_from_form_field(face_env, monkeypatch):
+    """id 放进 multipart **表单字段**也要认(与 voice 端点同形状)—— 审查补的一条。
+
+    端点声明的是 `File(...)`,前端按 multipart 习惯把 id 当表单字段提交是很自然的做法;
+    只认 query 的话那种请求会拿 200 却被静默归进 `NONE`,而且所有这类客户端还会**共享同一个
+    `session_pipelines["NONE"]`**(时序统计互相污染),报告侧看不出任何异常。
+    """
+    _freeze_clock(face_app, monkeypatch)
+
+    body = json.loads(_drive_face(form_fields={"session_id": SID}).body)
+    assert body["session_id"] == SID
+
+    files = sorted(p.name for p in face_env.iterdir())
+    assert files == [f"face_au_log_{SID}.csv"], files
+    assert [r["session_id"] for r in _rows(face_env / files[0])] == [SID]
+
+
+def test_face_unparseable_form_still_falls_back_to_none(face_env, monkeypatch):
+    """表单解析不了时(本环境就没装 python-multipart)端点仍要工作,不许炸成 500。
+
+    取 id 那段的 `except` 是**承重**的:少了它,每个不带 query id 的请求都会把 starlette
+    的 RuntimeError 抛穿端点。
+    """
+    _freeze_clock(face_app, monkeypatch)
+
+    body = json.loads(_drive_face_with_broken_form().body)
+    assert body["session_id"] == "NONE"
+    assert sorted(p.name for p in face_env.iterdir()) == ["face_au_log_NONE.csv"]
 
 
 # ---------------------------------------------------------------------------
@@ -286,7 +373,31 @@ def test_gesture_rejects_malformed_session_id_with_400(gesture_env):
         _drive_gesture(session_id=BAD_SID)
     assert ei.value.status_code == 400
     assert BAD_SID in ei.value.detail and "session_id" in ei.value.detail, ei.value.detail
+    with pytest.raises(HTTPException) as ei_form:
+        _drive_gesture(form_fields={"session_id": BAD_SID})
+    assert ei_form.value.status_code == 400
     assert list(gesture_env.iterdir()) == [], "被拒的请求不该落任何文件"
+
+
+def test_gesture_accepts_session_id_from_form_field(gesture_env, monkeypatch):
+    """同 face:表单字段里的 id 也要认。"""
+    _freeze_clock(gesture_app, monkeypatch)
+
+    result = _drive_gesture(form_fields={"session_id": SID})
+    assert result["session_id"] == SID
+
+    files = sorted(p.name for p in gesture_env.iterdir())
+    assert files == [f"gesture_emotion_log_{SID}.csv"], files
+    assert [r["session_id"] for r in _rows(gesture_env / files[0])] == [SID]
+
+
+def test_gesture_unparseable_form_still_falls_back_to_none(gesture_env, monkeypatch):
+    """同 face:表单解析不了时退回 NONE,不炸 500(`except` 兜底是承重的)。"""
+    _freeze_clock(gesture_app, monkeypatch)
+
+    result = _drive_gesture_with_broken_form()
+    assert result["session_id"] == "NONE"
+    assert sorted(p.name for p in gesture_env.iterdir()) == ["gesture_emotion_log_NONE.csv"]
 
 
 # ---------------------------------------------------------------------------
@@ -307,6 +418,66 @@ def test_session_id_guard_accepts_only_safe_ids(module):
         with pytest.raises(HTTPException) as ei:
             module.validate_session_id(bad)
         assert ei.value.status_code == 400, bad
+
+
+# ---------------------------------------------------------------------------
+# 形状级:表单回退要真的接得上 / 不许从 voice 包取东西
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("module", [face_app, gesture_app], ids=["face", "gesture"])
+def test_endpoint_declares_request_so_form_fields_are_reachable(module):
+    """表单回退靠 `request: Request` 让 FastAPI 把 Request 注进来。
+
+    为什么这条非要有:上面那些行为测试是**直接调协程**、自带假 Request 的 —— 把
+    `request: Request` 从端点签名里删掉,它们照样全绿,而线上每个请求都会 500
+    (`missing 1 required positional argument`)。这条钉的就是那个注入声明本身:
+    参数在场、注解确实是 `Request`、取 id 走的是同一个协程助手。
+
+    真实的 multipart POST 在本环境跑不起来(没装 python-multipart),
+    **端到端**的证明交给 T7 的验收脚本(用表单字段提交)。
+    """
+    fn = module.analyze_frame if module is face_app else module.analyze_image
+    params = inspect.signature(fn).parameters
+    assert "request" in params, list(params)
+    assert params["request"].annotation is Request, params["request"].annotation
+    helper = module._resolve_session_id
+    assert inspect.iscoroutinefunction(helper), helper
+    assert list(inspect.signature(helper).parameters) == ["request", "session_id"]
+
+
+def test_app_modules_never_pull_in_the_voice_package():
+    """Ruling M1-2:这两个 app 不许 import `voice_interaction` 包(方向是反的,会把 TTS/ASR
+    整条链拖进 face/gesture 进程)。到目前为止没人守这条:把 `NONE_SESSION` 改成从
+    `voice_interaction.asr.session` 取,10 条测试一条都不会红。
+
+    为什么起**子进程**:同进程里 `test_session_logging` 早就 import 了 voice 包,
+    `"voice_interaction" in sys.modules` 在任何测试里都恒真 —— 只有"干净进程里 import 这两个
+    app,再看 voice 在不在"才问得对问题。子进程里跑的是本测试文件(它自己有环境替身),
+    所以这里不重复一份替身代码。
+
+    另加一条**源码级**断言:进程内那条只覆盖**模块导入期**执行到的 import,
+    写在函数体里的延迟 `import voice_interaction...` 得靠源码级才钉得住。
+    源码级这条只看 **import 语句**(ast),不看注释与字符串 —— 两个 app 的注释里都写着
+    "与 voice_interaction/asr/transcript_store.py 同模式"这句引用,不该被误判。
+    """
+    for rel in ("face_expression/api/app.py", "gesture_analysis/api/app.py"):
+        imported = _imported_modules(ROOT / rel)
+        offending = sorted(n for n in imported
+                           if n == "voice_interaction" or n.startswith("voice_interaction."))
+        assert not offending, f"{rel} import 了 {offending}(见 Ruling M1-2)"
+
+    probe = (
+        "import json, runpy, sys\n"
+        f"sys.path.insert(0, {str(ROOT)!r})\n"
+        f"runpy.run_path({str(Path(__file__).resolve())!r})\n"
+        "print(json.dumps({'voice': 'voice_interaction' in sys.modules,\n"
+        "                  'face': 'face_expression.api.app' in sys.modules,\n"
+        "                  'gesture': 'gesture_analysis.api.app' in sys.modules}))\n"
+    )
+    proc = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, cwd=str(ROOT))
+    assert proc.returncode == 0, proc.stderr[-2000:]
+    seen = json.loads(proc.stdout.strip().splitlines()[-1])
+    assert seen == {"voice": False, "face": True, "gesture": True}, seen
 
 
 # ---------------------------------------------------------------------------
