@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import queue
 import threading
 import time
 import types
@@ -120,20 +121,29 @@ class _FakeEngine:
                             vad_split=False, segments=[])
 
 
-def _fake_mic(monkeypatch, script: list[bytes], interval: float = 0.2):
-    """把 `sd.RawInputStream` 换成按固定节奏喂数据的假设备。
+def _fake_mic(monkeypatch, script: list[bytes]):
+    """把 `sd.RawInputStream` 换成假设备:按**消费节奏**供货,一次只放一块在队列里。
 
-    为什么必须**按时间**喂、而不是一次灌进队列:真麦克风不管有没有人说话都持续送块
-    (这正是旧实现误判的根源),而 `audio_chunks` 是回调追加的 —— 一次灌进去的话,循环
-    还没判断,整段就已经被缓冲了,测不出"录了多久"。
+    为什么要"消费一块才补一块"而不是按墙上时间喂:后者的断言只能写成"耗时/缓冲大概
+    小于某个数",而机器一变慢(这套测试会在 `test_assert_coverage` 的内层 `settrace`
+    重跑里被执行)就会假红 —— 本项目已经栽过一次(4 位 id 的生日问题)。改成消费驱动后,
+    **缓冲的块数是确定的**(停录规则只数块数,与快慢无关),断言可以钉死在一个窄区间里;
+    墙钟只留一条"没有跑满 timeout"的宽松上界(15 s 的 timeout,期望值 ~0.1 s)。
 
-    关于 `interval` 与名义块时长:`should_stop` 数的是**块数 × `chunk_seconds`(0.5 s,
-    即 blocksize/sample_rate)**,所以决策与喂块节奏无关。`interval` 只决定这段场景
-    实际演多久:审查给的复现用真节奏 0.5 s(那会跑满 timeout),这里用 0.2 s 是为了让
-    常驻测试快一点 —— 断言只看"停得比 timeout 早得多、缓冲远少于旧行为",不假设精确时长。
-    脚本放完后设备继续空转(真设备不会停),于是"没停"的实现在这里表现成"录到 timeout"。
+    另一件必须保真的:真设备不管有没有人说话都持续送块(这正是审查那个 Critical 的根源),
+    所以脚本走完后设备继续空转(不再供货,但也不退出),于是"没停"的实现在这里表现成
+    "把脚本里的块全吃光 + 一直等到 timeout"。
     """
     state = {"delivered": 0}
+
+    class TracingQueue(queue.Queue):
+        """记下自己,好让假设备知道往哪个队列供货。"""
+
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+            state["queue"] = self
+
+    monkeypatch.setattr(srp.queue, "Queue", TracingQueue)
 
     class FakeRawInputStream:
         def __init__(self, samplerate, blocksize, dtype, channels, callback):
@@ -153,14 +163,19 @@ def _fake_mic(monkeypatch, script: list[bytes], interval: float = 0.2):
             return False
 
         def _run(self):
+            while not state.get("queue"):
+                if self.stopped.wait(0.01):
+                    return
             for chunk in script:
                 if self.stopped.is_set():
                     return
+                # 等消费者把上一块取走(真设备的缓冲上限在这里用"队列空"代表)
+                while not self.stopped.is_set() and not state["queue"].empty():
+                    if self.stopped.wait(0.005):
+                        return
                 state["delivered"] += 1
                 self.callback(chunk, len(chunk) // 2, None, None)
-                if self.stopped.wait(interval):
-                    return
-            while not self.stopped.wait(0.05):     # 设备继续供块(静音),只是脚本已尽
+            while not self.stopped.wait(0.05):     # 设备还在,但脚本已尽
                 pass
 
     monkeypatch.setattr(srp, "sd", types.SimpleNamespace(RawInputStream=FakeRawInputStream))
@@ -171,12 +186,12 @@ def test_listen_for_speech_stops_on_trailing_silence_instead_of_running_to_timeo
     """审查 Critical 的直接复现:末尾静音已远超阈值 → 必须停,不是录满 timeout。
 
     场景:说两块 → 静下来(阈值用**默认的 1.2 s**)。
-    - 修好后:第 3 块静音到齐(1.5 s ≥ 1.2)就停 → 缓冲 5 块(2.5 s),耗时 ≈ 1.0 s。
+    - 修好后:第 3 块静音到齐(1.5 s ≥ 1.2)就停 → 缓冲 5 块(2.5 s)。
     - 旧实现(任何队列项都重置静音计时,静音块也是"数据"):静音计时恒被重置,
-      永远到不了 1.2 → 一路录到 `timeout=3` s,并把整场 3 s 喂给引擎(审查实测
-      `timeout=5` 时缓冲 5.0 s)。两条断言都会红:耗时与缓冲量。
+      永远到不了 1.2 → 把脚本里的 32 块全吃光,再一直等到 `timeout=15` s
+      (审查用真节奏实测:`timeout=5` 时返回耗时 5.0 s、缓冲 5.0 s)。
 
-    容差:缓冲上限给到 6 块(旧行为 ≥ 15 块),不卡死 5 块,以免依赖线程调度。
+    两条断言都会红:缓冲块数(5–7 vs 32)与墙钟(≈0.1 s vs ≈15 s)。
     """
     pipe = srp.SpeechRecognitionPipeline()
     engine = _FakeEngine("录音里的回答")
@@ -184,12 +199,16 @@ def test_listen_for_speech_stops_on_trailing_silence_instead_of_running_to_timeo
     _fake_mic(monkeypatch, [_speech(), _speech()] + [_silence()] * 30)
 
     started = time.monotonic()
-    result, audio = pipe.listen_for_speech(timeout=3, pause_threshold=1.2)
+    result, audio = pipe.listen_for_speech(timeout=15, pause_threshold=1.2)
     elapsed = time.monotonic() - started
 
     assert result.text == "录音里的回答"
-    assert elapsed < 2.0, f"没在静音处停下,录了 {elapsed:.2f}s(≈timeout)"
-    assert len(audio) <= 6 * CHUNK_SAMPLES, f"缓冲了 {len(audio) / 16000:.2f}s 音频"
+    # 停录规则数的是**块数**(2 块说话 + 末尾 3 块静音,1.5s ≥ 1.2s = 5 块),与机器快慢无关,
+    # 所以这里可以钉死;上界留一块在途的余量。旧实现会把脚本里的 32 块全吃光。
+    assert 5 * CHUNK_SAMPLES <= len(audio) <= 7 * CHUNK_SAMPLES, \
+        f"缓冲了 {len(audio) / 16000:.2f}s 音频({len(audio) // CHUNK_SAMPLES} 块)"
+    # 墙钟只做宽松上界:期望 ~0.1s,旧实现必然 ≈ timeout(15s)
+    assert elapsed < 5.0, f"没在静音处停下,录了 {elapsed:.2f}s(timeout=15)"
     # 喂给引擎的就是缓冲下来的那一段(旧实现会把整场都喂过去)
     assert [len(c) for c in engine.calls] == [len(audio) * 2]
 
@@ -197,18 +216,21 @@ def test_listen_for_speech_stops_on_trailing_silence_instead_of_running_to_timeo
 def test_listen_for_speech_quiet_room_hiss_does_not_count_as_speech(monkeypatch):
     """安静房间的底噪(RMS≈0.002,低于下限 0.01)必须算静音。
 
-    红法:把能量判定换成"非空块即有声" → 底噪变成"说话"→ 末尾静音恒为 0 → 不停 → 红。
+    红法:把能量判定换成"非空块即有声"(变异 M6) → 底噪变成"说话"→ 末尾静音恒为 0 →
+    不停 → 把 21 块全吃光并等到 `timeout=15` s → 两条断言都红。
     """
     pipe = srp.SpeechRecognitionPipeline()
     pipe.engine = _FakeEngine("回答")
     _fake_mic(monkeypatch, [_speech(), _hiss()] + [_hiss()] * 20)
 
     started = time.monotonic()
-    _, audio = pipe.listen_for_speech(timeout=2, pause_threshold=1.2)
+    _, audio = pipe.listen_for_speech(timeout=15, pause_threshold=1.2)
     elapsed = time.monotonic() - started
 
-    assert elapsed < 1.5, f"底噪被当成说话,录了 {elapsed:.2f}s"
-    assert len(audio) <= 6 * CHUNK_SAMPLES, f"缓冲了 {len(audio) / 16000:.2f}s 音频"
+    # 1 块说话 + 末尾 3 块底噪(1.5s ≥ 1.2s = 4 块),上界留一块在途余量
+    assert 4 * CHUNK_SAMPLES <= len(audio) <= 6 * CHUNK_SAMPLES, \
+        f"缓冲了 {len(audio) / 16000:.2f}s 音频({len(audio) // CHUNK_SAMPLES} 块)"
+    assert elapsed < 5.0, f"底噪被当成说话,录了 {elapsed:.2f}s(timeout=15)"
 
 
 def test_silence_energy_floor_comes_from_asr_config(monkeypatch):
