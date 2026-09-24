@@ -11,9 +11,25 @@ from .research_mapper import ResearchCapabilityMapper
 from .visualizer import ReportVisualizer
 
 
+def _interval_text(interval) -> str:
+    """本场会话内观测区间。拿不到就说清是缺什么,而不是留空。
+
+    区间是 `原始值 ± 会话内标准差`(与原始值同量纲、来自本场会话自己的测量),
+    不是人群中位置 —— spec §5.5 禁止任何暗示人群位置的区间。
+    """
+    if not interval:
+        return "未采集到会话内变异信息"
+    return f"{interval[0]} – {interval[1]}"
+
+
 class ReportGenerator:
     """
-    科研能力评估报告生成器 (终极丰满版)
+    行为观测报告生成器
+
+    报告只陈述本次实际测到了什么:每个维度按 spec §5.4 的「值 + 有效样本量 + 置信度 +
+    evidence_gaps」渲染,聚合只给「区间 + 置信度 + 依据」(spec §5.6)。
+    **不产出对候选人的评分或评级** —— 未标定标尺上的复合点分与五档评语一律不渲染。
+    不解读、不推断、不做形容词修饰。
     """
 
     def __init__(self, output_dir: str = "data/output"):
@@ -22,10 +38,9 @@ class ReportGenerator:
             os.makedirs(self.output_dir)
 
     def generate_report(self, session_id: Optional[str] = None) -> str:
-        # ... (generate_report 方法保持不变，略) ...
-        # 确保调用 _build_html_report 时传入了 features 和 result
+        """从磁盘 CSV 文件生成评估报告（批处理模式）"""
         print("\n" + "=" * 70)
-        print("🚀 启动 JingXin 科研能力评估报告生成系统 (终极丰满版)")
+        print("🚀 启动 JingXin 面试行为观测报告生成系统 (批量模式)")
         print("=" * 70)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -34,7 +49,7 @@ class ReportGenerator:
 
         try:
             loader = LogDataLoader()
-            data = loader.get_fused_latest_data() if not session_id else loader.load_session_data(session_id)
+            data = loader.get_fused_latest_data()
             if not data or 'face' not in data: raise ValueError("无面部数据")
 
             engine = PsychologicalFeatureEngine(data)
@@ -60,6 +75,48 @@ class ReportGenerator:
             print(f"❌ 错误：{e}")
             return ""
 
+    def generate_report_live(self, session_id: str) -> str:
+        """从运行中的 API 服务获取实时内存数据，生成评估报告（实时模式）"""
+        print("\n" + "=" * 70)
+        print("🚀 启动 JingXin 面试行为观测报告生成系统 (实时模式)")
+        print(f"📋 会话 ID: {session_id}")
+        print("=" * 70)
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        report_filename = f"Research_Assessment_Report_Live_{timestamp}.html"
+        report_path = os.path.join(self.output_dir, report_filename)
+
+        try:
+            loader = LogDataLoader()
+            data = loader.get_live_data(session_id)
+            if not data:
+                raise ValueError("无法从 API 获取实时数据，请确认三个分析服务 (8000/8001/8002) 已启动且会话存在")
+            if 'face' not in data:
+                print("   ⚠️  未获取到面部数据，继续使用其他模态生成报告")
+
+            engine = PsychologicalFeatureEngine(data)
+            features = engine.extract_all_features()
+
+            mapper = ResearchCapabilityMapper()
+            result = mapper.map_features_to_scores(features)
+
+            viz = ReportVisualizer(output_dir=self.output_dir)
+            chart_paths = viz.generate_all_charts(result, df_face=data.get('face'))
+            static_images = self._scan_static_images()
+
+            html_content = self._build_html_report(result, chart_paths, features, data, static_images)
+
+            with open(report_path, 'w', encoding='utf-8') as f:
+                f.write(html_content)
+
+            webbrowser.open('file://' + os.path.realpath(report_path))
+            print(f"\n✅ 实时报告已生成并打开：{report_path}")
+            return report_path
+
+        except Exception as e:
+            print(f"❌ 错误：{e}")
+            return ""
+
     def _scan_static_images(self) -> List[str]:
         images = []
         if os.path.exists(self.output_dir):
@@ -68,145 +125,63 @@ class ReportGenerator:
                     images.append(f)
         return images
 
-    def _get_percentile_badge(self, p: int) -> str:
-        """根据百分位返回颜色徽章"""
-        if p >= 90:
-            return f"<span style='background:#d4edda; color:#155724; padding:2px 6px; border-radius:4px; font-weight:bold;'>Top {100 - p}% (卓越)</span>"
-        elif p >= 70:
-            return f"<span style='background:#d1ecf1; color:#0c5460; padding:2px 6px; border-radius:4px; font-weight:bold;'>Top {100 - p}% (优秀)</span>"
-        elif p >= 40:
-            return f"<span style='background:#fff3cd; color:#856404; padding:2px 6px; border-radius:4px;'>中等</span>"
-        else:
-            return f"<span style='background:#f8d7da; color:#721c24; padding:2px 6px; border-radius:4px;'>Bottom {p}% (待提升)</span>"
+    def _render_dimension_block(self, dim_key: str, dim: Dict[str, Any]) -> str:
+        """渲染单个维度的证据状态。不解读,不推断,不加形容词。
+
+        形态 = spec §5.4 的「整节的正确形态」:值 + 有效样本量 + 置信度 + evidence_gaps。
+        出分维度另带 §5.6 要求的提示句「该维度目前无独立效标,仅供行为描述」。
+        **不再渲染"归一值"** —— 它是未标定标尺上的点分,与档位标签一样会被读成
+        对该维度的评定,而本系统没有标定样本能给这个刻度背书。
+        表格给出的"本场会话内观测区间"只由本场测量构成(均值 ± 会话内标准差)。
+
+        每个维度自己带全自己的缺口 —— 出分维度也要列出未过门的槽。
+        否则那些缺口只能靠顶层的汇总段兜底,而汇总段的所有条目都已被逐维列表
+        覆盖过一遍(evidence_gaps 就是各维缺口的并集),同一批字符串会被打印两次。
+        """
+        if dim["score"] is None:
+            gaps = "".join(f"<li>{g}</li>" for g in dim.get("evidence_gaps", []))
+            return f"""
+            <h3>{dim['display_name']}</h3>
+            <p><strong>证据不足</strong> —— 本次未采集到足以评估该行为线索的有效样本。</p>
+            <ul>{gaps}</ul>
+            """
+
+        rows = "".join(
+            f"<tr><td>{e['human_name']}</td><td>{e['raw_value']}</td>"
+            f"<td>{_interval_text(e.get('observed_interval'))}</td>"
+            f"<td>{e.get('n_valid', '—')}</td></tr>"
+            for e in dim["evidence_chain"]
+        )
+        gaps = "".join(f"<li>{g}</li>" for g in dim.get("evidence_gaps", []))
+        gaps_block = f"<p>未过门的指标：</p><ul>{gaps}</ul>" if gaps else ""
+        return f"""
+        <h3>{dim['display_name']}</h3>
+        <p>过门指标 {dim['matched_indicators']}；置信度：<strong>{dim['confidence']}</strong>。
+        （该维度目前无独立效标，仅供行为描述）</p>
+        <table><thead><tr><th>指标</th><th>原始值</th><th>本场会话内观测区间</th>
+        <th>有效样本量</th></tr></thead>
+        <tbody>{rows}</tbody></table>
+        {gaps_block}
+        """
 
     def _generate_deep_text_analysis(self, features: Dict[str, Any], result: Dict[str, Any]) -> str:
-        """生成终极丰满版文字报告"""
-        face_feats = features.get('face', {})
-        gesture_feats = features.get('gesture', {})
+        """只陈述本次实际测到了什么,不做任何解读、推断与形容词修饰。
 
-        # 提取更多统计量
-        tension_mean = face_feats.get('face_tension_score_mean', 0)
-        tension_std = face_feats.get('face_tension_score_std', 0)
-        symmetry_mean = face_feats.get('face_symmetry_score_mean', 0)
-        jitter_mean = gesture_feats.get('gesture_left_hand_jitter_mean', 0)
-        jitter_std = gesture_feats.get('gesture_left_hand_jitter_std', 0)
-        hand_score_mean = gesture_feats.get('gesture_left_hand_score_mean', 0)
-        gaze_stab = face_feats.get('face_gaze_stability_mean', 0)
-        eye_contact = face_feats.get('face_eye_contact_ratio', 0)
-        au4_freq = face_feats.get('face_micro_exp_au_name_au4_freq', 0)
-        au7_freq = face_feats.get('face_micro_exp_au_name_au7_freq', 0)
+        每个维度按 spec §5.4 的「整节的正确形态」渲染,出分维度带 §5.6 的"无独立效标"
+        提示。本函数**不再输出聚合摘要**:它曾印「综合科研潜力评分为 X 分,评级为 Y」,
+        后改印「综合行为观测摘要:{档位}(置信度上限:…)」—— 两者都是把未标定标尺上的
+        点分与五档评语当对人的评定(实测报告头渲染出「0.0 / 综合行为观测评分 / 待提升」)。
+        聚合呈现移入报告头部的覆盖卡,只给「区间 + 置信度 + 依据」(spec §5.6)。
 
-        # 获取维度统计数据 (含百分位)
-        dim_stats = {}
-        for k, v in result['dimensions'].items():
-            if 'stats' in v:
-                dim_stats[k] = v['stats']
-
-        html_parts = []
-
-        # --- 头部 ---
-        level = result['total_level'].split()[0]
-        html_parts.append(f"""
-        <div style="background:#f8f9fa; padding:20px; border-left:5px solid #2E86AB; margin-bottom:25px;">
-            <p style="margin:0; font-size:1.1em; line-height:1.8;">
-                本报告基于 JingXin 多模态心理特征分析引擎，对候选人在模拟科研面试全过程中的 <strong>面部微表情 (Face)</strong>、
-                <strong>肢体姿态 (Gesture)</strong>、<strong>眼动轨迹 (Gaze)</strong> 及 <strong>语音韵律 (Voice)</strong> 进行了毫秒级量化分析。
-                系统共提取了 <strong>{sum(len(v) for v in features.values())}</strong> 个量化指标，并通过常模参照模型进行了深度判推。
-                <br><br>
-                <strong>综合结论：</strong> 候选人综合科研潜力评分为 <span style="color:#2E86AB; font-weight:bold; font-size:1.2em;">{result['total_score']}</span> 分，
-                评级为 <strong>{level}</strong>。
-            </p>
-        </div>
-        """)
-
-        # --- 1. 情绪与抗压 (深度版) ---
-        stress_stats = dim_stats.get('stress_resilience', {})
-        tension_p = stress_stats.get('tension_score', {}).get('percentile', 50)
-        badge = self._get_percentile_badge(100 - tension_p)  # 紧张度越低越好，所以用 100-p
-
-        analysis_text = f"候选人的面部紧张度均值为 <strong>{tension_mean:.2f}</strong> (标准差 {tension_std:.2f})。"
-        if tension_mean > 0.6:
-            analysis_text += "该数值处于较高水平，表明候选人在面试过程中经历了显著的心理压力。"
-        elif tension_mean > 0.3:
-            analysis_text += "该数值处于适中范围，表明候选人具备一定的抗压能力，但在关键节点仍有波动。"
-        else:
-            analysis_text += "该数值处于较低水平，展现了极佳的情绪控制力和心理稳定性。"
-
-        analysis_text += f" 在人群常模中，其情绪稳定性表现优于 {100 - tension_p}% 的受试者，{badge}。"
-
-        if au4_freq > 0.1 or au7_freq > 0.1:
-            analysis_text += f" 微表情分析检测到皱眉 (AU4) 频率为 {au4_freq:.1%}，眼部挤压 (AU7) 频率为 {au7_freq:.1%}，这通常是认知负荷过高或焦虑的直接生理信号。"
-        else:
-            analysis_text += " 微表情监测未检测到显著的焦虑特征 (AU4/AU7 频率低)，表明表面情绪较为平稳。"
-
-        html_parts.append(f"""
-        <h3>1. 情绪状态与抗压能力深度剖析</h3>
-        <p>{analysis_text}</p>
-        <div style="background:#fff; border:1px solid #eee; padding:15px; border-radius:5px; margin-top:10px;">
-            <strong>💡 科研场景映射：</strong> 
-            {'在高强度科研攻关或答辩场景下，候选人可能需要额外的时间来调节情绪，建议进行脱敏训练。' if tension_mean > 0.5 else '候选人具备在压力下保持冷静的潜质，适合承担具有挑战性的科研任务。'}
-        </div>
-        """)
-
-        # --- 2. 肢体与自信 (深度版) ---
-        conf_stats = dim_stats.get('confidence_level', {})
-        jitter_p = conf_stats.get('jitter', {}).get('percentile', 50)
-        badge_jitter = self._get_percentile_badge(100 - jitter_p)
-
-        body_text = f"肢体遥测数据显示，候选人左手抖动均值为 <strong>{jitter_mean:.4f}</strong> (标准差 {jitter_std:.4f})。"
-        if jitter_mean > 0.03:
-            body_text += "显著的生理性震颤通常与交感神经兴奋（紧张）相关。"
-        elif jitter_mean > 0.01:
-            body_text += "轻微的抖动属于正常生理现象，但在高压下略有放大。"
-        else:
-            body_text += "极低的抖动值展现了如外科医生般的肢体控制稳定性。"
-        body_text += f" 该指标在人群中处于 {100 - jitter_p}% 的水平，{badge_jitter}。"
-        body_text += f" 手势自信度评分为 <strong>{hand_score_mean:.1f}</strong>，结合肩部放松度指标，"
-        body_text += "反映了候选人肢体语言的开放性。"
-
-        html_parts.append(f"""
-        <h3>2. 肢体语言与自信心量化评估</h3>
-        <p>{body_text}</p>
-        """)
-
-        # --- 3. 眼动与专注 (深度版) ---
-        logic_stats = dim_stats.get('logical_thinking', {})
-        gaze_p = logic_stats.get('gaze_stability', {}).get('percentile', 50)
-        badge_gaze = self._get_percentile_badge(gaze_p)
-
-        gaze_text = f"眼动追踪算法计算出视线稳定性指数为 <strong>{gaze_stab:.2f}</strong>，眼神接触比例高达 <strong>{eye_contact:.2%}</strong>。"
-        if gaze_stab > 0.75:
-            gaze_text += "极高的稳定性意味着候选人能够长时间将注意力锁定在目标上，这是深度科研工作者的核心特质。"
-        elif gaze_stab > 0.5:
-            gaze_text += "良好的稳定性表明候选人具备正常的专注力，但在复杂信息处理时偶有扫视。"
-        else:
-            gaze_text += "较低的稳定性提示注意力可能存在分散，或在思考时倾向于通过眼球运动来辅助认知加工。"
-        gaze_text += f" 该专注力水平超越了 {gaze_p}% 的人群，{badge_gaze}。"
-
-        html_parts.append(f"""
-        <h3>3. 视线追踪与专注力判读</h3>
-        <p>{gaze_text}</p>
-        <div style="background:#fff; border:1px solid #eee; padding:15px; border-radius:5px; margin-top:10px;">
-            <strong>👁️ 视觉热点分析：</strong> 
-            结合眼动热力图（见下文），候选人的视觉关注点主要集中在中心区域，符合正常的交流注视模式，未出现异常的回避行为。
-        </div>
-        """)
-
-        # --- 4. 总结与建议 ---
-        sorted_dims = sorted(result['dimensions'].items(), key=lambda x: x[1]['score'], reverse=True)
-        top_dim = sorted_dims[0][1]['display_name']
-        bottom_dim = sorted_dims[-1][1]['display_name']
-
-        summary_text = f"综上所述，候选人在 <strong>{top_dim}</strong> 维度表现最为突出，显示出良好的科研天赋。"
-        summary_text += f" 然而，在 <strong>{bottom_dim}</strong> 维度上得分相对较低，是主要的短板所在。"
-        summary_text += " 建议后续针对该短板进行专项训练（如模拟高压面试、正念冥想等）。总体而言，该候选人具备从事科研工作的基本心理素质。"
-
-        html_parts.append(f"""
-        <h3>4. 综合结论与发展建议</h3>
-        <p>{summary_text}</p>
-        """)
-
-        return "".join(html_parts)
+        参数 features 保留是为了调用方签名稳定;本函数不再从原始特征里另取默认值。
+        """
+        parts = []
+        for dim_key, dim in result["dimensions"].items():
+            parts.append(self._render_dimension_block(dim_key, dim))
+        # 原本此处另有一段顶层「证据缺口」汇总,现已删除 —— 它的每一条都来自
+        # result["evidence_gaps"](各维缺口的并集),而逐维块已经把各自的缺口列全,
+        # 于是同一批字符串会在报告里出现两遍。缺口现在只有逐维这一处来源(带维度归属)。
+        return "".join(parts)
 
     def _build_html_report(self, result: Dict[str, Any], chart_paths: Dict[str, Any],
                            features: Dict[str, Any], data: Dict[str, pd.DataFrame],
@@ -218,15 +193,32 @@ class ReportGenerator:
 
         deep_analysis_html = self._generate_deep_text_analysis(features, result)
 
+        # 头部聚合呈现:只讲事实(spec §5.4 / §5.6)。
+        # 原分数卡渲染「点分 + 五档评语」(如「0.0 / 综合行为观测评分 / 待提升」)——
+        # 那是把未标定标尺上的复合点分当对候选人的评定。改为:覆盖事实 + 依据 +
+        # 区间,区间只能来自本场会话自己的测量(§5.5:没有真实常模就不给位置)。
+        coverage = result["coverage"]
+        basis_items = "".join(
+            f"<li>{slot['display_name']} · {slot['indicator']}："
+            f"原始值 {slot['raw_value']}；"
+            f"本场会话内观测区间 {_interval_text(slot['observed_interval'])}"
+            f"（与原始值同量纲）；有效样本量 {slot['n_valid']}</li>"
+            for slot in coverage["passed_slots"]
+        )
+        basis_html = (f"<ul>{basis_items}</ul>" if basis_items
+                      else "<p>本次会话没有指标通过证据门。</p>")
+
         evidence_html_list = []
         for key, path in chart_paths.get('evidence', {}).items():
             dim_name = result['dimensions'][key]['display_name']
             ev_html = get_chart_iframe(path, "400")
+            # 此处曾有「🧠 判推」框,渲染 result['dimensions'][key]['narrative']。
+            # 该字段的产出方(template 填空式推断)已随 spec §5.4 一并删除,
+            # 且报告本就不该给判推 —— 故整框移除,只留证据图。
             evidence_html_list.append(f"""
             <div class="card">
                 <h3>🔍 {dim_name} - 证据链</h3>
                 <div class="chart-container">{ev_html}</div>
-                <div class="narrative-box"><strong>🧠 判推：</strong> {result['dimensions'][key]['narrative']}</div>
             </div>
             """)
 
@@ -235,7 +227,7 @@ class ReportGenerator:
         <html lang="zh-CN">
         <head>
             <meta charset="UTF-8">
-            <title>JingXin 科研能力深度评估报告</title>
+            <title>JingXin 面试行为观测报告</title>
             <style>
                 :root {{ --primary: #2E86AB; --bg: #f4f7f6; }}
                 body {{ font-family: 'Microsoft YaHei', sans-serif; background: var(--bg); color: #333; margin: 0; padding: 20px; line-height: 1.8; }}
@@ -244,55 +236,49 @@ class ReportGenerator:
                 h1 {{ margin: 0; font-size: 2.5em; }}
                 .score-board {{ display: flex; gap: 20px; margin: 20px 0; }}
                 .score-card {{ background: white; padding: 20px; border-radius: 10px; text-align: center; box-shadow: 0 2px 5px rgba(0,0,0,0.1); flex: 1; }}
-                .score-number {{ font-size: 3em; font-weight: bold; color: var(--primary); }}
+                .cover-number {{ font-size: 3em; font-weight: bold; color: var(--primary); }}
                 .card {{ background: white; padding: 30px; margin-bottom: 25px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }}
                 h2 {{ border-left: 5px solid var(--primary); padding-left: 15px; color: var(--primary); }}
                 h3 {{ color: #444; border-bottom: 1px solid #eee; padding-bottom: 10px; }}
                 .chart-container {{ margin: 20px 0; border: 1px solid #eee; border-radius: 5px; }}
-                .narrative-box {{ background: #eef2f5; padding: 15px; border-left: 4px solid var(--primary); margin-top: 15px; }}
-                .grid-2 {{ display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }}
-                @media (max-width: 768px) {{ .grid-2 {{ grid-template-columns: 1fr; }} .score-board {{ flex-direction: column; }} }}
+                @media (max-width: 768px) {{ .score-board {{ flex-direction: column; }} }}
             </style>
         </head>
         <body>
             <div class="container">
                 <header>
-                    <h1>🔬 JingXin 科研能力评估报告</h1>
-                    <div>基于多模态心理特征的深度分析与判推</div>
+                    <h1>🔬 JingXin 面试行为观测报告</h1>
+                    <div>基于多模态行为量的结构化观测</div>
                     <div style="margin-top:10px; font-size:0.9em; opacity:0.8;">
                         {datetime.now().strftime("%Y-%m-%d %H:%M")} | {result['model_metadata']['version']}
                     </div>
                 </header>
 
+                <!-- 覆盖与依据:分数与档位已按 spec §5.4 :157-158 / §5.6 停止渲染 -->
                 <div class="score-board">
                     <div class="score-card">
-                        <div class="score-number">{result['total_score']}</div>
-                        <div>综合科研潜力评分</div>
-                        <div style="color:var(--primary); font-weight:bold;">{result['total_level']}</div>
+                        <div>📊 本次观测覆盖</div>
+                        <div class="cover-number">{coverage['n_passed']} / {coverage['n_slots']}</div>
+                        <div>个指标槽通过证据门</div>
+                        <div style="color:var(--primary); font-weight:bold;">置信度上限：{coverage['confidence_cap']}</div>
                     </div>
-                    <div class="score-card" style="flex:2; text-align:left; display:flex; align-items:center;">
-                        <div>
-                            <h3 style="margin:0 0 10px 0; border:none;">📝 综合总结</h3>
-                            <p style="margin:0;">{result['summary_narrative']}</p>
-                        </div>
+                    <div class="score-card" style="flex:2; text-align:left;">
+                        <h3 style="margin:0 0 10px 0; border:none;">📝 综合总结</h3>
+                        <p style="margin:0;">{result['summary_narrative']}</p>
+                        <h3>依据：通过证据门的指标</h3>
+                        {basis_html}
                     </div>
                 </div>
 
-                <!-- 深度文字报告 -->
+                <!-- 逐维观测明细:过门指标 + 未过门缺口 -->
                 <div class="card">
-                    <h2>📑 深度心理特征分析报告</h2>
+                    <h2>📑 行为指标观测明细</h2>
                     {deep_analysis_html}
                 </div>
 
-                <div class="grid-2">
-                    <div class="card">
-                        <h3>📊 五维能力模型</h3>
-                        <div class="chart-container">{get_chart_iframe(chart_paths.get('radar'), '500')}</div>
-                    </div>
-                    <div class="card">
-                        <h3>👁️ 眼动行为分析</h3>
-                        <div class="chart-container">{get_chart_iframe(chart_paths.get('gaze'), '500')}</div>
-                    </div>
+                <div class="card">
+                    <h3>📊 五维证据覆盖</h3>
+                    <div class="chart-container">{get_chart_iframe(chart_paths.get('radar'), '500')}</div>
                 </div>
 
                 <h2>🔍 分维度证据链</h2>
@@ -306,9 +292,6 @@ class ReportGenerator:
         </html>
         """
         return html
-
-    def _generate_gaze_insight(self, data):
-        return "详见上方眼动图表分析。"
 
 
 if __name__ == "__main__":

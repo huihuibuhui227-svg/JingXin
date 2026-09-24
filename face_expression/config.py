@@ -58,9 +58,9 @@ API_CONFIG = {
 
 # ====== 日志配置 ======
 LOG_CONFIG = {
-    'video_log_file': 'face_au_log.csv',          # 视频分析日志文件名
-    'static_log_file': 'static_face_log.csv',     # 静态图片分析日志文件名
-    'encoding': 'utf-8'                           # 日志文件编码
+    'video_log_file': 'face_au_log_{timestamp}.csv',    # 视频分析日志文件名
+    'static_log_file': 'static_face_log_{timestamp}.csv',  # 静态图片分析日志文件名
+    'encoding': 'utf-8'                                 # 日志文件编码
 }
 
 # ====== 可选：添加环境变量覆盖支持（可选增强） ======

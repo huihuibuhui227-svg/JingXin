@@ -6,12 +6,19 @@ import numpy as np
 import base64
 import uuid
 import time
+import os
+import logging
+from logging_config import setup_logging
+
+setup_logging()
+logger = logging.getLogger(__name__)
 
 from gesture_analysis.core.analysis.hand_analyzer import HandAnalyzer
 from gesture_analysis.core.analysis.shoulder_analyzer import ShoulderAnalyzer
 from gesture_analysis.core.analysis.arm_analyzer import ArmAnalyzer
 from gesture_analysis.core.analysis.emotion_inferencer import EmotionInferencer
-from gesture_analysis.config import API_CONFIG, MEDIAPIPE_CONFIG
+from gesture_analysis.utils.logger import GestureLogger
+from gesture_analysis.config import API_CONFIG, MEDIAPIPE_CONFIG, LOGS_DIR
 import mediapipe as mp
 
 app = FastAPI(
@@ -20,9 +27,10 @@ app = FastAPI(
 )
 
 # 添加 CORS 中间件
+cors_origins = os.getenv('CORS_ORIGINS', 'http://127.0.0.1:5000,http://localhost:5000,http://localhost:5173,http://127.0.0.1:5173').split(',')
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -39,6 +47,7 @@ pose = mp_pose.Pose(**MEDIAPIPE_CONFIG['pose'])
 
 # 会话管理
 session_analyzers = {}
+session_loggers = {}  # 每个会话的 GestureLogger 实例
 SESSION_TIMEOUT = 300
 
 
@@ -53,6 +62,7 @@ def get_or_create_analyzers(session_id: str):
     ]
     for sid in expired_sessions:
         del session_analyzers[sid]
+        session_loggers.pop(sid, None)
 
     # 获取或创建新会话
     if session_id not in session_analyzers:
@@ -65,10 +75,18 @@ def get_or_create_analyzers(session_id: str):
             'emotion': EmotionInferencer()
         }
         session_analyzers[session_id] = (analyzers, current_time)
-        print(f"✅ 创建手势分析会话: {session_id}")
+        # 同一会话的所有帧写入同一个文件（用会话创建时间戳作为文件名）
+        from datetime import datetime
+        session_ts = datetime.fromtimestamp(current_time).strftime('%Y%m%d_%H%M%S')
+        log_path = str(LOGS_DIR / f'gesture_emotion_log_{session_ts}.csv')
+        session_loggers[session_id] = (GestureLogger(log_file_path=log_path), log_path, current_time)
+        logger.info(f"创建手势分析会话: {session_id}, 日志: {log_path}")
     else:
         analyzers, _ = session_analyzers[session_id]
         session_analyzers[session_id] = (analyzers, current_time)
+        if session_id in session_loggers:
+            entry = session_loggers[session_id]
+            session_loggers[session_id] = (entry[0], entry[1], current_time)
 
     return session_analyzers[session_id][0]
 
@@ -116,13 +134,11 @@ async def analyze_image(
     返回:
         分析结果
     """
-    import traceback
-
     if not session_id:
         session_id = str(uuid.uuid4())
 
     try:
-        print(f"📥 收到手势分析请求: session={session_id}, file={file.filename}")
+        logger.info(f"收到手势分析请求: session={session_id}, file={file.filename}")
 
         # 读取图片
         contents = await file.read()
@@ -132,7 +148,7 @@ async def analyze_image(
         if image is None:
             raise HTTPException(status_code=400, detail="无法解码图片")
 
-        print(f"✅ 图片加载成功: {image.shape}")
+        logger.info(f"图片加载成功: {image.shape}")
 
         # 转换为RGB
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -192,7 +208,7 @@ async def analyze_image(
             right_arm_results
         )
 
-        print(f"✅ 分析完成: {emotion_result['emotion_state']} (评分: {emotion_result['overall_score']:.1f})")
+        logger.info(f"分析完成: {emotion_result['emotion_state']} (评分: {emotion_result['overall_score']:.1f})")
 
         # 获取详细的分析器结果
         left_hand_results = analyzers['left_hand'].get_results()
@@ -200,6 +216,21 @@ async def analyze_image(
         shoulder_results = analyzers['shoulder'].get_results()
         left_arm_results = analyzers['left_arm'].get_results()
         right_arm_results = analyzers['right_arm'].get_results()
+
+        # 将帧数据写入 CSV 日志（供 report_frontend 批量读取）
+        if session_id in session_loggers:
+            try:
+                gesture_logger = session_loggers[session_id][0]
+                gesture_logger.log(
+                    left_hand_result=left_hand_results,
+                    right_hand_result=right_hand_results,
+                    shoulder_result=shoulder_results,
+                    left_arm_result=left_arm_results,
+                    right_arm_result=right_arm_results,
+                    emotion_result=emotion_result
+                )
+            except Exception as log_err:
+                logger.warning("CSV日志写入失败: %s", log_err)
 
         # 返回完整结果
         return {
@@ -270,9 +301,63 @@ async def analyze_image(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ 分析失败: {str(e)}")
-        print(f"📋 错误堆栈:\n{traceback.format_exc()}")
+        logger.exception("手势分析失败")
         raise HTTPException(status_code=500, detail=f"分析失败: {str(e)}")
+
+
+@app.get("/session/{session_id}/summary")
+async def get_session_summary(session_id: str):
+    """获取手势分析会话的实时摘要"""
+    if session_id not in session_analyzers:
+        raise HTTPException(status_code=404, detail=f"会话 {session_id} 不存在")
+
+    analyzers, _ = session_analyzers[session_id]
+
+    left_hand = analyzers['left_hand'].get_results()
+    right_hand = analyzers['right_hand'].get_results()
+    shoulder = analyzers['shoulder'].get_results()
+    left_arm = analyzers['left_arm'].get_results()
+    right_arm = analyzers['right_arm'].get_results()
+
+    # 计算手部平均分
+    hand_scores = []
+    if left_hand.get('is_valid'):
+        hand_scores.append(left_hand.get('resilience_score', 50))
+    if right_hand.get('is_valid'):
+        hand_scores.append(right_hand.get('resilience_score', 50))
+    avg_hand = sum(hand_scores) / len(hand_scores) if hand_scores else 50.0
+
+    # 情绪推断
+    left_arm_score = left_arm.get('arm_score', 50) if left_arm.get('is_valid') else 50.0
+    right_arm_score = right_arm.get('arm_score', 50) if right_arm.get('is_valid') else 50.0
+    emotion = analyzers['emotion'].infer_emotion(
+        {"resilience_score": avg_hand},
+        {"shoulder_score": shoulder.get('shoulder_score', 50)},
+        {"arm_score": left_arm_score},
+        {"arm_score": right_arm_score},
+    )
+
+    return {
+        "status": "success",
+        "session_id": session_id,
+        "data": {
+            "hand": {
+                "left": left_hand,
+                "right": right_hand,
+                "average_score": round(avg_hand, 1),
+            },
+            "shoulder": shoulder,
+            "arm": {
+                "left": left_arm,
+                "right": right_arm,
+            },
+            "emotion": {
+                "overall_score": emotion["overall_score"],
+                "emotion_state": emotion["emotion_state"],
+                "feedback": emotion["feedback"],
+            },
+        },
+    }
 
 
 @app.post("/reset")
@@ -290,11 +375,13 @@ async def reset_analyzers(session_id: str = None):
         if session_id:
             if session_id in session_analyzers:
                 del session_analyzers[session_id]
+                session_loggers.pop(session_id, None)
                 return {"status": "success", "message": f"会话 {session_id} 已重置"}
             else:
                 return {"status": "not_found", "message": f"会话 {session_id} 不存在"}
         else:
             session_analyzers.clear()
+            session_loggers.clear()
             return {"status": "success", "message": "所有会话已重置"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"重置失败: {str(e)}")

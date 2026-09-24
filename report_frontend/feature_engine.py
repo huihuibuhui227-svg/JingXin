@@ -8,6 +8,9 @@ import re
 
 warnings.filterwarnings('ignore')
 
+# 数值列跳过规则：这些列是行号/主键/时间戳，不是行为协变量。
+_SKIP_COLS = ('id', 'unnamed', 'timestamp')
+
 
 class PsychologicalFeatureEngine:
     """
@@ -54,6 +57,17 @@ class PsychologicalFeatureEngine:
                     if voice_features:
                         self.features[key] = self._normalize_keys(voice_features)
                         print(f"   ✅ [{key.upper()}] 提取完成：{len(self.features[key])} 个标准化特征")
+
+            # 4. 各模态的有效行数 —— 报告层证据门 G3(样本量)的唯一真实来源。
+            # 键名 _n_rows 经扁平化后成为 <模态>__n_rows,只被 G3 读取,
+            # 不参与指标匹配(所有 mapping_rules 关键词都不含 n_rows)。
+            # L1 的 n_valid_frames 落地后可替换本项(spec §5.1 G3)。
+            for _modality in ('face', 'gesture'):
+                if _modality in self.features:
+                    self.features[_modality]['_n_rows'] = float(len(self.data[_modality]))
+            for key in ('voice_interview', 'voice_research'):
+                if key in self.features:
+                    self.features[key]['_n_rows'] = float(len(self.data[key]))
 
         except Exception as e:
             print(f"❌ 特征提取发生严重错误：{e}")
@@ -114,7 +128,11 @@ class PsychologicalFeatureEngine:
         numeric_cols = df.select_dtypes(include=[np.number]).columns
 
         for col in numeric_cols:
-            if any(x in col.lower() for x in ['id', 'index', 'unnamed', 'timestamp']):
+            if any(x in col.lower() for x in _SKIP_COLS):
+                continue
+            # 放行 question_index 作为协变量：它含 'index' 但描述的是题号，
+            # 是心理测量审查指出的「最明显的遗漏」，必须保留。
+            if 'index' in col.lower() and 'question' not in col.lower():
                 continue
             series = df[col].dropna()
             if len(series) == 0: continue
@@ -284,13 +302,10 @@ class PsychologicalFeatureEngine:
                 if 'pause' in col_lower and 'duration' in col_lower and 'mean' in col_lower:
                     features[f"{prefix}_pause_duration_mean"] = stats.get(f"{base_name}_mean", 0)
 
-                # 4. 【新增】流畅度代理计算 (如果没有直接分数)
-                # 假设：说话占比高 + 停顿短 + 语速适中 = 流畅
-                if 'speech_ratio' in col_lower and 'mean' in col_lower:
-                    ratio = stats.get(f"{base_name}_mean", 0)
-                    # 简单代理：直接用占比作为流畅度基础 (0-1 -> 0-100)
-                    features[f"{prefix}_fluency_score_mean"] = ratio * 100
-                    features[f"{prefix}_fluency_proxy"] = ratio * 100
+                # 4. 停顿映射(续) —— 原「流畅度代理」分支已删除：
+                # 它的条件要求列名同时含 speech_ratio 与 mean，而真实日志列名是
+                # speech_ratio，故该分支从未触发(死代码，spec §5.3)。
+                # 真 VAD 落地前不再伪造 fluency_score / fluency_proxy。
 
             # C. 【核心修复】文本列强制扫描
             elif 'text' in col.lower() or 'content' in col.lower() or 'answer' in col.lower() or 'script' in col.lower():
@@ -446,20 +461,20 @@ def inspect_gaze_features(engine: PsychologicalFeatureEngine):
         stability_val = face_feats.get('face_gaze_stability_mean', 0)
         contact_val = face_feats.get('face_eye_contact_ratio', 0)
 
-        print("\n💡 智能分析结论:")
+        print("\n💡 量表概览:")
         if stability_val > 0.8:
-            print("   ✅ 被测者视线非常稳定，显示出极高的专注度。")
+            print("   ✅ 视线稳定性指标高于 0.8。")
         elif stability_val > 0.5:
-            print("   ➖ 被测者视线稳定性适中。")
+            print("   ➖ 视线稳定性指标介于 0.5 与 0.8 之间。")
         else:
-            print("   ⚠️ 被测者视线波动较大，可能注意力分散或紧张。")
+            print("   ⚠️ 视线稳定性指标低于 0.5。")
 
         if contact_val > 0.7:
-            print("   ✅ 被测者眼神接触良好，表现出较强的自信心。")
+            print("   ✅ 眼神接触比例高于 0.7。")
         elif contact_val > 0.4:
-            print("   ➖ 被测者眼神接触一般。")
+            print("   ➖ 眼神接触比例介于 0.4 与 0.7 之间。")
         else:
-            print("   ⚠️ 被测者眼神接触较少，可能存在回避或紧张情绪。")
+            print("   ⚠️ 眼神接触比例低于 0.4。")
     else:
         print("   ❌ 未提取到预期的核心眼动特征。")
     print("=" * 70)

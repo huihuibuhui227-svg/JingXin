@@ -7,13 +7,21 @@ import cv2
 import numpy as np
 import uuid
 import time
+from datetime import datetime
+import logging
+from logging_config import setup_logging
+
+setup_logging()
+logger = logging.getLogger(__name__)
 
 try:
     from face_expression.pipeline.video_pipeline import VideoPipeline
+    from face_expression.utils.logger import DataLogger
+    from face_expression.config import LOGS_DIR
     import mediapipe as mp
 except ImportError as e:
-    print(f"❌ 导入失败: {e}")
-    print("请确保已正确安装 face_expression 模块")
+    logger.error(f"导入失败: {e}")
+    logger.error("请确保已正确安装 face_expression 模块")
     raise
 
 app = FastAPI(
@@ -22,9 +30,10 @@ app = FastAPI(
 )
 
 # 添加 CORS 中间件
+cors_origins = os.getenv('CORS_ORIGINS', 'http://127.0.0.1:5000,http://localhost:5000,http://localhost:5173,http://127.0.0.1:5173').split(',')
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -34,6 +43,7 @@ app.add_middleware(
 
 # 会话管理：存储每个用户的 VideoPipeline 实例
 session_pipelines = {}
+session_loggers = {}  # 每个会话的 DataLogger 实例
 SESSION_TIMEOUT = 300  # 会话超时时间（秒）
 
 
@@ -48,21 +58,30 @@ def get_or_create_pipeline(session_id: str, fps: int = 30) -> VideoPipeline:
     ]
     for sid in expired_sessions:
         del session_pipelines[sid]
-        print(f"🗑️ 清理过期会话: {sid}")
+        session_loggers.pop(sid, None)
+        logger.info(f"清理过期会话: {sid}")
 
     # 获取或创建新会话
     if session_id not in session_pipelines:
         try:
             pipeline = VideoPipeline(fps=fps, session_id=session_id)
             session_pipelines[session_id] = (pipeline, current_time)
-            print(f"✅ 创建新会话: {session_id}")
+            # 同一会话的所有帧写入同一个文件
+            session_ts = datetime.fromtimestamp(current_time).strftime('%Y%m%d_%H%M%S')
+            log_path = os.path.join(LOGS_DIR, f'face_au_log_{session_ts}.csv')
+            face_logger = DataLogger(log_type='video', session_id=session_id)
+            face_logger.log_file = log_path
+            session_loggers[session_id] = (face_logger, current_time)
+            logger.info(f"创建新会话: {session_id}, 日志: {log_path}")
         except Exception as e:
-            print(f"❌ 创建会话失败: {e}")
+            logger.error(f"创建会话失败: {e}")
             raise HTTPException(status_code=500, detail=f"会话初始化失败: {str(e)}")
     else:
         # 更新最后使用时间
         pipeline, _ = session_pipelines[session_id]
         session_pipelines[session_id] = (pipeline, current_time)
+        if session_id in session_loggers:
+            session_loggers[session_id] = (session_loggers[session_id][0], current_time)
 
     return session_pipelines[session_id][0]
 
@@ -107,8 +126,6 @@ async def analyze_frame(
     返回:
         完整的分析结果，包含AU特征、情绪、紧张度、时间序列统计等
     """
-    import traceback
-
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="上传的文件必须是图片格式")
 
@@ -117,39 +134,49 @@ async def analyze_frame(
         session_id = str(uuid.uuid4())
 
     try:
-        print(f"📥 收到帧上传请求: session={session_id}, file={file.filename}")
+        logger.info(f"收到帧上传请求: session={session_id}, file={file.filename}")
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_file:
-            contents = await file.read()
-            temp_file.write(contents)
-            temp_path = temp_file.name
+        temp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_file:
+                contents = await file.read()
+                temp_file.write(contents)
+                temp_path = temp_file.name
 
-        image = cv2.imread(temp_path)
-        if image is None:
-            os.unlink(temp_path)
-            raise HTTPException(status_code=400, detail="无法读取图片")
+            image = cv2.imread(temp_path)
+            if image is None:
+                raise HTTPException(status_code=400, detail="无法读取图片")
 
-        print(f"✅ 图片加载成功: {image.shape}")
+            logger.info(f"图片加载成功: {image.shape}")
 
-        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-        # 获取或创建 VideoPipeline
-        pipeline = get_or_create_pipeline(session_id, fps)
+            # 获取或创建 VideoPipeline
+            pipeline = get_or_create_pipeline(session_id, fps)
 
-        # 处理帧
-        result_obj, mesh_results, features_dict = pipeline.process_frame(image_rgb)
+            # 处理帧
+            result_obj, mesh_results, features_dict = pipeline.process_frame(image_rgb)
 
-        os.unlink(temp_path)
+            # 将帧数据写入 CSV 日志（供 report_frontend 批量读取）
+            if session_id in session_loggers:
+                try:
+                    face_logger, _ = session_loggers[session_id]
+                    face_logger.log(features_dict)
+                except Exception as log_err:
+                    logger.warning("CSV日志写入失败: %s", log_err)
+        finally:
+            if temp_path and os.path.exists(temp_path):
+                os.unlink(temp_path)
 
         if result_obj is None:
-            print("❌ 未检测到人脸")
+            logger.warning("未检测到人脸")
             return JSONResponse(content={
                 "status": "no_face",
                 "session_id": session_id,
                 "message": "未检测到人脸"
             })
 
-        print(f"✅ 分析完成: {features_dict.get('dominant_emotion', 'unknown')} "
+        logger.info(f"分析完成: {features_dict.get('dominant_emotion', 'unknown')} "
               f"(置信度: {features_dict.get('confidence', 0):.2f})")
 
         # 构建完整响应
@@ -237,9 +264,20 @@ async def analyze_frame(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ 分析失败: {str(e)}")
-        print(f"📋 错误堆栈:\n{traceback.format_exc()}")
+        logger.exception("帧分析失败")
         raise HTTPException(status_code=500, detail=f"分析失败: {str(e)}")
+
+
+@app.get("/session/{session_id}/summary")
+async def get_session_summary(session_id: str):
+    """获取会话的实时聚合统计数据"""
+    if session_id not in session_pipelines:
+        raise HTTPException(status_code=404, detail=f"会话 {session_id} 不存在")
+    pipeline, _ = session_pipelines[session_id]
+    return JSONResponse(content={
+        "status": "success",
+        "data": pipeline.get_summary(),
+    })
 
 
 @app.post("/session/{session_id}/reset")
@@ -247,6 +285,7 @@ async def reset_session(session_id: str):
     """重置指定会话"""
     if session_id in session_pipelines:
         del session_pipelines[session_id]
+        session_loggers.pop(session_id, None)
         return {"status": "success", "message": f"会话 {session_id} 已重置"}
     else:
         return {"status": "not_found", "message": f"会话 {session_id} 不存在"}
@@ -255,24 +294,23 @@ async def reset_session(session_id: str):
 if __name__ == "__main__":
     import uvicorn
 
-
     # 启动前测试MediaPipe兼容性
-    print("=" * 60)
-    print("🔧 正在检查MediaPipe兼容性...")
+    logger.info("=" * 60)
+    logger.info("正在检查MediaPipe兼容性...")
     try:
         import mediapipe as mp
 
-        print(f"✅ MediaPipe版本: {mp.__version__}")
+        logger.info(f"MediaPipe版本: {mp.__version__}")
 
         # 测试兼容性导入
         try:
             test_module = mp.solutions.face_mesh
-            print("✅ 使用旧版API (mp.solutions)")
+            logger.info("使用旧版API (mp.solutions)")
         except AttributeError:
             from mediapipe import solutions
 
             test_module = solutions.face_mesh
-            print("✅ 使用新版API (mediapipe.solutions)")
+            logger.info("使用新版API (mediapipe.solutions)")
 
         # 测试FaceMesh初始化
         test_mesh = test_module.FaceMesh(
@@ -282,19 +320,16 @@ if __name__ == "__main__":
             min_detection_confidence=0.5,
             min_tracking_confidence=0.5
         )
-        print("✅ FaceMesh初始化成功")
+        logger.info("FaceMesh初始化成功")
         test_mesh.close()
     except Exception as e:
-        print(f"❌ MediaPipe检查失败: {e}")
-        import traceback
+        logger.exception("MediaPipe检查失败")
 
-        traceback.print_exc()
-
-    print("=" * 60)
-    print("🚀 启动Face Expression API服务（视频流模式）...")
-    print("📍 地址: http://0.0.0.0:8000")
-    print("💡 特性: 会话管理、时间序列分析、微表情检测")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("启动Face Expression API服务（视频流模式）...")
+    logger.info("地址: http://0.0.0.0:8000")
+    logger.info("特性: 会话管理、时间序列分析、微表情检测")
+    logger.info("=" * 60)
 
     uvicorn.run(app, host="0.0.0.0", port=8000)
 

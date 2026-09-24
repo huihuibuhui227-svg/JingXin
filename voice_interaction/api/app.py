@@ -6,35 +6,26 @@ FastAPI应用
 """
 
 from fastapi import FastAPI, HTTPException, UploadFile, File
-from pydantic import BaseModel
-from typing import Optional
-import threading
-import os
-import json
-from vosk import Model, KaldiRecognizer
-import wave
-import io
-
-# 导入项目模块（使用绝对导入）
-from voice_interaction.pipeline.tts_pipeline import TTSPipeline as TTSEngine
-from voice_interaction.pipeline.assessment_pipeline import InterviewAssessmentPipeline, ResearchAssessmentPipeline
-from voice_interaction.config import API_CONFIG
-from voice_interaction.utils.logger import VoiceLogger
-from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 import threading
 import os
 import json
+import logging
 from vosk import Model, KaldiRecognizer
 import wave
 import io
 
+from logging_config import setup_logging
+
+setup_logging()
+logger = logging.getLogger(__name__)
+
 # 导入项目模块（使用绝对导入）
 from voice_interaction.pipeline.tts_pipeline import TTSPipeline as TTSEngine
 from voice_interaction.pipeline.assessment_pipeline import InterviewAssessmentPipeline, ResearchAssessmentPipeline
-from voice_interaction.config import API_CONFIG
+from voice_interaction.config import API_CONFIG, FFMPEG_PATH
 from voice_interaction.utils.logger import VoiceLogger
 
 app = FastAPI(
@@ -43,9 +34,10 @@ app = FastAPI(
 )
 
 # 添加 CORS 中间件
+cors_origins = os.getenv('CORS_ORIGINS', 'http://127.0.0.1:5000,http://localhost:5000,http://localhost:5173,http://127.0.0.1:5173').split(',')
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -63,7 +55,7 @@ voice_logger = VoiceLogger(log_type='interview')
 # --- Vosk 语音识别模型 ---
 MODEL_PATH = os.path.join(os.path.dirname(__file__), '..', '..', 'vosk-model-cn-0.22')
 if not os.path.exists(MODEL_PATH):
-    raise RuntimeError(f"❌ Vosk 模型未找到: {os.path.abspath(MODEL_PATH)}")
+    raise RuntimeError(f"Vosk 模型未找到: {os.path.abspath(MODEL_PATH)}")
 
 vosk_model = Model(MODEL_PATH)
 SAMPLE_RATE = 16000
@@ -127,109 +119,104 @@ async def speech_to_text(audio: UploadFile = File(...)):
     语音识别（ASR）：接收音频文件，返回识别文本
     支持：WAV、WebM、MP3 等格式（自动转换为 16kHz WAV）
     """
-    import traceback
     import tempfile
     import subprocess
-    import os
 
     try:
-        print(f"📥 收到ASR请求: {audio.filename}")
+        logger.info(f"收到ASR请求: {audio.filename}")
 
         contents = await audio.read()
-        print(f"✅ 读取音频数据: {len(contents)} bytes")
+        logger.info(f"读取音频数据: {len(contents)} bytes")
 
         # 检查是否为标准 WAV 格式且符合要求
         if contents.startswith(b'RIFF') and len(contents) > 44:
-            print("📄 检测到 WAV 格式")
+            logger.info("检测到 WAV 格式")
             audio_stream = io.BytesIO(contents)
             with wave.open(audio_stream, 'rb') as wf:
-                print(f"   采样率: {wf.getframerate()}Hz, 声道: {wf.getnchannels()}, 位深: {wf.getsampwidth() * 8}bit")
+                logger.info(f"采样率: {wf.getframerate()}Hz, 声道: {wf.getnchannels()}, 位深: {wf.getsampwidth() * 8}bit")
 
                 if wf.getnchannels() == 1 and wf.getsampwidth() == 2 and wf.getframerate() == SAMPLE_RATE:
-                    print("✅ 格式符合要求，直接识别")
+                    logger.info("格式符合要求，直接识别")
                     audio_data = wf.readframes(wf.getnframes())
 
                     # 使用 Vosk 识别
-                    print("🎤 开始Vosk识别...")
+                    logger.info("开始Vosk识别...")
                     rec = KaldiRecognizer(vosk_model, SAMPLE_RATE)
                     rec.AcceptWaveform(audio_data)
                     result = json.loads(rec.FinalResult())
                     text = result.get("text", "").strip()
 
-                    print(f"✅ 识别结果: '{text}'")
+                    logger.info(f"识别结果: '{text}'")
                     return {"text": text}
                 else:
-                    print(f"⚠️ 格式不匹配，需要转换")
+                    logger.info("格式不匹配，需要转换")
         else:
-            print(f"📄 检测到非WAV格式")
+            logger.info("检测到非WAV格式")
 
         # 需要转换格式
-        print("🔄 开始格式转换...")
+        logger.info("开始格式转换...")
 
-        # 创建临时文件
-        with tempfile.NamedTemporaryFile(suffix='.webm', delete=False) as input_file:
-            input_file.write(contents)
-            input_path = input_file.name
+        input_path = None
+        output_path = None
+        try:
+            # 创建临时文件
+            with tempfile.NamedTemporaryFile(suffix='.webm', delete=False) as input_file:
+                input_file.write(contents)
+                input_path = input_file.name
 
-        output_path = input_path.replace('.webm', '_converted.wav')
+            output_path = input_path.replace('.webm', '_converted.wav')
 
-        # ffmpeg 路径
-        ffmpeg_path = r"C:\fffPMPG\bin\ffmpeg.exe"
+            logger.info(f"使用ffmpeg转换: {input_path} -> {output_path}")
 
-        if not os.path.exists(ffmpeg_path):
-            raise FileNotFoundError(f"ffmpeg.exe 未找到: {ffmpeg_path}")
+            # 使用 subprocess 调用 ffmpeg
+            cmd = [
+                FFMPEG_PATH,
+                '-i', input_path,
+                '-ar', str(SAMPLE_RATE),
+                '-ac', '1',
+                '-sample_fmt', 's16',
+                '-y',  # 覆盖输出文件
+                output_path
+            ]
 
-        print(f"🔧 使用ffmpeg转换: {input_path} -> {output_path}")
+            result = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=30
+            )
 
-        # 使用 subprocess 调用 ffmpeg
-        cmd = [
-            ffmpeg_path,
-            '-i', input_path,
-            '-ar', str(SAMPLE_RATE),
-            '-ac', '1',
-            '-sample_fmt', 's16',
-            '-y',  # 覆盖输出文件
-            output_path
-        ]
+            if result.returncode != 0:
+                error_msg = result.stderr.decode('utf-8', errors='ignore')
+                logger.error(f"ffmpeg转换失败: {error_msg}")
+                raise Exception(f"ffmpeg转换失败: {error_msg}")
 
-        result = subprocess.run(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=30
-        )
+            logger.info("转换成功")
 
-        if result.returncode != 0:
-            error_msg = result.stderr.decode('utf-8', errors='ignore')
-            print(f"❌ ffmpeg转换失败: {error_msg}")
-            raise Exception(f"ffmpeg转换失败: {error_msg}")
+            # 读取转换后的 WAV 文件
+            with wave.open(output_path, 'rb') as wf:
+                logger.info(f"最终格式: {wf.getframerate()}Hz, {wf.getnchannels()}声道, {wf.getsampwidth() * 8}bit")
+                audio_data = wf.readframes(wf.getnframes())
 
-        print("✅ 转换成功")
+            # 使用 Vosk 识别
+            logger.info("开始Vosk识别...")
+            rec = KaldiRecognizer(vosk_model, SAMPLE_RATE)
+            rec.AcceptWaveform(audio_data)
+            result = json.loads(rec.FinalResult())
+            text = result.get("text", "").strip()
 
-        # 读取转换后的 WAV 文件
-        with wave.open(output_path, 'rb') as wf:
-            print(f"   最终格式: {wf.getframerate()}Hz, {wf.getnchannels()}声道, {wf.getsampwidth() * 8}bit")
-            audio_data = wf.readframes(wf.getnframes())
-
-        # 清理临时文件
-        os.unlink(input_path)
-        os.unlink(output_path)
-
-        # 使用 Vosk 识别
-        print("🎤 开始Vosk识别...")
-        rec = KaldiRecognizer(vosk_model, SAMPLE_RATE)
-        rec.AcceptWaveform(audio_data)
-        result = json.loads(rec.FinalResult())
-        text = result.get("text", "").strip()
-
-        print(f"✅ 识别结果: '{text}'")
-        return {"text": text}
+            logger.info(f"识别结果: '{text}'")
+            return {"text": text}
+        finally:
+            if input_path and os.path.exists(input_path):
+                os.unlink(input_path)
+            if output_path and os.path.exists(output_path):
+                os.unlink(output_path)
 
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ ASR失败: {str(e)}")
-        print(f"📋 错误堆栈:\n{traceback.format_exc()}")
+        logger.exception("ASR失败")
         raise HTTPException(status_code=500, detail=f"语音识别失败: {str(e)}")
 
 
@@ -267,6 +254,10 @@ async def submit_answer(request: AnswerRequest):
     """提交文本回答"""
     try:
         interview_assessment.add_answer(request.answer)
+        try:
+            interview_assessment.save_log()
+        except Exception:
+            pass
         return {"status": "success", "message": "回答已记录"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"提交回答失败: {str(e)}")
@@ -296,6 +287,10 @@ async def submit_answer_audio(audio: UploadFile = File(...)):
             raise HTTPException(status_code=400, detail="未识别到有效语音")
 
         interview_assessment.add_answer(text)
+        try:
+            interview_assessment.save_log()
+        except Exception:
+            pass
         return {"status": "success", "recognized_text": text}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"语音回答处理失败: {str(e)}")
@@ -327,6 +322,37 @@ async def get_interview_evaluation():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取评估结果失败: {str(e)}")
+
+
+@app.get("/session/{session_id}/summary")
+async def get_session_summary(session_id: str, type: str = "interview"):
+    """获取语音评估会话的实时摘要（当前为全局单例，session_id 预留做向前兼容）"""
+    pipeline = interview_assessment if type == "interview" else research_assessment
+
+    try:
+        evaluation = pipeline.get_comprehensive_evaluation()
+    except Exception:
+        evaluation = ""
+
+    return {
+        "status": "success",
+        "session_id": session_id,
+        "data": {
+            "type": type,
+            "total_questions": len(pipeline.questions),
+            "answered": len(pipeline.qa_pairs),
+            "qa_pairs": [
+                {
+                    "question": qa.question,
+                    "answer": qa.answer,
+                    "has_valid_answer": qa.has_valid_answer,
+                }
+                for qa in pipeline.qa_pairs
+            ],
+            "evaluation": evaluation,
+            "valid_answers": pipeline.get_valid_answers(),
+        },
+    }
 
 
 # ========== 科研评估接口 ==========
@@ -362,6 +388,10 @@ async def get_research_question():
 async def submit_research_answer(request: AnswerRequest):
     try:
         research_assessment.add_answer(request.answer)
+        try:
+            research_assessment.save_log()
+        except Exception:
+            pass
         return {"status": "success", "message": "回答已记录"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"提交回答失败: {str(e)}")
@@ -390,6 +420,10 @@ async def submit_research_answer_audio(audio: UploadFile = File(...)):
             raise HTTPException(status_code=400, detail="未识别到有效语音")
 
         research_assessment.add_answer(text)
+        try:
+            research_assessment.save_log()
+        except Exception:
+            pass
         return {"status": "success", "recognized_text": text}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"语音回答处理失败: {str(e)}")

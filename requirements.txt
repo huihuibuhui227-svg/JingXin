@@ -3,6 +3,9 @@
 
 # Web框架
 Flask>=2.0.0
+flask-cors>=3.0.0
+fastapi>=0.68.0
+uvicorn>=0.15.0
 
 # 计算机视觉
 opencv-python>=4.5.0
@@ -18,12 +21,12 @@ pandas>=1.3.0
 # 语音处理
 librosa>=0.9.0
 soundfile>=0.11.0
-
-# 数据库
-pymssql>=2.2.5
+vosk>=0.3.45
+pyttsx3>=2.90
 
 # 可视化
 plotly>=5.0.0
+Pillow>=8.0.0
 
 # 工具库
 python-dotenv>=0.19.0

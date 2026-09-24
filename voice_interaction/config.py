@@ -104,6 +104,12 @@ ASSESSMENT_CONFIG: AssessmentConfig = {
 }
 
 # ======================
+# FFmpeg 配置
+# ======================
+
+FFMPEG_PATH: str = os.getenv('FFMPEG_PATH', 'ffmpeg')
+
+# ======================
 # API 配置
 # ======================
 

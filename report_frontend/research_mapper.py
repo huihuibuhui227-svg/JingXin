@@ -7,51 +7,60 @@ from typing import Dict, Any, List, Optional
 import warnings
 import json
 
+from .evidence_gate import confidence_from, gate, normalize_value, user_message
+
 warnings.filterwarnings('ignore')
+
+# 置信度从低到高的顺序。取值域由 evidence_gate.Confidence 定义(高在本轮不可达)。
+# 取"置信度上限"时用 max(..., key=CONF_ORDER.get);上限由本模块算进 coverage,
+# 报告层直接渲染该字段,不再自己排一次序 —— 两处各存一份顺序表会漂移。
+CONF_ORDER = {"无": 0, "低": 1, "中": 2, "高": 3}
+
+# 聚合呈现的说明句(spec §5.6:综合分改为「区间 + 置信度 + 依据」)。
+# 本系统没有标定样本,不同指标的量纲无法折算到同一尺度,故不给综合分,也不给评级。
+# 覆盖事实与区间由 coverage(payload)与报告头部的覆盖卡承载,这里不重复计数。
+NO_COMPOSITE_STATEMENT = ("未产出综合评分，也不给评级：本系统尚无标定样本，"
+                          "不同指标的量纲无法折算为同一尺度。")
+
+
+def _as_float(value) -> Optional[float]:
+    """能当有限浮点数用就返回它,否则 None(非数值 / NaN / inf 一律 None)。"""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    return f if math.isfinite(f) else None
+
+
+def _observed_interval(mean, std) -> Optional[List[float]]:
+    """本场会话内的实测区间 = 该指标会话内均值 ± 会话内标准差。
+
+    ⚠️ 这是**本场会话自己的测量**:不是人群中位置、不是置信区间、不是任何人群参照
+    —— spec §5.5 禁止一切暗示本系统拥有人群基线的区间。标准差为 0(常量)时没有
+    区间可言(那种槽本就过不了 G2),返回 None,由报告层写明"未采集到变异信息"。
+    下界截到 0:这些指标都是非负量纲。
+    """
+    spread = _as_float(std)
+    center = _as_float(mean)
+    if spread is None or center is None or spread <= 0:
+        return None
+    return [max(0.0, round(center - spread, 4)), round(center + spread, 4)]
 
 
 class ResearchCapabilityMapper:
     """
-    科研能力映射引擎 (最终修复版 - 包含 stats 字段)
+    行为指标映射引擎 (最终修复版 - 包含 stats 字段)
     """
 
     def __init__(self):
-        self.demo_text_data = {
-            "combined": " ".join([
-                "我叫张三是计算机系大四学生研究兴趣是自然语言处理",
-                "因为喜欢探索未知解决实际问题让我很有成就感",
-                "曾经用了两周调试了一个模型漏洞最终通过分模块测试定位到数据预处理环节出错",
-                "我通常担任协调者负责沟通进度和整合大家的想法",
-                "做实验失败时我会复盘数据和参数调整后再是不轻易放弃",
-                "最近读了注意力就是你所需要的一切对其中提出的新型网络结构很感兴趣",
-                "希望读研后进入人工智能公司从事算法研发工作长期目标是成为技术负责人",
-                "请问团队目前在研究哪些领域",
-                "我研究过图像去噪方法通过比较不同算法最终采用非局部均执法有效提升了清晰度",
-                "我会先查阅资料把大问题拆解成小部分再请教老师和同学逐步尝试解决",
-                "看他有没有实际价值前人是否留有空白以及我自己能否持续投入",
-                "我读一篇论文时发现实验缺少对照组于是自己复现后指出结论可能不严谨",
-                "我会先做小规模验证确保想法可行再逐步加入创新点避免好高骛远",
-                "重复使用多次用统计方法检验并在不同数据上交叉验证结果",
-                "一次模型训练失败后我学会了记录详细日志和设置自动检查大大减少了错误",
-                "好奇心耐心和沟通能力没有好奇就不会探索没有耐心难容失败没有沟通难合作"
-            ])
-        }
-
-        self.baselines = {
-            "logic_keyword_density": {"mean": 0.01, "std": 0.004},
-            "fluency_score": {"mean": 70, "std": 15},
-            "gaze_stability": {"mean": 0.6, "std": 0.15},
-            "eye_contact": {"mean": 0.5, "std": 0.2},
-            "jitter": {"mean": 0.02, "std": 0.01},
-            "tension_score": {"mean": 0.5, "std": 0.2}
-        }
-
+        # 说明:曾有的 self.demo_text_data(内置演示文本)与 self.baselines(无出处的
+        # 常模均值/标准差)已删除 —— 前者让 logic_keyword_density 在无文本列时凭空
+        # 得到常量,后者既伪造证据又产出杜撰百分位(spec §5.3 / §5.5)。
         self.mapping_rules = {
             "logical_thinking": {
-                "name": "逻辑思维与专注度",
-                "description": "评估思维严密性、语言逻辑结构及视觉注意力集中程度。",
+                "name": "话语结构特征",
+                "description": "观测文本结构与面部动作单元相关的可测量。",
                 "algorithm": "加权线性组合 + 认知负荷推断",
-                "inference_template": "候选人在逻辑构建上表现{level}，结合其{gaze_info}，显示出{conclusion}的科研思维潜质。",
                 "indicators": [
                     ("logic_keyword_density", 0.4, True, "逻辑关键词密度", "core"),
                     ("focus_score", 0.3, True, "面部专注度", "core"),
@@ -60,12 +69,11 @@ class ResearchCapabilityMapper:
                 ]
             },
             "stress_resilience": {
-                "name": "抗压与情绪稳定性",
-                "description": "评估高压下的情绪控制力、生理指标平稳度及焦虑水平。",
+                "name": "情境行为稳定性",
+                "description": "观测会话中的可测行为量。",
                 "algorithm": "多模态生理信号融合 (面部 + 肢体 + 眼动)",
-                "inference_template": "在压力情境下，候选人表现出{level}的生理稳定性，{jitter_info}，预示其{conclusion}的科研抗压能力。",
                 "indicators": [
-                    ("tension_score", 0.3, False, "面部紧张度", "core"),
+                    ("tension_score", 0.3, False, "眉间收缩与唇部压缩", "core"),
                     ("jitter", 0.3, False, "肢体抖动", "core"),
                     ("gaze_deviation", 0.2, False, "视线偏差", "core"),
                     ("symmetry_score", 0.2, True, "面部对称性", "support"),
@@ -73,22 +81,19 @@ class ResearchCapabilityMapper:
             },
             "communication_fluency": {
                 "name": "沟通表达流畅度",
-                "description": "评估语言组织能力、语调丰富度及表达连贯性。",
+                "description": "观测语音韵律与停顿相关的可测量。",
                 "algorithm": "韵律特征与停顿分析",
-                "inference_template": "语言表达流畅度{level}，{pitch_info}，反映出其{conclusion}的学术沟通能力。",
                 "indicators": [
                     ("fluency_score", 0.4, True, "语音流畅度", "core"),
-                    ("fluency_proxy", 0.4, True, "流畅度代理指标", "core"),
                     ("speech_ratio", 0.3, True, "有效说话占比", "core"),
                     ("pitch_variation", 0.2, True, "语调变化", "support"),
                     ("pause_duration", 0.1, False, "平均停顿时长", "support"),
                 ]
             },
             "confidence_level": {
-                "name": "自信度",
-                "description": "评估自我效能感、肢体开放度及眼神交流质量。",
+                "name": "行为表现活跃度",
+                "description": "观测肢体与注视相关的可测量。",
                 "algorithm": "眼动 - 肢体多模态耦合模型",
-                "inference_template": "自信水平{level}，眼神接触{eye_info}，手势{hand_info}，表明其{conclusion}的科研自信心。",
                 "indicators": [
                     ("hand_score", 0.3, True, "手势自信分", "core"),
                     ("shoulder_score", 0.2, True, "肩部放松度", "support"),
@@ -97,10 +102,9 @@ class ResearchCapabilityMapper:
                 ]
             },
             "cognitive_efficiency": {
-                "name": "认知负荷效率",
-                "description": "评估处理复杂信息时的脑力消耗效率。",
+                "name": "言语流畅特征",
+                "description": "观测面部动作单元频率与回答长度的可测量。",
                 "algorithm": "微表情频率分析与响应延迟回归",
-                "inference_template": "认知处理效率{level}，{au_info}，暗示其{conclusion}的复杂问题解决能力。",
                 "indicators": [
                     ("au7_freq", 0.3, False, "眼部挤压 (费力)", "core"),
                     ("blink_rate", 0.2, True, "眨眼频率", "support"),
@@ -119,7 +123,7 @@ class ResearchCapabilityMapper:
         }
 
     def map_features_to_scores(self, features: Dict[str, Any]) -> Dict[str, Any]:
-        print("\n⚖️ 正在执行深度映射与心理科研能力判推...")
+        print("\n⚖️ 正在执行行为指标映射...")
         print("-" * 70)
 
         # 1. 扁平化
@@ -129,15 +133,13 @@ class ResearchCapabilityMapper:
                 full_key = f"{modality}_{k}" if not k.startswith(modality) else k
                 all_features[full_key] = v
 
-        # 2. 文本 Fallback
-        if 'logic_keyword_density' not in all_features or all_features.get('logic_keyword_density', 0) == 0:
-            print("      💡 检测到 CSV 文本数据缺失，已加载【内置演示文本】。")
-            combined_text = self.demo_text_data['combined']
-            logic_keywords = ['因为', '所以', '但是', '然而', '分析', '认为', '假设', '实验', '数据', '首先', '其次',
-                              '最后']
-            hit_count = sum(1 for k in logic_keywords if k in combined_text)
-            density = float(hit_count / max(1, len(combined_text)))
-            all_features['logic_keyword_density'] = density
+        # 2. 各模态的有效行数 —— 证据门 G3(样本量)的唯一真实来源。
+        # feature_engine 产出 <模态>__n_rows(L1 的 n_valid_frames 尚未落地,
+        # 见 spec §5.1 G3 与演进表 §4)。取法必须用实际的模态前缀比对,
+        # 不能用 split("_", 1)[0] —— 那会把 "voice_research_*" 切成 "voice",
+        # 于是语音系指标永远拿不到行数、被 G3 无差别拦下。
+        n_rows_by_modality = {k[:-len("__n_rows")]: v
+                              for k, v in all_features.items() if k.endswith("__n_rows")}
 
         # 检查生理指标
         critical_physio_keys = ['tension_score', 'jitter', 'au7_freq', 'gaze_stability']
@@ -145,9 +147,10 @@ class ResearchCapabilityMapper:
         if found_physio:
             print(f"      ✅ 检测到真实生理特征：{', '.join(found_physio)}")
 
-        dimension_results = {}  # 【修正】初始化字典
+        dimension_results = {}
+        # 顶层证据缺口:所有维度的缺口汇总(方法级,只在此声明一次)
+        all_evidence_gaps = []
 
-        # 【修正】整个循环逻辑必须在里面
         for dim_key, rule_config in self.mapping_rules.items():
             indicators = rule_config["indicators"]
             weighted_sum = 0.0
@@ -155,189 +158,207 @@ class ResearchCapabilityMapper:
             evidence_chain = []
             positive_factors = []
             negative_factors = []
-            matched_count = 0
             inference_data = {}
+            # 这两个必须声明在维度循环内 —— 声明在方法级会让 5 个维度共用一个列表,
+            # 证据缺口串味(Ruling 2)。
+            matched = []      # [(keyword, weight, is_positive, human_name, raw_value, matched_key)]
+            dim_gaps = []     # 本维度的证据缺口
 
+            # 3. 逐个指标过证据门:四关全过才允许进加权(spec §5.1)
             for keyword, weight, is_positive, human_name, importance in indicators:
-                matched_val = None
-                matched_key = None
+                found_key, found_val = self._fuzzy_match(keyword, all_features)
+                if found_key is None:
+                    dim_gaps.append(f"{human_name}: 未采集到对应数据")
+                    continue
 
-                # 1. 智能模糊匹配
-                for f_key, f_val in all_features.items():
-                    if isinstance(f_val, (int, float)) and keyword.lower() in f_key.lower():
-                        matched_val = f_val
-                        matched_key = f_key
+                # 伴随的 _std 用于 G2(常量判定);模态行数用于 G3(样本量)。
+                # 取法两种都试:真实数据的列形如 `<基名>_mean` + `<基名>_std`,而 ASR
+                # 派生的键(如 logic_keyword_density)没有 _mean 后缀 —— 只查前者会让
+                # 这些键**静默**拿不到标准差:G2 退回 fail-open,区间也失去变异信息。
+                std = None
+                for std_key in (
+                    (found_key[:-len("_mean")] + "_std") if found_key.endswith("_mean") else None,
+                    found_key + "_std",
+                ):
+                    if std_key and std_key in all_features:
+                        std = all_features[std_key]
                         break
+                modality = next((m for m in n_rows_by_modality if found_key.startswith(m + "_")), None)
+                n_valid = int(n_rows_by_modality.get(modality, 0))
 
-                # 2. 宽松匹配
-                if matched_val is None:
-                    for f_key, f_val in all_features.items():
-                        clean_key = f_key.replace('_mean', '').replace('_std', '').replace('_sum', '')
-                        if isinstance(f_val, (int, float)) and keyword.lower() in clean_key:
-                            matched_val = f_val
-                            matched_key = f_key + " (宽松)"
-                            break
+                chk = gate(found_key, found_val, n_valid=n_valid, std=std)
+                if not chk.ok:
+                    # ⚠️ 只准用 user_message。chk.reason 含维护者文案(封停理由等),
+                    # 而 dim_gaps 会被渲染进报告的"证据缺口"一节 —— 直接用会外泄内部信息。
+                    dim_gaps.append(f"{human_name}: {user_message(chk)}")
+                    continue
+                # std 与 n_valid 一并带下去:报告要按 spec §5.4 的
+                # 「值 + 有效样本量 + 置信度 + evidence_gaps」渲染,样本量是其中一项;
+                # 会话内标准差用于给出**本场实测区间**(spec §5.6 的"区间"只能来自
+                # 本场会话自己的测量)。
+                matched.append((keyword, weight, is_positive, human_name, found_val,
+                                found_key, std, n_valid))
 
-                # 3. 智能降级
-                if matched_val is None and importance == "core":
-                    if keyword == "tension_score":
-                        for k, v in all_features.items():
-                            if 'symmetry' in k and isinstance(v, float):
-                                matched_val = 1.0 - v
-                                matched_key = k + " (代理)"
-                                break
-                    elif keyword == "jitter":
-                        for k, v in all_features.items():
-                            if 'hand_score' in k and isinstance(v, float):
-                                matched_val = 1.0 - (v / 100.0)
-                                matched_key = k + " (代理)"
-                                break
-                    elif keyword == "au7_freq":
-                        for k, v in all_features.items():
-                            if 'au4' in k and isinstance(v, float):
-                                matched_val = v
-                                matched_key = k + " (代理)"
-                                break
+            # 本维缺口并入顶层
+            all_evidence_gaps.extend(dim_gaps)
 
-                # 4. 兜底
-                if matched_val is None:
-                    baseline_val = self.baselines.get(keyword, {}).get("mean", 0.5)
-                    matched_val = baseline_val
-                    matched_key = "BASELINE_FILL"
-                    if importance == "core":
-                        print(f"         ⚠️ [{human_name}] 缺失，用基准值填充。")
+            # 4. 计算 —— 只有过门的指标参与加权
+            for keyword, weight, is_positive, human_name, matched_val, matched_key, std, n_valid in matched:
+                normalized_val = self._dynamic_normalize(matched_val, keyword)
 
-                # 5. 计算
-                if matched_val is not None:
-                    matched_count += 1
-                    normalized_val = self._dynamic_normalize(matched_val, keyword)
+                if is_positive:
+                    final_val = normalized_val
+                else:
+                    final_val = 1.0 - normalized_val
 
-                    if is_positive:
-                        final_val = normalized_val
-                    else:
-                        final_val = 1.0 - normalized_val
+                final_val = max(0.0, min(1.0, final_val))
+                contribution = final_val * weight
 
-                    final_val = max(0.0, min(1.0, final_val))
-                    contribution = final_val * weight
+                # 调试输出
+                if keyword in ['tension_score', 'jitter', 'gaze_stability']:
+                    print(
+                        f"         🧮 {human_name}: 原始={matched_val:.2f}, 因子={final_val:.2f}, 贡献=+{contribution:.3f}")
 
-                    # 调试输出
-                    if keyword in ['tension_score', 'jitter', 'gaze_stability']:
-                        print(
-                            f"         🧮 {human_name}: 原始={matched_val:.2f}, 因子={final_val:.2f}, 贡献=+{contribution:.3f}")
+                weighted_sum += contribution
+                total_weight += weight
 
-                    weighted_sum += contribution
-                    total_weight += weight
+                status = "✅ 强支撑" if final_val > 0.7 else "⚠️ 弱支撑" if final_val < 0.4 else "➖ 中性"
 
-                    status = "✅ 强支撑" if final_val > 0.7 else "⚠️ 弱支撑" if final_val < 0.4 else "➖ 中性"
+                # 只留原始值供调试;百分位已随杜撰基线一并删除(spec §5.5:
+                # 没有真实常模就不输出百分位)
+                inference_data[keyword] = {"val": matched_val}
 
-                    # 百分位计算
-                    bl = self.baselines.get(keyword, {})
-                    percentile = None
-                    if bl:
-                        std_dev = bl["std"] if bl["std"] > 0 else 0.001
-                        z = (matched_val - bl["mean"]) / std_dev
-                        try:
-                            percentile = int(0.5 * (1 + math.erf(z / math.sqrt(2))) * 100)
-                        except:
-                            percentile = 50
-                        inference_data[keyword] = {"val": matched_val, "percentile": percentile}
+                evidence_item = {
+                    "feature": matched_key,
+                    "human_name": human_name,
+                    "raw_value": round(matched_val, 4),
+                    "normalized_score": round(final_val, 2),
+                    "contribution": round(contribution, 3),
+                    "status": status,
+                    "direction": "正向" if is_positive else "反向",
+                    "weight": weight,
+                    # spec §5.4 的「值 + 有效样本量 + 置信度 + evidence_gaps」需要样本量;
+                    # 区间只由本场会话自己的测量构成(spec §5.5/§5.6)。
+                    "n_valid": n_valid,
+                    "std": _as_float(std),
+                    "observed_interval": _observed_interval(matched_val, std),
+                }
+                evidence_chain.append(evidence_item)
 
-                    evidence_item = {
-                        "feature": matched_key,
-                        "human_name": human_name,
-                        "raw_value": round(matched_val, 4),
-                        "normalized_score": round(final_val, 2),
-                        "contribution": round(contribution, 3),
-                        "status": status,
-                        "direction": "正向" if is_positive else "反向",
-                        "weight": weight,
-                        "percentile": percentile
-                    }
-                    evidence_chain.append(evidence_item)
+                if final_val > 0.65:
+                    positive_factors.append(human_name)
+                elif final_val < 0.35:
+                    negative_factors.append(human_name)
 
-                    if final_val > 0.65:
-                        positive_factors.append(human_name)
-                    elif final_val < 0.35:
-                        negative_factors.append(human_name)
-
-            if total_weight > 0:
-                raw_score = (weighted_sum / total_weight) * 100
-                found_valid_evidence = sum(1 for e in evidence_chain if 'BASELINE' not in e['feature'])
-                score = round(max(0, min(100, raw_score)), 2)
-                level = self._get_level(score)
-                confidence = "高" if found_valid_evidence >= 2 else "中"
-
-                narrative = self._generate_deep_inference(rule_config, score, level, inference_data, positive_factors,
-                                                          negative_factors)
-
-                # 【修正】赋值操作必须在循环内，且包含 stats
+            # 5. 无任何指标过门 → 不出分,只出缺口(spec §5.1 硬规则)
+            if not matched:
                 dimension_results[dim_key] = {
                     "display_name": rule_config["name"],
-                    "description": rule_config["description"],
-                    "algorithm": rule_config["algorithm"],
-                    "score": score,
-                    "level": level,
-                    "narrative": narrative,
-                    "simple_narrative": self._generate_simple_narrative(rule_config["name"], score, level,
-                                                                        positive_factors, negative_factors),
-                    "evidence_chain": evidence_chain,
-                    "positive_factors": positive_factors,
-                    "negative_factors": negative_factors,
-                    "confidence": confidence,
-                    "matched_indicators": f"{found_valid_evidence}/{len(indicators)}",
-                    "stats": inference_data  # 【新增】存入详细统计数据
+                    "score": None,
+                    "level": "证据不足",
+                    "evidence_chain": [],
+                    "evidence_gaps": dim_gaps,
+                    "confidence": "无",
+                    "matched_indicators": f"0/{len(indicators)}",
+                    "stats": {},
                 }
-                print(f"   ✅ [{rule_config['name']}] 得分：{score} ({level})")
-            else:
-                dimension_results[dim_key] = {
-                    "display_name": rule_config["name"], "score": 0, "level": "无法评估",
-                    "narrative": "数据不足。", "evidence_chain": [], "confidence": "无", "matched_indicators": "0/0",
-                    "stats": {}
-                }
+                continue
 
-        # 总分
-        total_score = 0.0
-        valid_weight_sum = 0.0
-        for dim_key, data in dimension_results.items():
-            if dim_key in self.dimension_weights and data["score"] > 0:
-                total_score += data["score"] * self.dimension_weights[dim_key]
-                valid_weight_sum += self.dimension_weights[dim_key]
+            confidence = confidence_from(len(matched), len(indicators))
+            score = round(max(0.0, min(100.0, weighted_sum / total_weight * 100)), 2)
+            level = self._get_level(score)
 
-        final_total = round(total_score / valid_weight_sum, 2) if valid_weight_sum > 0 else 0.0
+            # 说明:此处曾产出 narrative / simple_narrative(模板填空式评语),
+            # 已随 `_generate_deep_inference` 一并删除(spec §5.4:不解读、不推断)。
+            # 报告层改为直接渲染证据状态,不再有可填空的句子。
+            dimension_results[dim_key] = {
+                "display_name": rule_config["name"],
+                "description": rule_config["description"],
+                "algorithm": rule_config["algorithm"],
+                "score": score,
+                "level": level,
+                "evidence_chain": evidence_chain,
+                "positive_factors": positive_factors,
+                "negative_factors": negative_factors,
+                "evidence_gaps": dim_gaps,
+                "confidence": confidence,
+                "matched_indicators": f"{len(matched)}/{len(indicators)}",
+                "stats": inference_data
+            }
+            # 控制台输出同样不得印未标定标尺上的点分与档位 —— 报告层一个字都不渲染
+            # 复合分/评级(spec §5.4 :157-158),控制台是同一个主张的另一个出口。
+            print(f"   ✅ [{rule_config['name']}] 过门指标 {len(matched)}/{len(indicators)}，"
+                  f"置信度：{confidence}")
+
+        # 总分 —— 只在有维度过门时产出;一个都没有时 total_score 为 None(spec §6.1)
+        valid = [d for d in dimension_results.values() if d["score"] is not None]
+        if not valid:
+            final_total = None
+        else:
+            num = sum(d["score"] * self.dimension_weights[k]
+                      for k, d in dimension_results.items() if d["score"] is not None)
+            den = sum(self.dimension_weights[k]
+                      for k, d in dimension_results.items() if d["score"] is not None)
+            final_total = round(num / den, 2)
+
+        coverage = self._coverage(dimension_results)
 
         return {
             "total_score": final_total,
-            "total_level": self._get_level(final_total),
+            "total_level": self._get_level(final_total) if final_total is not None else "证据不足",
             "dimensions": dimension_results,
-            "summary_narrative": self._generate_summary_narrative(dimension_results, final_total),
-            "model_metadata": {"version": "JingXin-Mapper-v10.1-FixedStats",
+            # ⚠️ total_score / total_level 只为 API 稳定保留:它们是**未标定标尺**上的
+            # 复合点分与五档评语,报告层一个字都不渲染(spec §5.4 :157-158 / §5.6)。
+            # 聚合呈现改用 coverage(覆盖事实 + 逐指标实测区间 + 置信度上限)。
+            "coverage": coverage,
+            "summary_narrative": NO_COMPOSITE_STATEMENT,
+            "evidence_gaps": all_evidence_gaps,
+            "model_metadata": {"version": "JingXin-Mapper-v11-EvidenceGate",
                                "timestamp": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")}
         }
 
+    def _coverage(self, dimension_results: Dict[str, Any]) -> Dict[str, Any]:
+        """本次观测的覆盖事实 —— 聚合呈现的**唯一**来源(spec §5.4 / §5.6)。
+
+        为什么不是分数:spec §5.4 :157-158 要求「综合…评分为 X 分,评级为 Y」改为
+        区间 + 置信度;§5.6 要求「科研潜力评分 X 分」改为区间 + 置信度 + 依据。
+        而系统没有标定样本(§5.5 禁止一切人群参照区间),所以能给的只有本场会话
+        自己的测量:每个过门指标的实测区间。覆盖率低的会话(今天 1/20 槽)在旧渲染下
+        会印出「100.0 / 卓越」或「0.0 / 待提升」—— 那是把未标定标尺上的点分当对人的评定。
+
+        槽数取自各维自己渲染的那两个数字(matched_indicators),与报告正文同源。
+        """
+        passed_slots = []
+        n_slots = 0
+        for dim_key, dim in dimension_results.items():
+            got, _, total = dim["matched_indicators"].partition("/")
+            n_slots += int(total)
+            for ev in dim["evidence_chain"]:
+                passed_slots.append({
+                    "dimension": dim_key,
+                    "display_name": dim["display_name"],
+                    "indicator": ev["human_name"],
+                    "feature": ev["feature"],
+                    "raw_value": ev["raw_value"],
+                    "observed_interval": ev["observed_interval"],
+                    "n_valid": ev["n_valid"],
+                    "confidence": dim["confidence"],
+                })
+        return {
+            "n_slots": n_slots,
+            "n_passed": len(passed_slots),
+            "confidence_cap": max((d["confidence"] for d in dimension_results.values()),
+                                  key=CONF_ORDER.get),
+            "passed_slots": passed_slots,
+        }
+
     def _dynamic_normalize(self, val: float, keyword: str) -> float:
-        val = float(val)
-        if any(k in keyword for k in ['freq', 'ratio', 'stability', 'contact']):
-            return min(1.0, max(0.0, val))
-        if 'score' in keyword:
-            return min(1.0, max(0.0, val / 100.0 if val > 1 else val))
-        if 'density' in keyword:
-            return min(1.0, max(0.0, val * 50))
-        if any(k in keyword for k in ['jitter', 'deviation']):
-            return min(1.0, max(0.0, val * 5))
-        if 'pause' in keyword:
-            if 0.5 <= val <= 3.0:
-                return 0.0
-            elif val < 0.5:
-                return 0.5
-            else:
-                return min(1.0, (val - 3.0) / 5.0)
-        if 'length' in keyword:
-            return min(1.0, max(0.0, val / 30.0))
-        if 'energy' in keyword:
-            return min(1.0, max(0.0, val * 250.0))
-        if 'pitch' in keyword and 'variation' in keyword:
-            return min(1.0, max(0.0, val / 80.0))
-        return min(1.0, max(0.0, val / 10.0)) if val >= 0 else 0.0
+        """按登记表把原始值折到 0–1(spec §5.1)。
+
+        实现全部搬进 `evidence_gate.normalize_value` —— 满量程、分箱边界一律读
+        `evidence_thresholds.json`;本方法保留只为既有调用点稳定,体内不得再出现裸常量。
+        """
+        return normalize_value(val, keyword)
 
     def _get_level(self, score: float) -> str:
         if score >= 90:
@@ -351,45 +372,26 @@ class ResearchCapabilityMapper:
         else:
             return "待提升"
 
-    def _generate_simple_narrative(self, dim_name, score, level, positives, negatives):
-        text = f"在**{dim_name}**方面，评估结果为**{level}**（{score}分）。"
-        if positives: text += f" 优势：{', '.join(positives)}。"
-        if negatives: text += f" 建议：{', '.join(negatives)}。"
-        return text
+    def _fuzzy_match(self, keyword: str, all_features: Dict[str, Any]):
+        """按关键词在扁平化特征里找第一个数值指标。
 
-    def _generate_deep_inference(self, rule_config, score, level, data, positives, negatives):
-        template = rule_config.get("inference_template", "")
-        level_desc = "出色" if score >= 80 else "良好" if score >= 70 else "一般"
-        conclusion = "极具潜力胜任高强度科研工作" if score >= 80 else "具备优秀科研素养" if score >= 70 else "具备基本素养，需加强训练"
+        只保留原来第 1 步(精确子串)与第 2 步(去掉 _mean/_std/_sum 的宽松匹配),
+        不含第 3 步的硬编码代理与第 4 步的 BASELINE_FILL 兜底 —— 那两类伪造已在
+        ① 中删除(spec §5.3),现在由证据门决定谁能进场。
 
-        gaze_info = ""
-        if 'gaze_stability' in data:
-            p = data['gaze_stability']['percentile']
-            gaze_info = f"视线稳定性超过常人{p}%的水平" if p else "视线稳定性正常"
+        返回 (真实键名, 值);找不到返回 (None, None)。键名不带 "(宽松)" 尾注,
+        因为下游要用它去查伴随的 _std(spec §5.1 G2)与模态行数(G3)。
+        """
+        for f_key, f_val in all_features.items():
+            if isinstance(f_val, (int, float)) and keyword.lower() in f_key.lower():
+                return f_key, f_val
 
-        jitter_info = "肢体控制极佳" if 'jitter' in data and data['jitter']['percentile'] and data['jitter'][
-            'percentile'] < 30 else "肢体略有紧张"
-        au_info = "认知负荷较低" if 'au7_freq' in data and data['au7_freq']['percentile'] and data['au7_freq'][
-            'percentile'] < 40 else "面临一定认知挑战"
+        for f_key, f_val in all_features.items():
+            clean_key = f_key.replace('_mean', '').replace('_std', '').replace('_sum', '')
+            if isinstance(f_val, (int, float)) and keyword.lower() in clean_key:
+                return f_key, f_val
 
-        try:
-            narrative = template.format(level=level_desc, gaze_info=gaze_info, jitter_info=jitter_info,
-                                        pitch_info="语调丰富", eye_info="眼神交流充分", hand_info="手势自然",
-                                        au_info=au_info, conclusion=conclusion)
-        except KeyError:
-            narrative = self._generate_simple_narrative(rule_config["name"], score, level, positives, negatives)
-
-        return narrative
-
-    def _generate_summary_narrative(self, dimensions, total_score):
-        valid_dims = {k: v for k, v in dimensions.items() if v['score'] > 0}
-        if not valid_dims: return "数据不足。"
-        top_dim = max(valid_dims.items(), key=lambda x: x[1]['score'])
-        bottom_dim = min(valid_dims.items(), key=lambda x: x[1]['score'])
-        summary = f"综合科研潜力评分：**{total_score}** ({self._get_level(total_score)})。"
-        summary += f" 核心优势在于**{top_dim[1]['display_name']}**；建议关注**{bottom_dim[1]['display_name']}**的提升。"
-        return summary
-
+        return None, None
 
 if __name__ == "__main__":
     from data_loader import LogDataLoader
