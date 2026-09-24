@@ -4,6 +4,8 @@
   "funasr_host": "192.168.72.30",
   "funasr_port": 10095,
   "timeout_s": 60.0,
+  "models": {},
+  "models_basis": "服务端不回传模型信息(实测 raw 键仅 is_final/mode/punc_array/segment_count/spk_name/spk_score/text/timestamp/wav_name),故此处留空、transcript.json 的 asr.models 亦为空——宁可空,不写没核实过的模型名。部署方按实际 FunASR 配置填入即可,不改代码",
   "min_chars_for_density": {
     "value": 10,
     "_provisional": true,
