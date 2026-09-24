@@ -12,10 +12,28 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 from pathlib import Path
 from typing import Callable
 
 import numpy as np
+
+# close() 的后台执行器。**一个模块一份**(与 `_default_factory` 同理:这两个封装本来是
+# 刻意不共享的,合并会反转依赖方向)。max_workers=1 是刻意的:close() 是 native 释放,
+# 串行更安全,而且它本来就慢(5.0s),开并行只会同时占住更多句柄。
+_CLOSER = concurrent.futures.ThreadPoolExecutor(max_workers=1,
+                                                thread_name_prefix="detector-close")
+
+
+def close_detached(detector) -> None:
+    """把 close() 挪到后台线程。
+
+    为什么:close() 实测恒 5.0s(构造只要 0.1–0.3s),而它是在**请求路径上同步**调的
+    —— TTL 回收 2 个探测器 = +10s、无 id 的 /reset = +20s,期间整个事件循环被冻住
+    (并发 /health 实测 19.73s,基线 0.0019s)。挪到线程后请求立刻返回,native 句柄
+    仍会被释放(晚几秒)。**别"顺手"把它改回同步** —— 那会把这个停顿带回来。
+    """
+    _CLOSER.submit(detector.close)
 
 
 def _default_factory(model_path: Path, *, num_faces: int,

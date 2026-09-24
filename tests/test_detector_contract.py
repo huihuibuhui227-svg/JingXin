@@ -10,8 +10,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from face_expression.pipeline.detector import FaceDetector, verify_models
+from face_expression.pipeline.detector import FaceDetector, close_detached, verify_models
 from gesture_analysis.core.detectors import HandDetector, PoseDetector
+from gesture_analysis.core.detectors import close_detached as gesture_close_detached
+from gesture_analysis.core.detectors import verify_models as gesture_verify_models
 
 _FRAME = np.zeros((48, 48, 3), dtype=np.uint8)
 
@@ -198,3 +200,84 @@ def test_verify_models_accepts_the_config_default_as_a_string(tmp_path, monkeypa
     monkeypatch.setattr(cfg, "FACE_MODEL", str(real))        # 刻意给 str,模拟真实 config 的形状
 
     verify_models(factory=_factory({}, points_per_group=1))  # 不抛即通过
+
+
+@pytest.mark.parametrize("close_detached", [close_detached, gesture_close_detached],
+                         ids=["face", "gesture"])
+def test_close_detached_does_not_block_the_caller(close_detached):
+    """★ I1:`close()` **实测恒 5.0 秒**(构造只要 0.08–0.34s),所以它不许在调用者线程上跑。
+
+    为什么这条值得钉:两个 app 都在 `async def` 端点里**同步**调 close() —— TTL 回收一个
+    gesture 会话 = 关 2 个探测器 = **10.12s**、无 id 的 `/reset`(2 会话)= **20.04s**,
+    期间整个单 worker 事件循环被冻住(并发 `/health` 实测 **19.73s**,基线 0.0019s)。
+
+    所以这条断言有两半,缺一不可:
+      1. `close_detached(d)` **立刻返回**(否则请求路径照样被冻);
+      2. 底层的 `close()` **最终真的被调到**(否则 native 句柄泄漏 —— 那就是 spec §6.3
+         要防的东西,只是换了个方向)。
+
+    红法:把实现改回 `d.close()`(直接同步调)—— 第 1 半立刻量到 ~1.0s,红。
+    两个模块**刻意各持一份封装**,所以两个 helper 都要压住。
+    """
+    import time
+
+    class _SlowDetector:
+        def __init__(self):
+            self.closed = False
+
+        def close(self):
+            time.sleep(1.0)        # 真 close() 的 5.0s 的缩影,但测试跑得起
+            self.closed = True
+
+    d = _SlowDetector()
+    t0 = time.monotonic()
+    close_detached(d)
+    elapsed = time.monotonic() - t0
+
+    assert elapsed < 0.2, (
+        f"close_detached 在调用者线程上等了 {elapsed:.2f}s —— 请求路径会被冻住"
+        f"(真 close() 是 5.0s,TTL 回收/`/reset` 会把它放大到 10–20s)")
+
+    # 后半:后台线程里那个 close() 必须真的跑完,否则句柄泄漏(只是晚几秒)
+    deadline = time.monotonic() + 5.0
+    while not d.closed and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert d.closed is True, "close() 最终没被调到 —— native 句柄不会被释放"
+
+
+def test_gesture_verify_models_fails_loudly_when_a_file_is_missing(tmp_path):
+    """★ I3(a):gesture 的 `verify_models` 也要**启动即失败**(spec §8 / Review Focus ⑤)。
+
+    为什么单列:face 那份有测,gesture 这份**一条都没有** —— 而两者的签名不同
+    (`(model_path, factory)` vs `(hand_path, pose_path, factory)`),正因签名不同才更容易漏。
+    两半都验:hand 缺、pose 缺(缺哪个就在消息里点名哪个,否则排障时不知道去哪找)。
+
+    红法:让 gesture 的 verify_models 不检查 `.exists()`(把故障推迟到第一个请求)。
+    """
+    ok = tmp_path / "ok.task"
+    ok.write_bytes(b"stub")
+    missing = tmp_path / "not_here.task"
+
+    with pytest.raises(RuntimeError) as ei_hand:
+        gesture_verify_models(hand_path=missing, pose_path=ok,
+                              factory=_factory({}, points_per_group=1))
+    assert str(missing) in str(ei_hand.value), "错误信息里必须含缺的那个路径"
+
+    with pytest.raises(RuntimeError) as ei_pose:
+        gesture_verify_models(hand_path=ok, pose_path=missing,
+                              factory=_factory({}, points_per_group=1))
+    assert str(missing) in str(ei_pose.value), "错误信息里必须含缺的那个路径"
+
+
+def test_gesture_verify_models_accepts_present_files(tmp_path):
+    """另一侧:两个文件都在时不许抛(否则服务永远起不来)。
+
+    红法:让 gesture 的 verify_models 无条件抛。
+    """
+    hand = tmp_path / "hand.task"
+    pose = tmp_path / "pose.task"
+    hand.write_bytes(b"stub")
+    pose.write_bytes(b"stub")
+
+    gesture_verify_models(hand_path=hand, pose_path=pose,
+                          factory=_factory({}, points_per_group=1))    # 不抛即通过

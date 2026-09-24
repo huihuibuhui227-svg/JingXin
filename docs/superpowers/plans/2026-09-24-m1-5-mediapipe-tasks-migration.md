@@ -23,7 +23,7 @@
 
 ## Review Focus
 
-以下是 spec 蕴含、但**没有任何任务的测试会覆盖**、且最可能咬到真实使用者的五类情形。每条都在它归属的任务里加了钉住它的测试:
+以下是 spec 蕴含、但**没有任何任务的测试会覆盖**、且最可能咬到真实使用者的六类情形。每条都在它归属的任务里加了钉住它的测试:
 
 1. **同会话连发两帧 → 时间戳必须严格递增。** 实现者很可能每帧从 0 起算或复用同一个 ts → mediapipe 抛错或跟踪错乱。归属 T2/T3。
 2. **`/reset` 之后同一会话再来一帧 → 不许因为时间戳回退而抛错。** 帧计数器必须随 `/reset` 归零。归属 T3(face 的 `/session/{sid}/reset` 归 T2)。
@@ -142,8 +142,15 @@ class _FakeLandmarker:
 
 
 def _factory(holder, **kwargs):
-    """返回一个 (factory, holder) —— holder['l'] 拿到被造出来的假探测器。"""
-    def build(**opts):
+    """造一个假工厂:holder['l'] 拿到被造出来的假探测器。
+
+    ⚠️ `build` 必须收 `*args` —— 真工厂的签名是 `(model_path, **opts)`,探测器封装
+    会把 model_path **位置传参**。写成 `def build(**opts)` 的话,`FaceDetector.__init__`
+    那一行会 `TypeError: build() takes 0 positional arguments but 1 was given`,
+    测试变成 ERROR 而不是"按预期原因红"。
+    """
+    def build(*args, **opts):
+        holder["args"] = args
         holder["opts"] = opts
         holder["l"] = _FakeLandmarker(**kwargs)
         return holder["l"]
@@ -730,7 +737,18 @@ Expected: FAIL — `TypeError: __init__() got an unexpected keyword argument 'de
         self.au_history = collections.deque(maxlen=int(3 * fps))
 ```
 
-`process_frame` 的头两行改成(其余**一行不动**):
+`process_frame` 的开头**替换**掉下面这 4 行(原文第 45、46、48、49、51、52 行):
+
+```python
+        results = self.face_mesh.process(image_rgb)      # ← 删
+        h, w = image_rgb.shape[:2]                       # ← 保留
+        if not results.multi_face_landmarks:             # ← 删
+            return None, None, {"emotion": "no_face"}    # ← 保留(条件变了)
+        lm = results.multi_face_landmarks[0].landmark    # ← 删
+        landmarks_norm = [(pt.x, pt.y) for pt in lm]     # ← 删
+```
+
+替换成:
 
 ```python
     def process_frame(self, image_rgb):
@@ -740,6 +758,8 @@ Expected: FAIL — `TypeError: __init__() got an unexpected keyword argument 'de
         if not landmarks_norm:
             return None, None, {"emotion": "no_face"}
 ```
+
+**从 `nose_tip = np.array(landmarks_norm[1])` 那一行起,一个字都不改** —— 几何层整段原样保留。
 
 在类里加两个方法:
 
@@ -853,6 +873,34 @@ def gapp():
     return importlib.import_module("gesture_analysis.api.app")
 
 
+@pytest.fixture
+def fake_detectors(monkeypatch):
+    """把真探测器换成假的。
+
+    为什么必须有这个 fixture:`get_or_create_detectors` 会构造真的 HandDetector /
+    PoseDetector —— 那要加载 21 MB 的 `.task` 模型(慢),而且会让**没下模型的环境整片红**。
+    测试不该依赖那 21 MB 的存在。
+    """
+    import gesture_analysis.core.detectors as det
+
+    class _Fake:
+        def __init__(self, *a, **k):
+            self.closed = False
+
+        def detect(self, image_rgb):
+            return []
+
+        def reset(self):
+            pass
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(det, "HandDetector", _Fake)
+    monkeypatch.setattr(det, "PoseDetector", _Fake)
+    return _Fake
+
+
 def test_importing_the_app_does_not_touch_mediapipe(gapp):
     """D3 的副产品也是它的证明:import 期不许构造探测器。
 
@@ -863,7 +911,7 @@ def test_importing_the_app_does_not_touch_mediapipe(gapp):
     assert not hasattr(gapp, "pose"), "模块级探测器回来了"
 
 
-def test_two_sessions_get_different_detectors(gapp):
+def test_two_sessions_get_different_detectors(gapp, fake_detectors):
     """spec D3 / Review Focus 4:两会话必须是不同探测器对象。
 
     红法:探测器做成模块级单例(迁移前的形态)—— VIDEO 模式会让两会话互相污染跟踪。
@@ -877,25 +925,31 @@ def test_two_sessions_get_different_detectors(gapp):
     assert a["pose"] is not b["pose"]
 
 
-def test_expired_sessions_close_their_detectors(gapp, monkeypatch):
+def test_expired_sessions_close_their_detectors(gapp, fake_detectors):
     """spec §6.3 / Review Focus 3:TTL 回收时必须 close 探测器,不然泄漏 native 句柄。
 
-    红法:回收循环只 `del session_analyzers[sid]`(迁移前的样子),不碰探测器。
+    红法:回收循环只 `del session_analyzers[sid]`(迁移前的样子),不碰探测器
+    → `closed` 为空 → 断言失败。
+
+    注意:`fake_detectors` 造出来的假件自带 `closed` 标志,所以这里**不用**再 monkeypatch
+    `.close` —— 直接读标志更接近真实(也避免测到"我替换掉的那个方法")。
     """
+    import time
+
     gapp.session_analyzers.clear()
     gapp.detectors.clear()
     dets = gapp.get_or_create_detectors("t_old")
-    closed = []
-    dets["hands"].close = lambda: closed.append("hands")
-    dets["pose"].close = lambda: closed.append("pose")
-    # 把这个会话的最后使用时间推到 TTL 之外
-    import time
+    hands, pose = dets["hands"], dets["pose"]
+
+    # 先给它建一条分析器记录,再把最后使用时间推到 TTL 之外(回收是挂在分析器表上的)
+    gapp.get_or_create_analyzers("t_old")
     analyzers, _ = gapp.session_analyzers["t_old"]
     gapp.session_analyzers["t_old"] = (analyzers, time.time() - gapp.SESSION_TIMEOUT - 1)
 
     gapp.get_or_create_detectors("t_new")
 
-    assert sorted(closed) == ["hands", "pose"], f"探测器没被释放:{closed}"
+    assert hands.closed and pose.closed, "过期会话的探测器没被 close —— native 句柄泄漏"
+    assert "t_old" not in gapp.detectors, "过期会话没从探测器表里移除"
 ```
 
 - [ ] **Step 2: 跑测试,确认它红**
@@ -1103,12 +1157,42 @@ cd ~/shared/mp_frames
 
 > 实施者注意:`probe.py` 现在**自己构造** `FaceLandmarker`(见它的 `_detector_tasks`)。迁移后它应当改成**直接用仓库的 `FaceDetector`**,这样这条判据验的才是**适配层**(而不是探针自己的实现)。这是最终审查前的必做改动,记在任务报告里。
 
+> ⚠️ **判据的口径(2026-09-24 最终审查实测修正,照旧措辞会假红)**:**仓库封装把
+> `running_mode` 固定在 VIDEO,而 `~/shared/mp_frames/tasks.json` / `gesture_tasks.json`
+> 基线是 IMAGE 模式录的** —— 所以「原样拿封装去比 IMAGE 基线」**在数学上不可能逐点一致**,
+> 差的不是适配层,是模式。实测两条臂:
+>
+> | 臂 | 做法 | 结果 |
+> |---|---|---|
+> | **A** | 原样用仓库封装(VIDEO)| face **1425/9082** 相等、2 帧检出形态分歧;gesture **152/1056**、6 处形态分歧 |
+> | **B** | 同一适配层 + **IMAGE 模式内层替身**(`factory=` 注入把 `detect_for_video` 转发到 `detect` 的壳)| face **9560/9560**、gesture **1119/1119**,**逐点 100.000000%**,形态分歧 0 |
+>
+> **判据必须写成二者之一**:① 用 **IMAGE 模式内层替身**比(即 B 臂 —— 它验的是"适配层有没有
+> 改变输入":颜色通道、`mp.Image(SRGB, ascontiguousarray)`、置信度参数、结果索引、摊平口径);
+> 或 ② **另跑一套 VIDEO 模式的新基线**再比 VIDEO。
+> **不许把 B 臂的结论写成 A 臂的** —— B 臂 100% 不等于"原样比基线也 100%";A 臂的差全部可由
+> 模式差异解释,而这正是 spec §10.4 单列的那道门(**已知未验**,登记在 `docs/下一步.md` §3 第 15 条)。
+
 - [ ] **两个服务实跑**:起 8000/8002,各发一帧真图,确认 200 + 落出带 sid 的日志(Step 7 的命令)。
-- [ ] **`grep -rn "mp.solutions" --include="*.py" face_expression/ gesture_analysis/ | grep -v examples/`** → 活路径为空。
+- [ ] **`mp.solutions` 在"活路径"上为空。** 判据要按**可达性**写,不是按目录写 —— 照字面
+      `grep -v examples/` 会假红,因为注释散文和一个无调用者的死方法都会命中:
+
+      ```bash
+      grep -rn "mp\.solutions" --include="*.py" face_expression/ gesture_analysis/ \
+        | grep -v code_data_supplement      # 陈旧副本,不在 import 路径上
+      ```
+
+      然后逐条判**可达性**:`examples/*` 是例程(不在服务路径);`api/app.py` 与
+      `video_pipeline.py` 的命中是**注释**;唯一真代码命中是
+      `gesture_analysis/utils/visualization.py:111,112,135,136` 的
+      `draw_hand_landmarks` / `draw_pose_landmarks` —— 实测**全仓零调用者**,且在
+      `try/except Exception` 内、方法体内延迟 import(import 期不炸,真调到只打印警告)。
+      **`visualization.py` 是 spec §1 明确划出范围的**(留坏 + 记账),死代码 + 优雅降级,
+      不算活路径违规。它已经记在账本的 deferred 清单里。
 - [ ] **`grep -rn "MEDIAPIPE_CONFIG" --include="*.py" face_expression/`** → 为空(死代码已删)。
 - [ ] **合并门**:`cd ~/jingxin/experiments/duration_audit && $PY reaggregate_normalized.py --stats legacy --out-dir /tmp/legacy_probe_m15 && $PY reaggregate_normalized.py --verify-legacy /tmp/legacy_probe_m15` → **0 / 2835510**。
 - [ ] **全量测试** green;`requirements*.txt` 已钉 `==1.0.0`。
-- [ ] Review Focus 五条**逐条**对着测试确认有钉子。
+- [ ] Review Focus 六条**逐条**对着测试确认有钉子。
 - [ ] 最后更新 `docs/下一步.md`(§0 现状、§2 的 T7 前置、§3 跟进项)并把本任务的账本落进 `docs/superpowers/sdd/`。
 
 ---

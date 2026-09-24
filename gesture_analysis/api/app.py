@@ -19,6 +19,12 @@ from gesture_analysis.core.analysis.arm_analyzer import ArmAnalyzer
 from gesture_analysis.core.analysis.emotion_inferencer import EmotionInferencer
 from gesture_analysis.utils.logger import GestureLogger, NONE_SESSION
 from gesture_analysis.config import API_CONFIG, MEDIAPIPE_CONFIG, LOGS_DIR
+# close() 实测恒 5.0s,所以回收/重置路径一律走这个后台 helper(I1)。**只 import 这一个
+# 名字,不在这里 import HandDetector/PoseDetector** —— 那两个名字必须留在
+# `get_or_create_detectors` 的函数体内按调用时解析,否则
+# `tests/test_analyze_session_fallback.py` 对 `detectors.HandDetector` 的 monkeypatch
+# 会失效(模块级 import 会把补丁之前的值绑死)。本模块自身 import 期不碰 mediapipe。
+from gesture_analysis.core.detectors import close_detached
 
 app = FastAPI(
     title="Gesture Analysis API",
@@ -130,7 +136,7 @@ def get_or_create_analyzers(session_id: str):
         dets = detectors.pop(sid, None)
         if dets is not None:
             for d in dets.values():
-                d.close()          # 必须显式关:持 native 句柄(spec §6.3)
+                close_detached(d)  # 必须显式关:持 native 句柄(spec §6.3)。5.0s/个 → 后台(I1)
 
     # 获取或创建新会话
     if session_id not in session_analyzers:
@@ -170,7 +176,7 @@ def get_or_create_detectors(session_id: str):
         dets = detectors.pop(sid, None)
         if dets is not None:
             for d in dets.values():
-                d.close()
+                close_detached(d)  # 同上:回收路径不许在事件循环里等 5.0s(I1)
 
     if session_id not in detectors:
         from gesture_analysis.core.detectors import HandDetector, PoseDetector
@@ -470,7 +476,7 @@ async def reset_analyzers(session_id: str = None):
             dets = detectors.pop(session_id, None)
             if dets is not None:
                 for d in dets.values():
-                    d.close()
+                    close_detached(d)  # 5.0s/个 → 后台,否则 /reset 冻住整个服务(I1)
             if session_id in session_analyzers:
                 del session_analyzers[session_id]
                 session_loggers.pop(session_id, None)
@@ -479,7 +485,7 @@ async def reset_analyzers(session_id: str = None):
         else:
             for dets in detectors.values():
                 for d in dets.values():
-                    d.close()
+                    close_detached(d)  # 无 id 的 /reset 会关掉所有会话:实测同步时 20.04s(I1)
             detectors.clear()
             session_analyzers.clear()
             session_loggers.clear()

@@ -17,6 +17,10 @@ try:
     from face_expression.pipeline.video_pipeline import VideoPipeline
     from face_expression.utils.logger import DataLogger, NONE_SESSION
     from face_expression.config import LOGS_DIR
+    # close()(经 VideoPipeline 转发到探测器的 native 句柄)实测恒 5.0s,所以回收/重置
+    # 路径一律走这个后台 helper(I1)。本模块自身 import 期不碰 mediapipe ——
+    # `face_expression.pipeline.detector` 的 mediapipe import 在工厂函数体内。
+    from face_expression.pipeline.detector import close_detached
 except ImportError as e:
     logger.error(f"导入失败: {e}")
     logger.error("请确保已正确安装 face_expression 模块")
@@ -123,7 +127,7 @@ def get_or_create_pipeline(session_id: str, fps: int = 30) -> VideoPipeline:
     ]
     for sid in expired_sessions:
         pipeline, _ = session_pipelines.pop(sid)
-        pipeline.close()          # 必须显式关:tasks 探测器持 native 句柄(spec §6.3)
+        close_detached(pipeline)  # 必须显式关:tasks 探测器持 native 句柄(spec §6.3);5.0s → 后台(I1)
         session_loggers.pop(sid, None)
         logger.info(f"清理过期会话: {sid}")
 
@@ -359,7 +363,7 @@ async def reset_session(session_id: str):
     """
     if session_id in session_pipelines:
         pipeline, _ = session_pipelines.pop(session_id)
-        pipeline.close()          # 删之前先放掉探测器的 native 句柄(spec §6.3)
+        close_detached(pipeline)  # 删之前先放掉探测器的 native 句柄(spec §6.3);5.0s → 后台(I1)
         session_loggers.pop(session_id, None)
         return {"status": "success", "message": f"会话 {session_id} 已重置"}
     else:

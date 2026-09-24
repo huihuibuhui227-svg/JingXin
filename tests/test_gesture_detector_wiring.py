@@ -69,11 +69,27 @@ def test_two_sessions_get_different_detectors(gapp, fake_detectors):
     assert a["pose"] is not b["pose"]
 
 
+def _wait_until(predicate, timeout: float = 5.0) -> bool:
+    """等一个「挪到后台线程之后才会成立」的条件。
+
+    为什么测试要等:I1 把回收/重置路径上的 `close()` 挪进了后台线程(实测 5.0s/次,同步
+    调会把整个事件循环冻住)。于是「close 被调到」这件事**不再在同一行同步发生** —— 测试
+    若原地立刻断言,量到的是「还没跑」而不是「没跑」,那是假红。
+    等到超时仍为 False,才是真的没关(断言照样有牙齿)。
+    """
+    import time
+
+    deadline = time.monotonic() + timeout
+    while not predicate() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    return predicate()
+
+
 def test_expired_sessions_close_their_detectors(gapp, fake_detectors):
     """spec §6.3 / Review Focus 3:TTL 回收时必须 close 探测器,不然泄漏 native 句柄。
 
     红法:回收循环只 `del session_analyzers[sid]`(迁移前的样子),不碰探测器
-    → `closed` 为空 → 断言失败。
+    → `closed` 始终为 False → 断言失败(超时后仍 False)。
 
     注意:`fake_detectors` 造出来的假件自带 `closed` 标志,所以这里**不用**再 monkeypatch
     `.close` —— 直接读标志更接近真实(也避免测到"我替换掉的那个方法")。
@@ -92,8 +108,35 @@ def test_expired_sessions_close_their_detectors(gapp, fake_detectors):
 
     gapp.get_or_create_detectors("t_new")
 
-    assert hands.closed and pose.closed, "过期会话的探测器没被 close —— native 句柄泄漏"
+    # close 现在在后台线程里跑(I1)→ 等它落地,而不是当场读一个还没跑到的标志
+    assert _wait_until(lambda: hands.closed and pose.closed), \
+        "过期会话的探测器没被 close —— native 句柄泄漏"
     assert "t_old" not in gapp.detectors, "过期会话没从探测器表里移除"
+
+
+def test_same_session_reuses_the_same_detectors(gapp, fake_detectors):
+    """★ I3(b):**同一会话必须复用同一个探测器对象** —— 这是 D3 的另一半不变量。
+
+    为什么必须单独钉:实测把 `get_or_create_detectors` 改成每请求无条件重建 →
+    **193 条测试照样全绿**,而生产上是灾难:
+      * 第二帧的 `_timestamp_ms()` 恒为 0 → mediapipe 抛
+        `Input timestamp must be monotonically increasing.` → 每帧 500;
+      * 每帧泄漏一个 native landmarker(TTL 回收只能关掉表里最后那一个)。
+    测试侧静默、生产侧响亮 —— 按本仓的规矩该由测试侧兜住。
+
+    已有断言挡不住它:`a["hands"] is not b["hands"]` 只钉"不同会话不同",不钉"同会话相同"。
+
+    红法:去掉 `if session_id not in detectors` 的缓存,每次新建。
+    """
+    gapp.session_analyzers.clear()
+    gapp.detectors.clear()
+
+    first = gapp.get_or_create_detectors("t_reuse")
+    second = gapp.get_or_create_detectors("t_reuse")
+
+    assert first is second, "同一会话第二次调用换了探测器 —— 帧计数归零、ts 回退,且泄漏句柄"
+    assert first["hands"] is second["hands"]
+    assert first["pose"] is second["pose"]
 
 
 def test_analyzer_actually_consumes_what_the_detector_produces():
