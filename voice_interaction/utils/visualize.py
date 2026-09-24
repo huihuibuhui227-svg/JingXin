@@ -38,6 +38,23 @@ except (ImportError, AttributeError):
 # 2. 核心函数
 # ==============================
 
+def _is_kind(f: Path, kind: str) -> bool:
+    """这份 CSV 属于哪一类日志。
+
+    两类都要认:
+    - `assessment_note_<时间戳>.csv` —— `assessment_pipeline.save_log()` 的产物。
+      它**改名了**(原先叫 `{kind}_emotion_log_<时间戳>.csv`),理由见
+      `voice_interaction/pipeline/assessment_pipeline.py` 的 `NOTE_STEM` 注释:
+      那个形态正中报告侧 `LogDataLoader` 的模态命名空间,会在报告里顶掉真正的会话日志。
+      新名字不带 `_log_`,结构上不可能被选中 —— 但它也不再自带面试/科研字样,
+      所以靠**所在目录**区分两者。
+    - `{kind}_emotion_log_*` —— logger 写出的会话日志(M1 起文件名带 session_id)。
+    """
+    if "assessment_note_" in f.name:
+        return f.parent.name == kind
+    return f"{kind}_emotion_log_" in f.name
+
+
 def find_latest_log_file(log_type: str = 'auto') -> tuple[Path | None, str]:
     """
     递归查找 logs 目录下最新的 interview 或 research 日志（包括子目录）
@@ -50,8 +67,8 @@ def find_latest_log_file(log_type: str = 'auto') -> tuple[Path | None, str]:
     # 递归查找所有 CSV 文件
     all_csv_files = list(log_dir.rglob("*.csv"))
 
-    interview_files = [f for f in all_csv_files if "interview_emotion_log_" in f.name]
-    research_files = [f for f in all_csv_files if "research_emotion_log_" in f.name]
+    interview_files = [f for f in all_csv_files if _is_kind(f, 'interview')]
+    research_files = [f for f in all_csv_files if _is_kind(f, 'research')]
 
     if log_type == 'auto':
         if interview_files:

@@ -4,12 +4,39 @@
 提供面试和科研评估的完整流程
 """
 
+from datetime import datetime
+from pathlib import Path
 from typing import List, Dict, Any, Optional
+
 from ..models.voice_models import (
     QuestionAnswerPair,
     AssessmentResult,
     InterviewSession
 )
+
+# 评估侧「人类可读」日志的根目录(仓库内 data/logs 之下,面试/科研各一个子目录)。
+# 拎成模块级常量:两个 save_log 各算一遍路径只会漂移,而测试要把它指到临时目录
+# (与 T3 对 logger 的 LOGS_DIR 同一手法)。
+ASSESSMENT_LOG_ROOT = Path(__file__).resolve().parents[2] / "data" / "logs"
+
+# ⚠️ 产物文件名**不得**落在 `<模态>_<描述>_log_<时间戳>.csv` 这个形态里。
+# 那个形态正是报告侧 LogDataLoader 的模态命名空间(`report_frontend/data_loader.py`
+# 的 `file_pattern`):它递归扫 `data/logs`,在每个模态里取**文件名时间戳最新**的那份。
+# 而本文件名里的时间戳取自**回答**时刻,必然晚于会话开始时铸进 M1 会话日志文件名的
+# 那个 —— 于是它每次都被选中;又因为经 API 它永远只有表头(prosody 列只有 examples/
+# 那两个脚本会填),装载器随即把它当空表丢掉 → `voice_interview` 一个模态都到不了
+# 特征引擎 →「连接词密度」渲染成「未采集到对应数据」。
+# 现在叫 `assessment_note_<时间戳>.csv`:整串里没有 `_log_`,**结构上**不可能被
+# 那个正则命中(而不是靠"名字里恰好没有某个词")。
+# 它的消费者是 `voice_interaction/utils/visualize.py`,那里按同一个词根匹配。
+NOTE_STEM = "assessment_note"
+
+
+def _assessment_note_path(kind: str) -> Path:
+    """本次调用的产物路径(时间戳命名:一次调用一份,不覆盖既有文件)。"""
+    out_dir = ASSESSMENT_LOG_ROOT / kind
+    out_dir.mkdir(parents=True, exist_ok=True)
+    return out_dir / f"{NOTE_STEM}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
 
 
 class AssessmentPipeline:
@@ -105,29 +132,14 @@ class InterviewAssessmentPipeline(AssessmentPipeline):
 
     def save_log(self) -> str:
         """
-        保存评估日志
+        保存评估日志(人类可读版)
 
         返回:
             日志文件路径
         """
-        import os
-        from datetime import datetime
         import time
 
-        # 创建输出目录
-        output_dir = os.path.join(
-            os.path.dirname(
-                os.path.dirname(
-                    os.path.dirname(os.path.abspath(__file__))
-                )
-            ),
-            "data", "logs", "interview"
-        )
-        os.makedirs(output_dir, exist_ok=True)
-
-        # 生成日志文件名
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_file = os.path.join(output_dir, f"interview_emotion_log_{timestamp}.csv")
+        log_file = _assessment_note_path("interview")
 
         # 写入日志（CSV格式）
         with open(log_file, 'w', encoding='utf-8') as f:
@@ -158,7 +170,7 @@ class InterviewAssessmentPipeline(AssessmentPipeline):
                     f.write(f"{features.duration_sec},{features.pause_duration_mean},{features.pause_duration_max},")
                     f.write(f"{features.pause_frequency},{emotion},{analysis.feedback},{i},{analysis.is_valid}\n")
 
-        return log_file
+        return str(log_file)
 
     def get_next_question(self) -> Optional[str]:
         """
@@ -361,29 +373,14 @@ class ResearchAssessmentPipeline(AssessmentPipeline):
 
     def save_log(self) -> str:
         """
-        保存评估日志
+        保存评估日志(人类可读版)
 
         返回:
             日志文件路径
         """
-        import os
-        from datetime import datetime
         import time
 
-        # 创建输出目录
-        output_dir = os.path.join(
-            os.path.dirname(
-                os.path.dirname(
-                    os.path.dirname(os.path.abspath(__file__))
-                )
-            ),
-            "data", "logs", "research"
-        )
-        os.makedirs(output_dir, exist_ok=True)
-
-        # 生成日志文件名
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_file = os.path.join(output_dir, f"research_emotion_log_{timestamp}.csv")
+        log_file = _assessment_note_path("research")
 
         # 写入日志（CSV格式）
         with open(log_file, 'w', encoding='utf-8') as f:
@@ -414,7 +411,7 @@ class ResearchAssessmentPipeline(AssessmentPipeline):
                     f.write(f"{features.duration_sec},{features.pause_duration_mean},{features.pause_duration_max},")
                     f.write(f"{features.pause_frequency},{emotion},{analysis.feedback},{i},{analysis.is_valid}\n")
 
-        return log_file
+        return str(log_file)
 
     def get_next_question(self) -> Optional[str]:
         """

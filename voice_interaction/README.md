@@ -239,11 +239,17 @@ API端点:
 日志文件保存在 `data/logs/` 目录下:
 
 ### 面试日志
-- `interview_emotion_log_{timestamp}.csv`: 面试评估日志
-- `interview_emotion_log_{timestamp}.json`: 面试评估JSON日志
+- `interview_emotion_log_{session_id}.csv`: 面试**语音特征**日志(VoiceLogger 写;文件名与首列
+  都带 session_id,报告侧按它归堆)
+- `interview/assessment_note_{timestamp}.csv`: 面试评估的**人类可读**版(评测管线的
+  `save_log()` 写)。⚠️ 它刻意**不叫** `*_log_*`:那个形态正是报告侧的模态命名空间
+  (`report_frontend/data_loader.py` 的选取正则),而它的时间戳取自**回答**时刻、必然晚于
+  会话日志,会被当成"最新日志"占位并顶掉真正的会话日志。详见
+  `voice_interaction/pipeline/assessment_pipeline.py` 的 `NOTE_STEM` 注释
 
 ### 科研日志
-- `research_emotion_log_{timestamp}.csv`: 科研评估日志
+- `research_emotion_log_{session_id}.csv`: 科研语音特征日志
+- `research/assessment_note_{timestamp}.csv`: 科研评估的人类可读版(同上,不在模态命名空间里)
 - `research_emotion_log_{timestamp}.json`: 科研评估JSON日志
 
 ### 日志字段
