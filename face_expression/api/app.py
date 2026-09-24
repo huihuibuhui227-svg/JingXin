@@ -17,7 +17,6 @@ try:
     from face_expression.pipeline.video_pipeline import VideoPipeline
     from face_expression.utils.logger import DataLogger, NONE_SESSION
     from face_expression.config import LOGS_DIR
-    import mediapipe as mp
 except ImportError as e:
     logger.error(f"导入失败: {e}")
     logger.error("请确保已正确安装 face_expression 模块")
@@ -123,7 +122,8 @@ def get_or_create_pipeline(session_id: str, fps: int = 30) -> VideoPipeline:
         if current_time - last_used > SESSION_TIMEOUT
     ]
     for sid in expired_sessions:
-        del session_pipelines[sid]
+        pipeline, _ = session_pipelines.pop(sid)
+        pipeline.close()          # 必须显式关:tasks 探测器持 native 句柄(spec §6.3)
         session_loggers.pop(sid, None)
         logger.info(f"清理过期会话: {sid}")
 
@@ -350,9 +350,16 @@ async def get_session_summary(session_id: str):
 
 @app.post("/session/{session_id}/reset")
 async def reset_session(session_id: str):
-    """重置指定会话"""
+    """重置指定会话。
+
+    本端点的语义是**删掉整个会话**(不是"清空状态但保留会话"):下一次请求会走
+    `get_or_create_pipeline` 重建一个全新的 `VideoPipeline`,连同全新的探测器 ——
+    帧计数自然从 0 开始。所以这里**只 close() 释放 native 句柄,不调 reset()**:
+    reset() 是留给"保留会话"那种语义的(`VideoPipeline.reset()` 本身有契约测钉着)。
+    """
     if session_id in session_pipelines:
-        del session_pipelines[session_id]
+        pipeline, _ = session_pipelines.pop(session_id)
+        pipeline.close()          # 删之前先放掉探测器的 native 句柄(spec §6.3)
         session_loggers.pop(session_id, None)
         return {"status": "success", "message": f"会话 {session_id} 已重置"}
     else:
@@ -362,36 +369,14 @@ async def reset_session(session_id: str):
 if __name__ == "__main__":
     import uvicorn
 
-    # 启动前测试MediaPipe兼容性
+    # 启动前自检:模型文件在不在、能不能真加载起来(spec §8)。
+    # **不吞异常** —— 故障必须拦在启动这一步。旧的 `mp.solutions` 探针恰恰是反例:
+    # 它 `except Exception` 吞掉一切,于是服务"启动看着正常、每帧静默 500"。
     logger.info("=" * 60)
-    logger.info("正在检查MediaPipe兼容性...")
-    try:
-        import mediapipe as mp
-
-        logger.info(f"MediaPipe版本: {mp.__version__}")
-
-        # 测试兼容性导入
-        try:
-            test_module = mp.solutions.face_mesh
-            logger.info("使用旧版API (mp.solutions)")
-        except AttributeError:
-            from mediapipe import solutions
-
-            test_module = solutions.face_mesh
-            logger.info("使用新版API (mediapipe.solutions)")
-
-        # 测试FaceMesh初始化
-        test_mesh = test_module.FaceMesh(
-            static_image_mode=False,  # 视频模式
-            max_num_faces=1,
-            refine_landmarks=True,
-            min_detection_confidence=0.5,
-            min_tracking_confidence=0.5
-        )
-        logger.info("FaceMesh初始化成功")
-        test_mesh.close()
-    except Exception as e:
-        logger.exception("MediaPipe检查失败")
+    logger.info("正在自检人脸模型...")
+    from face_expression.pipeline.detector import verify_models
+    verify_models()
+    logger.info("人脸模型自检通过")
 
     logger.info("=" * 60)
     logger.info("启动Face Expression API服务（视频流模式）...")

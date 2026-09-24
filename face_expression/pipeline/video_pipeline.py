@@ -13,7 +13,7 @@ from ..models.results import AnalysisFrameResult
 
 
 class VideoPipeline:
-    def __init__(self, fps=30, session_id="default", save_landmarks=False):
+    def __init__(self, fps=30, session_id="default", save_landmarks=False, detector=None):
         self.fps = fps
         self.session_id = session_id
         self.blink_times = []
@@ -21,35 +21,27 @@ class VideoPipeline:
         self.last_blink_time = 0
         self.EAR_THRESHOLD = 0.21
 
-        self._face_mesh = None
+        # 探测器**按会话**注入(不是惰性属性,也不是模块级单例):tasks 的 VIDEO 模式
+        # 把跟踪状态挂在实例上,单例会让并发会话互相污染跟踪(spec §3.5 / D3)。
+        # 缺省自己造一个真的;测试注入假件。
+        if detector is None:
+            from .detector import FaceDetector
+            from ..config import FACE_MODEL
+            detector = FaceDetector(FACE_MODEL, fps=fps)
+        self.detector = detector
+
         self.feature_calculator = AUFeatureCalculator(save_landmarks=save_landmarks)
         self.micro_detector = MicroExpressionDetector(fps=fps)
         self.tension_engine = TensionEngine()
         self.emotion_engine = EmotionEngine()
         self.au_history = collections.deque(maxlen=int(3 * fps))
 
-    @property
-    def face_mesh(self):
-        if self._face_mesh is None:
-            import mediapipe as mp
-            self._face_mesh = mp.solutions.face_mesh.FaceMesh(
-                static_image_mode=False,
-                max_num_faces=1,
-                refine_landmarks=True,
-                min_detection_confidence=0.8,
-                min_tracking_confidence=0.8
-            )
-        return self._face_mesh
-
     def process_frame(self, image_rgb):
-        results = self.face_mesh.process(image_rgb)
         h, w = image_rgb.shape[:2]
+        landmarks_norm = self.detector.detect(image_rgb)
 
-        if not results.multi_face_landmarks:
+        if not landmarks_norm:
             return None, None, {"emotion": "no_face"}
-
-        lm = results.multi_face_landmarks[0].landmark
-        landmarks_norm = [(pt.x, pt.y) for pt in lm]
 
         nose_tip = np.array(landmarks_norm[1])
         chin = np.array(landmarks_norm[152])
@@ -184,7 +176,18 @@ class VideoPipeline:
             tension_result=tension_result
         )
 
-        return result, results, result.to_dict()
+        # 第二槽原是 mediapipe 的原始 results 对象(`mp.solutions` 那代);换成 tasks 之后
+        # 探测器交出的就是摊平后的 landmarks,所以这里跟着换成 `landmarks_norm` —— 沿用
+        # 原名 `results` 会 NameError。真值语义(有真值 ⟺ 本帧检出脸)与迁移前一致。
+        return result, landmarks_norm, result.to_dict()
+
+    def reset(self):
+        """`/session/{sid}/reset` 调:帧计数一起归零,否则下一帧时间戳回退(spec §6.4)。"""
+        self.detector.reset()
+
+    def close(self):
+        """TTL 回收时调:释放探测器的 native 句柄(spec §6.3)。"""
+        self.detector.close()
 
     def _calculate_focus_score(self, au_features):
         yaw = au_features.head_yaw

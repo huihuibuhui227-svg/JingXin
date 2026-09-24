@@ -134,10 +134,20 @@ class _FakeFacePipeline:
     def __init__(self, fps: int = 30, session_id: str | None = None):
         self.fps = fps
         self.session_id = session_id
+        self.closed = False
 
     def process_frame(self, _image_rgb):
         return object(), None, {"timestamp": 0.0, "focus_score": 0.5,
                                 "dominant_emotion": "neutral", "confidence": 0.5}
+
+    def close(self):
+        """`VideoPipeline.close()`(M1.5 T2 加的)的替身:TTL 回收会调它。
+
+        这里冻住的时钟每次推进 1000 秒 > SESSION_TIMEOUT(300),所以第二帧必然走
+        TTL 回收那条路 —— 少了这个方法,`get_or_create_pipeline` 会 AttributeError。
+        替身必须跟着真接口长,否则测的就不是"会话 → 日志文件"的接线了。
+        """
+        self.closed = True
 
 
 _JPEG: list[bytes] = []
