@@ -1,5 +1,7 @@
 import json
 import re
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -233,3 +235,57 @@ def test_refresh_manifest_flags_present_and_missing(tmp_path):
 
     on_disk = json.loads((tmp_path / sid / "session.json").read_text(encoding="utf-8"))
     assert on_disk["logs"]["face"]["present"] is True
+
+
+def test_concurrent_appends_for_one_session_lose_nothing(tmp_path, monkeypatch):
+    """同一会话的并发 append 不能丢段 —— 读-改-写必须按会话串行。
+
+    为什么这条是硬需求:端点上线后,同一 session_id 的两次请求是现实的 —— 客户端重试、
+    重复提交,或者 `/asr` 与 `/interview/answer_audio` 撞在一起。两个请求各自读到同一份
+    旧 segments,后写的把先写的整个盖掉。丢掉的那次回答在数字报告里看不出来(n_segments
+    只是少了一段,不会变成负数、也不会报错),所以只能在写侧挡。
+
+    怎么让"红"是确定的:把**读**这一侧撑开 50 ms(monkeypatch 本模块的 json.loads,
+    解析完再等),这样 8 个线程必然都在任何 os.replace 之前读完 —— 没有锁时"全部读到
+    同一份旧状态"就不再是概率事件,而是必然(每次覆盖都只剩自己的那一段)。
+    种子那一次先串行写入:首次写入的文件不存在、根本不走读路径,撑不开窗口,而 8 个线程
+    若都走首次写入路径,红就退回概率性的了。
+
+    锁的存在对调用方是不可见的,所以这里只断言可观测的事:9 次调用(1 种子 + 8 并发)
+    的段一个不少、文本一个不差。
+    """
+    sid = "20260924_153012_9f3c"
+    transcript_store.append_utterance(sid, _one_segment_utt("种子"), root=tmp_path)
+
+    real_loads = json.loads
+
+    def slow_loads(s, *a, **kw):
+        obj = real_loads(s, *a, **kw)
+        time.sleep(0.05)          # 撑开 read → write 之间的窗口
+        return obj
+
+    monkeypatch.setattr(transcript_store.json, "loads", slow_loads)
+
+    n = 8
+    failures: list[str] = []
+
+    def worker(i: int) -> None:
+        try:
+            transcript_store.append_utterance(sid, _one_segment_utt(f"回答{i}"), root=tmp_path)
+        except Exception as e:                      # 线程里的异常不会自己冒出来
+            failures.append(f"{i}: {e!r}")
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(n)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    payload = real_loads((tmp_path / sid / "transcript.json").read_text(encoding="utf-8"))
+    texts = [s["text"] for s in payload["segments"]]
+
+    assert failures == []
+    assert sorted(texts) == sorted(["种子"] + [f"回答{i}" for i in range(n)])
+    assert payload["merged"]["n_segments"] == n + 1          # merged 也是全量重算后的
+    assert [s["index"] for s in payload["segments"]] == list(range(n + 1))
+

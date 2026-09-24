@@ -9,11 +9,9 @@ from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
-import threading
+import asyncio
 import os
-import json
 import logging
-from vosk import Model, KaldiRecognizer
 import wave
 import io
 
@@ -27,6 +25,12 @@ from voice_interaction.pipeline.tts_pipeline import TTSPipeline as TTSEngine
 from voice_interaction.pipeline.assessment_pipeline import InterviewAssessmentPipeline, ResearchAssessmentPipeline
 from voice_interaction.config import API_CONFIG, FFMPEG_PATH
 from voice_interaction.utils.logger import VoiceLogger
+from voice_interaction.asr import session as session_mod, transcript_store
+from voice_interaction.asr.connective_density import connective_density
+from voice_interaction.asr.funasr_engine import load_config
+# 转写缝:引擎只由 asr/transcribe.py 持有,这里按名字取那一层转发(不直接摸引擎)。
+# 换引擎(测试/验收)只需动那一个模块,不必碰本文件。
+from voice_interaction.asr.transcribe import transcribe as _transcribe
 
 app = FastAPI(
     title="Voice Interaction API",
@@ -52,13 +56,38 @@ interview_assessment = InterviewAssessmentPipeline()
 research_assessment = ResearchAssessmentPipeline()
 voice_logger = VoiceLogger(log_type='interview')
 
-# --- Vosk 语音识别模型 ---
-MODEL_PATH = os.path.join(os.path.dirname(__file__), '..', '..', 'vosk-model-cn-0.22')
-if not os.path.exists(MODEL_PATH):
-    raise RuntimeError(f"Vosk 模型未找到: {os.path.abspath(MODEL_PATH)}")
-
-vosk_model = Model(MODEL_PATH)
+# 音频契约:16 kHz / 16 bit / 单声道(四处 wave 校验与 ffmpeg 转换都用它)
 SAMPLE_RATE = 16000
+
+
+def _asr_meta() -> dict:
+    """会话清单(session.json)里的 asr provenance 块(spec §6.4)。
+
+    与 `transcript_store` 里那份同形、同源(都从 asr_config.json 现取),所以两处
+    不会给出不同的值,代码里也不再存第二份 host/port。
+    `asr_confidence` 恒为 null 且来源恒为 "unavailable":本部署的 raw 里没有置信度
+    字段(实测,见 spec §3),必须显式落盘而不是省略(spec §9.1)。
+    """
+    cfg = load_config()
+    return {
+        "engine": "funasr",
+        "endpoint": f"ws://{cfg['funasr_host']}:{cfg['funasr_port']}",
+        "models": dict(cfg.get("models") or {}),
+        "asr_confidence": None,
+        "asr_confidence_source": "unavailable",
+    }
+
+
+async def _transcribe_async(pcm: bytes):
+    """同步转写缝的 loop-safe 入口 —— 四个识别点一律走这里(Ruling M1-6)。
+
+    为什么不能直接 `_transcribe(pcm)`:那一层同步调 `funasr_client.recognize_pcm`,
+    而它内部是 `asyncio.run(...)`;FastAPI 的端点都跑在事件循环里,直接调会
+    `RuntimeError: asyncio.run() cannot be called from a running event loop`。
+    丢到工作线程后,`asyncio.run` 在那个线程里自建事件循环,既安全又不阻塞本循环
+    (识别约 1.75 s,期间服务还能接别的请求)。
+    """
+    return await asyncio.to_thread(_transcribe, pcm)
 
 
 class TextRequest(BaseModel):
@@ -114,13 +143,18 @@ async def text_to_speech(request: TextRequest):
 
 
 @app.post("/asr")
-async def speech_to_text(audio: UploadFile = File(...)):
+async def speech_to_text(audio: UploadFile = File(...), session_id: str = None):
     """
     语音识别（ASR）：接收音频文件，返回识别文本
     支持：WAV、WebM、MP3 等格式（自动转换为 16kHz WAV）
+
+    `session_id` 可省:给了就把这次识别累积进**仓库外**的该会话 transcript.json
+    (缺省落 NONE,报告侧整体排除)。纯 ASR 不写语音特征行 —— 那是回答的语义。
     """
     import tempfile
     import subprocess
+
+    sid = session_id or session_mod.NONE_SESSION
 
     try:
         logger.info(f"收到ASR请求: {audio.filename}")
@@ -139,15 +173,14 @@ async def speech_to_text(audio: UploadFile = File(...)):
                     logger.info("格式符合要求，直接识别")
                     audio_data = wf.readframes(wf.getnframes())
 
-                    # 使用 Vosk 识别
-                    logger.info("开始Vosk识别...")
-                    rec = KaldiRecognizer(vosk_model, SAMPLE_RATE)
-                    rec.AcceptWaveform(audio_data)
-                    result = json.loads(rec.FinalResult())
-                    text = result.get("text", "").strip()
+                    logger.info("开始 ASR 识别...")
+                    utt = await _transcribe_async(audio_data)
+                    text = utt.text.strip()
+                    if text:                       # 空结果不落盘:不留一场没有段的会话文件
+                        transcript_store.append_utterance(sid, utt)
 
                     logger.info(f"识别结果: '{text}'")
-                    return {"text": text}
+                    return {"text": text, "session_id": sid}
                 else:
                     logger.info("格式不匹配，需要转换")
         else:
@@ -198,15 +231,15 @@ async def speech_to_text(audio: UploadFile = File(...)):
                 logger.info(f"最终格式: {wf.getframerate()}Hz, {wf.getnchannels()}声道, {wf.getsampwidth() * 8}bit")
                 audio_data = wf.readframes(wf.getnframes())
 
-            # 使用 Vosk 识别
-            logger.info("开始Vosk识别...")
-            rec = KaldiRecognizer(vosk_model, SAMPLE_RATE)
-            rec.AcceptWaveform(audio_data)
-            result = json.loads(rec.FinalResult())
-            text = result.get("text", "").strip()
+            # 使用 ASR 识别
+            logger.info("开始 ASR 识别...")
+            utt = await _transcribe_async(audio_data)
+            text = utt.text.strip()
+            if text:
+                transcript_store.append_utterance(sid, utt)
 
             logger.info(f"识别结果: '{text}'")
-            return {"text": text}
+            return {"text": text, "session_id": sid}
         finally:
             if input_path and os.path.exists(input_path):
                 os.unlink(input_path)
@@ -224,14 +257,25 @@ async def speech_to_text(audio: UploadFile = File(...)):
 
 @app.post("/interview/start")
 async def start_interview():
+    global voice_logger
     try:
         interview_assessment.reset()
         first_question = interview_assessment.get_next_question()
-        if first_question:
-            tts_engine.speak(first_question)
-            return {"status": "started", "question": first_question}
-        else:
+        if not first_question:
             raise HTTPException(status_code=500, detail="无法获取问题")
+
+        # 会话id在这里诞生,再由前端显式下传给三个模块(spec D7);NONE 之外无来源。
+        sid = session_mod.new_session_id()
+        transcript_store.ensure_manifest(sid, _asr_meta())
+        # 换个带 id 的 logger:文件名是**构造函数**算的(interview_emotion_log_<sid>.csv),
+        # 事后改 .session_id 只换列、不换文件名 —— 而 session.json 的 expected_file
+        # 记的就是带 id 的名字,不换文件名 refresh_manifest 会把 voice 日志标成 missing。
+        voice_logger = VoiceLogger(log_type='interview', session_id=sid)
+
+        tts_engine.speak(first_question)
+        return {"status": "started", "session_id": sid, "question": first_question}
+    except HTTPException:
+        raise          # 别再包一层:否则 500 会变成"启动面试失败: 500: 无法获取问题"
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"启动面试失败: {str(e)}")
 
@@ -264,8 +308,9 @@ async def submit_answer(request: AnswerRequest):
 
 
 @app.post("/interview/answer_audio")
-async def submit_answer_audio(audio: UploadFile = File(...)):
+async def submit_answer_audio(audio: UploadFile = File(...), session_id: str = None):
     """提交语音回答，自动识别后记录"""
+    sid = session_id or session_mod.NONE_SESSION
     try:
         # 复用 /asr 逻辑
         contents = await audio.read()
@@ -278,20 +323,35 @@ async def submit_answer_audio(audio: UploadFile = File(...)):
                 raise HTTPException(status_code=400, detail="音频格式要求：16kHz, 16bit, 单声道")
             audio_data = wf.readframes(wf.getnframes())
 
-        rec = KaldiRecognizer(vosk_model, SAMPLE_RATE)
-        rec.AcceptWaveform(audio_data)
-        result = json.loads(rec.FinalResult())
-        text = result.get("text", "").strip()
+        utt = await _transcribe_async(audio_data)
+        text = utt.text.strip()
 
         if not text:
             raise HTTPException(status_code=400, detail="未识别到有效语音")
+
+        # 原句只进仓库外那一个 transcript.json;本仓库只留数字(spec D2/D8)
+        transcript_store.append_utterance(sid, utt)
+        # 连接词密度:纯文本层,分母是字数(刻意不含时长,spec D4/D8);过短/空 → None(不写 0)
+        density = connective_density(text)
+        # question_index 与 assessment.save_log 的 enumerate 同为 0 基:回答前 qa_pairs 的长度
+        # 就是这题的下标。
+        question_index = len(interview_assessment.qa_pairs)
+        voice_logger.session_id = sid          # 首列随会话(文件名在 /interview/start 里定)
+        voice_logger.log_prosody(
+            {}, question_index=question_index, emotion="", feedback="",
+            # 整句算一次:一个样本参与,n_rows=1;单个值的标准差按定义为 0.0
+            # (与"没算出来"的 connective_density=None 是两回事,别混)
+            connective_density=density, connective_density_std=0.0, n_rows=1)
 
         interview_assessment.add_answer(text)
         try:
             interview_assessment.save_log()
         except Exception:
             pass
-        return {"status": "success", "recognized_text": text}
+        return {"status": "success", "session_id": sid, "recognized_text": text,
+                "connective_density": density}
+    except HTTPException:
+        raise          # 400 要真的回 400,不能被下面这层包成 500
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"语音回答处理失败: {str(e)}")
 
@@ -398,8 +458,9 @@ async def submit_research_answer(request: AnswerRequest):
 
 
 @app.post("/research/answer_audio")
-async def submit_research_answer_audio(audio: UploadFile = File(...)):
+async def submit_research_answer_audio(audio: UploadFile = File(...), session_id: str = None):
     """提交语音回答，自动识别后记录"""
+    sid = session_id or session_mod.NONE_SESSION
     try:
         contents = await audio.read()
         if not contents.startswith(b'RIFF'):
@@ -411,20 +472,24 @@ async def submit_research_answer_audio(audio: UploadFile = File(...)):
                 raise HTTPException(status_code=400, detail="音频格式要求：16kHz, 16bit, 单声道")
             audio_data = wf.readframes(wf.getnframes())
 
-        rec = KaldiRecognizer(vosk_model, SAMPLE_RATE)
-        rec.AcceptWaveform(audio_data)
-        result = json.loads(rec.FinalResult())
-        text = result.get("text", "").strip()
+        utt = await _transcribe_async(audio_data)
+        text = utt.text.strip()
 
         if not text:
             raise HTTPException(status_code=400, detail="未识别到有效语音")
+
+        # 与面试侧同一条不变量:原句只进仓库外的 transcript,本仓库只留数字。
+        # (连接词密度的特征行只写语音侧那一条日志 —— LOG_PREFIXES 里没有科研侧)
+        transcript_store.append_utterance(sid, utt)
 
         research_assessment.add_answer(text)
         try:
             research_assessment.save_log()
         except Exception:
             pass
-        return {"status": "success", "recognized_text": text}
+        return {"status": "success", "session_id": sid, "recognized_text": text}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"语音回答处理失败: {str(e)}")
 

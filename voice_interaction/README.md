@@ -60,7 +60,7 @@ voice_interaction/
 ## 安装依赖
 
 ```bash
-pip install librosa numpy pandas matplotlib vosk pyaudio
+pip install librosa numpy pandas matplotlib websockets pyaudio
 ```
 
 ## 配置说明

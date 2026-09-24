@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,29 @@ DEFAULT_ROOT = Path.home() / "shared" / "jingxin_recordings"          # D:\Share
 TRANSCRIPT_FILENAME = "transcript.json"        # spec §6.4:一个会话一个文件,累积写
 LOG_PREFIXES = {"face": "face_au_log", "gesture": "gesture_emotion_log",
                 "voice": "interview_emotion_log"}
+
+# 每个 session_id 一把锁,保护 append_utterance 的读-改-写(见 _session_lock)。
+# 放进程内:这个服务是单进程的 uvicorn;若以后多进程/多机部署,这里要换成文件锁。
+_LOCKS: dict[str, threading.Lock] = {}
+_LOCKS_GUARD = threading.Lock()
+
+
+def _session_lock(session_id: str) -> threading.Lock:
+    """取(或建)本会话的写锁。
+
+    `append_utterance` 是「读 json → 追加段 → 原子替换」:两个并发请求读到同一份旧
+    segments 时,后写的会把先写的整个盖掉 —— 丢掉的那次回答在数字报告里看不出来
+    (总段数只是少了一段,不报错),所以必须在写侧按会话串行。加锁粒度是会话:不同
+    会话之间没有共享状态,不必互相等。
+
+    `ensure_manifest` / `refresh_manifest` 不加锁:前者只在会话开始写一次且已存在即
+    返回(幂等),后者只在会话结束写一次,都不在"同一会话并发写"的路径上。
+    """
+    with _LOCKS_GUARD:
+        lock = _LOCKS.get(session_id)
+        if lock is None:
+            lock = _LOCKS[session_id] = threading.Lock()
+        return lock
 
 
 def _root(root: str | Path | None) -> Path:
@@ -85,34 +109,39 @@ def append_utterance(session_id: str, utt, recorded_at: str | None = None,
     `merged` 按全部段重算;`recorded_at` 只由**第一次写入**决定,后续追加不刷新;
     `asr` provenance 块也保留第一次写入的那份。
     任一次识别被 VAD 裂过,整场 `merged.vad_split` 即为 true(累积 OR)。
+
+    整段读-改-写在**本会话的锁**内完成(见 `_session_lock`):同一会话的并发调用
+    (客户端重试 / 重复提交 / `/asr` 与 `/answer_audio` 撞车)必须串行,否则后写的
+    会拿旧快照把先写的那次回答整个盖掉,而且丢得无声无息。
     """
-    p = _transcript_path(session_id, root)
-    existing = json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
+    with _session_lock(session_id):
+        p = _transcript_path(session_id, root)
+        existing = json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
 
-    if existing is None:
-        segments: list[dict[str, Any]] = []
-        vad_split = bool(utt.vad_split)
-        first_recorded_at = recorded_at or datetime.now().astimezone().isoformat(timespec="seconds")
-        asr_meta = _asr_meta()
-    else:
-        segments = existing["segments"]
-        vad_split = bool(existing["merged"]["vad_split"]) or bool(utt.vad_split)
-        first_recorded_at = existing["recorded_at"]
-        asr_meta = existing["asr"]
+        if existing is None:
+            segments: list[dict[str, Any]] = []
+            vad_split = bool(utt.vad_split)
+            first_recorded_at = recorded_at or datetime.now().astimezone().isoformat(timespec="seconds")
+            asr_meta = _asr_meta()
+        else:
+            segments = existing["segments"]
+            vad_split = bool(existing["merged"]["vad_split"]) or bool(utt.vad_split)
+            first_recorded_at = existing["recorded_at"]
+            asr_meta = existing["asr"]
 
-    segments.extend(_segment_records(utt, len(segments)))
-    payload = {
-        "session_id": session_id,
-        "recorded_at": first_recorded_at,
-        "asr": asr_meta,
-        "merged": _merge(segments, vad_split),
-        "segments": segments,
-    }
-    # 先写临时文件再原子替换:read-modify-write 中途崩掉不会毁掉整场既有段
-    tmp = p.parent / (p.name + ".tmp")
-    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(tmp, p)
-    return p
+        segments.extend(_segment_records(utt, len(segments)))
+        payload = {
+            "session_id": session_id,
+            "recorded_at": first_recorded_at,
+            "asr": asr_meta,
+            "merged": _merge(segments, vad_split),
+            "segments": segments,
+        }
+        # 先写临时文件再原子替换:read-modify-write 中途崩掉不会毁掉整场既有段
+        tmp = p.parent / (p.name + ".tmp")
+        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(tmp, p)
+        return p
 
 
 def ensure_manifest(session_id: str, asr_meta: dict[str, Any], root=None) -> Path:

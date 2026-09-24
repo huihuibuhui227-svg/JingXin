@@ -22,7 +22,7 @@
 
 导出是【惰性】的（PEP 562，见 Ruling M1-1）：父包总在任何子模块之前被导入，
 所以这里 eager import 会让 `import voice_interaction.asr.session` 顺带构造
-TTS / vosk / librosa 管线 —— 既慢，又可能因为与被测代码无关的原因失败。
+TTS / sounddevice / librosa 管线 —— 既慢，又可能因为与被测代码无关的原因失败。
 `from voice_interaction import X` 的写法与 `__all__` 保持不变。
 """
 
