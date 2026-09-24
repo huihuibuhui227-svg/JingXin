@@ -18,6 +18,7 @@ tests/test_connective_density.py 里的表守卫测试压着,改表时它会红�
 """
 from __future__ import annotations
 
+import copy
 import json
 from functools import lru_cache
 from pathlib import Path
@@ -29,9 +30,22 @@ _MARKERS_PATH = Path(__file__).with_name("connective_markers.json")
 
 
 @lru_cache(maxsize=1)
-def load_markers(path: str | None = None) -> dict[str, Any]:
-    """读版本化标记表(version / _provisional / basis / markers)。"""
+def _load_markers_cached(path: str | None = None) -> dict[str, Any]:
+    """解析并缓存标记表本体。**私有**:外流的是副本,见 `load_markers`。"""
     return json.loads(Path(path or _MARKERS_PATH).read_text(encoding="utf-8"))
+
+
+def load_markers(path: str | None = None) -> dict[str, Any]:
+    """读版本化标记表(version / _provisional / basis / markers)。
+
+    **交出副本,不是缓存本体。** 这个返回值会被报告路径消费(密度是要进报告的数字),
+    而缓存是进程级的:任何调用方一次就地修改(`table["markers"].append(...)`、
+    `table["version"] = ...`)都会留在缓存里,此后整个进程算出的密度都按被改过的表来
+    —— 值就不再由 `connective_markers.json` 决定,而是由"谁先改过缓存"决定。
+    深拷贝是最省事又最彻底的一层(顶层 dict 与嵌套 list 一并隔离);
+    缓存仍然有效,省掉的是每次读盘+解析,不是这次拷贝。
+    """
+    return copy.deepcopy(_load_markers_cached(path))
 
 
 def connective_density(text: str, markers: list[str] | None = None,

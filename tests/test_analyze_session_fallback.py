@@ -306,6 +306,30 @@ def test_face_rejects_malformed_session_id_with_400(face_env):
     assert list(face_env.iterdir()) == [], "被拒的请求不该落任何文件"
 
 
+def test_face_empty_session_id_is_rejected_not_silently_noned(face_env):
+    """id **给了但内容是空的** → 400,不许静默归 `NONE`(D3)。
+
+    空串与"没给"在客户端那里是两件事:后者是没接会话(正常 → 落 `NONE`),前者是**参数拼
+    错了**(例如 `?session_id=${sid}` 而变量为空)。静默归 `NONE` 之后客户端拿到 200 和一份
+    看着正常的响应,问题只在报告里以"数据对不上"的形式浮出来 —— 与上面那条 `../../x` 是
+    同一条理由。仅空白同理:修复前 `"  "` 会因过不了正则而 400,而 `""` 却是 200 落 `NONE`,
+    同一层里对"客户端给了个空的"存在两种相反说法。
+
+    红在(修复前实测):`_drive_face(session_id="")` 返回 200、落盘 `face_au_log_NONE.csv`
+    → 第一个 `pytest.raises` 不成立。
+    """
+    for raw in ["", "   "]:
+        with pytest.raises(HTTPException) as ei:
+            _drive_face(session_id=raw)
+        assert ei.value.status_code == 400, f"query 里的 {raw!r} 被当成了「没给」"
+
+        with pytest.raises(HTTPException) as ei_form:
+            _drive_face(form_fields={"session_id": raw})
+        assert ei_form.value.status_code == 400, f"表单里的 {raw!r} 被当成了「没给」"
+
+    assert list(face_env.iterdir()) == [], "被拒的请求不该落任何文件"
+
+
 def test_face_accepts_session_id_from_form_field(face_env, monkeypatch):
     """id 放进 multipart **表单字段**也要认(与 voice 端点同形状)—— 审查补的一条。
 
@@ -376,6 +400,24 @@ def test_gesture_rejects_malformed_session_id_with_400(gesture_env):
     with pytest.raises(HTTPException) as ei_form:
         _drive_gesture(form_fields={"session_id": BAD_SID})
     assert ei_form.value.status_code == 400
+    assert list(gesture_env.iterdir()) == [], "被拒的请求不该落任何文件"
+
+
+def test_gesture_empty_session_id_is_rejected_not_silently_noned(gesture_env):
+    """同 face:id 给了但内容是空的 → 400,不许静默归 `NONE`(D3)。
+
+    红在(修复前实测):`_drive_gesture(session_id="")` 返回 200、落盘
+    `gesture_emotion_log_NONE.csv` → 第一个 `pytest.raises` 不成立。
+    """
+    for raw in ["", "   "]:
+        with pytest.raises(HTTPException) as ei:
+            _drive_gesture(session_id=raw)
+        assert ei.value.status_code == 400, f"query 里的 {raw!r} 被当成了「没给」"
+
+        with pytest.raises(HTTPException) as ei_form:
+            _drive_gesture(form_fields={"session_id": raw})
+        assert ei_form.value.status_code == 400, f"表单里的 {raw!r} 被当成了「没给」"
+
     assert list(gesture_env.iterdir()) == [], "被拒的请求不该落任何文件"
 
 

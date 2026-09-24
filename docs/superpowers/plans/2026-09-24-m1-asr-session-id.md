@@ -870,7 +870,7 @@ git -c user.name="huihuibuhui227" -c user.email="huihuibuhui227@gmail.com" commi
 
 ---
 
-### Task 7: 验收门(使用者亲验,≥2 段回答)
+### Task 7: 验收门(使用者亲验,≥5 段回答)
 
 **Files:** 无(运行手册);产出 `~/shared/jingxin_recordings/{session_id}/` 与 `data/logs/` 下的三份日志
 
@@ -890,7 +890,15 @@ SID=$(~/miniconda3/envs/jingxin/bin/python -c "import json;print(json.load(open(
 echo "session_id=$SID"
 ```
 
-- [ ] **Step 3: 录 **≥2 段**回答**(第二段关键:`_std` 只有一个样本时为 0,证据门 G2 会判「本次会话内无变化」—— 这是设计使然)
+- [ ] **Step 3: 录 **≥5 段内容各不相同**的回答**
+
+  两个门槛是**两件事**(见 spec §6.5),别混:
+  - **G2** 只要求「会话内有变异」→ 第 2 段起即可满足(`_std` 只有一个样本时为 0,
+    会被判「本次会话内无变化」—— 设计使然);
+  - **G3** 是**样本量门槛 = 5**(本指标每段回答一个样本,而题库只有 8 题,默认的 10 不可达)
+    → **答满 5 段**该槽才会过门出分。低于 5 段被拦下不是 bug。
+
+  8 段回答**内容必须不同**:同一段音频重复提交 → 每行密度相同 → `_std = 0` → G2 拦下。
 
 ```bash
 curl -s -X POST "http://127.0.0.1:8001/interview/answer_audio?session_id=$SID" -F "audio=@/path/ans1.wav"
@@ -917,6 +925,6 @@ grep -rn "$SID" --include="*.csv" --include="*.json" . | grep -v data/logs | wc 
 
 ## 自查记录(写计划时对本 spec 逐条对照)
 
-- **覆盖**:spec §5 组件表每一项都有任务(engine→T1;density→T2;三个 logger→T3;voice 端点 + vosk 拆除→T4;face/gesture→T5;报告侧三处→T6);§6 契约(session_id 格式/端点/日志/transcript/density)→ T1+T3+T4;§8 错误处理表 → T1(异常上抛)+ T2(过短不出值)+ T4(空文本 400);§9 五条未满足项与风险 → T4(置信度字段写 null)、spec 保留、验收门看 ≥2 段;§10 测试 → T1–T6;§10 验收门 → T7。
+- **覆盖**:spec §5 组件表每一项都有任务(engine→T1;density→T2;三个 logger→T3;voice 端点 + vosk 拆除→T4;face/gesture→T5;报告侧三处→T6);§6 契约(session_id 格式/端点/日志/transcript/density)→ T1+T3+T4;§8 错误处理表 → T1(异常上抛)+ T2(过短不出值)+ T4(空文本 400);§9 五条未满足项与风险 → T4(置信度字段写 null)、spec 保留、验收门看 ≥5 段;§10 测试 → T1–T6;§10 验收门 → T7。
 - **已修正的 spec 错误**:`whitelist_Cplus.json` 不存在 → 该项已从 M1 移除;`density` 量程需随新定义更新 → 补进 spec §6.5 与 T6。
 - **类型一致性**:`AsrUtterance` 字段名在 T1/T4 一致;`connective_density()` 的 `None` 语义在 T2/T4/T6 一致(过短不出值,不写 0);`NONE_SESSION` 三处同值由 T3 的文本级测试守住。

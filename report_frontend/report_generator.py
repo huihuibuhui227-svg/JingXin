@@ -22,6 +22,39 @@ def _interval_text(interval) -> str:
     return f"{interval[0]} – {interval[1]}"
 
 
+# 模态键 → 报告里给人看的名字(键名来自 data_loader 的统一化,见那边的 key 映射)。
+_MODALITY_LABELS = {
+    "face": "面部",
+    "gesture": "手势",
+    "voice_interview": "语音（面试）",
+    "voice_research": "语音（科研）",
+}
+
+
+def sources_disclosure(sources: Dict[str, str]) -> str:
+    """披露「这份报告是哪些日志装配的」:逐模态点名,并标明是否同场。
+
+    为什么这一行是**必须**的:三个模态各自按文件名时间戳取最新,而某个模态本场没产出时
+    (验收配置下 gesture 服务起不来),报告会把**本场的 face+voice** 与**上一场的 gesture**
+    静默配在一起。选择策略(按 id 选、不匹配回 409)是 M2 的事;但**披露**很便宜,而且它是
+    让"策略还没修"这件事**可见**的那一步 —— 没有它,那个缺陷在报告里是隐形的。
+
+    措辞刻意两态都给足:同场也要说"同场",否则读者无法区分"检查过且一致"与"根本没检查"。
+    """
+    if not sources:
+        return "本报告没有装配任何模态日志。"
+
+    listed = "；".join(f"{_MODALITY_LABELS.get(k, k)} · {v}"
+                       for k, v in sorted(sources.items()))
+    if len(set(sources.values())) == 1:
+        verdict = "以上模态来自<strong>同一场会话</strong>。"
+    else:
+        verdict = ('<strong style="color:#A23B72;">⚠️ 以上模态来自不同的会话</strong>'
+                   ' —— 本报告装配在一起的多模态并非同一场面试，'
+                   '请勿把它们当作同一场次的观测。')
+    return f"数据来源：{listed}。{verdict}"
+
+
 class ReportGenerator:
     """
     行为观测报告生成器
@@ -62,7 +95,9 @@ class ReportGenerator:
             chart_paths = viz.generate_all_charts(result, df_face=data['face'])
             static_images = self._scan_static_images()
 
-            html_content = self._build_html_report(result, chart_paths, features, data, static_images)
+            html_content = self._build_html_report(result, chart_paths, features, data,
+                                                   static_images,
+                                                   sources=loader.selected_sessions)
 
             with open(report_path, 'w', encoding='utf-8') as f:
                 f.write(html_content)
@@ -104,7 +139,11 @@ class ReportGenerator:
             chart_paths = viz.generate_all_charts(result, df_face=data.get('face'))
             static_images = self._scan_static_images()
 
-            html_content = self._build_html_report(result, chart_paths, features, data, static_images)
+            # 实时路径的模态是**按这一个人的 session_id 去内存里取的**,不存在"每模态取最新"
+            # 那种跨场拼接;所以来源就是这一个 id(逐个列出真正取到数据的模态)。
+            html_content = self._build_html_report(result, chart_paths, features, data,
+                                                   static_images,
+                                                   sources={k: session_id for k in data})
 
             with open(report_path, 'w', encoding='utf-8') as f:
                 f.write(html_content)
@@ -185,7 +224,8 @@ class ReportGenerator:
 
     def _build_html_report(self, result: Dict[str, Any], chart_paths: Dict[str, Any],
                            features: Dict[str, Any], data: Dict[str, pd.DataFrame],
-                           static_images: List[str]) -> str:
+                           static_images: List[str],
+                           sources: Optional[Dict[str, str]] = None) -> str:
 
         def get_chart_iframe(path, height="500"):
             if not path or not os.path.exists(path): return '<div class="placeholder">图表缺失</div>'
@@ -251,6 +291,10 @@ class ReportGenerator:
                     <div>基于多模态行为量的结构化观测</div>
                     <div style="margin-top:10px; font-size:0.9em; opacity:0.8;">
                         {datetime.now().strftime("%Y-%m-%d %H:%M")} | {result['model_metadata']['version']}
+                    </div>
+                    <!-- 本报告由哪些日志装配(I4):跨场拼接必须让读者看得见 -->
+                    <div style="margin-top:8px; font-size:0.85em; opacity:0.95;">
+                        {sources_disclosure(sources or {})}
                     </div>
                 </header>
 

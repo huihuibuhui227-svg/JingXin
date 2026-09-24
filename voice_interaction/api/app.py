@@ -28,7 +28,8 @@ from voice_interaction.utils.logger import VoiceLogger
 from voice_interaction.asr import session as session_mod, transcript_store
 from voice_interaction.asr.connective_density import connective_density
 from voice_interaction.asr.funasr_engine import load_config
-from voice_interaction.asr.transcript_store import validate_session_id
+from voice_interaction.asr.transcript_store import (normalize_session_id,
+                                                    validate_session_id)
 # 转写缝:引擎只由 asr/transcribe.py 持有,这里按名字取那一层转发(不直接摸引擎)。
 # 换引擎(测试/验收)只需动那一个模块,不必碰本文件。
 from voice_interaction.asr.transcribe import log_recognition
@@ -106,17 +107,17 @@ async def _resolve_session_id(request: Request, session_id: str | None) -> str:
     校验也在这一步:先 `validate_session_id`(store 的公开守卫,id 会当目录名用),
     非法的 id 直接 400 —— 不必先花一次识别的时间再让它 500。
     """
-    if not session_id:
+    # 只认「参数不存在」为没给;给了空串也算**给了**,交给守卫判非法(见 normalize_session_id)
+    if session_id is None:
         try:
             form = await request.form()
         except Exception:            # 不是表单请求 / 体已损坏 → 当作没给
             form = None
-        if form is not None:
-            value = form.get("session_id")
-            if isinstance(value, str) and value:
-                session_id = value
+        # 用 `in` 而不是 `if value`:表单里给了空串与 query 同口径(给了 → 判非法)
+        if form is not None and "session_id" in form:
+            session_id = form.get("session_id")
     try:
-        return validate_session_id(session_id or session_mod.NONE_SESSION)
+        return validate_session_id(normalize_session_id(session_id))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

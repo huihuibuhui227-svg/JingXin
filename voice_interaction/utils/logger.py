@@ -104,7 +104,14 @@ class VoiceLogger:
             n_rows: 参与密度计算的句数
 
         返回:
-            是否成功写入
+            True(写入成功)。**写不进去则抛出**,不返回 False —— 见下。
+
+        为什么失败必须抛出(用户裁定,最终审查 D2):唯一调用点
+        (`voice_interaction/api/app.py` 的 `/interview/answer_audio`)**丢弃返回值**,
+        所以 `return False` 等于"什么都没发生":客户端拿到 200 和一份看着正常的响应,
+        而报告侧那一行**凭空消失** —— 不出错、不留痕,只是有效样本量悄悄少一个。
+        这正是 M1 要杀的诚实轴,而且发生在 M1 自己造的那个槽上(连接词密度)。
+        抛出之后,端点的 `except Exception → HTTPException(500)` 会把它变成 500。
         """
         try:
             now = datetime.now()
@@ -140,10 +147,12 @@ class VoiceLogger:
             return True
 
         except Exception as e:
+            # 打印留着(排障要看得见),但**不再把异常吃掉**:`raise` 原样上抛,
+            # 由端点映射成 500。返回值不再承担"成功/失败"的语义。
             print(f"❌ 语音特征日志记录失败: {e}")
             import traceback
             traceback.print_exc()
-            return False
+            raise
 
     def log_assessment(
             self,

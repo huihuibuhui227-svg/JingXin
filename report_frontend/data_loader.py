@@ -43,6 +43,12 @@ class LogDataLoader:
 
         print(f"✅ 日志根目录已定位：{self.log_dir}")
 
+        # 本轮真正加载到的模态 → 那个文件自报的 session_id。选择策略本身仍是"每模态取最新"
+        # (按文件名时间戳,不看这一列;按 id 选是 M2 的事),这里只把它**交出来** ——
+        # 报告头据此披露"这份报告由哪些日志装配而成"。在这之前,加载器算出的 session_id
+        # 唯一的消费者是两处 `print()`,于是跨场拼接在报告里是隐形的。
+        self.selected_sessions: Dict[str, str] = {}
+
         # 正则表达式匹配文件名。**两种形态都接受**,报告侧只认文件名里的时间戳
         # (不读 mtime、不读内容、也不读 session_id 列):
         #   旧形态  {type}_{desc}_log_{YYYYMMDD}_{HHMMSS}.csv              —— 历史日志
@@ -138,6 +144,9 @@ class LogDataLoader:
         print(f"🚀 开始加载 {len(selected_files)} 个模态数据...")
 
         data_frames = {}
+        # 与 data_frames 同步重置:只记**真正读出来**的模态,重复调用也不累积上一次的结果
+        # (一个被选中却读不出来的文件不该出现在"数据来源"里 —— 那比不说还坏)。
+        self.selected_sessions = {}
 
         for item in selected_files:
             modality = item['modality']
@@ -164,6 +173,7 @@ class LogDataLoader:
                 df = self._normalize_dataframe(df)
 
                 data_frames[key] = df
+                self.selected_sessions[key] = file_info['session_id']
                 print(f"   📥 [{key.upper()}] 加载成功：{len(df)} 行，{len(df.columns)} 列")
 
                 # 打印关键列预览

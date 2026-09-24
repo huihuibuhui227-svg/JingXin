@@ -12,6 +12,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .session import NONE_SESSION
+
 DEFAULT_ROOT = Path.home() / "shared" / "jingxin_recordings"          # D:\Shared\jingxin_recordings
 TRANSCRIPT_FILENAME = "transcript.json"        # spec §6.4:一个会话一个文件,累积写
 LOG_PREFIXES = {"face": "face_au_log", "gesture": "gesture_emotion_log",
@@ -36,6 +38,21 @@ def validate_session_id(session_id: str) -> str:
             f"非法 session_id: {session_id!r} —— 只允许字母/数字/下划线/连字符,1–128 位"
             f"(它是目录名,不接受路径分隔符与 '..')")
     return session_id
+
+
+def normalize_session_id(raw: str | None) -> str:
+    """把「客户端给的原始 id」规范化:**只有"参数没给"算没给**。
+
+    与 `validate_session_id`(什么算非法)是**分工**,不是两层各判一次:
+      * `None`(参数不存在 / 表单里没这个键)→ `NONE`,这是无会话客户端的正常路径;
+      * 给了但内容是空的(`""` / `"  "`)→ **原样交出,由守卫判非法 → 400**。
+
+    为什么空串不"顺手归 NONE":空串与"没给"在客户端那里是两件事 —— 后者是没接会话,
+    前者是**参数拼错了**(例如 `?session_id=${sid}` 而 sid 为空)。静默归进 `NONE` 之后
+    客户端拿到的是 200 和一份看着正常的响应,问题只在报告里以"数据对不上"的形式浮出来。
+    三份副本(voice/face/gesture)由 tests/test_session_id_normalization.py 压着逐字相同。
+    """
+    return NONE_SESSION if raw is None else raw
 
 
 # 每个 session_id 一把锁,保护 append_utterance 的读-改-写(见 _session_lock)。

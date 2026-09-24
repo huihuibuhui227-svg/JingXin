@@ -76,6 +76,21 @@ def validate_session_id(session_id: str) -> str:
                f"（它会进日志文件名，不接受路径分隔符与 '..'）")
 
 
+def normalize_session_id(raw: str | None) -> str:
+    """把「客户端给的原始 id」规范化:**只有"参数没给"算没给**。
+
+    与 `validate_session_id`(什么算非法)是**分工**,不是两层各判一次:
+      * `None`(参数不存在 / 表单里没这个键)→ `NONE`,这是无会话客户端的正常路径;
+      * 给了但内容是空的(`""` / `"  "`)→ **原样交出,由守卫判非法 → 400**。
+
+    为什么空串不"顺手归 NONE":空串与"没给"在客户端那里是两件事 —— 后者是没接会话,
+    前者是**参数拼错了**(例如 `?session_id=${sid}` 而 sid 为空)。静默归进 `NONE` 之后
+    客户端拿到的是 200 和一份看着正常的响应,问题只在报告里以"数据对不上"的形式浮出来。
+    三份副本(voice/face/gesture)由 tests/test_session_id_normalization.py 压着逐字相同。
+    """
+    return NONE_SESSION if raw is None else raw
+
+
 async def _resolve_session_id(request: Request, session_id: str = None) -> str:
     """取本次请求的会话 id：query 参数 `session_id` 或 multipart **表单字段**同名键。
 
@@ -91,16 +106,16 @@ async def _resolve_session_id(request: Request, session_id: str = None) -> str:
 
     校验放在两个来源**合并之后**：表单字段来的 id 与 query 来的一样要过守卫。
     """
-    if not session_id:
+    # 只认「参数不存在」为没给;给了空串也算**给了**,交给守卫判非法(见 normalize_session_id)
+    if session_id is None:
         try:
             form = await request.form()
         except Exception:            # 不是表单请求 / 体已损坏 / multipart 解析器不在 → 当作没给
             form = None
-        if form is not None:
-            value = form.get("session_id")
-            if isinstance(value, str) and value:
-                session_id = value
-    return validate_session_id(session_id or NONE_SESSION)
+        # 用 `in` 而不是 `if value`:表单里给了空串与 query 同口径(给了 → 判非法)
+        if form is not None and "session_id" in form:
+            session_id = form.get("session_id")
+    return validate_session_id(normalize_session_id(session_id))
 
 
 def get_or_create_analyzers(session_id: str):

@@ -417,3 +417,89 @@ T6 报 `_default_n_valid = 10`;控制器**逐项核实**:
 - **Ruling M1-14(下达于 T4 派发词,当时未落账,2026-09-24 补记):** brief 让把转写接缝 `_transcribe` + 模块级 `asr_engine` 放进 `voice_interaction/api/app.py`,而它的测试要 `importlib.import_module("voice_interaction.api.app")` —— **那会在 import 时构造 TTS 与评估管线**。裁定:**接缝放进轻模块 `voice_interaction/asr/transcribe.py`**,测试只 import 它。 — 若判断错,代价 = 多一个小文件;反向代价 = 那条测试拖着重依赖跑,且可能因无音频设备而失败。(已由 T4 落地:`api/app.py:33` 以 `from voice_interaction.asr.transcribe import transcribe as _transcribe` 引入。)
 
 **裁决编号说明:** M1-1 … M1-29 中,**M1-24、M1-25 未使用**(编号在写 T5/T6 派发前被 M1-26/M1-27 占用,故跳号)。清单以本账本中实际出现者为准。
+
+## 最终全分支审查(opus,`1e53c131..d70cf46`,18 提交)—— 判 **With fixes**
+
+审查者自己跑了:整套 `150 passed` 复核、**两处 loader→engine→mapper 复现**、一处产物选择复现、以及 vosk/文本落盘路径的 grep 扫查。
+
+### C1(Critical,必须修)—— **报告会加载一个"只有表头"的旧产物,而不是 M1 的会话日志 → T7 的核心判据不可能通过**
+
+`assessment_pipeline.save_log()` 在**每次** `/interview/answer_audio` 都写 `data/logs/interview/interview_emotion_log_<时间戳>.csv`,而**经 API 走时它永远是空表头**(只有两个 `examples/` 脚本才填 prosody);它的时间戳是**回答时刻**,必然晚于会话开始 → 在"每模态取最新"里**永远胜出** → 加载器丢掉空帧 → `voice_interview` 根本到不了 feature_engine → 「连接词密度」渲染成「未采集到对应数据」。
+
+**两个方向都复现过:** 带上该产物 → `MODALITIES LOADED: {'face'}`;去掉 → `连接词密度 3.6667 → 0.37, n_valid 6, interval [2.59, 4.75], coverage 1/20`(正是 T7 期望的形态)。**根因预先存在**(同样的"遮蔽"形态早就有),但 T6 那轮只修了正则那一半;T6 复审的反向复现把会话日志**单独**放进临时目录,所以这个碰撞**看不见** —— **这是唯一一个任务级审查结构上看不到的集成缝。** 注意:该产物**每次调用都会重建**,删文件不是修法。
+
+### Important(全部并入修复波次)
+
+- **I1 有效样本量夸大了它所标注的值**:`n_valid` 对所有指标都取模态行数;密度列里"回答过短 → 空值 → 被 dropna"的行**照样计入**。复现:20 行只有 3 行有值 → 报告印 **有效样本量 20** 而均值只来自 3(且一个几乎全空的日志能靠"不携带任何值的行"越过 G3 的 5)。→ 改为优先取该指标自己的 `<base>_sample_size`。**这正是 M1 要修的诚实轴,而且在 M1 自己造的那个槽上。**
+- **I2 `/asr` 把识别出的句子写进了仓库**:`logger.info(f"识别结果: '{text}'")`,`logging_config.py` 把 handler 装到**仓库内**的 `data/logs/jingxin.log`(INFO,10 MB × 5)。→ M1 刚搬出仓库的文本又落回来了,而 T7 的核对正是 `grep -rn "<短语>" ~/jingxin → 0`。→ 改为记录长度/哈希,并全包扫一遍其他文本落盘点。
+- **I3 文档之间就验收门互相矛盾**:spec §10/§9.4 与计划 T7 仍写「≥2 段」,而门槛已是 **5**(M1-28)。→ 改文档,并把门槛理由移到 spec §6.5 的 `min_chars_for_density` 旁边。
+- **I4 报告从不说明它描述的是哪一场会话**:表头只有生成时间,三个模态各自按文件名时间戳选 —— gesture 服务已死(正是验收的配置)时,报告会把**本场的 voice+face 与上一场的 gesture 配在一起**,而读者毫无提示。裁定 M1-22 已把**选择策略**推给 M2,但**披露**只有一行:把三个被选中的 session id 打进报告表头(并标明是否一致)。
+
+### 审查者对"三条核心主张是否有测试守得住"的结论
+
+- **(i) 三份日志按 id 可 join —— 部分**:首列/文件名/NONE 常量/四形态都有测试,但**"join 本身"没有测试**(spec §10 自己列了这条契约测试),且**没有任何消费者会去读那一列**;所以套件是绿的,而 (i) 目前只等于"id 被写下来了"。
+- **(ii) 原句不进仓库 —— 大体成立,但有 I2 这个洞**:生产默认路径的不变量有测试且经变异证明,穿越守卫有端点级 22/22;但**没有任何测试看着 logging 那条路**。
+- **(iii) 报告里的密度是测出来的 —— 在它测的那一层里确实强**(静态扫描 + 行为断言 + 真实列名端到端 + 量程 + 门槛消费路径都钉住了);**结构性盲点是:所有密度测试都从 `LogDataLoader` 之后开始** —— 而那正是 C1 所在之处。
+- **共因**:没有任何测试 import `voice_interaction.api.app`(计划的有意决定),所以四处识别点、`_resolve_session_id`、`logger` 交换、`answer_audio` 里的密度写入**在本环境完全没有自动化覆盖** —— 这正是 C1 与 I2 能活过六轮任务审查的原因。验收门是它们唯一的验证。
+
+### triage(审查者给的)
+
+- **合并前**:C1、I1、I3;外加 `load_markers()` 交出的可变缓存、`log_prosody` 吞异常且返回值被丢(这两条标"验收前")。
+- **可现在就做(便宜、无策略成分)**:I4 的表头披露。
+- **M2/M3**:选择策略本身、409 契约、gesture 启动、NONE 轮转、空串口径、`text_avg_length` 无产出方、`_LOCKS` 不清理、ffmpeg 阻塞循环、face static 分支无测试、AST 守卫不扫 `face_expression/utils/logger.py`。
+- **人类裁量**:`requirements-full.txt` 新入 git;名称统一(旧文档的「话语标记使用率」)。
+- **建议 #5(已并入 C1 的修法)**:补一条**从 `LogDataLoader` 开始的真实 `data/logs/` 端到端测试**(会话日志 + 遮蔽产物 + NONE + 旧形态)—— "这条分支的四次大意外里有三次会被它抓到"。
+
+### 审查者的验收判据(我据此更新 T7 清单)
+
+(a) 跑报告时**加载器打印的是会话日志**(`[INTERVIEW] 选中最新文件：interview/interview_emotion_log_<SID>.csv`),**不是** `data/logs/interview/…` 那个产物;(b)「话语结构特征」渲染出「连接词密度」+ 原始值/本场区间/有效样本量并**过门**(覆盖 1/20、无分数无评级);(c) `grep -rn "<transcript 里的独特短语>" ~/jingxin` → **0**(而且若也碰过 `/asr`,那边也要 0);(d) 三份日志首列都等于 `$SID`。
+
+**最终修复波次已派(一次派发,含 C1+I1+I2+I3+I4 + 两条折叠的 deferred + 空串口径)**。
+
+## 修复波次的落地与收尾(2026-09-24 晚)
+
+派发后先落了 3 条(各带新测试文件):C1 → `6adda51`(+`tests/test_artifact_shadowing.py`,含建议 #5
+那条真实 `data/logs/` 端到端);I1 → `4106bab`(+`test_sample_size_honesty.py`);I2 → `234f817`
+(+`test_asr_log_privacy.py`)。**I3 只改了一半且未提交,I4 与两条 deferred 未做** —— 收尾如下。
+
+**使用者裁定:** ① D2(`log_prosody` 写失败)**报错**,不静默;② face 与 gesture **一起修**;
+③ M2 取**最小闭环**(按 `session_id` 选 + 披露 + 给 `refresh_manifest` 真消费者)。
+
+| 项 | 落地 | 测试 | 反向复现 |
+|---|---|---|---|
+| **I3** | 文档口径收尾:`specs/…design.md` §10 与 `plans/…m1-asr-session-id.md` T7 的「≥2 段」→「≥5 段」,并把 G2/G3 两个门槛分开写清。**账本里那几处历史记录不改**(那是 M1-28 裁决与更正的痕迹,改了等于篡改账本) | 无(docs) | grep 残留只剩"解释性"与账本历史 |
+| **I4** | `data_loader` 交出 `selected_sessions`(与 `data_frames` 同步重置,只记**真正读出来**的模态);`report_generator.sources_disclosure()` 逐模态点名 + 标明是否同场;两个 `generate_report*` 都传进表头。实时路径的来源=请求的那个 id(它按 id 取内存,不存在跨场拼接) | `tests/test_report_sources.py`(6) | 抽掉两行接线 → **4 红**(纯函数 2 条仍绿,符合预期) |
+| **D1** | `load_markers()` 交出**深拷贝**,缓存本体不再外流(私有 `_load_markers_cached`) | `tests/test_marker_table_immutable.py`(2) | 修复前实测 2 红 |
+| **D2** | `log_prosody` 的 `except` 保留打印但改为 `raise`(返回值不再承担成功/失败语义);端点原有的 `except Exception → 500` 接住 | `tests/test_prosody_write_failure.py`(2) | 修复前实测 `DID NOT RAISE` |
+| **D3** | 新具名函数 `normalize_session_id`(三份副本):**`None`=没给→`NONE`;给了但空/仅空白=坏输入→400**。方向取"响亮失败"那一侧,依据是 face/gesture 守卫文档里自己写的原则 | `tests/test_session_id_normalization.py`(5)+ 端点级 2 | 撤掉两个 app 的改动 → **2 红**,日志打出 `session=NONE` + 落盘 `*_NONE.csv` |
+
+**D3 的方向不是"都归 NONE"**:空串与"没给"在客户端那里是两件事(后者没接会话,前者参数拼错)。
+静默归 NONE 之后客户端拿到 200 和一份看着正常的响应,问题只在报告里以"数据对不上"浮出来 ——
+那正是守卫文档里已经写下的反对理由。
+
+**测试账**:160 → **177 passed**(+17)。合并门复核:**0 / 2835510**(与改动前基线一致)。
+
+**本轮新发现(不在原 triage 里,记档)**:
+
+1. **`face_expression` 与 gesture 一样被 mediapipe 1.0 打死,但坏法不同** —— gesture 在
+   `gesture_analysis/api/app.py:42-46` **模块导入时**取 `mp.solutions` → 进程直接死;
+   face 的 `VideoPipeline.face_mesh` 是**惰性属性**(`pipeline/video_pipeline.py:33-41`),
+   启动不碰它 → 服务"起来了"、`/health` 正常,而**每个 `/analyze` 静默 500**。
+   实测:`hasattr(mp,'solutions') → False`;直接调 `VideoPipeline.process_frame()` →
+   `AttributeError`。后果:`data/logs/` 里**永远不会出现** `face_au_log_<sid>.csv`。
+   **spec §2 的 T7 前置只提了 gesture,把 face 当成可用的 —— 这一条要改,T7 的判据
+   「face/voice 两份日志」在现环境不可能通过。** 使用者已裁定:face 与 gesture **一起修**。
+2. **voice 服务是进程级单例,不是按会话**(`voice_interaction/api/app.py:57-59` 的
+   `interview_assessment` / `research_assessment` / `voice_logger` 都不带 sid,
+   `:307` 处被整体覆盖);`/session/{sid}/summary` 自己在 `:426-428` 承认。两会话并发会
+   互相污染 —— 比 §3 第 9 项那个"409 契约"严重一档,单列。
+3. **`session_id` 的读侧仍不存在**:`grep session_id` 在 `feature_engine` / `research_mapper`
+   / `visualizer` / `evidence_gate` → **零命中**;`data_loader.py` 那个 sid 是从**文件名正则
+   反推**的(不读 CSV 列、不读 `session.json`);`refresh_manifest`(`transcript_store.py:185`)
+   是唯一会做 `expected → present/missing` 对账的代码,**零生产调用方** —— `session.json`
+   的 `expected_file` 至今只是"声称"。I4 把"选了谁"披露出来了,但**按 id 选**仍是 M2。
+4. **`api/app.py:386-389` 还有一处同类吞异常**:`try: interview_assessment.save_log()
+   except Exception: pass` —— 与本轮 D2 同形,**未在裁定范围内**,未改,记档。
+5. 本轮我自己踩的一个测试设计坑:`I4` 的集成断言最初用裸词「不同」判跨场,而报告别处本来就有
+   「不同指标的量纲无法折算为同一尺度」→ 近乎恒真。改用只属于披露段的句子「并非同一场面试」。
+   (同一家族:断言必须能说出"哪个生产改动会让它变红"。)
