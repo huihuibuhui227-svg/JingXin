@@ -29,6 +29,32 @@ def _manifest_path(session_id: str, root=None) -> Path:
     return recording_dir(session_id, root) / "session.json"
 
 
+def _transcript_path(session_id: str, root=None) -> Path:
+    return recording_dir(session_id, root) / f"transcript_{session_id}.jsonl"
+
+
+def append_utterance(session_id: str, utt, recorded_at: str | None = None,
+                     root: str | Path | None = None) -> Path:
+    """把一段识别结果【追加】到仓库外的 transcript jsonl,返回该文件路径。
+
+    追加而非重写:会话中途崩溃也留得住已经识别出来的内容。
+    每行一条 JSON:recorded_at / text / n_chars / n_segments / vad_split / segments。
+    """
+    p = _transcript_path(session_id, root)
+    record = {
+        "recorded_at": recorded_at or datetime.now().isoformat(timespec="seconds"),
+        "session_id": session_id,
+        "text": utt.text,
+        "n_chars": utt.n_chars,
+        "n_segments": utt.n_segments,
+        "vad_split": utt.vad_split,
+        "segments": utt.segments,
+    }
+    with p.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    return p
+
+
 def ensure_manifest(session_id: str, asr_meta: dict[str, Any], root=None) -> Path:
     """会话开始时写一次;已存在则不覆盖(保留 started_at 与既有 logs 状态)。"""
     p = _manifest_path(session_id, root)
