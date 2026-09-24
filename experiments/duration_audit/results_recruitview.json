@@ -1,0 +1,407 @@
+{
+  "n_samples": 2011,
+  "n_features": 1410,
+  "dead_features": 169,
+  "dead_examples": [
+    "face.au10_upper_lip_raise_change_rate_min",
+    "face.au10_upper_lip_raise_min",
+    "face.au10_upper_lip_raise_volatility_min",
+    "face.au12_smile_change_rate_min",
+    "face.au12_smile_min",
+    "face.au12_smile_volatility_min",
+    "face.au14_dimpler_change_rate_max",
+    "face.au14_dimpler_trend_max"
+  ],
+  "effective_dims": {
+    "50%": 14,
+    "80%": 80,
+    "90%": 163,
+    "95%": 249
+  },
+  "duration_vs_targets": {
+    "open": -0.3665,
+    "consc": -0.2953,
+    "extra": -0.2946,
+    "agree": -0.3321,
+    "neuro": 0.1629,
+    "ov_pers": -0.3475,
+    "interv": -0.3486,
+    "answer": -0.3706,
+    "speak": -0.3294,
+    "confid": -0.3211,
+    "facial": -0.3284,
+    "ov_perf": -0.3675
+  },
+  "quality_vs_targets": {
+    "open": -0.008,
+    "consc": -0.0419,
+    "extra": -0.0016,
+    "agree": -0.0139,
+    "neuro": -0.0245,
+    "ov_pers": -0.0273,
+    "interv": -0.0116,
+    "answer": -0.0164,
+    "speak": -0.0253,
+    "confid": -0.0336,
+    "facial": -0.0179,
+    "ov_perf": -0.0283
+  },
+  "cv_macro_r_duration_only": 0.2561,
+  "cv_macro_r_full": 0.393,
+  "cv_per_target": {
+    "duration_only": [
+      0.2993,
+      0.2039,
+      0.222,
+      0.2652,
+      0.1071,
+      0.2765,
+      0.2913,
+      0.3328,
+      0.2711,
+      0.252,
+      0.2567,
+      0.2954
+    ],
+    "full": [
+      0.4163,
+      0.3553,
+      0.3804,
+      0.395,
+      0.2594,
+      0.4155,
+      0.4166,
+      0.4458,
+      0.3976,
+      0.4134,
+      0.3914,
+      0.4297
+    ]
+  },
+  "partial_correlations": {
+    "openness": [
+      {
+        "feature": "face.head_pitch_volatility_volatility",
+        "raw_r": -0.388,
+        "partial_r": -0.1435
+      },
+      {
+        "feature": "face.head_pitch_trend_volatility",
+        "raw_r": -0.387,
+        "partial_r": -0.1405
+      },
+      {
+        "feature": "face.au9_nose_wrinkle_trend_start_avg",
+        "raw_r": 0.3868,
+        "partial_r": 0.1452
+      },
+      {
+        "feature": "face.head_pitch_volatility_mean",
+        "raw_r": 0.3858,
+        "partial_r": 0.1459
+      },
+      {
+        "feature": "face.au9_nose_wrinkle_change_rate_std",
+        "raw_r": 0.3844,
+        "partial_r": 0.1466
+      }
+    ],
+    "conscientiousness": [
+      {
+        "feature": "face.head_pitch_volatility_volatility",
+        "raw_r": -0.3128,
+        "partial_r": -0.1129
+      },
+      {
+        "feature": "face.au9_nose_wrinkle_change_rate_std",
+        "raw_r": 0.3126,
+        "partial_r": 0.1209
+      },
+      {
+        "feature": "face.au7_eye_squeeze_volatility_std",
+        "raw_r": 0.3123,
+        "partial_r": 0.1217
+      },
+      {
+        "feature": "face.au9_nose_wrinkle_trend_start_avg",
+        "raw_r": 0.3104,
+        "partial_r": 0.1111
+      },
+      {
+        "feature": "face.head_pitch_trend_volatility",
+        "raw_r": -0.3097,
+        "partial_r": -0.1011
+      }
+    ],
+    "extraversion": [
+      {
+        "feature": "face.au7_eye_squeeze_volatility_std",
+        "raw_r": 0.3181,
+        "partial_r": 0.1344
+      },
+      {
+        "feature": "face.au14_dimpler_volatility_start_avg",
+        "raw_r": 0.3178,
+        "partial_r": 0.1593
+      },
+      {
+        "feature": "face.au9_nose_wrinkle_change_rate_std",
+        "raw_r": 0.3172,
+        "partial_r": 0.1315
+      },
+      {
+        "feature": "face.head_pitch_trend_mean",
+        "raw_r": -0.3164,
+        "partial_r": -0.1498
+      },
+      {
+        "feature": "face.head_pitch_trend_volatility",
+        "raw_r": -0.3135,
+        "partial_r": -0.1214
+      }
+    ],
+    "agreeableness": [
+      {
+        "feature": "face.au7_eye_squeeze_volatility_std",
+        "raw_r": 0.3645,
+        "partial_r": 0.1653
+      },
+      {
+        "feature": "face.au14_dimpler_volatility_start_avg",
+        "raw_r": 0.3611,
+        "partial_r": 0.1862
+      },
+      {
+        "feature": "face.au9_nose_wrinkle_volatility_start_avg",
+        "raw_r": 0.3579,
+        "partial_r": 0.1606
+      },
+      {
+        "feature": "face.head_pitch_trend_mean",
+        "raw_r": -0.3538,
+        "partial_r": -0.1665
+      },
+      {
+        "feature": "face.au9_nose_wrinkle_change_rate_std",
+        "raw_r": 0.3528,
+        "partial_r": 0.1405
+      }
+    ],
+    "neuroticism": [
+      {
+        "feature": "face.head_pitch_volatility_mean",
+        "raw_r": -0.1953,
+        "partial_r": -0.1103
+      },
+      {
+        "feature": "face.au6_cheek_raise_change_rate_std",
+        "raw_r": -0.1943,
+        "partial_r": -0.1336
+      },
+      {
+        "feature": "face.au14_dimpler_change_rate_std",
+        "raw_r": -0.1929,
+        "partial_r": -0.1366
+      },
+      {
+        "feature": "face.au6_cheek_raise_volatility_mid_avg",
+        "raw_r": -0.1919,
+        "partial_r": -0.1361
+      },
+      {
+        "feature": "face.head_pitch_volatility_volatility",
+        "raw_r": 0.1918,
+        "partial_r": 0.1051
+      }
+    ],
+    "overall_personality": [
+      {
+        "feature": "face.au9_nose_wrinkle_trend_start_avg",
+        "raw_r": 0.3716,
+        "partial_r": 0.1475
+      },
+      {
+        "feature": "face.au9_nose_wrinkle_change_rate_std",
+        "raw_r": 0.371,
+        "partial_r": 0.1515
+      },
+      {
+        "feature": "face.au7_eye_squeeze_volatility_std",
+        "raw_r": 0.3698,
+        "partial_r": 0.1505
+      },
+      {
+        "feature": "face.head_pitch_trend_volatility",
+        "raw_r": -0.3681,
+        "partial_r": -0.1379
+      },
+      {
+        "feature": "face.head_pitch_volatility_mean",
+        "raw_r": 0.3666,
+        "partial_r": 0.1391
+      }
+    ],
+    "interview_score": [
+      {
+        "feature": "face.au14_dimpler_volatility_start_avg",
+        "raw_r": 0.3794,
+        "partial_r": 0.1973
+      },
+      {
+        "feature": "face.au9_nose_wrinkle_change_rate_std",
+        "raw_r": 0.3763,
+        "partial_r": 0.1607
+      },
+      {
+        "feature": "face.au9_nose_wrinkle_volatility_start_avg",
+        "raw_r": 0.3743,
+        "partial_r": 0.1671
+      },
+      {
+        "feature": "face.au9_nose_wrinkle_trend_start_avg",
+        "raw_r": 0.3741,
+        "partial_r": 0.1512
+      },
+      {
+        "feature": "face.head_pitch_volatility_mean",
+        "raw_r": 0.3729,
+        "partial_r": 0.1507
+      }
+    ],
+    "answer_score": [
+      {
+        "feature": "face.au14_dimpler_volatility_start_avg",
+        "raw_r": 0.4196,
+        "partial_r": 0.2368
+      },
+      {
+        "feature": "face.au9_nose_wrinkle_volatility_start_avg",
+        "raw_r": 0.4182,
+        "partial_r": 0.2165
+      },
+      {
+        "feature": "face.au9_nose_wrinkle_change_rate_std",
+        "raw_r": 0.4106,
+        "partial_r": 0.1943
+      },
+      {
+        "feature": "face.head_pitch_trend_mean",
+        "raw_r": -0.4093,
+        "partial_r": -0.2125
+      },
+      {
+        "feature": "face.au7_eye_squeeze_volatility_std",
+        "raw_r": 0.4084,
+        "partial_r": 0.1909
+      }
+    ],
+    "speaking_skills": [
+      {
+        "feature": "face.au14_dimpler_volatility_start_avg",
+        "raw_r": 0.3588,
+        "partial_r": 0.1855
+      },
+      {
+        "feature": "face.au6_cheek_raise_volatility_start_avg",
+        "raw_r": 0.3529,
+        "partial_r": 0.1806
+      },
+      {
+        "feature": "face.au9_nose_wrinkle_change_rate_std",
+        "raw_r": 0.3526,
+        "partial_r": 0.1445
+      },
+      {
+        "feature": "face.au7_eye_squeeze_volatility_std",
+        "raw_r": 0.3498,
+        "partial_r": 0.1402
+      },
+      {
+        "feature": "face.au9_nose_wrinkle_volatility_start_avg",
+        "raw_r": 0.3487,
+        "partial_r": 0.1477
+      }
+    ],
+    "confidence_score": [
+      {
+        "feature": "face.au7_eye_squeeze_volatility_std",
+        "raw_r": 0.3512,
+        "partial_r": 0.1568
+      },
+      {
+        "feature": "face.au14_dimpler_volatility_start_avg",
+        "raw_r": 0.351,
+        "partial_r": 0.1821
+      },
+      {
+        "feature": "face.au9_nose_wrinkle_change_rate_std",
+        "raw_r": 0.3506,
+        "partial_r": 0.1547
+      },
+      {
+        "feature": "face.head_pitch_trend_mean",
+        "raw_r": -0.3439,
+        "partial_r": -0.1634
+      },
+      {
+        "feature": "face.au9_nose_wrinkle_trend_start_avg",
+        "raw_r": 0.3421,
+        "partial_r": 0.1323
+      }
+    ],
+    "facial_expression": [
+      {
+        "feature": "face.au14_dimpler_volatility_start_avg",
+        "raw_r": 0.3591,
+        "partial_r": 0.187
+      },
+      {
+        "feature": "face.au9_nose_wrinkle_change_rate_std",
+        "raw_r": 0.3569,
+        "partial_r": 0.1551
+      },
+      {
+        "feature": "face.au9_nose_wrinkle_volatility_start_avg",
+        "raw_r": 0.3548,
+        "partial_r": 0.1601
+      },
+      {
+        "feature": "face.head_pitch_trend_mean",
+        "raw_r": -0.3492,
+        "partial_r": -0.1633
+      },
+      {
+        "feature": "face.head_pitch_trend_volatility",
+        "raw_r": -0.3484,
+        "partial_r": -0.132
+      }
+    ],
+    "overall_performance": [
+      {
+        "feature": "face.au9_nose_wrinkle_change_rate_std",
+        "raw_r": 0.3946,
+        "partial_r": 0.1663
+      },
+      {
+        "feature": "face.au7_eye_squeeze_volatility_std",
+        "raw_r": 0.3912,
+        "partial_r": 0.1609
+      },
+      {
+        "feature": "face.au9_nose_wrinkle_trend_start_avg",
+        "raw_r": 0.3898,
+        "partial_r": 0.1502
+      },
+      {
+        "feature": "face.head_pitch_trend_volatility",
+        "raw_r": -0.3884,
+        "partial_r": -0.1429
+      },
+      {
+        "feature": "face.head_pitch_trend_start_avg",
+        "raw_r": -0.3857,
+        "partial_r": -0.1281
+      }
+    ]
+  }
+}

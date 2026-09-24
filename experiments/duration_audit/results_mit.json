@@ -1,0 +1,187 @@
+{
+  "n_samples": 138,
+  "n_features": 272,
+  "frames_min": 3828.0,
+  "frames_max": 30523.0,
+  "dead_features": 1,
+  "effective_dims": {
+    "50%": 7,
+    "80%": 26,
+    "90%": 45,
+    "95%": 64
+  },
+  "length_vs_targets": {
+    "Overall": 0.1767,
+    "Recomm": 0.2003,
+    "Colleag": -0.0065,
+    "Struct": -0.1946,
+    "Calm": 0.0781,
+    "EngagT": 0.1947
+  },
+  "cv_macro_r_length_only": 0.135,
+  "cv_macro_r_full": 0.4079,
+  "partial_correlations": {
+    "Overall": [
+      {
+        "feature": "pros_avgBand1_mean",
+        "raw_r": -0.6,
+        "partial_r": -0.5851
+      },
+      {
+        "feature": "pros_intensityQuant_mean",
+        "raw_r": 0.533,
+        "partial_r": 0.512
+      },
+      {
+        "feature": "pros_percentUnvoiced_mean",
+        "raw_r": -0.5249,
+        "partial_r": -0.525
+      },
+      {
+        "feature": "pros_f1STD_mean",
+        "raw_r": -0.4813,
+        "partial_r": -0.479
+      },
+      {
+        "feature": "pros_PercentBreaks_mean",
+        "raw_r": -0.4416,
+        "partial_r": -0.4644
+      }
+    ],
+    "RecommendHiring": [
+      {
+        "feature": "pros_avgBand1_mean",
+        "raw_r": -0.6014,
+        "partial_r": -0.5841
+      },
+      {
+        "feature": "pros_percentUnvoiced_mean",
+        "raw_r": -0.5328,
+        "partial_r": -0.5343
+      },
+      {
+        "feature": "pros_intensityQuant_mean",
+        "raw_r": 0.5301,
+        "partial_r": 0.5044
+      },
+      {
+        "feature": "pros_f1STD_mean",
+        "raw_r": -0.4746,
+        "partial_r": -0.4729
+      },
+      {
+        "feature": "pros_PercentBreaks_mean",
+        "raw_r": -0.4513,
+        "partial_r": -0.4784
+      }
+    ],
+    "Colleague": [
+      {
+        "feature": "pros_avgBand1_mean",
+        "raw_r": -0.4972,
+        "partial_r": -0.5097
+      },
+      {
+        "feature": "pros_percentUnvoiced_mean",
+        "raw_r": -0.4971,
+        "partial_r": -0.4981
+      },
+      {
+        "feature": "pros_f1STD_mean",
+        "raw_r": -0.4851,
+        "partial_r": -0.4864
+      },
+      {
+        "feature": "pros_PercentBreaks_mean",
+        "raw_r": -0.4832,
+        "partial_r": -0.4842
+      },
+      {
+        "feature": "pros_f3STD_mean",
+        "raw_r": -0.4663,
+        "partial_r": -0.4666
+      }
+    ],
+    "StructuredAnswers": [
+      {
+        "feature": "pros_maxDurPause_mean",
+        "raw_r": -0.4351,
+        "partial_r": -0.4124
+      },
+      {
+        "feature": "pros_f1STD_mean",
+        "raw_r": -0.4235,
+        "partial_r": -0.4447
+      },
+      {
+        "feature": "pros_avgBand1_mean",
+        "raw_r": -0.4073,
+        "partial_r": -0.4668
+      },
+      {
+        "feature": "pros_percentUnvoiced_mean",
+        "raw_r": -0.3943,
+        "partial_r": -0.4124
+      },
+      {
+        "feature": "pros_avgDurPause_mean",
+        "raw_r": -0.3926,
+        "partial_r": -0.3998
+      }
+    ],
+    "Calm": [
+      {
+        "feature": "smile_std",
+        "raw_r": -0.2983,
+        "partial_r": -0.2978
+      },
+      {
+        "feature": "pros_f2STDf2_mean",
+        "raw_r": 0.295,
+        "partial_r": 0.2874
+      },
+      {
+        "feature": "pros_pitch_quant_mean",
+        "raw_r": -0.269,
+        "partial_r": -0.26
+      },
+      {
+        "feature": "pros_meanPeriod_mean",
+        "raw_r": 0.2593,
+        "partial_r": 0.2506
+      },
+      {
+        "feature": "pros_mean_pitch_mean",
+        "raw_r": -0.2578,
+        "partial_r": -0.2494
+      }
+    ],
+    "EngagingTone": [
+      {
+        "feature": "pros_avgBand1_mean",
+        "raw_r": -0.7108,
+        "partial_r": -0.6987
+      },
+      {
+        "feature": "pros_intensityQuant_mean",
+        "raw_r": 0.6613,
+        "partial_r": 0.6446
+      },
+      {
+        "feature": "pros_intensityMean_mean",
+        "raw_r": 0.6573,
+        "partial_r": 0.6401
+      },
+      {
+        "feature": "pros_intensityMax_mean",
+        "raw_r": 0.6119,
+        "partial_r": 0.5946
+      },
+      {
+        "feature": "pros_diffIntMaxMin_mean",
+        "raw_r": 0.6021,
+        "partial_r": 0.5836
+      }
+    ]
+  }
+}

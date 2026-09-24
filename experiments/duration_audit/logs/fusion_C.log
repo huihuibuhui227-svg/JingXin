@@ -1,0 +1,23 @@
+[features] /home/huihuibuhui/jingxin/experiments/results/features_C  X=(2011, 22)  时长来源=jsonl 的 duration 字段(秒)  中位=27.3s min=0.6s max=92.3s
+行 2011 | 无文本 0 | meta 缺失 0
+[seed 42] text=0.422 beh=0.362 beh|dur=0.257 fus=0.449 late=0.430 (beh_dim=22)  p(F>T)=0.495 p(F>B)=0.489
+[seed 123] text=0.363 beh=0.308 beh|dur=0.255 fus=0.394 late=0.389 (beh_dim=22)  p(F>T)=0.502 p(F>B)=0.483
+[seed 456] text=0.335 beh=0.357 beh|dur=0.263 fus=0.387 late=0.326 (beh_dim=22)  p(F>T)=0.499 p(F>B)=0.498
+[seed 789] text=0.323 beh=0.256 beh|dur=0.196 fus=0.351 late=0.332 (beh_dim=22)  p(F>T)=0.488 p(F>B)=0.495
+[seed 1024] text=0.329 beh=0.362 beh|dur=0.285 fus=0.379 late=0.374 (beh_dim=22)  p(F>T)=0.497 p(F>B)=0.500
+
+=== 汇总(5 seeds mean±std) ===
+  特征目录 /home/huihuibuhui/jingxin/experiments/results/features_C   行为维度 22
+  text_rf      macro = 0.3545±0.0365
+  beh_rf       macro = 0.3290±0.0419
+  beh_rf|dur   macro = 0.2513±0.0296
+  beh+dur      macro = 0.3816±0.0451
+  duration_only macro = 0.2437±0.0397
+  fus_rf       macro = 0.3920±0.0320
+  late_fusion  macro = 0.3700±0.0385
+  Δ fus-text = +0.0375  Δ fus-beh = +0.0630
+  fus>text 种子数 5/5  fus>beh 5/5
+  mean p(F>T)=0.496  mean p(F>B)=0.493
+  参考: 既有已调优行为 RF_all = 0.383  (用户级 7:1:2)
+结果 → /home/huihuibuhui/jingxin/experiments/fusion/results/fusion_result_C.json
+耗时 157s

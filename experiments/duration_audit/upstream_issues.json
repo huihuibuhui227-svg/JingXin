@@ -1,0 +1,43 @@
+{
+  "excluded_videos": [],
+  "issues": [
+    {
+      "file": "experiments/extract_features.py:45",
+      "const": "FRAME_SKIP = 3",
+      "issue": "每 3 帧取 1 帧(≈10fps),但 VideoPipeline 按 fps=30 构造",
+      "effect": [
+        "au_history 窗口 90 帧 = 9 秒(设计意图 3 秒)",
+        "micro 检测窗 15 帧 = 1.5 秒(设计意图 0.5 秒)",
+        "eye_closed_sec 每帧加 1/30,真实帧间隔 1/10 → 该列被低估 3 倍"
+      ],
+      "fix": "重跑抽取,把 VideoPipeline 的 fps 传成 _src_fps/FRAME_SKIP"
+    },
+    {
+      "file": "face_expression/pipeline/video_pipeline.py:67",
+      "const": "time.time()",
+      "issue": "face.csv 的 timestamp 是处理挂钟时间,不是视频内时间",
+      "effect": [
+        "timestamp 跨度中位是真时长的 2.32 倍,与真时长只相关 0.666"
+      ],
+      "fix": "改为 frame_idx / fps;本次聚合改用 metadata 的 _frames_processed/_src_fps"
+    },
+    {
+      "file": "face_expression/pipeline/video_pipeline.py:67-85",
+      "const": "blink_rate_per_min",
+      "issue": "眨眼计数的 60 秒窗口走 time.time(),基准是处理时间而非视频时间",
+      "effect": [
+        "该列时间基准错误,不可靠;focus_score 也受其影响"
+      ],
+      "fix": "本次已用 is_blink 自行算 face.is_blink_per_sec 作为替代"
+    },
+    {
+      "file": "experiments/aggregate_features.py:282",
+      "const": "face_detection_rate",
+      "issue": "分母用 len(face.csv) 而非采样帧总数,而 face.csv 只含检测到脸的帧",
+      "effect": [
+        "该指标恒接近 1,失去质控意义"
+      ],
+      "fix": "分母应为 metadata 的 _gesture_frames(每个采样帧一行)或 _frames_processed/FRAME_SKIP"
+    }
+  ]
+}

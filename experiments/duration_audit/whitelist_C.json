@@ -1,0 +1,100 @@
+{
+  "_comment": [
+    "C 组/C+ 组源列白名单 —— 由四个模块的代码审查结论 + 实测核验得出。",
+    "用途:只保留「方向正确、量测真实」的源列,重新聚合成小特征集,",
+    "用来回答一个决定性问题:去掉所有已知伪影后,行为特征还剩多少预测力?",
+    "",
+    "C  (严格): 审查判定无可争议的真实测量",
+    "C+ (宽松): C 加上「有缺陷但仍是真实一阶测量」的列",
+    "",
+    "判定依据见 column_classification.csv 与各模块审查报告;",
+    "被排除的列及其理由见 excluded_reasons。"
+  ],
+
+  "C": {
+    "face": [
+      "au1_inner_brow_raise",
+      "au6_cheek_raise",
+      "au10_upper_lip_raise",
+      "au12_smile",
+      "au25_mouth_open",
+      "avg_ear",
+      "gaze_direction_x"
+    ],
+    "gesture": [
+      "left_arm_wrist_jitter",
+      "left_arm_elbow_jitter",
+      "right_arm_wrist_jitter",
+      "right_arm_elbow_jitter",
+      "shoulder_left_jitter",
+      "shoulder_right_jitter",
+      "upper_body_head_jitter",
+      "upper_body_torso_jitter"
+    ],
+    "voice": [
+      "pitch_mean",
+      "pitch_std",
+      "pitch_trend",
+      "energy_mean",
+      "pause_duration_mean",
+      "pause_duration_max",
+      "pause_frequency"
+    ]
+  },
+
+  "Cplus_extra": {
+    "_comment": "在 C 之上追加:有缺陷但仍是真实一阶测量(代理/单位/冗余但仍含量测)",
+    "face": [
+      "au2_outer_brow_raise",
+      "au4_frown",
+      "au7_eye_squeeze",
+      "au9_nose_wrinkle",
+      "au14_dimpler",
+      "au15_mouth_down",
+      "au23_lip_compression",
+      "au26_jaw_drop",
+      "head_yaw",
+      "head_pitch",
+      "gaze_direction_y",
+      "gaze_deviation",
+      "left_iris_x",
+      "left_iris_y",
+      "right_iris_x",
+      "right_iris_y",
+      "micro_exp_duration_frames",
+      "micro_exp_intensity",
+      "emotion_happy",
+      "emotion_surprise",
+      "emotion_anxiety",
+      "emotion_fear",
+      "emotion_disgust",
+      "emotion_fatigue",
+      "emotion_forced_smile",
+      "focus_score",
+      "tension_score",
+      "symmetry_score"
+    ],
+    "gesture": [
+      "left_arm_arm_angle",
+      "right_arm_arm_angle"
+    ],
+    "voice": [
+      "energy_std"
+    ]
+  },
+
+  "excluded_reasons": {
+    "rolling_2nd_order_84": "84 列 _trend/_volatility/_change_rate 派生自已坏基列,不进任何组",
+    "zero_variance_12": "实测跨视频零方差: blink_rate_per_min, eye_closed_sec, is_blink, is_blink_trend, is_blink_volatility, is_blink_change_rate, head_pitch_change_rate, emotion_cognitive_load, emotion_contempt, overall_score, is_valid, tension_sources_eye_closure",
+    "constant_or_structural_dead": "emotion_polite_smile / emotion_sadness / emotion_anger / emotion_distress / emotion_moral_disgust 结构性恒 0 或 ≥94% 视频内恒定",
+    "exact_duplicates": "au20_lip_stretcher(逐位 == au12_smile),au7_eye_squeeze(== 1 - avg_ear)",
+    "unit_or_semantics": "au23_lip_compression 是口内开合度的逆(语义与压唇相反),au9_nose_wrinkle 用了错误 landmark,",
+    "framing_and_pose_proxies": "symmetry_score 未按人脸尺度归一 → 取景代理;head_yaw 常量偏移;head_pitch 定义退化(mean -0.998)",
+    "machine_load_proxy": "blink_rate_per_min_* / eye_closed_sec_* 的时序衍生列用挂钟 60 秒窗 + 并行 worker → 编码抽取机 CPU 负载",
+    "fake_composites": "tension_score(与倒置的 au23 相关 0.87),tension_sources_*(是 au4/au23 的副本或恒定量),confidence(单形归一化最大值,neutral 时恒 1.0)",
+    "micro_exp_unusable": "micro_exp_onset_frame 是 15 帧环形缓冲下标,无时间轴语义",
+    "gesture_artifacts": "全部 *_score / *_stability 可由同 block jitter 精确重构(max|diff|=0);hand 10 列零膨胀 85~88%;shoulder_is_calibrated 是纯时长变量(与帧数 r=0.684);upper_body_head_tilt 参考系错位(正头≈180°);*_is_valid 四列逐行相同",
+    "voice_broken": "speech_ratio 自指阈值,87.9% 恰为 1.0,与同模块停顿特征相关 -0.000",
+    "duration_itself": "voice.duration_sec —— 它就是时长本身,C 组必须剔除(A/B 组保留以与基线对齐)"
+  }
+}

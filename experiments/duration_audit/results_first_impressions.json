@@ -1,0 +1,17 @@
+{
+  "split": "train",
+  "n_sampled": 60,
+  "dur_min": 15.3,
+  "dur_median": 15.315,
+  "dur_max": 15.343,
+  "dur_std": 0.0084,
+  "cv_pct": 0.055,
+  "duration_vs_annotation": {
+    "openness": 0.0074,
+    "conscientiousness": -0.049,
+    "extraversion": 0.079,
+    "agreeableness": 0.0346,
+    "neuroticism": -0.0227,
+    "interview": 0.0301
+  }
+}

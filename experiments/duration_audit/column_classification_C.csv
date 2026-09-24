@@ -1,0 +1,23 @@
+modality,column,kind,note,in_group_b,obs_min,obs_max,observed_ones
+face,au10_upper_lip_raise,level,水平量:只出 mean,1,0,0.825,0
+face,au12_smile,level,水平量:只出 mean,1,0,0.917,0
+face,au1_inner_brow_raise,level,水平量:只出 mean,1,0,0.451,0
+face,au25_mouth_open,level,水平量:只出 mean,1,0,1,701
+face,au6_cheek_raise,level,水平量:只出 mean,1,0,0.704,0
+face,avg_ear,level,水平量:只出 mean,1,0.095,1,1
+face,gaze_direction_x,level,水平量:只出 mean,1,-0.229,0.63,0
+gesture,left_arm_elbow_jitter,level,水平量:只出 mean,1,0,0.193,0
+gesture,left_arm_wrist_jitter,level,水平量:只出 mean,1,0,0.2986,0
+gesture,right_arm_elbow_jitter,level,水平量:只出 mean,1,0,0.1651,0
+gesture,right_arm_wrist_jitter,level,水平量:只出 mean,1,0,0.3063,0
+gesture,shoulder_left_jitter,level,水平量:只出 mean,1,0,0.05451,0
+gesture,shoulder_right_jitter,level,水平量:只出 mean,1,0,0.06066,0
+gesture,upper_body_head_jitter,level,水平量:只出 mean,1,0,0.06863,0
+gesture,upper_body_torso_jitter,level,水平量:只出 mean,1,0,0.04751,0
+voice,energy_mean,level,水平量:只出 mean,1,0.0005,0.1907,0
+voice,pause_duration_max,level,水平量:只出 mean,1,0,6.91,0
+voice,pause_duration_mean,level,水平量:只出 mean,1,0,2.3,1
+voice,pause_frequency,level,水平量:只出 mean,1,0,95.54,0
+voice,pitch_mean,level,水平量:只出 mean,1,0,474.5,0
+voice,pitch_std,level,水平量:只出 mean,1,0,577,0
+voice,pitch_trend,level,水平量:只出 mean,1,-954.4,163.5,0
