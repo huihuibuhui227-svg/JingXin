@@ -47,6 +47,30 @@ def _observed_interval(mean, std) -> Optional[List[float]]:
     return [max(0.0, round(center - spread, 4)), round(center + spread, 4)]
 
 
+def _indicator_sample_size(found_key: str, all_features: Dict[str, Any]) -> Optional[int]:
+    """该指标**自己**的有效样本量 —— `feature_engine` 的 `<基名>_sample_size`。
+
+    取不到(键不存在 / 不是整数)时返回 None,由调用方退回模态行数。
+
+    为什么不能用模态行数代替它(最终审查 I1):语音日志里「回答太短」的那一行,密度列是
+    空格(`connective_density=None` 不写 0,spec §8),特征引擎按 `dropna()` 丢掉它 ——
+    而模态行数把它算在内。用模态行数会让报告在只由 3 行构成的均值上印「有效样本量 20」,
+    更糟的是**让一行都不带的日志过掉 G3 门槛** —— 门槛正是 M1 存在的理由(诚实轴),
+    单位错了它就只是一枚橡皮图章。
+
+    `found_key` 通常是 `<基名>_mean`;没有 `_mean` 后缀的键(如
+    `face_eye_contact_ratio`)直接查 `<键>_sample_size`。
+    """
+    base = found_key[:-len("_mean")] if found_key.endswith("_mean") else found_key
+    raw = all_features.get(f"{base}_sample_size")
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
 class ResearchCapabilityMapper:
     """
     行为指标映射引擎 (最终修复版 - 包含 stats 字段)
@@ -184,7 +208,12 @@ class ResearchCapabilityMapper:
                         std = all_features[std_key]
                         break
                 modality = next((m for m in n_rows_by_modality if found_key.startswith(m + "_")), None)
-                n_valid = int(n_rows_by_modality.get(modality, 0))
+                # 样本量优先取**该指标自己**的 `<基名>_sample_size`(特征引擎按 dropna
+                # 后真正带值的行数产出),取不到才退回模态行数 —— 理由见
+                # `_indicator_sample_size`(过短回答的空格行不能被算进样本量)。
+                n_valid = _indicator_sample_size(found_key, all_features)
+                if n_valid is None:
+                    n_valid = int(n_rows_by_modality.get(modality, 0))
 
                 chk = gate(found_key, found_val, n_valid=n_valid, std=std)
                 if not chk.ok:
