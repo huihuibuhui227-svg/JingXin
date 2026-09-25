@@ -169,6 +169,19 @@ def test_verdict_reports_each_gap_separately():
 
 
 # ─────────────────────────── I7:单次上传要有上限
+def test_upload_cap_cannot_be_hit_by_a_single_session():
+    """上限**撑得住一整场**会话 —— 否则它护的是盘,毁的是这一场的素材。
+
+    速率来自 2026-09-25 的 **R5 实测**(Windows Edge 153,`vp8,opus` @1280x720):
+    10 秒录出 1722 KB ⟹ ≈ 172 KB/s。先写的 512 MB 只够 ≈50 分钟,
+    而撞上限的后果是**这一场什么都没存**(不是少存一段)。
+    红法:把 `MAX_UPLOAD_BYTES` 改回 512 MB。
+    """
+    measured_kbps = 1722 / 10          # KB/s,实测
+    hours = voice_app.MAX_UPLOAD_BYTES / 1024 / measured_kbps / 3600
+    assert hours > 1.0, f"上限只够 {hours*60:.0f} 分钟 —— 一场长会话就会撞上"
+
+
 def test_oversized_upload_is_413_and_writes_nothing(_isolated, monkeypatch):
     """一次请求不许把盘写满:写满会让这一场**之后所有**留存变成 degraded,
     而这正是本里程碑存在的理由(把素材留下来)。
