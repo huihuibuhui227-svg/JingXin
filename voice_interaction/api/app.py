@@ -15,6 +15,8 @@ import logging
 import wave
 import io
 
+import numpy as np
+
 from logging_config import setup_logging
 import media_retention
 
@@ -24,6 +26,7 @@ logger = logging.getLogger(__name__)
 # 导入项目模块（使用绝对导入）
 from voice_interaction.pipeline.tts_pipeline import TTSPipeline as TTSEngine
 from voice_interaction.pipeline.assessment_pipeline import InterviewAssessmentPipeline, ResearchAssessmentPipeline
+from voice_interaction.core.feature_extraction.prosody_extractor import ProsodyFeatureExtractor
 from voice_interaction.config import API_CONFIG, FFMPEG_PATH
 from voice_interaction.utils.logger import VoiceLogger
 from voice_interaction.asr import session as session_mod, transcript_store
@@ -66,6 +69,20 @@ research_logger = VoiceLogger(log_type='research')
 # 音频契约:16 kHz / 16 bit / 单声道(四处 wave 校验与 ffmpeg 转换都用它)
 SAMPLE_RATE = 16000
 
+# 语调特征提取器。无状态、可跨请求共享(与上面三个单例同理)。
+prosody_extractor = ProsodyFeatureExtractor(SAMPLE_RATE)
+
+# 提取器产出名 → 日志列名。**这张表是必须的,不是装饰**:
+# 提取器吐的是 `pitch_std` / `energy_std`,而 `VoiceLogger.fieldnames` 里的列叫
+# `pitch_variation` / `energy_variation`,两边**不同名**。改名只发生在
+# `ProsodyAnalyzer.analyze_pitch/analyze_energy`(那里写的就是 `"pitch_variation": pitch_std`),
+# 而活路径直接吃提取器的返回值 —— 少了这张表,那两列会**静默留 0**,
+# 其余每一列却都对,是最难发现的一类(守它的测试:`tests/test_prosody_wiring.py`)。
+_EXTRACTOR_TO_LOG_COLUMNS = {
+    "pitch_std": "pitch_variation",
+    "energy_std": "energy_variation",
+}
+
 
 def _asr_meta() -> dict:
     """会话清单(session.json)里的 asr provenance 块(spec §6.4)。
@@ -95,6 +112,46 @@ async def _transcribe_async(pcm: bytes):
     (识别约 1.75 s,期间服务还能接别的请求)。
     """
     return await asyncio.to_thread(_transcribe, pcm)
+
+
+def prosody_features_from_pcm(audio_data: bytes) -> dict:
+    """把端点手里那段 PCM 变成 `VoiceLogger.log_prosody` 认的特征字典。
+
+    **只吃 16 kHz / 16 bit / 单声道的小端 PCM** —— 调用点上游的 `wave` 校验已经
+    保证了这一点(不满足会先 400),所以这里不重复做格式嗅探:嗅探只会让
+    "格式不对"变成一处静默的近似,而上面那道闸是硬的。
+
+    已知缺陷**照实登记、不在这里修**(接线 ≠ 定义;M3 逐列重构会重写提取器内部):
+
+    - `speech_ratio` 用**自指阈值**(`centroid > mean(centroid) * 0.1`):阈值由本段
+      自己的均值定,所以它天然贴着 1.0 —— 实测三段真回答为 0.99 / 1.00 / 1.00,
+      MIT 那批 87.9% 恰为 1.0。spec §4.3 要删这一列。
+      报告层已按 G4 封停(`evidence_gate.py`:「自指阈值,87.9% 恰为 1.0」),
+      所以它出不了分;但它**已经真的在产出了**,别当成成果。
+    - `pause_*` 的时长按"整窗安静"的帧数估:`librosa.feature.rms` 窗长 2048
+      (0.128 s @16k),所以每段停顿的**两侧各被吃掉最多一个窗**,0.2 s 的静音
+      实测只算得出 0.095 s(过不了提取器自己 `> 0.1 s` 的闸)。
+      尾部静默另有登记缺陷(报告层 G4:「尾部静默被丢弃」)。
+    - 提取器在"没人声"时给的是 **0.0 而不是"未测出"**,与"真的量到 0"不可分。
+      这一层不做区分(`log_prosody` 的键缺省也是 0),真掩码是 M3 的事 ——
+      见 `evidence_gate.py` 里 `is_valid` 那条「恒 1 且下游从未使用 → M3 改真掩码」。
+      端点没有改 `is_valid`:本路径上 ASR 有文本才走到这里,音频必然非空,
+      提取器也必然产出非空字典,派生出来的 `is_valid` 仍是**恒 1** ——
+      那是"看着像修了"的假改动,不如把账记在 M3 名下。
+    """
+    audio = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
+    raw = prosody_extractor.extract_all_features(audio)
+    return {_EXTRACTOR_TO_LOG_COLUMNS.get(k, k): v for k, v in raw.items()}
+
+
+async def _prosody_async(pcm: bytes) -> dict:
+    """`prosody_features_from_pcm` 的 loop-safe 入口 —— 与 `_transcribe_async` 同一条理由。
+
+    `pyin` 是**同步重活**:实测 3 s 音频 ≈ 0.3 s、29.5 s ≈ 3.7 s,与 ASR 的 1.75 s
+    同量级。端点都是 `async def`,在协程里直接算会卡住整个事件循环 ——
+    期间服务连 `/health` 都不回(使用者那场会话每答一题都会撞上)。
+    """
+    return await asyncio.to_thread(prosody_features_from_pcm, pcm)
 
 
 async def _resolve_session_id(request: Request, session_id: str | None) -> str:
@@ -442,8 +499,11 @@ async def submit_answer_audio(request: Request, audio: UploadFile = File(...),
         # 就是这题的下标。
         question_index = len(interview_assessment.qa_pairs)
         voice_logger.session_id = sid          # 首列随会话(文件名在 /interview/start 里定)
+        # 语调特征:拿**这段 PCM 的真值**,不再传空字典(§0.1 第 1 件)。
+        # 放在文本闸**之后** —— 识别不出文字的请求上面已经 400 了,不必白算一次 pyin。
+        prosody = await _prosody_async(audio_data)
         voice_logger.log_prosody(
-            {}, question_index=question_index, emotion="", feedback="",
+            prosody, question_index=question_index, emotion="", feedback="",
             # 整句算一次:一个样本参与,n_rows=1;单个值的标准差按定义为 0.0
             # (与"没算出来"的 connective_density=None 是两回事,别混)
             connective_density=density, connective_density_std=0.0, n_rows=1)
@@ -618,8 +678,10 @@ async def submit_research_answer_audio(request: Request, audio: UploadFile = Fil
         density = connective_density(text)
         question_index = len(research_assessment.qa_pairs)
         research_logger.session_id = sid     # 首列随会话(文件名在 /research/start 里定)
+        # 与面试侧同一条:真值替掉空字典(§0.1 第 1 件,两处都接)。
+        prosody = await _prosody_async(audio_data)
         research_logger.log_prosody(
-            {}, question_index=question_index, emotion="", feedback="",
+            prosody, question_index=question_index, emotion="", feedback="",
             connective_density=density, connective_density_std=0.0, n_rows=1)
 
         research_assessment.add_answer(text)
