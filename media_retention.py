@@ -31,7 +31,7 @@ MEDIA_SUBDIR = "media"
 # `_append_jsonl` 的 docstring(三个服务是三个进程,共用一个文件会把行劈开)。
 LEDGER_PREFIX = "retention"
 LEDGER_SUFFIX = ".jsonl"
-LEDGER_WRITERS = ("face", "gesture", "audio")
+LEDGER_WRITERS = ("face", "gesture", "audio", "camera")
 
 # 会话 id 直接当目录名用,而它是【客户端可控】的(query/表单参数)—— 与
 # transcript_store.SESSION_ID_PAT 同一守卫、同一理由(见那边的 docstring)。
@@ -173,8 +173,16 @@ def _session_lock(session_id: str) -> threading.Lock:
         return lock
 
 
-def _prepare(session_id: str, writer: str) -> bool:
+def _prepare(session_id: str, writer: str,
+             probe_parts: tuple[str, ...] | None = None) -> bool:
     """本次能不能写。首件素材预检不过 → **抛**;之后只留痕、返回 False。
+
+    `probe_parts`:探针要落在**哪个目录**下,相对 `media/`。缺省 `None` = 拿
+    `writer` 当子目录名(face / gesture / audio 的老行为,逐字节不变)。
+    `camera` 传**空元组** —— 因为 `camera.webm` 直接落在 `media/` **下面**、
+    没有 `media/camera/` 这一层(spec §4 的架构图);不传空元组的话,预检会
+    **建出一个永远空的 `media/camera/` 目录**,而 §7.7 的人工核对清单里有一句
+    "素材**文件数与模态数一致**" —— 多一个空目录正是在那种核对里制造困惑的东西。
 
     spec §6 的两级:意思是"半路才发现等于已经丢了一半素材,而这一场是人重跑不回来
     的",所以第一件必须当场响;但中断也换不回已丢的字节、还白耗人的时间,所以只响一次。
@@ -187,7 +195,7 @@ def _prepare(session_id: str, writer: str) -> bool:
     if key in _PREFLIGHTED:
         return True
     try:
-        d = media_dir(session_id, writer)
+        d = media_dir(session_id, *(writer,) if probe_parts is None else probe_parts)
     except Exception as exc:
         why = f"建目录失败 {type(exc).__name__}: {exc}"
         _mark_degraded(session_id, writer, f"preflight: {why}")
@@ -427,4 +435,39 @@ def retain_audio(session_id: str, kind: str, data: bytes, source: str = "",
         except Exception as exc:
             _mark_degraded(sid, "audio",
                            f"audio {kind}#{seq}: {type(exc).__name__}: {exc}")
+            return None
+
+
+CAMERA_FILENAME = "camera.webm"
+
+
+def retain_uploaded_video(session_id: str, data: bytes,
+                          source: str = "") -> dict | None:
+    """把前端 `MediaRecorder` 录的**原生音视频**原样存成 `media/camera.webm`。
+
+    它存在的理由(spec §1.2 的 R2):服务端那一腿留的是**管线解码过的帧**
+    (AssessmentPage 下 5 fps,而微表情是 40–200 ms 的 onset–apex–offset 结构
+    ⟹ 在 5 fps 下是伪测量),前端这一腿留的才是**帧率没被钉死的原生流**。
+    两者不是冗余,是两件事。
+
+    **一个会话只有一个文件名** —— 第二次上传覆盖它。账本仍然一次一记,
+    所以"哪一份被覆盖过、当时是什么"有据可查(测试钉住了这一点)。
+
+    `_prepare` 的探针传空元组:文件落在 `media/` 本身,没有 `media/camera/` 这一层。
+    """
+    if not enabled():
+        return None
+    sid = validate_session_id(session_id)
+    with _session_lock(sid):
+        if not _prepare(sid, "camera", probe_parts=()):
+            return None
+        try:
+            (media_dir(sid) / CAMERA_FILENAME).write_bytes(data)
+            rel = f"{MEDIA_SUBDIR}/{CAMERA_FILENAME}"
+            rec = _record(sid, "video", "camera", 1, rel, data, None, source)
+            _append_jsonl(sid, "camera", rec)
+            return rec
+        except Exception as exc:
+            _mark_degraded(sid, "camera",
+                           f"video: {type(exc).__name__}: {exc}")
             return None
