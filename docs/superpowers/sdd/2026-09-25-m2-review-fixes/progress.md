@@ -36,3 +36,15 @@
   - 变异 1:恢复 `if not data or 'face' not in data: raise ValueError("无面部数据")` → **恰好 3 条红**(`..._only_the_none_bucket_exists` / `..._there_are_no_logs_at_all` / `..._the_named_session_has_no_logs`),其余 4 条仍绿,报错文本 `❌ 错误：无面部数据`。
   - 变异 2:`main` 恒返回 0 → **恰好 1 条红**(`test_cli_exits_nonzero_when_no_report_was_written`,`where 0 = main([])`),其余 6 条绿。
   - 两处均已恢复,恢复后 7 passed + 报告侧既有 44 passed;`find … -name __pycache__ -exec rm -rf` 在每次变异前都跑过。
+Task 1: complete (commits 242f512..6e63202, tests: /home/huihuibuhui/miniconda3/envs/jingxin/bin/python -m pytest -q → 211 passed in 25.28s)
+
+### Task 2(第 18 条 / 复审 I3)
+
+- Task 2: Ruling: 计划里写的 Flask 夹具补丁点是 `report_frontend.data_loader.LogDataLoader`(端点函数体内 `from … import`,每次调用重查模块属性)—— 实测这条路对,补丁打在 `app` 上无效。已在计划文本与测试里都写明。 — cost if wrong: 端点会去读真实的 `data/logs`,测试不隔离。
+- Task 2: Ruling: 夹具里 `log_dir.mkdir(parents=True, exist_ok=True)` 无条件建目录(承 Task 1 同一裁决:加载器要求目录存在)。 — cost if wrong: 同 Task 1。
+- Task 2: Ruling: 我自己新写的 `_row(sid: str, density=2.5)` 被 pyright 标「None 不能赋给 float」(测试里确实传了 `density=None`)。注解改 `float | None`。 — cost if wrong: 零。
+- Task 2: 反向复现(两次,逐条核对):
+  - 变异 1:删掉 JSON 里的 `"session_id": loader.target_session` → **3 条全红**(三条都断言返回体里有 `session_id`)。
+  - 变异 2:恢复 `if not data: return jsonify({"status":"error",…})` 早退 → **恰好 2 条红**(`..._the_target_has_no_logs` / `..._only_the_none_bucket_says_so`),`..._names_the_session_it_describes` **仍绿** —— 正是"空数据不再报错"这条契约把二者分开的证据。
+  - 恢复后 3 passed;每次变异前清过 `__pycache__`。
+- Task 2: 前端构建门 `npm run build` → ✓ built in 13.87s(只有既有的 `GazeHeatmap` 4.7 MB chunk 警告)。**构建产物核过**:`dist/assets/api-021b99b1.js` 里 `session_id=` 在、`report/structured`,<override> 的拼参在;`dist/assets/ReportPage-*.js` 里有「本场会话」。

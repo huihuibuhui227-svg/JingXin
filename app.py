@@ -218,7 +218,12 @@ def get_task_status(task_id):
 def get_structured_report():
     """
     运行 report_generator 流水线，返回结构化评估 JSON。
-    可选参数: type=interview|research (过滤日志类型)
+    可选参数: session_id(要描述哪一场;缺省取最新一场)、type=interview|research
+
+    M2.1(第 18 条):①**本场没有任何日志时也照常回答**(spec §6 行 1/2 要求"报告仍生成"),
+    不再回 `{"status":"error","message":"未找到评估日志数据"}` —— 那种回答会让前端显示
+    「暂无报告数据」,而盘上明明有别的会话;②回传 `session_id` 与 `sources`,让读的人
+    **从 JSON 里就能确认这是哪一场、哪个模态没进来**(此前"写明是哪一场"只落在 HTML 报告里)。
     """
     try:
         from report_frontend.data_loader import LogDataLoader
@@ -230,16 +235,19 @@ def get_structured_report():
         loader = LogDataLoader()
         data = loader.get_fused_latest_data(session_id)
 
-        if not data:
-            return jsonify({"status": "error", "message": "未找到评估日志数据"})
-
+        # 空 data 也把链走完:实测 features={} → coverage 0/20、五维全 None、图表照常生成
         engine = PsychologicalFeatureEngine(data)
         features = engine.extract_all_features()
 
         mapper = ResearchCapabilityMapper()
         result = mapper.map_features_to_scores(features)
 
-        return jsonify({"status": "success", "result": result})
+        return jsonify({
+            "status": "success",
+            "session_id": loader.target_session,
+            "sources": loader.selected_sessions,
+            "result": result,
+        })
 
     except Exception as e:
         logger.exception("获取结构化评估报告失败")
