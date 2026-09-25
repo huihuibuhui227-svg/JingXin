@@ -101,13 +101,20 @@ def main():
     except ImportError:
         print("⚠️ MediaPipe 未安装")
 
+    # M2.5:本示例读的是**视频文件**,走离线公式(与 experiments/extract_features.py 同源)。
+    # 这里不抽帧,所以 frame_skip = 1。
+    # ⚠️ 顺带记实情:本文件引用的 `FaceAUAnalyzer` 在仓库里**没有定义**,下面又用了
+    # `mp.solutions`(mediapipe 1.0.0 已删除)—— 它本来就跑不起来。改签名只为不留陈旧调用点。
+    k = 0
     while True:
         ret, frame = cap.read()
         if not ret:
             break
 
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        result_obj, results, features = analyzer.process_frame(frame_rgb)
+        result_obj, results, features = analyzer.process_frame(
+            frame_rgb, int(round(k * 1000.0 / (fps or 30))))
+        k += 1
 
         annotated_frame = frame.copy()
         if results and results.multi_face_landmarks and mp_drawing is not None:

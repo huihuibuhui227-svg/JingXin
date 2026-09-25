@@ -199,13 +199,21 @@ class FullGestureAnalyzer:
 # === 5. 线程函数 ===
 
 def face_worker():
+    from session_clock import SessionClock
+
     analyzer = FaceAUAnalyzer(fps=30, session_id=SESSION_ID)
+    # M2.5:本示例是**实时**队列,所以用会话时钟(与 face/gesture 两个服务同源),
+    # 而不是离线公式 —— 两条路径的时间来源不同,别混(spec §4 表)。
+    # ⚠️ 顺带记实情:`FaceAUAnalyzer` 在仓库里**没有定义**,本文件也用 `mp.solutions`
+    # (mediapipe 1.0.0 已删除)—— 它本来就跑不起来。改签名只为不留陈旧调用点。
+    clock = SessionClock()
     while not stop_event.is_set():
         try:
             frame = face_queue.get(timeout=0.5)
             if frame is None: break
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            result_obj, mp_results, features = analyzer.process_frame(rgb_frame)
+            result_obj, mp_results, features = analyzer.process_frame(
+                rgb_frame, clock.stamp_ms())
 
             with data_lock:
                 latest_face_data['features'] = features
