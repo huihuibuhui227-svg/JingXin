@@ -9,6 +9,7 @@ import time
 import os
 import logging
 from logging_config import setup_logging
+from session_clock import SessionClock
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -46,7 +47,35 @@ app.add_middleware(
 # 会话管理
 session_analyzers = {}
 session_loggers = {}  # 每个会话的 GestureLogger 实例
+session_clocks = {}   # 每个会话一个相对时钟(M2.5 spec §4)
 SESSION_TIMEOUT = 300
+
+
+def _clock_for(session_id: str) -> SessionClock:
+    """会话时钟。与 detectors / analyzers **同生命周期**,但分开存 —— 回收时都要动。"""
+    if session_id not in session_clocks:
+        session_clocks[session_id] = SessionClock()
+    return session_clocks[session_id]
+
+
+def _reset_session(session_id: str) -> bool:
+    """删掉整个会话:分析器 + 日志器 + 探测器 + **时钟**。返回它是否真的存在过。
+
+    与 face 侧同语义、同理由(见 face 的 `_reset_session`):时钟是 pop 而不是 reset,
+    否则它就成了唯一跨会话存活的状态。
+    """
+    existed = session_id in session_analyzers
+    if existed:
+        del session_analyzers[session_id]
+        session_loggers.pop(session_id, None)
+    dets = detectors.pop(session_id, None)
+    if dets is not None:
+        for d in dets.values():
+            close_detached(d)  # 5.0s/个 → 后台,否则 /reset 冻住整个服务(I1)
+    clock = session_clocks.pop(session_id, None)
+    if clock is not None:
+        logger.info("会话 %s 收尾:实测 fps=%.3f(spec §5.5)", session_id, clock.measured_fps())
+    return existed
 
 # 按会话的探测器表（与 session_analyzers 同生命周期、同 TTL 回收 —— spec §6.3）。
 # 迁移前 `hands`/`pose` 是模块级单例，所有客户端共用；tasks 的 VIDEO 模式把跟踪状态
@@ -137,6 +166,9 @@ def get_or_create_analyzers(session_id: str):
         if dets is not None:
             for d in dets.values():
                 close_detached(d)  # 必须显式关:持 native 句柄(spec §6.3)。5.0s/个 → 后台(I1)
+        clock = session_clocks.pop(sid, None)
+        if clock is not None:
+            logger.info("会话 %s 收尾:实测 fps=%.3f(spec §5.5)", sid, clock.measured_fps())
 
     # 获取或创建新会话
     if session_id not in session_analyzers:
@@ -260,7 +292,11 @@ async def analyze_image(
 
         dets = get_or_create_detectors(session_id)
 
-        hand_groups = dets['hands'].detect(image_rgb)
+        # M2.5:时间戳由服务端实测 —— gesture 以前连 fps 参数都没有,直接用默认 30,
+        # 而客户端实际 1 帧/秒(spec §3.5 / §3.1)。
+        timestamp_ms = _clock_for(session_id).stamp_ms()
+
+        hand_groups = dets['hands'].detect(image_rgb, timestamp_ms)
         detected_hands = 0
         hand_scores = []
 
@@ -271,7 +307,7 @@ async def analyze_image(
             hand_scores.append(analyzers[analyzer_key].get_results()['resilience_score'])
             detected_hands += 1
 
-        pose_landmarks = dets['pose'].detect(image_rgb)
+        pose_landmarks = dets['pose'].detect(image_rgb, timestamp_ms)
         shoulder_score = 50.0
 
         if pose_landmarks:
@@ -473,13 +509,7 @@ async def reset_analyzers(session_id: str = None):
     """
     try:
         if session_id:
-            dets = detectors.pop(session_id, None)
-            if dets is not None:
-                for d in dets.values():
-                    close_detached(d)  # 5.0s/个 → 后台,否则 /reset 冻住整个服务(I1)
-            if session_id in session_analyzers:
-                del session_analyzers[session_id]
-                session_loggers.pop(session_id, None)
+            if _reset_session(session_id):
                 return {"status": "success", "message": f"会话 {session_id} 已重置"}
             return {"status": "not_found", "message": f"会话 {session_id} 不存在"}
         else:
@@ -489,6 +519,7 @@ async def reset_analyzers(session_id: str = None):
             detectors.clear()
             session_analyzers.clear()
             session_loggers.clear()
+            session_clocks.clear()   # M2.5:无 id 的 /reset 连时钟一起清
             return {"status": "success", "message": "所有会话已重置"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"重置失败: {str(e)}")

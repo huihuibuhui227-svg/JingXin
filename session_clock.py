@@ -29,6 +29,7 @@ class SessionClock:
         """`/reset` 与新会话都走这里。"""
         self._start = self._now()
         self._last_ms = -1
+        self.n_stamps = 0
 
     def stamp_ms(self) -> int:
         """本帧的时间戳。保证 `> 上一次返回值`(不是 `>=`)。"""
@@ -37,4 +38,16 @@ class SessionClock:
             # 同一毫秒内的两帧 —— 抬到上一次 +1,而不是放行相等值。
             elapsed_ms = self._last_ms + 1
         self._last_ms = elapsed_ms
+        self.n_stamps += 1
         return elapsed_ms
+
+    def measured_fps(self) -> float:
+        """到当前为止的**滑动实测**帧率 —— 会话收尾记账用(spec §5.5)。
+
+        每次 `stamp_ms()` 就是收到一帧,所以这里不需要额外的帧计数:
+        `n_stamps / 已流逝秒`。gesture 服务没有 `VideoPipeline` 可问,
+        它的收尾日志就靠这个方法;face 那边同名的量由管线自己报(它另有 first/last_ts)。
+        """
+        if self.n_stamps == 0 or self._last_ms <= 0:
+            return 0.0
+        return round(self.n_stamps / (self._last_ms / 1000.0), 3)

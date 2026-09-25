@@ -157,10 +157,15 @@ class _FakeGestureDetector:
     真实逻辑照常跑(`HandDetector.detect` → `[]`;`PoseDetector.detect` → `None`)。
     """
 
+    # M2.5:类级记录 —— 实例是在 `get_or_create_detectors` 里建的,测试拿不到句柄,
+    # 所以时间戳记在类上,由 `test_gesture_passes_a_strictly_increasing_timestamp` 读。
+    frames: list = []
+
     def __init__(self, *args, **kwargs):
         self.closed = False
 
-    def detect(self, _image_rgb):
+    def detect(self, _image_rgb, timestamp_ms):
+        type(self).frames.append(timestamp_ms)
         return []
 
     def reset(self):
@@ -402,6 +407,35 @@ def test_face_unparseable_form_still_falls_back_to_none(face_env, monkeypatch):
 # ---------------------------------------------------------------------------
 # gesture_analysis/api/app.py
 # ---------------------------------------------------------------------------
+
+def test_gesture_passes_a_strictly_increasing_timestamp(gesture_env):
+    """★ M2.5:时间戳由服务端时钟给,并真的递到了两个探测器 —— 且**在同一会话内跨帧递增**。
+
+    为什么真跑端点而不是比对源码字符串:字符串断言在换行/改变量名时就碎,
+    而它要守的东西(时间戳递到了探测器、且递的是递增的)一点没变
+    (账本 §4.1「测试通过 ≠ 有约束力」的同一类毛病)。
+
+    同一帧内 hand 与 pose 拿到的是**同一个**时间戳(它们描述同一个瞬间),
+    所以这里断言的是"整体非递减 + 两帧之间确实推进了",不是逐元素严格递增。
+
+    ⚠️ 本测试**刻意不调 `_freeze_clock`**:那个假时钟每次调用跳 1000 秒(> SESSION_TIMEOUT),
+    是为了让"每请求一个新会话"这条既有行为确定化 —— 而会话一换,时钟就跟着换、时间戳重回到 0。
+    那不是错,正是"时钟按会话"的证明;这里要验的是**同一个会话内**时钟会走。
+
+    红法:去掉 `gesture_analysis/api/app.py` 里 `detect(image_rgb, timestamp_ms)`
+    的第二个实参 —— 端点 TypeError。
+    """
+    _FakeGestureDetector.frames.clear()
+
+    _drive_gesture(session_id=SID)
+    _drive_gesture(session_id=SID)
+
+    seen = _FakeGestureDetector.frames
+    assert len(seen) == 4, f"两帧 × 两个探测器(hand + pose)= 4 次调用:{seen}"
+    assert seen == sorted(seen), f"时间戳回退了:{seen}"
+    assert len(set(seen)) == 2 and seen[0] < seen[-1], (
+        f"两帧应当拿到两个不同且递增的时间戳(同一帧内两个探测器同值):{seen}")
+
 
 def test_gesture_no_id_writes_none_and_reuses_one_file(gesture_env, monkeypatch):
     """同 face:无 id → 文件名带 `NONE`,且连续两帧落同一个文件。"""
