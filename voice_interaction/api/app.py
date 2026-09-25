@@ -178,6 +178,46 @@ async def text_to_speech(request: TextRequest):
         raise HTTPException(status_code=500, detail=f"语音合成失败: {str(e)}")
 
 
+def _to_wav16k_bytes(contents: bytes) -> bytes:
+    """把任意容器(webm/opus/mp3…)转成 **16kHz / 单声道 / 16bit** 的 WAV 字节。
+
+    为什么要有它(2026-09-25 使用者第一场真会话的 0/20 就出在这里):
+      浏览器 `MediaRecorder` 录出来的是 **webm/opus**(`useAudioRecorder.ts:19`),
+      而 `/interview/answer_audio` 原先**只认 `RIFF`** —— 于是"用语音回答"这条
+      **唯一的语音特征来源**,在真实使用里必然被 400 拒掉。
+      `/asr` 早就收 webm 并在内部用 ffmpeg 转;这里把同一件事提成共用助手。
+
+    临时文件在 `finally` 里删干净:它是**使用者上传的原始音频**,不该留在 /tmp。
+    ffmpeg 失败**抛**(不是安静返回垃圾)—— 否则后面 `wave.open` 会报出一个与真实
+    原因无关的 `not a WAVE file`,把排查方向带偏。
+    """
+    import tempfile
+    import subprocess
+
+    in_path = out_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".in", delete=False) as f:
+            f.write(contents)
+            in_path = f.name
+        out_path = in_path + "_16k.wav"
+        cmd = [FFMPEG_PATH, "-i", in_path, "-ar", str(SAMPLE_RATE), "-ac", "1",
+               "-sample_fmt", "s16", "-y", out_path]
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                timeout=30)
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"ffmpeg转换失败: {result.stderr.decode('utf-8', errors='ignore')}")
+        with open(out_path, "rb") as fh:
+            return fh.read()
+    finally:
+        for p in (in_path, out_path):
+            if p and os.path.exists(p):
+                try:
+                    os.unlink(p)
+                except OSError:
+                    pass
+
+
 @app.post("/asr")
 async def speech_to_text(request: Request, audio: UploadFile = File(...),
                          session_id: str = None):
@@ -370,11 +410,19 @@ async def submit_answer_audio(request: Request, audio: UploadFile = File(...),
         # 复用 /asr 逻辑
         contents = await audio.read()
         # M2.6:先存原始字节 —— 即使下面判格式不合法,这份上传也留了据。
-        media_retention.retain_audio(sid, "raw", contents, source="/interview/answer_audio")
+        _raw = media_retention.retain_audio(sid, "raw", contents,
+                                            source="/interview/answer_audio")
+        # 非 WAV(浏览器录的是 webm/opus)→ 转,不再硬 400。
+        # 这条曾经让"用语音回答"在真实使用里彻底不通(使用者第一场会话 0/20 的根因之一)。
         if not contents.startswith(b'RIFF'):
-            raise HTTPException(status_code=400, detail="仅支持 WAV 格式音频")
+            wav_bytes = _to_wav16k_bytes(contents)
+            media_retention.retain_audio(sid, "converted", wav_bytes,
+                                         source="/interview/answer_audio",
+                                         seq=(_raw or {}).get("seq"))
+        else:
+            wav_bytes = contents
 
-        audio_stream = io.BytesIO(contents)
+        audio_stream = io.BytesIO(wav_bytes)
         with wave.open(audio_stream, 'rb') as wf:
             if wf.getnchannels() != 1 or wf.getsampwidth() != 2 or wf.getframerate() != SAMPLE_RATE:
                 raise HTTPException(status_code=400, detail="音频格式要求：16kHz, 16bit, 单声道")
@@ -538,11 +586,18 @@ async def submit_research_answer_audio(request: Request, audio: UploadFile = Fil
     try:
         contents = await audio.read()
         # M2.6:先存原始字节 —— 即使下面判格式不合法,这份上传也留了据。
-        media_retention.retain_audio(sid, "raw", contents, source="/research/answer_audio")
+        _raw = media_retention.retain_audio(sid, "raw", contents,
+                                            source="/research/answer_audio")
+        # 与面试侧同一条:非 WAV(浏览器录的是 webm/opus)→ 转,不再硬 400。
         if not contents.startswith(b'RIFF'):
-            raise HTTPException(status_code=400, detail="仅支持 WAV 格式音频")
+            wav_bytes = _to_wav16k_bytes(contents)
+            media_retention.retain_audio(sid, "converted", wav_bytes,
+                                         source="/research/answer_audio",
+                                         seq=(_raw or {}).get("seq"))
+        else:
+            wav_bytes = contents
 
-        audio_stream = io.BytesIO(contents)
+        audio_stream = io.BytesIO(wav_bytes)
         with wave.open(audio_stream, 'rb') as wf:
             if wf.getnchannels() != 1 or wf.getsampwidth() != 2 or wf.getframerate() != SAMPLE_RATE:
                 raise HTTPException(status_code=400, detail="音频格式要求：16kHz, 16bit, 单声道")
