@@ -47,7 +47,13 @@ class LogDataLoader:
         # (按文件名时间戳,不看这一列;按 id 选是 M2 的事),这里只把它**交出来** ——
         # 报告头据此披露"这份报告由哪些日志装配而成"。在这之前,加载器算出的 session_id
         # 唯一的消费者是两处 `print()`,于是跨场拼接在报告里是隐形的。
-        self.selected_sessions: Dict[str, str] = {}
+        # (注解随 M2 的破坏性变更更正:值不再是 `str` 而是三态条目 `dict`,见 `get_fused_latest_data`。)
+        self.selected_sessions: Dict[str, Dict] = {}
+
+        # 本报告以哪个 session_id 为准(M2.1 / 第 17 条)。`selected_sessions` 的各模态条目里
+        # 也各带一份,但**只有 NONE 桶、或一场都没有**时那是空的 —— 而那正是最需要把
+        # "本场是哪一场"说出口的情形,所以目标 id 单独作为一个公开属性交出去。
+        self.target_session: Optional[str] = None
 
         # 正则表达式匹配文件名。**两种形态都接受**,报告侧只认文件名里的时间戳
         # (不读 mtime、不读内容、也不读 session_id 列):
@@ -164,17 +170,21 @@ class LogDataLoader:
 
         target = self.resolve_target_session(session_id)
         self.selected_sessions = {}
-        if target is None:
-            print("❌ 没有可用于本报告的会话(只有 NONE 桶,或没有任何符合命名规范的日志)。")
-            return {}
-        print(f"   目标会话:{target}")
+        self.target_session = target
+        print(f"   目标会话:{target or '(无 —— 本场没有任何日志)'}")
 
+        # ⚠️ NONE 桶要在"有没有目标会话"**之前**填:只有 NONE 桶时 target 是 None,
+        # 按原来的顺序(先 return 再数)这份报告连"另有 N 行没归入本场"都说不出来
+        # —— 而那正是 spec §6 行 3 要求说出口的事。
         none_rows = self._none_bucket_rows()
         if none_rows:
             self.selected_sessions["none_bucket"] = {
                 "session_id": self.NONE_SESSION, "status": "present", "rows": none_rows}
             print(f"   ℹ️  另有 NONE 桶 {none_rows} 行(未归入任何会话,不进聚合)")
 
+        if target is None:
+            print("❌ 没有可用于本报告的会话(只有 NONE 桶,或没有任何符合命名规范的日志)。")
+            return {}
         print("-" * 70)
 
         data_frames = {}

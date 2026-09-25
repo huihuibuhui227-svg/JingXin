@@ -31,7 +31,7 @@ _MODALITY_LABELS = {
 }
 
 
-def sources_disclosure(sources: Dict[str, Dict]) -> str:
+def sources_disclosure(sources: Dict[str, Dict], target: Optional[str] = None) -> str:
     """披露「本报告描述的是哪一场、每个模态进来了没有」(M2 spec §5.2)。
 
     输入是 `LogDataLoader.selected_sessions`,值是三态之一:
@@ -44,17 +44,22 @@ def sources_disclosure(sources: Dict[str, Dict]) -> str:
 
     同场/不同场那句话**已取消**:按 id 选之后不存在"不同场"这个状态,真正要报的是
     "哪几个模态没进来、为什么"。
-    """
-    if not sources:
-        return "本报告没有装配任何模态日志。"
 
+    `target` 是"本报告以哪一场为准",由调用方给(`LogDataLoader.target_session` /
+    实时路径的入参,第 17 条)。**为什么不从 items 里推第一个**:只有 NONE 桶、或连
+    NONE 桶都没有时,items 是空的,推不出来 —— 而那正是最需要把话说清楚的情形。
+    没给且 items 非空时退回"取第一个"(兼容直接调用本函数的调用方与测试)。
+    """
     none_bucket = sources.get("none_bucket")
     items = {k: v for k, v in sources.items() if k != "none_bucket"}
-    if not items:
-        return "本报告没有装配任何模态日志。"
+    if target is None and items:
+        target = next(iter(items.values()))["session_id"]
 
-    target = next(iter(items.values()))["session_id"]
-    lines = [f"本场会话：<strong>{target}</strong>"]
+    lines = (["本场会话：<strong>（无 —— 本场没有任何日志）</strong>"] if target is None
+             else [f"本场会话：<strong>{target}</strong>"])
+    if not items:
+        lines.append("本报告没有装配任何模态日志。")
+
     for key, info in sorted(items.items()):
         label = _MODALITY_LABELS.get(key, key)
         if info["status"] == "loaded":
@@ -118,7 +123,12 @@ class ReportGenerator:
         try:
             loader = LogDataLoader()
             data = loader.get_fused_latest_data(session_id)
-            if not data or 'face' not in data: raise ValueError("无面部数据")
+            if not data:
+                # 本场一个模态都没读到:**照样出报告**(spec §6 行 1/2 / 第 17 条)——
+                # 头里逐条列出缺什么,而不是让面板显示"什么都没发生"。
+                # 实测:空 data 下特征引擎给 0 个指标、映射器给 覆盖 0/20、五维全 None、
+                # 图表照常生成 —— 下面这条链本身是空的能跑的。
+                print("   ⚠️  本场没有任何可用日志,仍生成一份只含缺口的报告")
 
             engine = PsychologicalFeatureEngine(data)
             features = engine.extract_all_features()
@@ -127,12 +137,13 @@ class ReportGenerator:
             result = mapper.map_features_to_scores(features)
 
             viz = ReportVisualizer(output_dir=self.output_dir)
-            chart_paths = viz.generate_all_charts(result, df_face=data['face'])
+            chart_paths = viz.generate_all_charts(result, df_face=data.get('face'))
             static_images = self._scan_static_images()
 
             html_content = self._build_html_report(result, chart_paths, features, data,
                                                    static_images,
-                                                   sources=loader.selected_sessions)
+                                                   sources=loader.selected_sessions,
+                                                   target=loader.target_session)
 
             with open(report_path, 'w', encoding='utf-8') as f:
                 f.write(html_content)
@@ -178,7 +189,8 @@ class ReportGenerator:
             # 那种跨场拼接;所以来源就是这一个 id(逐个列出真正取到数据的模态)。
             html_content = self._build_html_report(result, chart_paths, features, data,
                                                    static_images,
-                                                   sources=live_sources(session_id, data))
+                                                   sources=live_sources(session_id, data),
+                                                   target=session_id)
 
             with open(report_path, 'w', encoding='utf-8') as f:
                 f.write(html_content)
@@ -260,7 +272,8 @@ class ReportGenerator:
     def _build_html_report(self, result: Dict[str, Any], chart_paths: Dict[str, Any],
                            features: Dict[str, Any], data: Dict[str, pd.DataFrame],
                            static_images: List[str],
-                           sources: Optional[Dict[str, str]] = None) -> str:
+                           sources: Optional[Dict[str, Dict]] = None,
+                           target: Optional[str] = None) -> str:
 
         def get_chart_iframe(path, height="500"):
             if not path or not os.path.exists(path): return '<div class="placeholder">图表缺失</div>'
@@ -329,7 +342,7 @@ class ReportGenerator:
                     </div>
                     <!-- 本报告由哪些日志装配(I4):跨场拼接必须让读者看得见 -->
                     <div style="margin-top:8px; font-size:0.85em; opacity:0.95;">
-                        {sources_disclosure(sources or {})}
+                        {sources_disclosure(sources or {}, target)}
                     </div>
                 </header>
 
@@ -373,11 +386,21 @@ class ReportGenerator:
         return html
 
 
-if __name__ == "__main__":
-    # M2:报告要描述**哪一场**可以显式指定;不给就取最新一场(报告头会写明是哪一场)。
+def main(argv: Optional[List[str]] = None) -> int:
+    """CLI 入口:`--session-id` 定要描述的那一场(M2:可以显式指定;不给就取最新一场)。
+
+    **没产出报告就返回非 0**(第 17 条 / 复审 I2 的额外症状):总控面板
+    `app.py:run_script` 只看子进程的 returncode —— "什么都没生成但 exit 0"
+    会被显示成「任务完成!」。
+    """
     import argparse
 
-    _ap = argparse.ArgumentParser(description="生成行为观测报告")
-    _ap.add_argument("--session-id", default=None,
-                     help="要描述的那场会话 id;缺省取最新一场")
-    ReportGenerator().generate_report(_ap.parse_args().session_id)
+    ap = argparse.ArgumentParser(description="生成行为观测报告")
+    ap.add_argument("--session-id", default=None,
+                    help="要描述的那场会话 id;缺省取最新一场")
+    args = ap.parse_args(argv)
+    return 0 if ReportGenerator().generate_report(args.session_id) else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
