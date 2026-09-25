@@ -3,7 +3,7 @@
 **日期**:2026-09-25 深夜
 **依据**:`docs/下一步.md` §0.1「第 1 件:语调接线」
 **状态**:已实现 + 已验(单测 / 反向复现 / 真会话现场端到端 / 报告层句子对照)。
-**未提交**(等使用者裁定)。
+**已提交并推送**(代码 `ed834fd`,文档与账本 `71c5fee`;三条挂账的裁定见 §10)。
 
 ---
 
@@ -151,7 +151,7 @@ POST 给 `/interview/answer_audio`:
    **在此之前,`pitch_mean` / `pitch_trend` / `energy_variation` / `pause_frequency`
    这四个现在能过门的列,值是真的"提取器的输出",但还不是可信的"韵律测量"。**
 
-## 7. 裁定:`is_valid` 本轮**不改**(请使用者复核这一条)
+## 7. 裁定:`is_valid` 本轮**不改**(已随"按你推荐的来"一并获批,2026-09-25 深夜 2)
 
 `evidence_gate.py` 已登记 `"is_valid": Quarantine("恒 1 且下游从未使用", "M3 改真掩码")`。
 
@@ -195,8 +195,47 @@ POST 给 `/interview/answer_audio`:
 ## 9. 本轮**没做**的(免得下轮当成已做)
 
 - 没写 spec / 计划(§0.1「第 1 件」本身就是依据;本条若需要独立 spec 请说)
-- 没动前端
+- 没动前端(—— 但本轮**另**合了前端那个 WIP 分支,见 §10)
 - 没动报告层
-- **没提交、没推送**
-- 没跑合并门(duration_audit 那条线读的是 MIT 那批数据,与本次改动无交集;
-  但按惯例合并前应跑一次)
+- 没动 `ProsodyAnalyzer._calculate_overall_score` 那套同形态的无出处阈值(归 M3,见 §10)
+
+**已做**:提交并推送 origin —— 代码 `ed834fd`、文档与账本 `71c5fee`。
+合并门已跑:**0 / 2835510**(与基线逐位一致)。
+
+---
+
+## 10. 使用者裁定的三条挂账(2026-09-25 深夜 2)
+
+使用者裁定:「按你推荐的来,没用就删掉,尽快把系统打通」。详版见 `docs/下一步.md` §0.4。
+
+### ① 前端 WIP 分支 —— 合并 → 然后删掉(不是"没用",是**很有用**)
+
+`wip/frontend-2026-08-06-sanitized` 相对 main 只有一个提交 `9b7821d`
+(另一个是已 cherry-pick 过的音频修复)。里面有浏览器 TTS、`ErrorBoundary`、
+代码分割、以及**把两个评估页收敛成一个**。
+
+**决定现在就合的关键理由**:N2 要动评估流程;main 上原本是两个评估页,
+不合就得做两遍。合完只剩一个 `AssessmentPage`,**N2 只做一遍**。
+
+合并前核过:两处「编数据」已清干净(`setEvaluationResult` 零调用方);
+`9b7821d` 没碰 `api.ts`/`ReportPage.tsx` ⟹ M2.1 的 `withSession`(10 处)
+与披露卡原样在;`ReportPage` 的 store 短路是 main 本就有的;
+**隔离快照 `tsc --noEmit` + `vite build` 三份(main / WIP / 合并后)全过**。
+**已执行**:合并 `2dd713c` → 推送 → 删分支(本地 + 远端)。
+
+### ② 后端无出处阈值测评 —— 删阈值,**不删端点**
+
+它是"炸不了"的:活路径 `add_answer` 只收字符串 ⟹ `qa.prosody_analysis` 恒 `None`。
+但 **`add_qa_pair()` 接受 prosody** —— **实测引爆成功**:喂
+`pitch_variation=45 / speech_ratio=0.8 / energy_mean=0.5`,立刻吐
+「语调起伏大,富有表现力;表达流畅;音量适中」。三个阈值都没依据
+(`speech_ratio` 自指 ⟹ 恒判「表达流畅」;`energy_mean` 真值 0.02–0.06 对阈值 0.5–0.8
+⟹ 恒判「声音偏轻」)。**已删两个类各一份阈值判语**;三个活端点
+(`/interview|research/evaluation`、`/session/{sid}/summary`)实测均 **HTTP 200**。
+钉子 `tests/test_no_baseless_prosody_verdicts.py`(6 条),反向复现红 4 条。
+
+### ③ `ProsodyAnalyzer` 那套同形态阈值 —— **本轮不动,归 M3**
+
+唯一上游是 `VoiceProcessingPipeline`,而它只被两个 `examples/` 构造。
+模块会被传递加载(`pipeline/__init__.py`),但**没有活代码路径调用**。
+
