@@ -71,3 +71,45 @@ Task 2: complete (commits 6e63202..88a1934, tests: /home/huihuibuhui/miniconda3/
   ```
   结论:失效场景 B **真实存在且已被修掉**——同一个音频,带科研号只落科研目录,带旧面试号就写进面试目录。
 - Task 3: 前端构建门 `npm run build` → ✓ built in 12.94s;产物核验 `dist/assets/api-*.js` 里有 `research/start`);return rt(((t=e.data)==null?void 0:t.session_id)??null),e.data}` —— 存号那行进了 bundle。
+Task 3: complete (commits 88a1934..c17c0ac, tests: /home/huihuibuhui/miniconda3/envs/jingxin/bin/python -m pytest -q → 217 passed in 18.89s)
+
+### Task 4(收尾)
+
+- Task 4: Ruling: 计划 Expected 又算错一次(「204 + 12 = 216」,实际新增 **13** 条 → 217)。以实际为准。 — cost if wrong: 零。
+- Task 4: **跨任务集成点自查**(本项目第 5 条教训:T3 改文件名没把加载器正则列进改动面,报告路径什么都加载不到)。逐条核过,**无断链**:
+  - `sources_disclosure` 生产调用点只有 **1 处**(`report_generator.py:345` 的 `_build_html_report` 内),批处理与实时两条路都经它,两处都传了 `target`。
+  - `selected_sessions` 消费点 = `app.py:248`(新增,值是纯 `str/int` 的 dict,JSON 可序列化 ✓)+ `report_generator.py:145` ✓。
+  - `report_generator` 的 CLI 被两处跑:`app.py:120` 经 `module_map["report"]`(看退出码 ✓)、`~/shared/t7_acceptance.sh:162` 与 `m2_acceptance.sh:62`。**旧脚本不会被我改的退出码误伤**:`t7_acceptance.sh:9` 明确不 `set -e`,且两处都管道给 `tail`/`grep`(退出码被管道末位吞掉)✓。
+  - 前端:`getStructuredReport` 消费点 `ReportPage.tsx:43`(已传路由 id)、`runModule` 消费点 `useAssessment.ts:19/24/114`(经 `withSession` 缺省自动带当前号)✓。`useAssessment.ts:29` 的 `voiceApiService.start()` 对两种 type 都成立,科研那半靠 `api.ts` 里存号 ✓。
+
+### 本轮明确未动(使用者已在计划评审时知悉)
+
+- **前端 `ReportPage.tsx:92-95` 仍渲染 `total_score` + 档位标签**(`getLevelLabel`)—— 报告层按 spec §5.4/§5.6 早已停止渲染这两个东西(HTML 报告里不印),前端还在印。这是"把未标定标尺上的复合点分当对候选人的评定",与"让系统停止说谎"同轴,但属前端呈现层的独立决定(与 §3 第 21–23 条同族)。**已写进计划「本轮明确不做」,交使用者裁定。**
+- `voice_interaction/api/app.py` 的一批**既有陈旧注解**(`session_id: str = None` 等 5 处、`log_assessment(evaluation_result=str)` 2 处)—— 新装的 pyright 插件标出,但与本轮三条裁定无关,未动(与 Task 1 里我只修自己碰到的那两处注解同一标准)。
+- M2 复审的 Minor:`_none_bucket_rows` 每出一次报告全量读 NONE 文件、`resolve_target_session` 同秒并列取定不确定、`sources_disclosure` 的"混合 id"断言、`~/shared/m2_acceptance.sh` 两个卡死 bug、`socket.io-client` 死依赖、报告入口收口、OpenAPI→TS 类型。
+- §3 第 4/5/6/9/11/12/14/15/16 条(进程级单例、409 契约、实时路径丢指标、静音下限实测、NONE 桶轮转、客户端自定义 id 不可见、`text_avg_length` 无产出方、VIDEO 等价性门、M3 阈值重登记)。
+
+## 全量门
+
+### 本轮覆盖力的**已知限制**(写给复审者与实际使用者)
+
+- **前端没有任何自动化测试基础设施**(实测 `~/JingXin-frontend/package.json`:scripts 只有 `dev`/`build`/`preview`,依赖里无 vitest/jest/testing-library/playwright/cypress)。因此:
+  - Task 2 的**前端**半边(两条读路径带 id、披露卡)只有 `npm run build`(= `tsc && vite build`,能挡类型错)+ **构建产物核验**(`dist/assets/api-*.js` 里确认拼参与 `session_id` 在)两道,**没有运行期行为的自动化覆盖**。
+  - Task 3 的**前端**半边(`research.start()` 存号)额外被端到端验收**间接**压住 —— 验收脚本模拟的正是修好之后前端的行为(拿科研号提交)。但"前端确实把号存下来了"这件事本身只有构建产物核验。
+  - 后端半边都有 pytest 覆盖(Task 1: 7 条;Task 2: 3 条;Task 3: 3 条)。
+- 浏览器那半(真点界面)本轮**没有跑** —— 与 M2 复审时同样的处境(那一轮也把"浏览器那半只能你做"写进了报告)。要补的话,`example-skills:webapp-testing`(Playwright)可以驱动,但那需要另起全套 5 个服务 + 浏览器,超出本轮计划范围,交使用者决定。
+
+- 全量门①:`~/miniconda3/envs/jingxin/bin/python -m pytest -q` → **217 passed in 18.26s**(开工前 204;新增 13 条:Task1 七条 + Task2 三条 + Task3 三条)。
+- 全量门②(合并门):`reaggregate_normalized.py --stats legacy` + `--verify-legacy /tmp/legacy_probe`,原始输出:
+  ```
+  ✅ 特征名集合完全一致(原 1410 / 新 1410)
+  ✅ 视频集合一致 (2011 个)
+  ✅ 有限性完全一致(无 NaN/Inf 分歧)
+  最大绝对差 1.886e-19   最大相对差 1.886e-19
+  相对差 > 1e-4 的格子: 0 / 2835510
+  targets 最大绝对差 0.000e+00
+  ✅ 回归验证通过:legacy 模式能逐格复现现有特征矩阵
+  GATE_EXIT=0
+  ```
+  (与 2026-09-21 那次基线的最大绝对差 `1.886e-19` **同一个数** —— 逐位一致。)
+- 验收留下的现场(供你复核,未清理):仓库外 `~/shared/jingxin_recordings/20260925_124346_6e4a/`(科研,含 transcript.json)、`..._ff93/`(面试,**被反向复现故意污染过**的那一份);仓库内 `data/logs/interview_emotion_log_20260925_124346_ff93.csv`(292 B,只有表头)—— 后者由 `.gitignore:45` 的 `**/data/logs/` 兜住,不进仓库。
