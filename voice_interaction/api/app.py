@@ -549,6 +549,39 @@ async def get_interview_evaluation():
         raise HTTPException(status_code=500, detail=f"获取评估结果失败: {str(e)}")
 
 
+@app.post("/session/{session_id}/media")
+async def submit_session_media(session_id: str, file: UploadFile = File(...)):
+    """收前端 `MediaRecorder` 录的**原生音视频**,原样落 `media/camera.webm`(spec §5.3)。
+
+    为什么挂在语音服务:铸号、`session.json`、`~/shared` 的写入都归它,spec §5.3
+    明确"不新起服务"。
+
+    它**不做任何分析** —— 与另外两个 CV 服务收帧的端点不同,这里没有第二步。
+    `session_id` 走**路径参数**而不是 query/表单:这一条路由的身份就是那个会话,
+    让它在 URL 里可见比藏在表单里好排查(另外两个 CV 服务收 query/form 是历史包袱)。
+
+    这里**刻意没有**外层 `except Exception → 500`(另外两个 `answer_audio` 有):
+    `validate_session_id` 的 `ValueError` 已在下面显式转成 400,而
+    `retain_uploaded_video` 自己吞掉中途写失败并返回 `None`。加那层包装只会
+    把 400 吞成 500 —— 而 400/500 的区别正是"客户端发错了"与"服务器坏了"的区别。
+    """
+    try:
+        sid = media_retention.validate_session_id(session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"非法 session_id: {exc}")
+    data = await file.read()
+    rec = media_retention.retain_uploaded_video(sid, data, source="/session/media")
+    if rec is None:
+        # 两种"没存":留存被显式关掉 / 中途写失败。两者都**不许装成功** ——
+        # 这个端点唯一的工作就是留存,静默 200 会让人以为素材存下了。
+        why = ("留存已关闭(JINGXIN_RETAIN_MEDIA=0)" if not media_retention.enabled()
+               else "落盘失败:" + "；".join(media_retention.degraded_reasons(sid)))
+        return {"status": "success", "stored": False, "reason": why,
+                "session_id": sid, "bytes": len(data)}
+    return {"status": "success", "stored": True, "session_id": sid,
+            "bytes": rec["bytes"], "sha256": rec["sha256"], "file": rec["file"]}
+
+
 @app.get("/session/{session_id}/summary")
 async def get_session_summary(session_id: str, type: str = "interview"):
     """获取语音评估会话的实时摘要（当前为全局单例，session_id 预留做向前兼容）"""
