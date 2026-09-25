@@ -123,3 +123,102 @@ def upsert_question(session_id: str, *, qid: str, index: int,
                        encoding="utf-8")
         os.replace(tmp, p)
     return rec
+
+
+# ---------------------------------------------------------------- 阶段 A 元数据
+
+TEMPLATE_PATH = Path(__file__).resolve().parent / "session_meta_template.json"
+
+# 必填项(点分路径)。**依据是录制需求 §3.2 那张表**(每项为何必须,见那张表的"为什么"列):
+#
+#   人的生理属性 —— `pitch_mean` 的 **ICC = 0.723**,它主要是解剖常量,
+#                   不加协变量**可能让分数部分成为性别探测器**;
+#   设备 / 取景   —— `energy` 的 **ICC = 0.654**,是设备增益/距离代理;
+#   面试官评分    —— 审查 Q3(f) 称其为"你现在最该补的真值,成本最低、最贴用途";
+#   题目 / 难度   —— 审查称"最明显的遗漏"(数据集里 74 个不同题目,协变量里一个都没有);
+#   知情同意      —— 审查 §7.4 第 1 条,法定必留(类型/用途/留存期/能否拒绝/申诉渠道)。
+#
+# ⚠️ **不含候选人自评量表** —— 那是 M5 标定用的真值,受《科技伦理审查办法(试行)》
+#    强制前置(spec §1.2),不在阶段 A。
+#
+# `questions` 只校验**非空**。逐条 `difficulty` 的空白不在这里判 —— 本场实问题数
+# 服务端不知道(题目可以中途结束),逐题覆盖由 `--check-session` 的题号对账负责。
+# 这一条列进来是为了拦住"整个题库块忘了填"这个真实失败形态(§3.2 明列它必填)。
+META_REQUIRED: tuple[str, ...] = (
+    "candidate.sex", "candidate.age",
+    "candidate.native_language", "candidate.dialect_region",
+    "capture.device", "capture.resolution", "capture.camera_distance_cm",
+    "capture.lighting", "capture.mic_gain_db",
+    "interviewer_ratings.logical_thinking",
+    "interviewer_ratings.communication",
+    "interviewer_ratings.confidence",
+    "consent.archived",
+    "questions",
+)
+
+
+def meta_path(session_id: str) -> Path:
+    return _session_dir(session_id, create=False) / META_FILENAME
+
+
+def _get_path(obj: Any, dotted: str) -> Any:
+    cur = obj
+    for part in dotted.split("."):
+        if not isinstance(cur, dict) or part not in cur:
+            return None
+        cur = cur[part]
+    return cur
+
+
+def _is_blank(v: Any) -> bool:
+    """`None` / 空串 / 空列表 / 空字典 / **`False`** 都算**没填**。
+
+    最后那一条是给 `consent.archived` 的:它是布尔必填项,而模板里的默认值就是
+    `false`,意思是"知情同意**还没归档**" —— 那正是我们要它非 `false` 的原因。
+    不把 `False` 当缺的话,一份**根本没做知情同意**的场次会通过校验。
+    只判"键在不在"更糟:一份全空模板会整份通过(而那正是模板刚生成时的样子)。
+    """
+    if v is None or v is False:
+        return True
+    if isinstance(v, str):
+        return not v.strip()
+    if isinstance(v, (list, dict)):
+        return len(v) == 0
+    return False
+
+
+def read_meta(session_id: str) -> dict | None:
+    p = meta_path(session_id)
+    if not p.exists():
+        return None
+    return json.loads(p.read_text(encoding="utf-8"))
+
+
+def missing_meta_fields(session_id: str) -> list[str]:
+    """本场 `meta.json` 还缺哪些必填项(空 = 齐了)。
+
+    **meta.json 不存在 = 全部都缺** —— 不是异常。收尾对账要能报出这件事,
+    而不是自己先崩掉。
+    """
+    meta = read_meta(session_id)
+    if meta is None:
+        return list(META_REQUIRED)
+    return [p for p in META_REQUIRED if _is_blank(_get_path(meta, p))]
+
+
+def write_template(session_id: str) -> Path:
+    """把模板铺进会话根,`session_id` 与 `recorded_at` 先填好。
+
+    让使用者**在原地填空**,而不是从别处抄一份 —— 少一步就少一次漏填。
+    **已存在则抛**:不覆盖已填过的内容(那份是当场记的,补不回来)。
+    """
+    from datetime import datetime
+    sid = validate_session_id(session_id)
+    p = _session_dir(sid, create=True) / META_FILENAME
+    if p.exists():
+        raise FileExistsError(f"{p} 已存在 —— 不覆盖(要重来请先自己移走)")
+    payload = json.loads(TEMPLATE_PATH.read_text(encoding="utf-8"))
+    payload["session_id"] = sid
+    payload["recorded_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
+    p.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return p

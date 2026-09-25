@@ -1,0 +1,21 @@
+{
+  "session_id": "",
+  "recorded_at": "",
+  "consent": { "archived": false, "path": "" },
+  "candidate": { "sex": "", "age": null, "native_language": "", "dialect_region": "" },
+  "capture": {
+    "device": "",
+    "resolution": "",
+    "camera_distance_cm": null,
+    "lighting": "",
+    "mic_gain_db": null,
+    "audio_sample_rate": null
+  },
+  "questions": [],
+  "interviewer_ratings": {
+    "logical_thinking": null,
+    "communication": null,
+    "confidence": null
+  },
+  "notes": ""
+}
