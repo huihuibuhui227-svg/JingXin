@@ -171,13 +171,59 @@ def test_single_frame_session_has_zero_duration():
     assert s["frame_count"] == 1
 
 
-def test_duration_comes_from_timestamps_not_frame_count():
-    """`duration_sec` = 末帧 − 首帧(秒),不是 `帧数/fps`。
+def test_summary_duration_is_the_session_span_not_the_history_window():
+    """★ 审查 F7:`get_summary()["duration_sec"]` 取自 `au_history` 的首末帧,而那个 deque
+    被 3 秒窗修剪 —— 于是它**恒 ≤ 3 秒**,不管会话多长。该字段进 `/session/{id}/summary`,
+    也进报告层的实时行(`report_frontend/data_loader.py:260`)。
 
-    红法:把它改回 `frame_count / self.fps` —— 三帧会给出 0.1 而不是 9.5。
+    实测(修前):60 帧 @1 fps → `duration_sec 3.0, frame_count 4`。字段叫 duration_sec,
+    给的却是"历史窗长度",读者无从分辨 —— 与 F6 同源。
+
+    会话真正的跨度管线一直知道(`first_ts`/`last_ts`),没有理由不用。
+
+    红法:把 `duration_sec` 改回 `(last - first) / 1000.0`(那是 history 的首末帧)。
+    """
+    p = VideoPipeline(session_id="s", detector=_FakeDetector())
+    for i in range(60):
+        p.process_frame(_FRAME, i * 1000)        # 60 秒会话(替身恒无脸)
+    p.au_history.append(_stub_au(timestamp_ms=59000))
+
+    s = p.get_summary()
+    assert s["duration_sec"] == 59.0, (
+        f"应当是**会话跨度** 59.0 秒,实际 {s['duration_sec']}(那是 3 秒历史窗)")
+
+
+def test_summary_reports_which_population_each_rate_counts():
+    """★ 审查 F6:同一个 dict 里 `fps` 数的是**全部提交帧**、`frame_count`/`duration_sec`
+    数的是**有脸帧** —— 口径不同却没说明,读者会信错一个。
+
+    这条钉住修好之后的口径:`duration_sec` = 会话跨度;`fps` = 提交帧 ÷ 会话跨度;
+    而 `frame_count` 仍是历史里有脸帧的数(它本来就只统计那些)。三者各自说得清。
+
+    红法:让 `fps` 与 `duration_sec` 用两个不同的时间基准(例如 fps 用 history 跨度)。
+    """
+    p = VideoPipeline(session_id="s", detector=_FakeDetector())
+    for i in range(10):
+        p.process_frame(_FRAME, i * 1000)
+
+    s = p.get_summary()
+    assert s["duration_sec"] == 9.0, s["duration_sec"]
+    assert abs(s["fps"] - 10 / 9.0) < 0.01, (
+        f"fps 应是「提交帧 ÷ 会话跨度」= {10 / 9.0:.3f},实际 {s['fps']}")
+
+
+def test_duration_comes_from_timestamps_not_frame_count():
+    """`duration_sec` = 首末**提交帧**之间的秒数,不是 `帧数/fps`。
+
+    ⚠️ 审查 F7 之后这条的定义收紧了:跨度取自 `first_ts`/`last_ts`(会话跨度),
+    而**不是** `au_history` 的首末帧 —— 后者被 3 秒窗修剪,会让长会话报出 ≤3 秒。
+    所以这里必须真的走 `process_frame` 把 first_ts/last_ts 立起来,
+    手搓 `au_history` 已经代表不了会话了(那正是先前这条测试钉错的地方)。
+
+    红法:把 `duration_sec` 改回 `frame_count / 30` —— 三帧会给出 0.1 而不是 9.5。
     """
     p = VideoPipeline(session_id="s", detector=_FakeDetector())
     for ts in (0, 4000, 9500):
-        p.au_history.append(_stub_au(timestamp_ms=ts))
+        p.process_frame(_FRAME, ts)          # 替身恒无脸,但时间戳照记
 
     assert p.get_summary()["duration_sec"] == 9.5

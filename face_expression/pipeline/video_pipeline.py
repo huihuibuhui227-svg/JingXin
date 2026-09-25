@@ -266,13 +266,24 @@ class VideoPipeline:
         return 0.5
 
     def get_summary(self) -> dict:
-        """返回当前会话的聚合统计数据。遍历 au_history 计算均值/波动/情绪分布等。"""
+        """返回当前会话的聚合统计数据。遍历 au_history 计算均值/波动/情绪分布等。
+
+        ⚠️ **三个速率字段数的不是同一批帧**(审查 F6),读的人要清楚自己在看哪个:
+          * `fps`          = 提交帧 ÷ **会话跨度** —— 到达率,含没检出脸的帧;
+          * `frame_count`  = `au_history` 里的帧 —— **只有检出脸的**(且被 3 秒窗修剪);
+          * `duration_sec` = **会话跨度**(首末提交帧之间),不是 `frame_count / fps`。
+        所以 `frame_count / duration_sec` 是"有脸帧率",与 `fps` 不是一回事 —— 这是刻意的,
+        但要写明白,否则读者会信错一个。
+        """
         if len(self.au_history) == 0:
+            # ★ 审查 F7 的第二处:一场**全程没检出脸**的会话也走过这里 ——
+            # `duration_sec` 若写死 0,就等于说"这场会话没持续过",而它明明收了很多帧。
+            # 会话跨度与脸无关,首末提交帧就知道了。
             return {
                 "session_id": self.session_id,
                 "frame_count": 0,
                 "fps": self.measured_fps(),
-                "duration_sec": 0,
+                "duration_sec": ((self.last_ts or 0) - (self.first_ts or 0)) / 1000.0,
             }
 
         au_fields = [
@@ -321,9 +332,12 @@ class VideoPipeline:
         avg_gaze = float(np.mean(gaze_vals)) if gaze_vals else 0.0
         gaze_stability = 1.0 - min(avg_gaze * 10, 1.0) if gaze_vals else 0.8
 
-        # 眨眼统计 —— 时长一律由时间戳导出,不再 `帧数 / fps`(spec §3.3)
-        first = getattr(self.au_history[0], "timestamp_ms", 0)
-        last = getattr(self.au_history[-1], "timestamp_ms", 0)
+        # 眨眼统计 —— 时长一律由时间戳导出,不再 `帧数 / fps`(spec §3.3)。
+        # ★ 审查 F7:跨度必须取**会话跨度**(first_ts/last_ts),不能取 au_history 的首末帧
+        # —— 后者被 3 秒窗修剪,会让 duration_sec 恒 ≤ 3 秒,而这个字段进
+        # `/session/{id}/summary` 与报告层实时行,名字却在说"会话时长"。
+        first = self.first_ts if self.first_ts is not None else 0
+        last = self.last_ts if self.last_ts is not None else 0
         duration_sec = (last - first) / 1000.0
         duration_min = duration_sec / 60.0
         recent_blinks = sum(1 for t in self.blink_times
