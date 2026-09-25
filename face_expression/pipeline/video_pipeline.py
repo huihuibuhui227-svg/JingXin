@@ -31,7 +31,8 @@ class VideoPipeline:
         self.detector = detector
 
         self.feature_calculator = AUFeatureCalculator(save_landmarks=save_landmarks)
-        self.micro_detector = MicroExpressionDetector(fps=fps)
+        # M2.5 Task 3:窗长改按**秒**定之后,这个探测器不再需要 fps(spec §5.3)。
+        self.micro_detector = MicroExpressionDetector()
         self.tension_engine = TensionEngine()
         self.emotion_engine = EmotionEngine()
         self.au_history = collections.deque(maxlen=int(3 * fps))
