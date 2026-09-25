@@ -19,6 +19,7 @@ import numpy as np
 
 from logging_config import setup_logging
 import media_retention
+import session_meta
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -191,6 +192,18 @@ class TextRequest(BaseModel):
 class AnswerRequest(BaseModel):
     """回答请求模型"""
     answer: str
+
+
+class QuestionWindow(BaseModel):
+    """前端上报的一道题的提问窗口(spec §5.6)。
+
+    时刻是**墙钟秒**(`time.time()` 量纲),**不是** M2.5 那个会话内相对时钟。
+    两个基不要混:混了以后 `response_latency` 会算出一个看着正常、其实没意义的数。
+    """
+    qid: str          # 题目文本原文(题库没有 id,见 session_meta 模块开头)
+    index: int        # 本场内的 0 基序号
+    ask_start: float  # 推题那一刻
+    ask_end: float    # **题问完那一刻**(不是回答提交时刻 —— 见下面端点)
 
 
 @app.get("/")
@@ -547,6 +560,28 @@ async def get_interview_evaluation():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取评估结果失败: {str(e)}")
+
+
+@app.post("/session/{session_id}/question")
+async def submit_session_question(session_id: str, body: QuestionWindow):
+    """记一道题的提问窗口。`response_latency` 只此一途(spec §3.9 / §5.5)。
+
+    ⚠️ `ask_end` 必须是**题问完**的时刻,不是"回答提交"的时刻:报告层的
+    `response_latency = 首次开口墙钟 − ask_end`。若拿提交时刻当 `ask_end`,
+    这个差值会恒等于 0 左右 —— 一个**看着正常、其实什么都没量**的数。
+
+    非法 `session_id` 与非法窗口都是**请求本身**的问题 → 400(不是 500):
+    客户端得知道是它自己发错了,而不是服务器坏了。
+    """
+    try:
+        rec = session_meta.upsert_question(
+            session_id, qid=body.qid, index=body.index,
+            ask_start=body.ask_start, ask_end=body.ask_end,
+            source="/session/question")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"status": "success", "session_id": rec["session_id"],
+            "qid": rec["qid"], "index": rec["index"]}
 
 
 @app.post("/session/{session_id}/media")
