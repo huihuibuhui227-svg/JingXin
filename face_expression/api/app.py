@@ -9,6 +9,7 @@ import numpy as np
 import time
 import logging
 from logging_config import setup_logging
+from session_clock import SessionClock
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -46,7 +47,33 @@ app.add_middleware(
 # 会话管理：存储每个用户的 VideoPipeline 实例
 session_pipelines = {}
 session_loggers = {}  # 每个会话的 DataLogger 实例
+session_clocks = {}   # 每个会话一个相对时钟(M2.5 spec §4)
 SESSION_TIMEOUT = 300  # 会话超时时间（秒）
+
+
+def _clock_for(session_id: str) -> SessionClock:
+    """会话时钟。与 pipeline **同生命周期**,但分开存 —— 因为回收时两者都要动。"""
+    if session_id not in session_clocks:
+        session_clocks[session_id] = SessionClock()
+    return session_clocks[session_id]
+
+
+def _reset_session(session_id: str) -> bool:
+    """删掉整个会话:管线 + 日志器 + **时钟**一起丢。返回它是否真的存在过。
+
+    为什么时钟是 pop 而不是 `reset()`:本服务的 `/reset` 语义是"删掉整个会话"
+    (见端点 docstring),下一次请求会重建全新管线与探测器。留着一个老时钟对象,
+    它就成了唯一跨会话存活的状态 —— 那正是"全新会话"要避免的事。
+    """
+    existed = session_id in session_pipelines
+    if existed:
+        pipeline, _ = session_pipelines.pop(session_id)
+        logger.info("会话 %s 收尾:实测 fps=%.3f(spec §5.5)",
+                    session_id, pipeline.measured_fps())
+        close_detached(pipeline)  # 删之前先放掉探测器的 native 句柄(spec §6.3);5.0s → 后台(I1)
+        session_loggers.pop(session_id, None)
+    session_clocks.pop(session_id, None)
+    return existed
 
 # 会话 id 直接进日志文件名（`face_au_log_{session_id}.csv`），而它是客户端可控的
 # （query 参数），所以只收 `[A-Za-z0-9_-]{1,128}` —— 路径分隔符与 `..` 一概不收。
@@ -116,8 +143,12 @@ async def _resolve_session_id(request: Request, session_id: str = None) -> str:
     return validate_session_id(normalize_session_id(session_id))
 
 
-def get_or_create_pipeline(session_id: str, fps: int = 30) -> VideoPipeline:
-    """获取或创建 VideoPipeline 实例"""
+def get_or_create_pipeline(session_id: str) -> VideoPipeline:
+    """获取或创建 VideoPipeline 实例。
+
+    `fps` 参数已删除(M2.5 spec §5.4):它以前来自客户端 `?fps=30`,而客户端实际
+    只发 1 帧/秒 —— 那个数把时间量整体抬了 30 倍。现在时间由调用方的会话时钟给。
+    """
     current_time = time.time()
 
     # 清理过期会话
@@ -127,14 +158,16 @@ def get_or_create_pipeline(session_id: str, fps: int = 30) -> VideoPipeline:
     ]
     for sid in expired_sessions:
         pipeline, _ = session_pipelines.pop(sid)
+        logger.info("会话 %s 收尾:实测 fps=%.3f(spec §5.5)", sid, pipeline.measured_fps())
         close_detached(pipeline)  # 必须显式关:tasks 探测器持 native 句柄(spec §6.3);5.0s → 后台(I1)
         session_loggers.pop(sid, None)
+        session_clocks.pop(sid, None)
         logger.info(f"清理过期会话: {sid}")
 
     # 获取或创建新会话
     if session_id not in session_pipelines:
         try:
-            pipeline = VideoPipeline(fps=fps, session_id=session_id)
+            pipeline = VideoPipeline(session_id=session_id)
             session_pipelines[session_id] = (pipeline, current_time)
             # 同一会话的所有帧写入同一个文件，文件名带会话 id（报告侧按它归堆、NONE 单独一桶）
             log_path = os.path.join(LOGS_DIR, f'face_au_log_{session_id}.csv')
@@ -194,13 +227,19 @@ async def analyze_frame(
         file: 视频帧图片
         session_id: 会话ID（可选，**query 参数或 multipart 表单字段都能给**；
                     不提供则记入 NONE 桶；形状非法回 400）
-        fps: 帧率（默认30）
+        fps: **已忽略**（保留形参只为兼容旧客户端，删了会让它们收到 422）。
+             实时时间由服务端实测 —— 客户端一直申报 30，而实际只发 1 帧/秒，
+             差了 30 倍(spec §3.1 / §5.4)。
 
     返回:
         完整的分析结果，包含AU特征、情绪、紧张度、时间序列统计等
     """
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="上传的文件必须是图片格式")
+
+    # 记一次就够,不要每帧刷屏 —— 前端短期内不会改,这个警告会一直出现(spec §5.4)。
+    if fps != 30:
+        logger.warning("收到 ?fps=%s —— 已忽略。实时时间由服务端实测(spec §5.4)", fps)
 
     # 无 id → NONE（不再每请求 mint 一个 uuid：那会让每一帧都变成新会话、写出新日志文件）
     session_id = await _resolve_session_id(request, session_id)
@@ -224,10 +263,12 @@ async def analyze_frame(
             image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
             # 获取或创建 VideoPipeline
-            pipeline = get_or_create_pipeline(session_id, fps)
+            pipeline = get_or_create_pipeline(session_id)
+            timestamp_ms = _clock_for(session_id).stamp_ms()
 
             # 处理帧
-            result_obj, mesh_results, features_dict = pipeline.process_frame(image_rgb)
+            result_obj, mesh_results, features_dict = pipeline.process_frame(
+                image_rgb, timestamp_ms)
 
             # 将帧数据写入 CSV 日志（供 report_frontend 批量读取）
             if session_id in session_loggers:
@@ -361,10 +402,7 @@ async def reset_session(session_id: str):
     帧计数自然从 0 开始。所以这里**只 close() 释放 native 句柄,不调 reset()**:
     reset() 是留给"保留会话"那种语义的(`VideoPipeline.reset()` 本身有契约测钉着)。
     """
-    if session_id in session_pipelines:
-        pipeline, _ = session_pipelines.pop(session_id)
-        close_detached(pipeline)  # 删之前先放掉探测器的 native 句柄(spec §6.3);5.0s → 后台(I1)
-        session_loggers.pop(session_id, None)
+    if _reset_session(session_id):
         return {"status": "success", "message": f"会话 {session_id} 已重置"}
     else:
         return {"status": "not_found", "message": f"会话 {session_id} 不存在"}

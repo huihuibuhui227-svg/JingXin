@@ -118,14 +118,21 @@ class _FakeFacePipeline:
     `face_logger.log()` —— 否则"文件建了但一行没写"这种情况测不出来。
     """
 
-    def __init__(self, fps: int = 30, session_id: str | None = None):
-        self.fps = fps
+    def __init__(self, session_id: str | None = None):
         self.session_id = session_id
         self.closed = False
 
-    def process_frame(self, _image_rgb):
-        return object(), None, {"timestamp": 0.0, "focus_score": 0.5,
+    def process_frame(self, _image_rgb, timestamp_ms):
+        return object(), None, {"timestamp": timestamp_ms / 1000.0, "focus_score": 0.5,
                                 "dominant_emotion": "neutral", "confidence": 0.5}
+
+    def measured_fps(self):
+        """M2.5:会话收尾时服务会记一行实测 fps(spec §5.5)。
+
+        替身必须跟着真接口长 —— 少了它,`_reset_session()` 与 TTL 回收那两条路径
+        会 AttributeError,而本文件测的正是"会话 → 日志文件"的接线。
+        """
+        return 1.0
 
     def close(self):
         """`VideoPipeline.close()`(M1.5 T2 加的)的替身:TTL 回收会调它。

@@ -15,7 +15,7 @@ class VideoPipeline:
     def __init__(self, session_id="default", save_landmarks=False, detector=None):
         # `fps` 参数已删除(M2.5 spec §5.1):它以前同时是「元数据」和「计时依据」,
         # 而那个计时依据实测错了 30 倍(§3.1)。现在时间只剩一个来源 —— 入参 timestamp_ms。
-        # 元信息里仍报 fps,但那是**滑动实测值**(见 `_measured_fps`)。
+        # 元信息里仍报 fps,但那是**滑动实测值**(见 `measured_fps()`)。
         self.session_id = session_id
         self.blink_times = []          # 单位:秒(会话相对),不是挂钟
         self.eye_closed_duration = 0.0
@@ -207,7 +207,7 @@ class VideoPipeline:
         """TTL 回收时调:释放探测器的 native 句柄(spec §6.3)。"""
         self.detector.close()
 
-    def _measured_fps(self) -> float:
+    def measured_fps(self) -> float:
         """到当前为止的**滑动实测**帧率 —— 元信息用,不是特征列(spec §5.5)。
 
         旧的 `self.fps` 是客户端申报的 30,而实发 1 帧/秒。现在报的是量出来的。
@@ -262,7 +262,7 @@ class VideoPipeline:
             return {
                 "session_id": self.session_id,
                 "frame_count": 0,
-                "fps": self._measured_fps(),
+                "fps": self.measured_fps(),
                 "duration_sec": 0,
             }
 
@@ -332,7 +332,7 @@ class VideoPipeline:
         return {
             "session_id": self.session_id,
             "frame_count": frame_count,
-            "fps": self._measured_fps(),
+            "fps": self.measured_fps(),
             "duration_sec": round(duration_sec, 2),
             "au_features": au_summary,
             "emotion": {
