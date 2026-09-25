@@ -185,3 +185,47 @@ def test_concurrent_frames_do_not_collide(_isolated_root):
             (_isolated_root / "s1" / media_retention.RETENTION_FILENAME)
             .read_text(encoding="utf-8").splitlines()]
     assert sorted(seqs) == list(range(1, 41))
+
+
+# ── Task 3:存音频 ──────────────────────────────────────────────────────────
+
+def test_raw_and_converted_share_one_sequence_number(_isolated_root):
+    """一段回答的原始容器与转换后的 WAV **共用同一个序号**。
+
+    为什么:它们说的是同一段话,文件名要能对上(`0001.webm` ↔ `0001_converted.wav`)。
+    红法:让 converted 也走 _bump_seq —— 变成 0001.webm 与 0002_converted.wav,
+    两件互不相干的编号,重抽时对不上是哪段回答。
+    """
+    webm = b"\x1a\x45\xdf\xa3fake-webm"
+    wav = b"RIFF" + b"\x00" * 60
+    r1 = media_retention.retain_audio("s1", "raw", webm, source="/asr")
+    r2 = media_retention.retain_audio("s1", "converted", wav, source="/asr")
+    assert r1["seq"] == 1 and r2["seq"] == 1
+    assert r1["file"] == "media/audio/0001.webm"
+    assert r2["file"] == "media/audio/0001_converted.wav"
+    assert (_isolated_root / "s1" / r1["file"]).read_bytes() == webm
+    assert (_isolated_root / "s1" / r2["file"]).read_bytes() == wav
+
+
+def test_second_answer_gets_sequence_two(_isolated_root):
+    media_retention.retain_audio("s1", "raw", b"RIFF" + b"\x00" * 60)
+    r = media_retention.retain_audio("s1", "raw", b"\x1a\x45\xdf\xa3x")
+    assert r["seq"] == 2 and r["file"] == "media/audio/0002.webm"
+
+
+def test_extension_is_sniffed_from_content_not_assumed(_isolated_root):
+    """扩展名由**内容**决定 —— 调用方不必知道自己在送什么容器。
+
+    红法:写死 `.webm`。`/interview/answer_audio` 送的是 WAV,会被存成
+    `0001.webm`,重抽时按扩展名选的解码器全错。
+    """
+    assert media_retention.sniff_audio_ext(b"RIFF....WAVEfmt ") == "wav"
+    assert media_retention.sniff_audio_ext(b"\x1a\x45\xdf\xa3\x01\x00") == "webm"
+    assert media_retention.sniff_audio_ext(b"\x00\x01\x02") == "bin"
+    r = media_retention.retain_audio("s1", "raw", b"RIFF" + b"\x00" * 60)
+    assert r["file"].endswith(".wav")
+
+
+def test_audio_off_writes_nothing(_isolated_root, monkeypatch):
+    monkeypatch.setenv("JINGXIN_RETAIN_MEDIA", "0")
+    assert media_retention.retain_audio("s1", "raw", b"RIFF" + b"\x00" * 60) is None

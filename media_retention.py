@@ -242,8 +242,21 @@ def retain_frame(session_id: str, modality: str, data: bytes,
             return None
 
 
+def sniff_audio_ext(data: bytes) -> str:
+    """按内容判容器。只认得出两种就够 —— 认不出就 `.bin`,不假装。"""
+    if data[:4] == b"RIFF":
+        return "wav"
+    if data[:4] == b"\x1a\x45\xdf\xa3":       # EBML(webm/mkv)
+        return "webm"
+    return "bin"
+
+
 def retain_audio(session_id: str, kind: str, data: bytes, source: str = "") -> dict | None:
-    """把一段音频的**原始字节**存下来。`kind` ∈ {"raw", "converted"}。"""
+    """把一段音频的**原始字节**存下来(kind: "raw" | "converted")。
+
+    `converted` 是 `/asr` 经 ffmpeg 转出的 16k 单声道 WAV —— **那才是特征提取器真正
+    读的 PCM**,所以它必须与原始上传一起留(spec §4 的"管线所见 + 原始上传都有据")。
+    """
     if not enabled():
         return None
     if kind not in ("raw", "converted"):
@@ -252,4 +265,19 @@ def retain_audio(session_id: str, kind: str, data: bytes, source: str = "") -> d
     with _session_lock(sid):
         if not _prepare(sid):
             return None
-    raise NotImplementedError("Task 3 实现落盘部分")
+        if kind == "converted":
+            # 与同一段回答的 raw 共用序号;若调用方先存 converted(不该发生),退回 1。
+            seq = _current_seq(sid, "audio") or 1
+            fname = f"{seq:04d}_converted.wav"
+        else:
+            seq = _bump_seq(sid, "audio")
+            fname = f"{seq:04d}.{sniff_audio_ext(data)}"
+        rel = f"{MEDIA_SUBDIR}/audio/{fname}"
+        try:
+            (media_dir(sid, "audio") / fname).write_bytes(data)
+            rec = _record(sid, kind, None, seq, rel, data, None, source)
+            _append_jsonl(sid, rec)
+            return rec
+        except Exception as exc:
+            _mark_degraded(sid, f"audio {kind}#{seq}: {type(exc).__name__}: {exc}")
+            return None
