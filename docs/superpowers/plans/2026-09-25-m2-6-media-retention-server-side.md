@@ -528,7 +528,7 @@ def _record(session_id: str, kind: str, modality: str | None, seq: int,
         "sha256": hashlib.sha256(data).hexdigest(),
         "received_at_wall": time.time(),
         "declared_ts": declared_ts,
-        "source": source,
+        "source_endpoint": source,
         "session_id": session_id,
     }
 

@@ -84,5 +84,5 @@ def test_gesture_declared_ts_comes_from_its_own_clock(wired):
     line = json.loads(media_retention.ledger_path("20260925_120000_eeee", "gesture")
                       .read_text(encoding="utf-8").splitlines()[0])
     assert 0 <= line["declared_ts"] < 1000          # 首帧 ≈ 0(不写死 == 0,机器慢时可能过了 1 ms)
-    assert line["source"] == "/analyze"
+    assert line["source_endpoint"] == "/analyze"
     assert line["modality"] == "gesture"

@@ -93,7 +93,7 @@ def test_declared_ts_matches_the_session_clock(wired):
                       .read_text(encoding="utf-8").splitlines()[0])
     # 首帧 → 会话相对时钟约等于 0(不写死 == 0:机器慢时可能已经过了 1 ms)
     assert 0 <= line["declared_ts"] < 1000
-    assert line["source"] == "/analyze"
+    assert line["source_endpoint"] == "/analyze"
     assert line["declared_ts"] != int(line["received_at_wall"])   # 不是墙钟
 
 

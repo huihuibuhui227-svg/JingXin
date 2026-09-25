@@ -121,7 +121,7 @@ def test_frame_bytes_land_verbatim(_isolated_root):
     assert rec["sha256"] == hashlib.sha256(payload).hexdigest()
     assert rec["bytes"] == len(payload)
     assert rec["kind"] == "frame" and rec["modality"] == "face" and rec["seq"] == 1
-    assert rec["declared_ts"] == 1500 and rec["source"] == "/analyze"
+    assert rec["declared_ts"] == 1500 and rec["source_endpoint"] == "/analyze"
     assert rec["session_id"] == "s1"
     assert rec["file"] == "media/face/000001.jpg"
     assert isinstance(rec["received_at_wall"], float)
