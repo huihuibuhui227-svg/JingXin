@@ -229,3 +229,49 @@ def test_extension_is_sniffed_from_content_not_assumed(_isolated_root):
 def test_audio_off_writes_nothing(_isolated_root, monkeypatch):
     monkeypatch.setenv("JINGXIN_RETAIN_MEDIA", "0")
     assert media_retention.retain_audio("s1", "raw", b"RIFF" + b"\x00" * 60) is None
+
+
+# ── Task 4:中途失败留痕 + 守卫副本的契约 ────────────────────────────────────
+
+def test_midway_write_failure_is_recorded_and_does_not_raise(_isolated_root):
+    """写盘中途失败 → **不抛**(不阻断分析)、但必须留痕。
+
+    红法:把 except 里的 _mark_degraded 去掉、只 return None —— 于是这一场静默地
+    少了一批素材,而报告里什么都看不出来。
+
+    ⚠️ 用 `MonkeyPatch.context()` 而不是 `monkeypatch.undo()`:后者会把 autouse fixture
+    设的 `JINGXIN_RECORDINGS_DIR` 一起撤掉,于是下面那句真的写进 `~/shared`。
+    """
+    media_retention.retain_frame("s1", "face", b"ok1")     # 先过预检
+    calls = {"n": 0}
+    real = Path.write_bytes
+
+    def flaky(self, data):
+        calls["n"] += 1
+        if calls["n"] == 1:                # 预检已过,这里的第 1 次就是本帧的写
+            raise OSError(28, "No space left on device")
+        return real(self, data)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(Path, "write_bytes", flaky)
+        assert media_retention.retain_frame("s1", "face", b"ok2") is None   # 不抛
+    assert any("No space left" in r for r in media_retention.degraded_reasons("s1"))
+    # 留痕之后不瘫痪:后续件照常能写
+    assert media_retention.retain_frame("s1", "face", b"ok3") is not None
+
+
+def test_degraded_reasons_is_empty_when_all_is_well(_isolated_root):
+    media_retention.retain_frame("s1", "face", b"x")
+    assert media_retention.degraded_reasons("s1") == []
+    assert media_retention.degraded_reasons("never-seen") == []
+
+
+def test_guard_regex_matches_transcript_store():
+    """本模块的守卫与 `transcript_store` 必须是**同一个口径**。
+
+    红法:只改一份(本模块放宽一位长度,或允许点号)—— 同一个客户端请求在
+    "原句落哪"与"像素落哪"两处得到不同判定。
+    与三份 `_resolve_session_id` 的源码级契约测试同一手法。
+    """
+    from voice_interaction.asr import transcript_store
+    assert media_retention.SESSION_ID_PAT.pattern == transcript_store.SESSION_ID_PAT.pattern
