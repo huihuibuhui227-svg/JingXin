@@ -274,7 +274,25 @@ class InterviewAssessmentPipeline(AssessmentPipeline):
         return "\n".join(feedback)
 
     def _analyze_prosody(self) -> str:
-        """分析语音表达表现"""
+        """语音表达的**观测**文本 —— 只报"量到了几段",不下判语。
+
+        这里原先按 `pitch_variation > 40` / `speech_ratio > 0.6` / `energy_mean` 0.5–0.8
+        三条**无出处的硬编码阈值**下判语(「语调起伏大,富有表现力」「表达流畅」
+        「音量适中」「整体语音表达良好,继续保持!」)。已删(§3 第 28 条)。三个数的依据都站不住:
+
+        - `speech_ratio` 是**自指阈值** —— 实测真数据里 8 段有 7 段恰为 1.0,
+          所以那条判语**恒为**「表达流畅」,不是量出来的(spec §4.3 要删这一列);
+        - `energy_mean` 真值约 0.02–0.06,而阈值是 0.5–0.8 ⟹ 恒判「声音偏轻」;
+        - `pitch_variation` 实测可达 221 Hz,而那个数是 pyin 的 f0 轨迹不干净造成的
+          (见 N1 账本 §6),阈值 40 一撞就出「富有表现力」。
+
+        **它本来"炸不了"**:`qa_pairs` 唯一的写入者是 `add_qa_pair`,而活路径
+        (`add_answer`)不传 prosody ⟹ 恒走下面那句提前返回。但 `add_qa_pair`
+        **接受** prosody 参数 ⟹ 这是颗**随时能引爆**的雷:实测喂一个
+        `pitch_variation=45 / speech_ratio=0.8 / energy_mean=0.5` 的假对象,
+        它立刻吐「语调起伏大,富有表现力;表达流畅;音量适中」。所以删掉的是**雷**,
+        不只是死代码。真要做韵律判语,得等 M3 把列定义与阈值依据一起重做。
+        """
         all_prosody = [
             qa.prosody_analysis
             for qa in self.qa_pairs
@@ -284,53 +302,8 @@ class InterviewAssessmentPipeline(AssessmentPipeline):
         if not all_prosody:
             return "未获取到语音特征数据，无法进行语调分析。"
 
-        feedback_lines = []
-
-        for i, prosody in enumerate(all_prosody, start=1):
-            line = f"【回答 {i}】"
-            parts = []
-
-            # 语调分析
-            if prosody.pitch_variation > 40:
-                parts.append("语调起伏大，富有表现力")
-            elif prosody.pitch_variation < 20:
-                parts.append("语调平缓，可能显得不够自信")
-            else:
-                parts.append("语调自然，有适度变化")
-
-            # 流畅度分析
-            if prosody.speech_ratio > 0.6:
-                parts.append("表达流畅")
-            elif prosody.speech_ratio > 0.3:
-                parts.append("表达较连贯")
-            else:
-                parts.append("停顿较多，略显犹豫")
-
-            # 音量分析
-            if prosody.energy_mean > 0.8:
-                parts.append("声音洪亮")
-            elif prosody.energy_mean < 0.5:
-                parts.append("声音偏轻")
-            else:
-                parts.append("音量适中")
-
-            line += "：" + "；".join(parts)
-            feedback_lines.append(line)
-
-        # 综合建议
-        avg_pitch = sum(p.pitch_variation for p in all_prosody) / len(all_prosody)
-        avg_speech = sum(p.speech_ratio for p in all_prosody) / len(all_prosody)
-
-        suggestions = []
-        if avg_pitch < 20:
-            suggestions.append("尝试在关键观点处提高音调，增强感染力")
-        if avg_speech < 0.4:
-            suggestions.append("适当减少停顿，提升表达流畅度")
-        if not suggestions:
-            suggestions.append("整体语音表达良好，继续保持！")
-
-        overall = "\n\n【语音表达建议】" + "；".join(suggestions)
-        return "\n".join(feedback_lines) + overall
+        # 有数据也只说"量到了几段"这一件事实;判语留给 M3(那时才有依据)。
+        return f"获取到 {len(all_prosody)} 段语音特征数据；本轮不给语调判语(阈值依据未立，见 M3)。"
 
 
 class ResearchAssessmentPipeline(AssessmentPipeline):
@@ -519,7 +492,25 @@ class ResearchAssessmentPipeline(AssessmentPipeline):
         return "\n".join(feedback)
 
     def _analyze_prosody(self) -> str:
-        """分析语音表达表现"""
+        """语音表达的**观测**文本 —— 只报"量到了几段",不下判语。
+
+        这里原先按 `pitch_variation > 40` / `speech_ratio > 0.6` / `energy_mean` 0.5–0.8
+        三条**无出处的硬编码阈值**下判语(「语调起伏大,富有表现力」「表达流畅」
+        「音量适中」「整体语音表达良好,继续保持!」)。已删(§3 第 28 条)。三个数的依据都站不住:
+
+        - `speech_ratio` 是**自指阈值** —— 实测真数据里 8 段有 7 段恰为 1.0,
+          所以那条判语**恒为**「表达流畅」,不是量出来的(spec §4.3 要删这一列);
+        - `energy_mean` 真值约 0.02–0.06,而阈值是 0.5–0.8 ⟹ 恒判「声音偏轻」;
+        - `pitch_variation` 实测可达 221 Hz,而那个数是 pyin 的 f0 轨迹不干净造成的
+          (见 N1 账本 §6),阈值 40 一撞就出「富有表现力」。
+
+        **它本来"炸不了"**:`qa_pairs` 唯一的写入者是 `add_qa_pair`,而活路径
+        (`add_answer`)不传 prosody ⟹ 恒走下面那句提前返回。但 `add_qa_pair`
+        **接受** prosody 参数 ⟹ 这是颗**随时能引爆**的雷:实测喂一个
+        `pitch_variation=45 / speech_ratio=0.8 / energy_mean=0.5` 的假对象,
+        它立刻吐「语调起伏大,富有表现力;表达流畅;音量适中」。所以删掉的是**雷**,
+        不只是死代码。真要做韵律判语,得等 M3 把列定义与阈值依据一起重做。
+        """
         all_prosody = [
             qa.prosody_analysis
             for qa in self.qa_pairs
@@ -529,50 +520,5 @@ class ResearchAssessmentPipeline(AssessmentPipeline):
         if not all_prosody:
             return "未获取到语音特征数据，无法进行语调分析。"
 
-        feedback_lines = []
-
-        for i, prosody in enumerate(all_prosody, start=1):
-            line = f"【回答 {i}】"
-            parts = []
-
-            # 语调分析
-            if prosody.pitch_variation > 40:
-                parts.append("语调起伏大，富有表现力")
-            elif prosody.pitch_variation < 20:
-                parts.append("语调平缓，可能显得不够自信")
-            else:
-                parts.append("语调自然，有适度变化")
-
-            # 流畅度分析
-            if prosody.speech_ratio > 0.6:
-                parts.append("表达流畅")
-            elif prosody.speech_ratio > 0.3:
-                parts.append("表达较连贯")
-            else:
-                parts.append("停顿较多，略显犹豫")
-
-            # 音量分析
-            if prosody.energy_mean > 0.8:
-                parts.append("声音洪亮")
-            elif prosody.energy_mean < 0.5:
-                parts.append("声音偏轻")
-            else:
-                parts.append("音量适中")
-
-            line += "：" + "；".join(parts)
-            feedback_lines.append(line)
-
-        # 综合建议
-        avg_pitch = sum(p.pitch_variation for p in all_prosody) / len(all_prosody)
-        avg_speech = sum(p.speech_ratio for p in all_prosody) / len(all_prosody)
-
-        suggestions = []
-        if avg_pitch < 20:
-            suggestions.append("尝试在关键观点处提高音调，增强感染力")
-        if avg_speech < 0.4:
-            suggestions.append("适当减少停顿，提升表达流畅度")
-        if not suggestions:
-            suggestions.append("整体语音表达良好，继续保持！")
-
-        overall = "\n\n【语音表达建议】" + "；".join(suggestions)
-        return "\n".join(feedback_lines) + overall
+        # 有数据也只说"量到了几段"这一件事实;判语留给 M3(那时才有依据)。
+        return f"获取到 {len(all_prosody)} 段语音特征数据；本轮不给语调判语(阈值依据未立，见 M3)。"
