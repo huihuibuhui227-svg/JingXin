@@ -1,4 +1,3 @@
-import time
 import collections
 import copy
 import numpy as np
@@ -13,13 +12,23 @@ from ..models.results import AnalysisFrameResult
 
 
 class VideoPipeline:
-    def __init__(self, fps=30, session_id="default", save_landmarks=False, detector=None):
-        self.fps = fps
+    def __init__(self, session_id="default", save_landmarks=False, detector=None):
+        # `fps` 参数已删除(M2.5 spec §5.1):它以前同时是「元数据」和「计时依据」,
+        # 而那个计时依据实测错了 30 倍(§3.1)。现在时间只剩一个来源 —— 入参 timestamp_ms。
+        # 元信息里仍报 fps,但那是**滑动实测值**(见 `_measured_fps`)。
         self.session_id = session_id
-        self.blink_times = []
-        self.eye_closed_duration = 0
-        self.last_blink_time = 0
+        self.blink_times = []          # 单位:秒(会话相对),不是挂钟
+        self.eye_closed_duration = 0.0
+        self.last_blink_time = None
+        self.history_last_ms = None
         self.EAR_THRESHOLD = 0.21
+
+        # 历史窗按**秒**定,不按帧数定(旧的是 `int(3 * fps)` = 90 帧)。
+        # 实时 1 fps 下 90 帧是 90 秒,与「最近 3 秒」差了 30 倍(spec §3.3)。
+        self.history_window_ms = 3000
+        self.n_submitted = 0
+        self.first_ts = None
+        self.last_ts = None
 
         # 探测器**按会话**注入(不是惰性属性,也不是模块级单例):tasks 的 VIDEO 模式
         # 把跟踪状态挂在实例上,单例会让并发会话互相污染跟踪(spec §3.5 / D3)。
@@ -27,7 +36,7 @@ class VideoPipeline:
         if detector is None:
             from .detector import FaceDetector
             from ..config import FACE_MODEL
-            detector = FaceDetector(FACE_MODEL, fps=fps)
+            detector = FaceDetector(FACE_MODEL)
         self.detector = detector
 
         self.feature_calculator = AUFeatureCalculator(save_landmarks=save_landmarks)
@@ -35,11 +44,16 @@ class VideoPipeline:
         self.micro_detector = MicroExpressionDetector()
         self.tension_engine = TensionEngine()
         self.emotion_engine = EmotionEngine()
-        self.au_history = collections.deque(maxlen=int(3 * fps))
+        self.au_history = collections.deque()      # 按时间修剪,不设 maxlen
 
-    def process_frame(self, image_rgb):
+    def process_frame(self, image_rgb, timestamp_ms: int):
+        if self.first_ts is None:
+            self.first_ts = timestamp_ms
+        self.last_ts = timestamp_ms
+        self.n_submitted += 1
+
         h, w = image_rgb.shape[:2]
-        landmarks_norm = self.detector.detect(image_rgb)
+        landmarks_norm = self.detector.detect(image_rgb, timestamp_ms)
 
         if not landmarks_norm:
             return None, None, {"emotion": "no_face"}
@@ -55,28 +69,29 @@ class VideoPipeline:
 
         current_au = self.feature_calculator.calculate(landmarks_norm, face_width, face_height)
 
-        # === 眨眼检测 ===
+        # === 眨眼检测(全部按真实时间,不再碰挂钟 —— M2.5 spec §3.3)===
         ear = current_au.avg_ear
-        current_time = time.time()
-        is_blink = ear < self.EAR_THRESHOLD
-
-        if is_blink and (current_time - self.last_blink_time) > 0.3:
-            self.blink_times.append(current_time)
-            self.last_blink_time = current_time
-
-        one_minute_ago = current_time - 60
-        blink_count = sum(1 for t in self.blink_times if t > one_minute_ago)
-        eye_closed_sec = self.eye_closed_duration
-        if ear < 0.18:
-            self.eye_closed_duration += 1 / self.fps
-        else:
-            self.eye_closed_duration = 0
+        is_blink, blink_count, eye_closed_sec = self._update_blink_state(ear, timestamp_ms)
 
         # === 关键修复：深拷贝 + 强制初始化历史帧 ===
         au_for_history = copy.deepcopy(current_au)
         au_for_history.is_blink = is_blink
         au_for_history.blink_rate_per_min = blink_count
-        au_for_history.eye_closed_sec = self.eye_closed_duration
+        au_for_history.eye_closed_sec = eye_closed_sec
+        # 历史修剪要靠它,所以挂一个不在 `__annotations__` 里的属性 ——
+        # 于是它不会被当成特征字段卷进时序统计(下面那个列表按 `__annotations__` 取)。
+        au_for_history.timestamp_ms = timestamp_ms
+
+        # ★ M2.5 修复:序列化用的是 `current_au`,而这三个字段以前只写在深拷贝上
+        # → CSV 里 is_blink 三列恒 0(spec §3.4)。
+        current_au.is_blink = is_blink
+        current_au.blink_rate_per_min = blink_count
+        current_au.eye_closed_sec = eye_closed_sec
+
+        # 历史窗按时间修剪(旧的是 `deque(maxlen=90)` 那种帧数上限)
+        cutoff = timestamp_ms - self.history_window_ms
+        while self.au_history and getattr(self.au_history[0], "timestamp_ms", 0) < cutoff:
+            self.au_history.popleft()
 
         # 强制确保至少2帧（避免时间序列计算被跳过）
         if len(self.au_history) == 0:
@@ -156,7 +171,7 @@ class VideoPipeline:
         temporal_stats = TemporalStats(data=temporal_stats_dict)
 
         # === 微表情、情绪、紧张度 ===
-        micro_exps = self.micro_detector.detect(current_au)
+        micro_exps = self.micro_detector.detect(current_au, timestamp_ms)
         emotion_result = self.emotion_engine.infer(current_au, temporal_stats, micro_exps)
         tension_result = self.tension_engine.compute(
             current_au,
@@ -168,7 +183,9 @@ class VideoPipeline:
 
         result = AnalysisFrameResult(
             session_id=self.session_id,
-            timestamp=current_time,
+            # 单位仍是**秒**,与旧列同量纲,只是基准从挂钟改成会话相对时间。
+            # 这是 M2.5 唯一改变 timestamp 列语义的地方,下游影响已核(spec §3.6)。
+            timestamp=timestamp_ms / 1000.0,
             focus_score=round(float(focus_score), 2),
             au_features=current_au,
             temporal_stats=temporal_stats,
@@ -190,6 +207,46 @@ class VideoPipeline:
         """TTL 回收时调:释放探测器的 native 句柄(spec §6.3)。"""
         self.detector.close()
 
+    def _measured_fps(self) -> float:
+        """到当前为止的**滑动实测**帧率 —— 元信息用,不是特征列(spec §5.5)。
+
+        旧的 `self.fps` 是客户端申报的 30,而实发 1 帧/秒。现在报的是量出来的。
+        """
+        if self.first_ts is None or self.last_ts is None:
+            return 0.0
+        elapsed_sec = (self.last_ts - self.first_ts) / 1000.0
+        if elapsed_sec <= 0:
+            return 0.0
+        return round(self.n_submitted / elapsed_sec, 3)
+
+    def _update_blink_state(self, ear: float, timestamp_ms: int):
+        """眨眼/闭眼记账。全部按 `timestamp_ms` 算 —— 不再碰挂钟。
+
+        为什么必须抽出来:旧代码把这件事和 `time.time()` 缠在 `process_frame` 里,
+        离线批处理下那个挂钟是**处理时间**(实测中位是真时长的 2.32 倍),
+        于是「每分钟眨眼次数」算的是处理时间里的次数(spec §3.3)。
+        """
+        now_sec = timestamp_ms / 1000.0
+        is_blink = ear < self.EAR_THRESHOLD
+
+        if is_blink and (self.last_blink_time is None
+                         or (now_sec - self.last_blink_time) > 0.3):
+            self.blink_times.append(now_sec)
+            self.last_blink_time = now_sec
+
+        one_minute_ago = now_sec - 60.0
+        blink_count = sum(1 for t in self.blink_times if t > one_minute_ago)
+
+        if ear < 0.18:
+            # 真实间隔 = 与上一帧的时间差;第一帧没有上一帧,记 0
+            if self.history_last_ms is not None:
+                self.eye_closed_duration += (timestamp_ms - self.history_last_ms) / 1000.0
+        else:
+            self.eye_closed_duration = 0.0
+
+        self.history_last_ms = timestamp_ms
+        return is_blink, blink_count, self.eye_closed_duration
+
     def _calculate_focus_score(self, au_features):
         yaw = au_features.head_yaw
         blink_rate = au_features.blink_rate_per_min
@@ -205,7 +262,7 @@ class VideoPipeline:
             return {
                 "session_id": self.session_id,
                 "frame_count": 0,
-                "fps": self.fps,
+                "fps": self._measured_fps(),
                 "duration_sec": 0,
             }
 
@@ -255,15 +312,18 @@ class VideoPipeline:
         avg_gaze = float(np.mean(gaze_vals)) if gaze_vals else 0.0
         gaze_stability = 1.0 - min(avg_gaze * 10, 1.0) if gaze_vals else 0.8
 
-        # 眨眼统计
-        now = time.time()
-        recent_blinks = sum(1 for t in self.blink_times if now - t < 60)
+        # 眨眼统计 —— 时长一律由时间戳导出,不再 `帧数 / fps`(spec §3.3)
+        first = getattr(self.au_history[0], "timestamp_ms", 0)
+        last = getattr(self.au_history[-1], "timestamp_ms", 0)
+        duration_sec = (last - first) / 1000.0
+        duration_min = duration_sec / 60.0
+        recent_blinks = sum(1 for t in self.blink_times
+                            if (last / 1000.0 - t) < 60.0)
         total_blinks = len(self.blink_times)
-        duration_min = (len(self.au_history) / self.fps) / 60.0 if self.fps > 0 else 0
-        avg_blink_rate = recent_blinks / 1.0 if duration_min < 0.1 else (recent_blinks / max(duration_min, 0.01))
+        avg_blink_rate = (recent_blinks / max(duration_min, 0.01)
+                          if duration_min >= 0.1 else recent_blinks / 1.0)
 
         frame_count = len(self.au_history)
-        duration_sec = frame_count / self.fps if self.fps > 0 else 0
 
         # 专注度
         focus_vals = [getattr(f, "focus_score", 0.5) for f in self.au_history if hasattr(f, "focus_score")]
@@ -272,7 +332,7 @@ class VideoPipeline:
         return {
             "session_id": self.session_id,
             "frame_count": frame_count,
-            "fps": self.fps,
+            "fps": self._measured_fps(),
             "duration_sec": round(duration_sec, 2),
             "au_features": au_summary,
             "emotion": {

@@ -16,8 +16,9 @@ class _FakeDetector:
         self.resets = 0
         self.closed = False
 
-    def detect(self, image_rgb):
+    def detect(self, image_rgb, timestamp_ms):
         self.calls += 1
+        self.last_ts = timestamp_ms
         return None            # "没检出" —— 走 process_frame 的 no_face 分支,不碰几何层
 
     def reset(self):
@@ -36,10 +37,11 @@ def test_pipeline_uses_the_injected_detector():
     红法:保留旧的惰性 `face_mesh` 属性(它会去 import mediapipe.solutions 而炸)。
     """
     d = _FakeDetector()
-    p = VideoPipeline(fps=30, session_id="s", detector=d)
-    p.process_frame(_FRAME)
+    p = VideoPipeline(session_id="s", detector=d)
+    p.process_frame(_FRAME, 0)
 
     assert d.calls == 1
+    assert d.last_ts == 0, "时间戳没被透传给探测器"
 
 
 def test_reset_forwards_to_the_detector():
@@ -49,8 +51,8 @@ def test_reset_forwards_to_the_detector():
     再来一帧,时间戳回退,mediapipe 抛错。
     """
     d = _FakeDetector()
-    p = VideoPipeline(fps=30, session_id="s", detector=d)
-    p.process_frame(_FRAME)
+    p = VideoPipeline(session_id="s", detector=d)
+    p.process_frame(_FRAME, 1000)
     p.reset()
 
     assert d.resets == 1
@@ -62,7 +64,7 @@ def test_close_releases_the_detector():
     红法:不给 VideoPipeline 提供 close(),或写了但不转发。
     """
     d = _FakeDetector()
-    p = VideoPipeline(fps=30, session_id="s", detector=d)
+    p = VideoPipeline(session_id="s", detector=d)
     p.close()
 
     assert d.closed is True
