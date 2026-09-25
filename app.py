@@ -188,9 +188,11 @@ def _run_live_report(task_id, session_id):
         from report_frontend.report_generator import ReportGenerator
         gen = ReportGenerator()
         path = gen.generate_report_live(session_id)
+        # 「没产出」不许报成功(第 17 条同族)—— `generate_report_live` 失败时正是 `return ""`,
+        # 而这条路的旧实现无条件报「实时报告生成完成！」,把静默失败原样搬到了隔壁这条路上。
         task_status[task_id].update({
-            "status": "success",
-            "message": "实时报告生成完成！",
+            "status": "success" if path else "error",
+            "message": "实时报告生成完成！" if path else "实时报告生成失败",
             "logs": f"报告路径: {path}" if path else "生成失败",
             "finished_at": time.time()
         })
@@ -218,7 +220,7 @@ def get_task_status(task_id):
 def get_structured_report():
     """
     运行 report_generator 流水线，返回结构化评估 JSON。
-    可选参数: session_id(要描述哪一场;缺省取最新一场)、type=interview|research
+    可选参数: session_id(要描述哪一场;缺省取最新一场)
 
     M2.1(第 18 条):①**本场没有任何日志时也照常回答**(spec §6 行 1/2 要求"报告仍生成"),
     不再回 `{"status":"error","message":"未找到评估日志数据"}` —— 那种回答会让前端显示

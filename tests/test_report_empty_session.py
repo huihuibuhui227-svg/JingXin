@@ -147,3 +147,51 @@ def test_cli_exits_zero_and_passes_the_session_id_through(monkeypatch):
 
     assert main(["--session-id", _SID]) == 0
     assert seen == [_SID]
+
+
+# ── M2.1 独立复审(2026-09-25)补的两条 ──────────────────────────────────
+
+_OTHER = "20260924_221811_9212"     # 旁边那场**有数据**的会话
+
+
+def test_report_never_falls_back_to_another_session_with_data(render):
+    """★ spec §6 行 2 的后半句:**不许**回退去拼别的场次(复审 Minor 3)。
+
+    上面那条「显式不存在 id」的测试,目录里**只有 NONE 文件**,没有第二场可回退 ——
+    所以它压不住这条契约。这里另造一场有数据的会话,目标仍是那个空 id。
+
+    红法:把 `resolve_target_session` 改成"显式 id 找不到就取最新一场" → 报告头会点名
+    `_OTHER` 并显示「已读入」→ 两条断言都红。
+    """
+    html = render(session_id=_SID,
+                  files=[(f"face_au_log_{_OTHER}.csv", [_session_row(_OTHER)])])
+
+    assert _SID in html
+    assert _OTHER not in html, "回退去描述了旁边那场有数据的会话 —— spec §6 行 2 明令不许"
+    assert "已读入" not in html
+
+
+def test_a_failing_browser_open_does_not_turn_a_written_report_into_a_failure(
+        tmp_path, monkeypatch):
+    """★ 报告**已经落盘**了 —— 打开浏览器失败不许把返回值变成 `''`(复审 Minor 5)。
+
+    为什么这条要紧:退出码是本轮新引入的(第 17 条),`return ""` 会被面板报成
+    「任务失败」,而盘上明明有一份报告 —— 一个假警报。
+
+    红法:把 `webbrowser.open` 挪回主 `try` 内(它就在 `write` 之后)。
+    """
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    _write(log_dir, f"face_au_log_{_SID}.csv", [_session_row(_SID)])
+    monkeypatch.setattr(report_generator, "LogDataLoader",
+                        lambda *a, **k: LogDataLoader(str(log_dir)))
+
+    def _boom(url):
+        raise RuntimeError("这台机器没有可用浏览器")
+
+    monkeypatch.setattr(report_generator.webbrowser, "open", _boom)
+
+    path = ReportGenerator(output_dir=str(tmp_path / "out")).generate_report(_SID)
+
+    assert path, "报告已经落盘,却因为打不开浏览器被判成了失败"
+    assert Path(path).exists()

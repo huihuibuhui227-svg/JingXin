@@ -113,3 +113,33 @@ Task 3: complete (commits 88a1934..c17c0ac, tests: /home/huihuibuhui/miniconda3/
   ```
   (与 2026-09-21 那次基线的最大绝对差 `1.886e-19` **同一个数** —— 逐位一致。)
 - 验收留下的现场(供你复核,未清理):仓库外 `~/shared/jingxin_recordings/20260925_124346_6e4a/`(科研,含 transcript.json)、`..._ff93/`(面试,**被反向复现故意污染过**的那一份);仓库内 `data/logs/interview_emotion_log_20260925_124346_ff93.csv`(292 B,只有表头)—— 后者由 `.gitignore:45` 的 `**/data/logs/` 兜住,不进仓库。
+Task 4: complete (commits c17c0ac..5faba37, tests: /home/huihuibuhui/miniconda3/envs/jingxin/bin/python -m pytest -q → 217 passed in 18.85s)
+
+## 最终独立评审(2026-09-25,最强模型,单一 fresh context)
+
+评审者真跑了:全量 `pytest` **217 passed**、合并门 `0 / 2835510`、前端 `tsc --noEmit` exit 0,并写了四个只读探针把 Review Focus 五条逐条实测。判 **Critical 1 / Important 3 / Minor 9**,结论「With fixes」。原始报告已由本会话留存。
+
+### 重新定级(按"合理使用者会得到什么",不按 spec 有没有点名)
+
+- **C1(前端 `total_score=null` 渲染期抛异常)= Critical,确认,已修。** 我自己独立复核过前提:盘上「最新一场」`20260925_124346_ff93` → `n_passed: 0` → `total_score: None`(经真 HTTP 从面板取出)。**红/绿都是真浏览器实跑**,不是推理:
+  - 红:web-access 驱动真 Edge 打开 `http://localhost:5173/report/latest` → 页面文本 `页面出现错误 / Cannot read properties of null (reading 'toFixed')`;
+  - 绿:同一 tab 重载 → `— / 未产出综合评分（证据不足）` + 披露卡（`本场会话：20260925_124346_ff93` / 四模态三态 / `另有 NONE 桶 224 行`）正常渲染,雷达与分维度段都在。
+  - ⚠️ **前端没有测试设施**,所以这次修复**没有单测** —— 证据是真浏览器实跑 + `tsc --noEmit` exit 0 + `npm run build` ✓。这是本轮唯一一处"修复未经单测"的,记在这里不藏。
+- **I1(store 短路让披露卡说谎)= Important,已修。** 但评审者把它算成"本轮未记录的设计决定"**是错的**:那段 `if (storeResult) { setReport(storeResult); return; }` 在我改之前就在(`ReportPage.tsx:23-27`),我没动它 —— 我给他的是**修正**而非承认。真正的缺陷是我加的卡片在那条路上会印出「（无 —— 本场没有任何日志）**而报告就在屏上**;修法是只在服务端真回答了来源时才渲染它(`sources !== null`)。 — cost if wrong: store 路径下用户看不到"这是哪一场"(而那是诚实:前端确实不知道)。
+- **I2(科研会话遮蔽面试会话)= Important,裁决:本轮不修,交使用者。** 它是**方案 A 已知悉的后果**(选择 A 时我明确写过"科研期间摄头帧归到科研号 → 缺省取最新会落到科研那场"),**但评审者指出的一半是新的**:科研会话**永远读不出语音**(`research_logger = VoiceLogger(log_type='research')` 不带 session_id,且科研回答不调 `log_prosody`)→ 那份报告恒定"语音两栏全缺"。 — cost if wrong:使用者「先面试 → 再科研 → 看报告」拿到的是科研会话那份偏空的报告,而面试那份完整报告不被提及(报告头点名了是哪一场,不是静默)。**建议收口(评审者方案 a):给科研的 VoiceLogger 带上 session_id**,顺带让 `voice_research` 这个恒 missing 的模态有产出方。
+- **I3(实时报告路径「没产出也报成功」)= Important,已修。** 与第 17 条逐字同族的隔壁一条路,一行 + 3 条测试。
+- **Minor 1 / 3 / 4 / 5 已修**(docstring 里多余参数名;补"不许回退拼别的场次"的钉子;**该钉子做了反向复现**:让 `resolve_target_session` 回退到最新一场 → 新测试红(`assert '20260924_230914_262f' in html`)、而**旧的那条仍是绿的** —— 正是评审者说的"点了名没压住";补 `n_slots == 20`;`webbrowser.open` 移出主 `try`,它失败不许把已落盘的报告变成「任务失败」)。
+- **Minor 2 / 6 / 9 未修**(none_bucket 的 `status: "present"` 是枚举外第 4 值;`_none_bucket_rows` 全量读;只有表头的 NONE 文件不被提),列进 deferred。
+- **Minor 7 / 8 已处理**:账本末行已提交;`docs/下一步.md` 里"还没推 origin"已按实际改写。
+- **评审者的 Declined to judge 各条**:我逐条认领,见文末「裁决清单」。
+
+### 修复波次后的门
+
+- 全量 `pytest -q` → **222 passed**(217 + 新增 5 条:3 条实时报告任务状态 + 2 条报告层)。
+- 前端 `tsc --noEmit` exit 0;`npm run build` ✓ 14.19s。
+- 合并门重跑(修复波次动了生产代码,故必须重跑):结果见下。
+- **反向复现(修复波次的两处新增)**:①I3 先退回"无条件 success" → 红(`没产出却报成功:{'status': 'success', ...}`);②`webbrowser.open` 失败 → 红(`报告已经落盘,却因为打不开浏览器被判成了失败`);③RF3 的新钉子 → 见上。
+
+### 环境事实(使用者 2026-09-25 现场指出,供后人)
+
+- **WSL 侧的浏览器调摄像头不正常 → 凡是要真发帧的验收(face/gesture 帧、"先面试再科研"的真实场景)都要在 Windows 端浏览器里做。** 这也解释了本轮浏览器验证里 `面部 · 缺失 / 手势 · 缺失` 的现象:那是在 WSL 浏览器会话里跑的,**不该期待有帧**。我先前根据 `sources` 里有 `face`/`gesture` 两个**键**就断言"科研会话确实拿到了摄像头帧"—— 那句是错的(键恒存在,missing 也在),此处更正。

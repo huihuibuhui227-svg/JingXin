@@ -148,13 +148,19 @@ class ReportGenerator:
             with open(report_path, 'w', encoding='utf-8') as f:
                 f.write(html_content)
 
-            webbrowser.open('file://' + os.path.realpath(report_path))
-            print(f"\n✅ 报告已生成并打开：{report_path}")
-            return report_path
-
         except Exception as e:
             print(f"❌ 错误：{e}")
             return ""
+
+        # 报告**已经落盘**。打开浏览器是"顺手"的副作用 —— 它失败不许影响返回值:
+        # 退出码是本轮新引入的(第 17 条),一旦从这里抛出去,面板会把"报告其实写好了"
+        # 报成「任务失败」(假警报)。
+        try:
+            webbrowser.open('file://' + os.path.realpath(report_path))
+        except Exception as e:
+            print(f"   ⚠️  报告已生成,但打开浏览器失败：{e}")
+        print(f"\n✅ 报告已生成：{report_path}")
+        return report_path
 
     def generate_report_live(self, session_id: str) -> str:
         """从运行中的 API 服务获取实时内存数据，生成评估报告（实时模式）"""
