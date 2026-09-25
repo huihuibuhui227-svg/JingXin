@@ -10,6 +10,7 @@ import os
 import logging
 from logging_config import setup_logging
 from session_clock import SessionClock
+import media_retention
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -295,6 +296,9 @@ async def analyze_image(
         # M2.5:时间戳由服务端实测 —— gesture 以前连 fps 参数都没有,直接用默认 30,
         # 而客户端实际 1 帧/秒(spec §3.5 / §3.1)。
         timestamp_ms = _clock_for(session_id).stamp_ms()
+        # M2.6:先存原始字节再算(与 face 同一处、同一理由)。
+        media_retention.retain_frame(session_id, "gesture", contents,
+                                     declared_ts=timestamp_ms, source="/analyze")
 
         hand_groups = dets['hands'].detect(image_rgb, timestamp_ms)
         detected_hands = 0
