@@ -6,6 +6,7 @@
 """
 import importlib
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,7 @@ import media_retention
 session_meta = importlib.import_module("session_meta")
 
 SID = "20260925_203826_2449"
+T0 = time.time()
 
 
 @pytest.fixture(autouse=True)
@@ -48,8 +50,8 @@ def test_everything_present_reports_nothing_missing(_isolated):
     _fill_meta()
     media_retention.retain_frame(SID, "face", b"\xff\xd8\xff\xe0jpeg", source="/analyze")
     media_retention.retain_uploaded_video(SID, b"\x1a\x45\xdf\xa3webm")
-    session_meta.upsert_question(SID, qid="Q0", index=0, ask_start=1.0, ask_end=2.0)
-    session_meta.upsert_question(SID, qid="Q1", index=1, ask_start=3.0, ask_end=4.0)
+    session_meta.upsert_question(SID, qid="Q0", index=0, ask_start=T0, ask_end=T0 + 1)
+    session_meta.upsert_question(SID, qid="Q1", index=1, ask_start=T0 + 10, ask_end=T0 + 11)
 
     got = session_meta.check_session(SID, expected_questions=2)
     assert got["media"]["face"] == 1
@@ -75,7 +77,7 @@ def test_missing_interviewer_rating_is_reported_but_does_not_raise(_isolated):
 def test_unreported_question_is_named_by_index(_isolated):
     """spec §7.6.4:两题只报一题 → 点名缺的那题(按 index)。"""
     _fill_meta()
-    session_meta.upsert_question(SID, qid="Q0", index=0, ask_start=1.0, ask_end=2.0)
+    session_meta.upsert_question(SID, qid="Q0", index=0, ask_start=T0, ask_end=T0 + 1)
     got = session_meta.check_session(SID, expected_questions=2)
     assert got["missing_questions"] == [1], got["missing_questions"]
 
@@ -104,6 +106,9 @@ def test_degraded_reasons_surface_in_the_report(_isolated):
 
     got = session_meta.check_session(SID)
     assert any("No space left" in d for d in got["degraded"]), got["degraded"]
+    # 降级行**不许**被当成材料数进去(复核实测:把 kind 过滤改成 `if True:` 时
+    # 没有任何测试变红 —— 于是一场"每次写都失败"的会话会报出并不存在的素材)
+    assert got["media"] == {"face": 1}, got["media"]   # 只有成功的那一件
 
 
 def test_response_latency_is_computable_from_the_stored_ask_end(_isolated):
@@ -116,16 +121,16 @@ def test_response_latency_is_computable_from_the_stored_ask_end(_isolated):
     (从 0 起),所以"首次开口墙钟"必须由**段起始墙钟 + 段内偏移**合成。
     不把这个示范钉住,M3 真去算时才会发现两个基不是一回事。
     """
-    seg_wall, first_char_offset = 1758824011.5, 0.75      # 段起始墙钟 / 段内偏移
+    seg_wall, first_char_offset = T0 + 11.5, 0.75         # 段起始墙钟 / 段内偏移
     first_speech_wall = seg_wall + first_char_offset
 
     session_meta.upsert_question(SID, qid="Q0", index=0,
-                                 ask_start=1758824000.0, ask_end=1758824006.0)
+                                 ask_start=T0, ask_end=T0 + 6.0)
     ask_end = session_meta.read_questions(SID)[0]["ask_end"]
     assert round(first_speech_wall - ask_end, 3) == 6.25
 
     session_meta.upsert_question(SID, qid="Q0", index=0,        # 换成错值
-                                 ask_start=1758824000.0, ask_end=1758824009.5)
+                                 ask_start=T0, ask_end=T0 + 9.5)
     ask_end2 = session_meta.read_questions(SID)[0]["ask_end"]
     assert round(first_speech_wall - ask_end2, 3) == 2.75, "结果没跟着 ask_end 变 ⟹ 它没读那个字段"
 

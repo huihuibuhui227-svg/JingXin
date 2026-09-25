@@ -70,6 +70,13 @@ research_logger = VoiceLogger(log_type='research')
 # 音频契约:16 kHz / 16 bit / 单声道(四处 wave 校验与 ffmpeg 转换都用它)
 SAMPLE_RATE = 16000
 
+# 单次上传上限(终局复核 I7)。为什么需要它:`/session/{sid}/media` 收的是
+# **整场**的原生视频,而盘就是 `D:\`(127 GB)。一个不受限的请求就能把它填满,
+# 而**填满之后这一场剩下的每一次留存都会变成 degraded** —— 正好毁掉本里程碑
+# 存在的理由(把素材留下来)。512 MB 对一场 30–60 分钟、1 Mbps 量级的 webm 很宽裕。
+# 读的时候**分块**,不是先 read() 再判大小:后者在拒绝之前已经把整个文件读进内存了。
+MAX_UPLOAD_BYTES = 512 * 1024 * 1024
+
 # 语调特征提取器。无状态、可跨请求共享(与上面三个单例同理)。
 prosody_extractor = ProsodyFeatureExtractor(SAMPLE_RATE)
 
@@ -604,7 +611,29 @@ async def submit_session_media(session_id: str, file: UploadFile = File(...)):
         sid = media_retention.validate_session_id(session_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=f"非法 session_id: {exc}")
-    data = await file.read()
+
+    # 分块读 + 上限(见 MAX_UPLOAD_BYTES):超限**立刻**拒,不留半个文件。
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(1 << 20)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"上传超过上限 {MAX_UPLOAD_BYTES} 字节 —— "
+                       f"一次请求不许把落盘目录撑满(那会让这一场之后的留存全部降级)")
+        chunks.append(chunk)
+    data = b"".join(chunks)
+
+    # 空体**拒**,不是"存一个 0 字节的文件然后回 stored:true"(终局复核 I3):
+    # 0 字节的 camera.webm 是一份"看着像有、其实没有"的录像,而收尾对账会照着
+    # 账本说"原生视频:有"。空体是**请求本身**的毛病 → 400。
+    if not data:
+        raise HTTPException(status_code=400, detail="上传是空的 —— 没有可留存的录像")
+
     rec = media_retention.retain_uploaded_video(sid, data, source="/session/media")
     if rec is None:
         # 两种"没存":留存被显式关掉 / 中途写失败。两者都**不许装成功** ——

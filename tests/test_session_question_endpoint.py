@@ -2,6 +2,7 @@
 """`POST /session/{sid}/question`:前端推题时刻的落点(spec §5.6)。"""
 import asyncio
 import importlib
+import time
 
 import pytest
 
@@ -9,6 +10,7 @@ session_meta = importlib.import_module("session_meta")
 voice_app = importlib.import_module("voice_interaction.api.app")
 
 SID = "20260925_203826_2449"
+T0 = time.time()
 
 
 @pytest.fixture(autouse=True)
@@ -27,7 +29,7 @@ def _post(**kw):
     **红得不对 = 那条测试什么也没验到。**
     """
     body = {"qid": "请简单介绍一下你自己", "index": 0,
-            "ask_start": 1758824000.0, "ask_end": 1758824006.5}
+            "ask_start": T0, "ask_end": T0 + 6.5}
     body.update(kw)
     return asyncio.run(voice_app.submit_session_question(
         session_id=SID, body=voice_app.QuestionWindow(**body)))
@@ -37,7 +39,7 @@ def test_reported_window_is_written(_isolated):
     r = _post()
     assert r["status"] == "success" and r["qid"] == "请简单介绍一下你自己"
     rows = session_meta.read_questions(SID)
-    assert len(rows) == 1 and rows[0]["ask_end"] == 1758824006.5
+    assert len(rows) == 1 and rows[0]["ask_end"] == T0 + 6.5
 
 
 def test_illegal_session_id_is_400():
@@ -46,7 +48,7 @@ def test_illegal_session_id_is_400():
         asyncio.run(voice_app.submit_session_question(
             session_id="../escape",
             body=voice_app.QuestionWindow(qid="Q", index=0,
-                                          ask_start=1.0, ask_end=2.0)))
+                                          ask_start=T0, ask_end=T0 + 1)))
     assert ei.value.status_code == 400
 
 
@@ -59,6 +61,6 @@ def test_inverted_window_is_400_not_500(_isolated):
     """
     from fastapi import HTTPException
     with pytest.raises(HTTPException) as ei:
-        _post(ask_start=5.0, ask_end=2.0)
+        _post(ask_start=T0 + 5, ask_end=T0 + 2)
     assert ei.value.status_code == 400
     assert not (_isolated / SID / "questions.jsonl").exists()

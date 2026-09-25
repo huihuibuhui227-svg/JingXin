@@ -79,5 +79,9 @@ def test_required_list_covers_the_recording_requirements_table():
                  "capture.camera_distance_cm", "capture.lighting", "capture.mic_gain_db",
                  "interviewer_ratings.logical_thinking",
                  "interviewer_ratings.communication",
-                 "interviewer_ratings.confidence", "consent.archived"]:
+                 "interviewer_ratings.confidence", "consent.archived",
+                 # ← 这一项是 Task 5 的裁定补进来的(录制需求 §3.2 明列「题目 ID + 难度」)。
+                 #   复核实测:把它从 META_REQUIRED 删掉时**没有任何测试变红** ⟹ 这条
+                 #   钉子当时是空的。补进这个清单,删它就红。
+                 "questions"]:
         assert path in session_meta.META_REQUIRED, f"漏了必填项 {path}"

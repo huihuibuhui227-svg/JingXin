@@ -1,12 +1,14 @@
 # tests/test_session_meta_questions.py
 """题目时刻台账(spec §5.6)。它是 `response_latency` 的唯一来源。"""
 import importlib
+import time
 
 import pytest
 
 session_meta = importlib.import_module("session_meta")
 
 SID = "20260925_203826_2449"
+T0 = time.time()   # 墙钟锚点:提问窗口都相对它构造(量程闸容差 1 天)
 
 
 @pytest.fixture(autouse=True)
@@ -18,7 +20,7 @@ def _isolated(tmp_path, monkeypatch):
 
 def test_reported_window_lands_on_disk(_isolated):
     rec = session_meta.upsert_question(SID, qid="请简单介绍一下你自己", index=0,
-                                       ask_start=1758824000.0, ask_end=1758824006.5,
+                                       ask_start=T0, ask_end=T0 + 6.5,
                                        source="/session/question")
     p = _isolated / SID / "questions.jsonl"
     assert p.exists()
@@ -26,7 +28,7 @@ def test_reported_window_lands_on_disk(_isolated):
     assert len(rows) == 1
     assert rows[0]["qid"] == "请简单介绍一下你自己"
     assert rows[0]["index"] == 0
-    assert rows[0]["ask_end"] == 1758824006.5
+    assert rows[0]["ask_end"] == T0 + 6.5
     assert rec["session_id"] == SID
 
 
@@ -35,27 +37,27 @@ def test_same_qid_reported_twice_keeps_only_the_later(_isolated):
 
     红法:把 upsert 改成纯追加(`rows.append(rec)`)→ 本测试红在 len(rows)。
     """
-    session_meta.upsert_question(SID, qid="Q", index=0, ask_start=1.0, ask_end=2.0)
-    session_meta.upsert_question(SID, qid="Q", index=0, ask_start=1.0, ask_end=9.0)
+    session_meta.upsert_question(SID, qid="Q", index=0, ask_start=T0, ask_end=T0 + 1.0)
+    session_meta.upsert_question(SID, qid="Q", index=0, ask_start=T0, ask_end=T0 + 8.0)
     rows = session_meta.read_questions(SID)
     assert len(rows) == 1, f"同一题留了 {len(rows)} 行"
-    assert rows[0]["ask_end"] == 9.0
+    assert rows[0]["ask_end"] == T0 + 8.0
 
 
 def test_two_different_questions_both_stay(_isolated):
-    session_meta.upsert_question(SID, qid="Q1", index=0, ask_start=1.0, ask_end=2.0)
-    session_meta.upsert_question(SID, qid="Q2", index=1, ask_start=3.0, ask_end=4.0)
+    session_meta.upsert_question(SID, qid="Q1", index=0, ask_start=T0, ask_end=T0 + 1.0)
+    session_meta.upsert_question(SID, qid="Q2", index=1, ask_start=T0 + 10, ask_end=T0 + 11)
     assert [r["qid"] for r in session_meta.read_questions(SID)] == ["Q1", "Q2"]
 
 
 @pytest.mark.parametrize("kw,why", [
-    (dict(qid="  ", index=0, ask_start=1.0, ask_end=2.0), "空 qid"),
-    (dict(qid="Q", index=-1, ask_start=1.0, ask_end=2.0), "负 index"),
-    (dict(qid="Q", index=0, ask_start=0.0, ask_end=2.0), "ask_start 非正"),
-    (dict(qid="Q", index=0, ask_start=1.0, ask_end=0.0), "ask_end 非正"),
-    (dict(qid="Q", index=0, ask_start=5.0, ask_end=2.0), "ask_end 早于 ask_start"),
-    (dict(qid="Q", index=0, ask_start=5.0, ask_end=5.0), "零长窗口"),
-    (dict(qid="Q", index=0, ask_start="1.0", ask_end=2.0), "字符串当时间"),
+    (dict(qid="  ", index=0, ask_start=T0, ask_end=T0 + 1), "空 qid"),
+    (dict(qid="Q", index=-1, ask_start=T0, ask_end=T0 + 1), "负 index"),
+    (dict(qid="Q", index=0, ask_start=0.0, ask_end=T0), "ask_start 非正"),
+    (dict(qid="Q", index=0, ask_start=T0, ask_end=0.0), "ask_end 非正"),
+    (dict(qid="Q", index=0, ask_start=T0 + 5, ask_end=T0 + 2), "ask_end 早于 ask_start"),
+    (dict(qid="Q", index=0, ask_start=T0 + 5, ask_end=T0 + 5), "零长窗口"),
+    (dict(qid="Q", index=0, ask_start="1.0", ask_end=T0), "字符串当时间"),
 ])
 def test_bad_windows_are_rejected_loudly(_isolated, kw, why):
     """倒挂 / 零长 / 非数字的窗口必须**拒绝**。
@@ -77,4 +79,4 @@ def test_reading_a_session_with_no_questions_is_empty_not_an_error(_isolated):
 def test_path_traversal_is_rejected(_isolated):
     with pytest.raises(ValueError):
         session_meta.upsert_question("../escape", qid="Q", index=0,
-                                     ask_start=1.0, ask_end=2.0)
+                                     ask_start=T0, ask_end=T0 + 1.0)

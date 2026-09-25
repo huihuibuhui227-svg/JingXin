@@ -16,11 +16,19 @@ SID = "20260925_203826_2449"
 
 
 class _FakeUpload:
+    """替身 UploadFile。**要带游标**:端点现在是分块读的(上传上限),
+    每次都返回"前 n 个字节"会让读循环永远拿不到 EOF。"""
+
     def __init__(self, data, name="camera.webm"):
         self._data, self.filename, self.content_type = data, name, "video/webm"
+        self._pos = 0
 
-    async def read(self):
-        return self._data
+    async def read(self, n=-1):
+        if n is None or n < 0:
+            n = len(self._data) - self._pos
+        chunk = self._data[self._pos:self._pos + n]
+        self._pos += len(chunk)
+        return chunk
 
 
 @pytest.fixture(autouse=True)
