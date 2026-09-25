@@ -87,23 +87,21 @@ def _default_pose_factory(model_path: Path, *, num_poses: int,
 
 
 class _Base:
-    """两个封装的共同部分(fps / 帧计数 / close)。子类给 `_default_factory` 与 `_result_attr`。"""
+    """两个封装的共同部分(帧计数 / 时间戳守卫 / close)。子类给 `_default_factory` 与 `_result_attr`。
+
+    M2.5:`_timestamp_ms()` 与 `fps` 参数都已删除 —— 时间戳改由调用方给,理由与 face 侧相同
+    (它按 `fps` 推算,而那个 fps 实测错了 30 倍)。
+    """
 
     _result_attr = ""
     _default_factory = None
 
-    def __init__(self, model_path: Path, *, fps: int = 30, factory: Callable | None = None,
+    def __init__(self, model_path: Path, *, factory: Callable | None = None,
                  **build_kwargs):
         self.model_path = Path(model_path)
-        self.fps = fps
         self._frame_index = 0
+        self._last_ts: int | None = None
         self._landmarker = (factory or self._default_factory)(self.model_path, **build_kwargs)
-
-    def _timestamp_ms(self) -> int:
-        return int(self._frame_index * 1000 / self.fps)
-
-    def _bump(self) -> None:
-        self._frame_index += 1
 
     def _groups(self, result):
         """**原样交出 landmark 对象,不做任何转换。**
@@ -117,18 +115,26 @@ class _Base:
         """
         return getattr(result, self._result_attr) or []
 
-    def detect(self, image_rgb: np.ndarray):
+    def detect(self, image_rgb: np.ndarray, timestamp_ms: int):
+        """时间戳由调用方给。`_timestamp_ms()` 已删除(它按 `fps` 推算,错得和 face 一样)。"""
         import mediapipe as mp
+
+        if self._last_ts is not None and timestamp_ms < self._last_ts:
+            raise ValueError(
+                f"timestamp_ms 回退:上一次 {self._last_ts},本次 {timestamp_ms} —— "
+                f"mediapipe 的 VIDEO 模式要求时间戳严格递增(spec §5.1)")
+        self._last_ts = timestamp_ms
 
         image = mp.Image(image_format=mp.ImageFormat.SRGB,
                          data=np.ascontiguousarray(image_rgb))
-        result = self._landmarker.detect_for_video(image, self._timestamp_ms())
-        self._bump()
+        result = self._landmarker.detect_for_video(image, int(timestamp_ms))
+        self._frame_index += 1
         return self._groups(result)
 
     def reset(self) -> None:
-        """`/reset` 要调:帧计数归零,否则下一帧时间戳会回退(spec §6.4)。"""
+        """`/reset` 要调:帧计数与时间戳基线都归零(spec §6.4)。"""
         self._frame_index = 0
+        self._last_ts = None
 
     def close(self) -> None:
         """释放 native 句柄。TTL 回收时必须调,否则泄漏(spec §6.3)。"""
@@ -146,11 +152,11 @@ class HandDetector(_Base):
     _result_attr = "hand_landmarks"
     _default_factory = staticmethod(_default_hand_factory)
 
-    def __init__(self, model_path: Path, *, fps: int = 30, num_hands: int = 2,
+    def __init__(self, model_path: Path, *, num_hands: int = 2,
                  min_detection_confidence: float = 0.7,
                  min_tracking_confidence: float = 0.5,
                  factory: Callable | None = None):
-        super().__init__(model_path, fps=fps, factory=factory, num_hands=num_hands,
+        super().__init__(model_path, factory=factory, num_hands=num_hands,
                          min_detection_confidence=min_detection_confidence,
                          min_tracking_confidence=min_tracking_confidence)
 
@@ -161,16 +167,18 @@ class PoseDetector(_Base):
     _result_attr = "pose_landmarks"
     _default_factory = staticmethod(_default_pose_factory)
 
-    def __init__(self, model_path: Path, *, fps: int = 30, num_poses: int = 1,
+    def __init__(self, model_path: Path, *, num_poses: int = 1,
                  min_detection_confidence: float = 0.6,
                  min_tracking_confidence: float = 0.6,
                  factory: Callable | None = None):
-        super().__init__(model_path, fps=fps, factory=factory, num_poses=num_poses,
+        super().__init__(model_path, factory=factory, num_poses=num_poses,
                          min_detection_confidence=min_detection_confidence,
                          min_tracking_confidence=min_tracking_confidence)
 
-    def detect(self, image_rgb: np.ndarray):
-        groups = super().detect(image_rgb)
+    def detect(self, image_rgb: np.ndarray, timestamp_ms: int):
+        # 覆盖 `_Base.detect` 只为把多组摊成单组;时间戳必须**原样转发**,
+        # 否则父类那道"不许回退"的守卫就白设了(而且父类也拿不到真时间戳)。
+        groups = super().detect(image_rgb, timestamp_ms)
         return groups[0] if groups else None
 
 

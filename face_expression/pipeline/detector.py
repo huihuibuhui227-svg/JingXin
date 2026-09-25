@@ -78,35 +78,49 @@ class FaceDetector:
     `gesture_analysis/core/detectors.py` 的说明,以及那条实测出来的静默失效。
     """
 
-    def __init__(self, model_path: Path, *, fps: int = 30, num_faces: int = 1,
+    def __init__(self, model_path: Path, *, num_faces: int = 1,
                  min_detection_confidence: float = 0.8,
                  min_tracking_confidence: float = 0.8,
                  factory: Callable | None = None):
         self.model_path = Path(model_path)
-        self.fps = fps
         self._frame_index = 0
+        self._last_ts: int | None = None
         self._factory = factory or _default_factory
         self._landmarker = self._factory(
             self.model_path, num_faces=num_faces,
             min_detection_confidence=min_detection_confidence,
             min_tracking_confidence=min_tracking_confidence)
 
-    def detect(self, image_rgb: np.ndarray):
-        """VIDEO 模式:时间戳由本会话的帧计数导出,天然单调(spec §6.4)。"""
+    def detect(self, image_rgb: np.ndarray, timestamp_ms: int):
+        """VIDEO 模式:时间戳由**调用方**给(M2.5 spec §5.1)。
+
+        `fps` 参数已删除 —— 探测器不再自己推算时间。实测它推错 30 倍:
+        客户端 `?fps=30` 而实发 1 帧/秒,`frame_index * 1000 / 30` 于是把
+        1 秒当成 33 ms(spec §3.1)。
+        """
         import mediapipe as mp
+
+        if self._last_ts is not None and timestamp_ms < self._last_ts:
+            raise ValueError(
+                f"timestamp_ms 回退:上一次 {self._last_ts},本次 {timestamp_ms} —— "
+                f"mediapipe 的 VIDEO 模式要求时间戳严格递增(spec §5.1)")
+        self._last_ts = timestamp_ms
 
         image = mp.Image(image_format=mp.ImageFormat.SRGB,
                          data=np.ascontiguousarray(image_rgb))
-        result = self._landmarker.detect_for_video(
-            image, int(self._frame_index * 1000 / self.fps))
+        result = self._landmarker.detect_for_video(image, int(timestamp_ms))
         self._frame_index += 1
         if not result.face_landmarks:
             return None
         return [(p.x, p.y) for p in result.face_landmarks[0]]
 
     def reset(self) -> None:
-        """`/session/{sid}/reset` 要调:帧计数归零,否则下一帧时间戳会回退。"""
+        """`/session/{sid}/reset` 要调:帧计数与时间戳基线都归零。
+
+        否则同一 id 的第二段会话第一帧就是回退值,mediapipe 抛错。
+        """
         self._frame_index = 0
+        self._last_ts = None
 
     def close(self) -> None:
         """释放 native 句柄。TTL 回收时必须调,否则泄漏(spec §6.3)。"""

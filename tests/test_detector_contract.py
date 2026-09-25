@@ -70,7 +70,7 @@ def test_face_detector_flattens_to_xy_pairs():
     """
     h = {}
     d = FaceDetector(Path("/nonexistent.task"), factory=_factory(h, points_per_group=3))
-    out = d.detect(_FRAME)
+    out = d.detect(_FRAME, 0)
 
     assert out == [(0.5, 0.5)] * 3, out
 
@@ -91,7 +91,7 @@ def test_gesture_detectors_keep_x_and_y_attributes():
     """
     h = {}
     d = HandDetector(Path("/nonexistent.task"), factory=_factory(h, points_per_group=21))
-    groups = d.detect(_FRAME)
+    groups = d.detect(_FRAME, 0)
 
     assert groups, "前提不成立:假探测器应当返回一组点"
     assert hasattr(groups[0][0], "x") and hasattr(groups[0][0], "y"), (
@@ -100,38 +100,65 @@ def test_gesture_detectors_keep_x_and_y_attributes():
 
     h2 = {}
     p = PoseDetector(Path("/nonexistent.task"), factory=_factory(h2, points_per_group=33))
-    pose = p.detect(_FRAME)
+    pose = p.detect(_FRAME, 0)
     assert pose and hasattr(pose[0], "x"), "姿态的 landmarks 也被摊平了"
 
 
-def test_timestamps_are_strictly_increasing_within_a_session():
-    """spec §6.4:同一会话连发两帧,ts 必须严格递增。
+def test_detector_passes_the_caller_timestamp_straight_through():
+    """M2.5 契约:时间戳由调用方给,探测器**原样**转交,不再自己算。
 
-    红法:每帧都从 0 起算(或复用同一个值)—— mediapipe 的 VIDEO 模式会抛错。
+    红法:把 `detect()` 改回 `int(self._frame_index * 1000 / self.fps)` ——
+    下面三个值立刻变成 [0, 100, 200],红。
     """
     h = {}
-    d = FaceDetector(Path("/nonexistent.task"), fps=10, factory=_factory(h, points_per_group=1))
-    for _ in range(3):
-        d.detect(_FRAME)
+    d = FaceDetector(Path("/nonexistent.task"), factory=_factory(h, points_per_group=1))
+    for ts in (0, 7, 1234):
+        d.detect(_FRAME, ts)
 
-    ts = h["l"].timestamps
-    assert ts == sorted(set(ts)), f"时间戳非严格递增:{ts}"
-    assert ts[0] == 0 and ts[1] == 100, f"应按 1000/fps 步进(10 fps → 100ms):{ts}"
+    assert h["l"].timestamps == [0, 7, 1234], h["l"].timestamps
 
 
-def test_reset_rewinds_the_frame_counter():
-    """spec §6.4:`reset()` 之后计数归零,且**不抛错**。
+def test_detector_rejects_a_timestamp_that_goes_backwards():
+    """★ 时间戳回退必须**抛**,不许静默转交 —— mediapipe 会拿着乱序时间戳继续算。
 
-    红法:把 `reset()` 写成空函数 —— 摄像头重启后 ts 回退,mediapipe 抛错。
+    红法:去掉 `if timestamp_ms < self._last_ts: raise`。
     """
     h = {}
-    d = FaceDetector(Path("/nonexistent.task"), fps=10, factory=_factory(h, points_per_group=1))
-    d.detect(_FRAME)
-    d.detect(_FRAME)
+    d = FaceDetector(Path("/nonexistent.task"), factory=_factory(h, points_per_group=1))
+    d.detect(_FRAME, 100)
+
+    with pytest.raises(ValueError) as ei:
+        d.detect(_FRAME, 99)
+    assert "100" in str(ei.value) and "99" in str(ei.value), (
+        f"错误信息要同时带上一次和本次的值,否则排障时不知道谁回退了:{ei.value}")
+
+
+def test_equal_timestamps_are_allowed_but_only_because_the_clock_prevents_them():
+    """相等**不**抛(严格递增由 `SessionClock` 保证,见 Task 1),但也不许被改写成别的值。
+
+    这条刻意把责任划清:探测器只管"不许回退",「严格递增」是时钟的契约。
+    红法:在探测器里自作主张 `timestamp_ms = self._last_ts + 1` —— 转交的值就变了。
+    """
+    h = {}
+    d = FaceDetector(Path("/nonexistent.task"), factory=_factory(h, points_per_group=1))
+    d.detect(_FRAME, 50)
+    d.detect(_FRAME, 50)
+
+    assert h["l"].timestamps == [50, 50], h["l"].timestamps
+
+
+def test_reset_allows_the_next_session_to_start_from_zero_again():
+    """`/reset` 之后新一段可以从 0 起(不抛),但**不做任何改写**。
+
+    红法:把 `reset()` 写成空函数 —— 第二段的 `d.detect(_FRAME, 0)` 会抛 ValueError。
+    """
+    h = {}
+    d = FaceDetector(Path("/nonexistent.task"), factory=_factory(h, points_per_group=1))
+    d.detect(_FRAME, 5000)
     d.reset()
-    d.detect(_FRAME)
+    d.detect(_FRAME, 0)
 
-    assert h["l"].timestamps == [0, 100, 0], h["l"].timestamps
+    assert h["l"].timestamps == [5000, 0], h["l"].timestamps
 
 
 def test_close_releases_the_underlying_landmarker():
@@ -141,7 +168,7 @@ def test_close_releases_the_underlying_landmarker():
     """
     h = {}
     d = FaceDetector(Path("/nonexistent.task"), factory=_factory(h, points_per_group=1))
-    d.detect(_FRAME)
+    d.detect(_FRAME, 0)
     d.close()
 
     assert h["l"].closed is True
@@ -155,8 +182,8 @@ def test_two_sessions_get_different_detectors():
     h1, h2 = {}, {}
     a = HandDetector(Path("/nonexistent.task"), factory=_factory(h1, points_per_group=1))
     b = HandDetector(Path("/nonexistent.task"), factory=_factory(h2, points_per_group=1))
-    a.detect(_FRAME)
-    b.detect(_FRAME)
+    a.detect(_FRAME, 0)
+    b.detect(_FRAME, 0)
 
     assert h1["l"] is not h2["l"], "两个会话共用了同一个探测器实例"
 
