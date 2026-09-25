@@ -46,6 +46,7 @@
   - `DEFAULT_ROOT: Path`、`RETENTION_FILENAME = "retention.jsonl"`、`MEDIA_SUBDIR = "media"`、`SESSION_ID_PAT: re.Pattern`
   - `root() -> Path`、`enabled() -> bool`
   - `validate_session_id(session_id: str) -> str`(非法抛 `ValueError`)
+  - `validate_modality(modality: str) -> str`(只允许 `"face"` / `"gesture"`)
   - `recording_dir(session_id: str) -> Path`(不存在则建)
   - `retain_frame(session_id, modality, data, declared_ts=None, source="") -> dict | None`
   - `retain_audio(session_id, kind, data, source="") -> dict | None`
@@ -330,18 +331,45 @@ def _current_seq(session_id: str, kind: str) -> int:
     return _COUNTERS.get((session_id, kind), 0)
 
 
+def validate_modality(modality: str) -> str:
+    """模态名也是目录名的一部分 —— 与 session_id 同一类守卫。
+
+    放在本步(而不是用它的 Task 2)是因为它是**守卫**,和 `validate_session_id` 是
+    同一层的东西;Task 1 的预检路径也要先过它。
+    """
+    if modality not in ("face", "gesture"):
+        raise ValueError(f"未知模态: {modality!r}(只允许 face / gesture)")
+    return modality
+
+
 def retain_frame(session_id: str, modality: str, data: bytes,
                  declared_ts: int | None = None, source: str = "") -> dict | None:
     """把一帧的**原始字节**存下来。返回写进账本的那一行;没存则 None。
 
     存的是服务端收到的**同一份 bytes**,不重新编码、不缩放(录制需求 §5)。
     """
-    raise NotImplementedError("Task 2 实现")
+    # 守卫与预检在本步就位(两条预检测试压着它们);**落盘部分由 Task 2 补完**。
+    if not enabled():
+        return None
+    sid = validate_session_id(session_id)
+    validate_modality(modality)
+    with _session_lock(sid):
+        if not _prepare(sid):
+            return None
+    raise NotImplementedError("Task 2 实现落盘部分")
 
 
 def retain_audio(session_id: str, kind: str, data: bytes, source: str = "") -> dict | None:
     """把一段音频的**原始字节**存下来。`kind` ∈ {"raw", "converted"}。"""
-    raise NotImplementedError("Task 3 实现")
+    if not enabled():
+        return None
+    if kind not in ("raw", "converted"):
+        raise ValueError(f"未知音频种类: {kind!r}(只允许 raw / converted)")
+    sid = validate_session_id(session_id)
+    with _session_lock(sid):
+        if not _prepare(sid):
+            return None
+    raise NotImplementedError("Task 3 实现落盘部分")
 ```
 
 - [ ] **Step 4: 跑测试,确认绿**
@@ -500,7 +528,7 @@ def _record(session_id: str, kind: str, modality: str | None, seq: int,
         "sha256": hashlib.sha256(data).hexdigest(),
         "received_at_wall": time.time(),
         "declared_ts": declared_ts,
-        "source": source,
+        "source_endpoint": source,
         "session_id": session_id,
     }
 
@@ -537,8 +565,7 @@ def validate_modality(modality: str) -> str:
     return modality
 ```
 
-> 本步同时新增公开函数 `validate_modality(modality: str) -> str`(只允许 `"face"` /
-> `"gesture"`,否则抛 `ValueError`)—— 模态名也是目录名的一部分,与 `session_id` 同一类守卫。
+> `validate_modality` 在 Task 1 里已经就位,本步直接用它。
 
 - [ ] **Step 4: 跑测试,确认绿**
 
@@ -1439,10 +1466,16 @@ git commit -m "feat(m2.6): 重抽回放器 —— 按账本里的当时时间戳
 
 待使用者跑完一场真会话(`~/shared/start_all.sh` 起服务 → Windows 浏览器开 `http://localhost:5173` → 答 ≥5 段不同的回答)。然后逐条打勾:
 
-- [ ] `ls ~/shared/jingxin_recordings/<sid>/media/face/ | wc -l` **等于** `retention.jsonl` 里 face 帧行数
+- [ ] `ls ~/shared/jingxin_recordings/<sid>/media/face/ | wc -l` **等于** `retention.face.jsonl` 里 face 帧行数
 - [ ] `media/gesture/` 与 `media/audio/` 也有内容(文件数与模态数一致)
-- [ ] `retention.jsonl` 里 **没有** `retention_degraded` 字样
-- [ ] 重抽:`$PY experiments/replay_retained.py --session-id <sid> --out /tmp/replay_face.csv`,与 `data/logs/face_au_log_<sid>.csv` **逐格相等**
+- [ ] 各 `retention.<writer>.jsonl` 里 **没有** `"kind": "degraded"` 的行
+      (⚠️ 原计划写的是检查 `retention_degraded` 字样 —— 而实现从不写这个字样,
+      那是一条**永不失败的空检查**,给的是假保证。已改成本实现真正会写的形态。)
+- [ ] 每个 `retention.<writer>.jsonl` 的**每一行都能被 `json.loads` 解析**
+      (碎片行是"两个进程共写一个文件"的症状;账本已按写入者分文件,这里做回归确认)
+- [ ] 重抽:`$PY experiments/replay_retained.py --session-id <sid> --out /tmp/replay_face.csv`,
+      与 `data/logs/face_au_log_<sid>.csv` **逐格相等**;且工具**退出码为 0**
+      (它现在会在有缺口时报 2 —— "重放了 105/187 帧"不算通过)
 - [ ] 仓库里没有原始媒体:`git status --porcelain | grep -i -E '\.(jpg|png|webm|wav)$'` → 空
 
 - [ ] **合并门不回归**(spec §7.8;按 M2.5 账本的口径:它只证明"没有误伤",不是本设计的证据):

@@ -1,4 +1,5 @@
 # tests/conftest.py
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -23,3 +24,13 @@ _LOGS_TMP = Path(tempfile.mkdtemp(prefix="jingxin-test-logs-"))
 import voice_interaction.utils.logger as _voice_logger_module  # noqa: E402
 
 _voice_logger_module.LOGS_DIR = str(_LOGS_TMP)
+
+# ── 录音落点也挪出使用者的真实目录(同一理由、同一手法) ──────────────────────
+#
+# `media_retention.root()` 默认是 `~/shared/jingxin_recordings` —— **使用者真实的数据目录**。
+# 2026-09-25 实测:一条没设环境变量的测试往那里写进了 `s1/retention.face.jsonl`
+# (文件本身是测试垃圾,但性质是"测试污染真实数据")。单测里各自 `monkeypatch.setenv`
+# 只保护那些**记得设**的文件,保护不了后来新加的 —— 所以在这里把默认值兜住:
+# 某一个测试若自己设了,它的值优先(在会话级值之上覆盖)。
+_RECORDINGS_TMP = Path(tempfile.mkdtemp(prefix="jingxin-test-recordings-"))
+os.environ.setdefault("JINGXIN_RECORDINGS_DIR", str(_RECORDINGS_TMP))
