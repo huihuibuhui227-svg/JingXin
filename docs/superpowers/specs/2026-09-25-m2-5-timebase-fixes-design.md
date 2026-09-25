@@ -165,10 +165,15 @@ spec §4.1 写「窗口由 fps 导出」。本设计改成**按 `timestamp_ms` �
 
 ### 5.5 `measured_fps`(协变量,**不进 CSV**)
 
-会话级定义:`n_submitted / elapsed_sec`。落两处:
+会话级定义:`n_submitted / elapsed_sec`。落**服务日志**(`logger.info`,在 TTL 回收与 `/reset` 收尾时各记一行)。
 
-1. 服务日志(`logger.info`);
-2. `~/shared/jingxin_recordings/<session_id>/session.json`。
+> **收窄(写实施计划时改的,2026-09-25)**:原设计写的是「落两处」,第二处是
+> `~/shared/jingxin_recordings/<session_id>/session.json`。做计划时发现那一半要付的代价不对:
+> 清单由 `voice_interaction/asr/transcript_store.py:186` 的 `ensure_manifest` 独占,而它的语义是
+> 「会话开始写一次、已存在即不动」—— face/gesture 要写进去就得引入**跨模块 import** 并动
+> `refresh_manifest`,而后者至今**零生产调用方**(账本 §3 第 3 条,M2 刻意没碰)。
+> 为一个本轮**不进特征列**的协变量付这个耦合不划算 → 收窄为「只进服务日志」,
+> 清单那一半留到 M3(协变量升为特征列时一并处理)。
 
 记账:这是 spec §4.5「机器负载会影响的量要显式输出为协变量」的**第一条实例**。
 本轮只**记录**,不进特征列 —— 进列属于 M3。
