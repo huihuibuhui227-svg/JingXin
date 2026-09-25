@@ -58,6 +58,24 @@ def _clock_for(session_id: str) -> SessionClock:
     return session_clocks[session_id]
 
 
+_fps_warned: set[str] = set()
+
+
+def _warn_once_about_fps(session_id: str, fps: int) -> bool:
+    """`?fps=` 与实测不一致时,每会话只提醒**一次**。返回本次是否真的记了。
+
+    审查 F5:原先那句警告写在每帧都走的端点里、且判据是 `fps != 30`,而前端恒定发
+    `?fps=30` —— 于是它**永不触发**(spec §5.4 要的那点遥测是死代码),而注释却写着
+    "记一次就够"。现在:申报 30 不记(没有不一致可言);真不一致时**每会话一次**。
+    """
+    if fps == 30 or session_id in _fps_warned:
+        return False
+    _fps_warned.add(session_id)
+    logger.warning("会话 %s 申报 ?fps=%s —— 已忽略。实时时间由服务端实测(spec §5.4)",
+                   session_id, fps)
+    return True
+
+
 def _reset_session(session_id: str) -> bool:
     """删掉整个会话:管线 + 日志器 + **时钟**一起丢。返回它是否真的存在过。
 
@@ -237,12 +255,10 @@ async def analyze_frame(
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="上传的文件必须是图片格式")
 
-    # 记一次就够,不要每帧刷屏 —— 前端短期内不会改,这个警告会一直出现(spec §5.4)。
-    if fps != 30:
-        logger.warning("收到 ?fps=%s —— 已忽略。实时时间由服务端实测(spec §5.4)", fps)
 
     # 无 id → NONE（不再每请求 mint 一个 uuid：那会让每一帧都变成新会话、写出新日志文件）
     session_id = await _resolve_session_id(request, session_id)
+    _warn_once_about_fps(session_id, fps)     # 每会话一次(spec §5.4;审查 F5)
 
     try:
         logger.info(f"收到帧上传请求: session={session_id}, file={file.filename}")

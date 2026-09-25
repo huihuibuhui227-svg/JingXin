@@ -171,6 +171,30 @@ def test_single_frame_session_has_zero_duration():
     assert s["frame_count"] == 1
 
 
+def test_reset_returns_the_pipeline_to_a_fresh_session():
+    """★ 审查 F11:`reset()` 以前**只重置探测器**,`first_ts`/`last_ts`/`n_submitted`/
+    `au_history` 全部跨段残留 —— 重置后 `measured_fps` 仍按上一段的跨度算(实测 1.5),
+    而它的 docstring 声称这就是 `/session/{sid}/reset` 走的路径。
+
+    两个服务的 `/reset` 实际走的是 **pop 掉整个会话**(各自的 `_reset_session`),
+    所以本方法**没有生产调用方** —— 那就更该让它名副其实:否则谁照着 docstring
+    把它接回去,就会得到一个"重置了但时钟没重置"的陷阱。
+
+    红法:把 `reset()` 改回只 `self.detector.reset()`。
+    """
+    p = VideoPipeline(session_id="s", detector=_FakeDetector())
+    for ts in (0, 1000, 2000):
+        p.process_frame(_FRAME, ts)
+    assert p.measured_fps() > 0, "前提不成立:走过帧之后 fps 应当非零"
+
+    p.reset()
+
+    assert p.measured_fps() == 0.0, "重置后 measured_fps 仍按上一段算"
+    assert p.first_ts is None and p.last_ts is None and p.n_submitted == 0
+    assert len(p.au_history) == 0
+    assert p.blink_times == [] and p.history_last_ms is None
+
+
 def test_summary_duration_is_the_session_span_not_the_history_window():
     """★ 审查 F7:`get_summary()["duration_sec"]` 取自 `au_history` 的首末帧,而那个 deque
     被 3 秒窗修剪 —— 于是它**恒 ≤ 3 秒**,不管会话多长。该字段进 `/session/{id}/summary`,

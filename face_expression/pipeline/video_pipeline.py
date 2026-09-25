@@ -208,9 +208,26 @@ class VideoPipeline:
         # 原名 `results` 会 NameError。真值语义(有真值 ⟺ 本帧检出脸)与迁移前一致。
         return result, landmarks_norm, result.to_dict()
 
-    def reset(self):
-        """`/session/{sid}/reset` 调:帧计数一起归零,否则下一帧时间戳回退(spec §6.4)。"""
+    def reset(self) -> None:
+        """把本管线恢复到「会话刚开始」:探测器、帧计数、时钟基线、历史窗全归零。
+
+        ⚠️ 审查 F11:本方法此前**只重置探测器**,`first_ts`/`last_ts`/`n_submitted`/
+        `au_history` 会跨段残留 —— 重置后 `measured_fps` 仍按上一段的跨度算(实测 1.5)。
+
+        两个服务的 `/reset` 实际走的是 **pop 掉整个会话**(各自的 `_reset_session`),
+        所以本方法目前**没有生产调用方**。留着它是因为语义上有用(将来若要"保留会话地
+        清空状态"),但必须名副其实 —— 否则谁照着它接回去,就得到一个「重置了但时钟没重置」
+        的陷阱。
+        """
         self.detector.reset()
+        self.first_ts = None
+        self.last_ts = None
+        self.n_submitted = 0
+        self.au_history.clear()
+        self.blink_times.clear()
+        self.last_blink_time = None
+        self.history_last_ms = None
+        self.eye_closed_duration = 0.0
 
     def close(self):
         """TTL 回收时调:释放探测器的 native 句柄(spec §6.3)。"""
