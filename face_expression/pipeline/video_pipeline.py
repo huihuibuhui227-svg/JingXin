@@ -56,7 +56,12 @@ class VideoPipeline:
         landmarks_norm = self.detector.detect(image_rgb, timestamp_ms)
 
         if not landmarks_norm:
-            return None, None, {"emotion": "no_face"}
+            # ⚠️ 这个 dict **必须**带 timestamp:face 的 logger 在缺这个键时会用
+            # `datetime.now().timestamp()` 编一个墙钟(`face_expression/utils/logger.py:90-91`)。
+            # M2.5 的 E2E 实测抓到的:5 帧里有 1 帧没检出脸,那一行的 timestamp 于是成了
+            # 1.790318e+09(绝对 epoch 秒),而其余四行是 0.00 / 0.09 / 0.15 / 0.19 ——
+            # 整列时间戳被混进了第二个时间源,正是 spec §5.1 要根除的东西。
+            return None, None, {"emotion": "no_face", "timestamp": timestamp_ms / 1000.0}
 
         nose_tip = np.array(landmarks_norm[1])
         chin = np.array(landmarks_norm[152])

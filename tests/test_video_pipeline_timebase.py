@@ -82,6 +82,23 @@ def test_eye_closed_seconds_uses_the_real_gap_between_frames():
     assert abs(eye_closed - 1.0) < 1e-6, f"应当是 1.0 秒(0.3+0.6+0.1),实际 {eye_closed}"
 
 
+def test_no_face_row_carries_the_real_timestamp():
+    """★ E2E 抓到的真缺陷:`no_face` 提前返回的 dict 以前**不带** timestamp,
+    于是 face 的 logger 用 `datetime.now().timestamp()` **编了一个墙钟**
+    (`face_expression/utils/logger.py:90-91`)—— 整列时间戳里混进一个 1.79e9 的绝对秒值。
+
+    实测(真服务 + 真脸图,5 帧):恰有 1 帧没检出脸,那一行 timestamp = 1.790318e+09,
+    其余四行是 0.00 / 0.09 / 0.15 / 0.19。这是 spec §5.1「时间只剩一个来源」的直接违反。
+
+    红法:把 `{"emotion": "no_face"}` 改回不带 timestamp —— logger 的兜底会再次兜出墙钟。
+    """
+    p = VideoPipeline(session_id="s", detector=_FakeDetector())
+    result, _, d = p.process_frame(_FRAME, 4321)
+
+    assert result is None and d["emotion"] == "no_face"
+    assert d["timestamp"] == 4.321, f"no_face 行没带上真实时间戳:{d}"
+
+
 def test_no_history_yet_gives_zero_not_an_exception():
     """★ Review Focus ③:`no_face` 帧不推进历史 —— 一帧都没进过时 `get_summary` 不许抛。
 
