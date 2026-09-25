@@ -16,6 +16,7 @@ import wave
 import io
 
 from logging_config import setup_logging
+import media_retention
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -199,6 +200,8 @@ async def speech_to_text(request: Request, audio: UploadFile = File(...),
 
         contents = await audio.read()
         logger.info(f"读取音频数据: {len(contents)} bytes")
+        # M2.6:原始上传原样留一份(扩展名由内容嗅探,webm/wav 都认)。
+        media_retention.retain_audio(sid, "raw", contents, source="/asr")
 
         # 检查是否为标准 WAV 格式且符合要求
         if contents.startswith(b'RIFF') and len(contents) > 44:
@@ -263,6 +266,13 @@ async def speech_to_text(request: Request, audio: UploadFile = File(...),
                 raise Exception(f"ffmpeg转换失败: {error_msg}")
 
             logger.info("转换成功")
+
+            # M2.6:留一份转换后的 16k 单声道 WAV(提取器真正读的就是它);
+            # 与同一段回答的 raw 共用序号(spec §4「管线所见 + 原始上传都有据」)。
+            # ⚠️ 必须在下面那个 finally 删临时文件**之前**读。
+            with open(output_path, "rb") as _retained_fh:
+                media_retention.retain_audio(sid, "converted", _retained_fh.read(),
+                                             source="/asr")
 
             # 读取转换后的 WAV 文件
             with wave.open(output_path, 'rb') as wf:
@@ -357,6 +367,8 @@ async def submit_answer_audio(request: Request, audio: UploadFile = File(...),
     try:
         # 复用 /asr 逻辑
         contents = await audio.read()
+        # M2.6:先存原始字节 —— 即使下面判格式不合法,这份上传也留了据。
+        media_retention.retain_audio(sid, "raw", contents, source="/interview/answer_audio")
         if not contents.startswith(b'RIFF'):
             raise HTTPException(status_code=400, detail="仅支持 WAV 格式音频")
 
@@ -523,6 +535,8 @@ async def submit_research_answer_audio(request: Request, audio: UploadFile = Fil
     sid = await _resolve_session_id(request, session_id)
     try:
         contents = await audio.read()
+        # M2.6:先存原始字节 —— 即使下面判格式不合法,这份上传也留了据。
+        media_retention.retain_audio(sid, "raw", contents, source="/research/answer_audio")
         if not contents.startswith(b'RIFF'):
             raise HTTPException(status_code=400, detail="仅支持 WAV 格式音频")
 
