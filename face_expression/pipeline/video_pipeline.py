@@ -56,6 +56,10 @@ class VideoPipeline:
         landmarks_norm = self.detector.detect(image_rgb, timestamp_ms)
 
         if not landmarks_norm:
+            # ★ 审查 F2:没脸的帧也要推进「上一帧时刻」。否则 `_update_blink_state` 里那个
+            # `timestamp_ms - history_last_ms` 会跨过整段无人脸的时间,把它算成**一个闭眼帧**
+            # —— 实测:有脸闭眼帧 + 10 秒无脸 + 有脸闭眼帧 → eye_closed_sec = 10.0 秒。
+            self.history_last_ms = timestamp_ms
             # ⚠️ 这个 dict **必须**带 timestamp:face 的 logger 在缺这个键时会用
             # `datetime.now().timestamp()` 编一个墙钟(`face_expression/utils/logger.py:90-91`)。
             # M2.5 的 E2E 实测抓到的:5 帧里有 1 帧没检出脸,那一行的 timestamp 于是成了

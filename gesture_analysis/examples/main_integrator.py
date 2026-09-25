@@ -201,11 +201,11 @@ class FullGestureAnalyzer:
 def face_worker():
     from session_clock import SessionClock
 
-    analyzer = FaceAUAnalyzer(fps=30, session_id=SESSION_ID)
+    analyzer = FaceAUAnalyzer(session_id=SESSION_ID)
     # M2.5:本示例是**实时**队列,所以用会话时钟(与 face/gesture 两个服务同源),
     # 而不是离线公式 —— 两条路径的时间来源不同,别混(spec §4 表)。
-    # ⚠️ 顺带记实情:`FaceAUAnalyzer` 在仓库里**没有定义**,本文件也用 `mp.solutions`
-    # (mediapipe 1.0.0 已删除)—— 它本来就跑不起来。改签名只为不留陈旧调用点。
+    # ⚠️ 本文件也用 `mp.solutions`(mediapipe 1.0.0 已删除)—— 它本来就跑不起来。
+    # (审查 F10 纠正:先前账本写"FaceAUAnalyzer 全仓无定义"是**错的**,它是 VideoPipeline 的别名。)
     clock = SessionClock()
     while not stop_event.is_set():
         try:

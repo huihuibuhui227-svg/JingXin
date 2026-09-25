@@ -30,7 +30,7 @@ def main():
     fps = int(cap.get(cv2.CAP_PROP_FPS)) or 30
     session_id = time.strftime("%Y%m%d_%H%M%S")
     try:
-        analyzer = FaceAUAnalyzer(fps=fps, session_id=session_id)
+        analyzer = FaceAUAnalyzer(session_id=session_id)
     except Exception as e:
         print(f"❌ 分析器初始化失败: {e}")
         return
@@ -101,11 +101,11 @@ def main():
     except ImportError:
         print("⚠️ MediaPipe 未安装")
 
-    # M2.5:本示例读的是**视频文件**,走离线公式(与 experiments/extract_features.py 同源)。
-    # 这里不抽帧,所以 frame_skip = 1。
-    # ⚠️ 顺带记实情:本文件引用的 `FaceAUAnalyzer` 在仓库里**没有定义**,下面又用了
-    # `mp.solutions`(mediapipe 1.0.0 已删除)—— 它本来就跑不起来。改签名只为不留陈旧调用点。
-    k = 0
+    # M2.5:`cv2.VideoCapture(0)` 是**摄像头**,是实时源 —— 所以用会话时钟,不是离线公式。
+    # (审查 F10 纠正:先前那版注释写成"读视频文件"并套了离线公式,基用错了。)
+    # ⚠️ 本文件下面用了 `mp.solutions`(mediapipe 1.0.0 已删除)—— 它本来就跑不起来。
+    from session_clock import SessionClock
+    clock = SessionClock()
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -113,8 +113,7 @@ def main():
 
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         result_obj, results, features = analyzer.process_frame(
-            frame_rgb, int(round(k * 1000.0 / (fps or 30))))
-        k += 1
+            frame_rgb, clock.stamp_ms())
 
         annotated_frame = frame.copy()
         if results and results.multi_face_landmarks and mp_drawing is not None:

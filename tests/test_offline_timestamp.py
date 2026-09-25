@@ -28,3 +28,24 @@ def test_zero_or_nan_src_fps_falls_back_instead_of_dividing_by_zero():
 def test_returns_int():
     """时间戳必须是 int(mediapipe 吃 int;float 会在某些帧率下退化成同一个值)。"""
     assert isinstance(offline_timestamp_ms(7, 3, 29.97), int)
+
+
+def test_sub_millisecond_step_is_rejected_loudly_not_collapsed():
+    """★ 审查 F1:src_fps 高到步长不足 1 ms 时,`int(round(...))` 会让相邻两帧**撞值**;
+    而 mediapipe 的 VIDEO 模式对**相等**时间戳是**抛错**的(审查者实跑确认)。
+
+    离线那条会把异常吞进 `except Exception: skipped_face += 1`,于是**静默丢帧**,
+    而且该视频还会被标成 `completed`(重跑直接跳过)—— 正是本项目一路在杀的那种
+    「静默失败 + 报成功」。宁可**响亮地失败**。
+
+    实测:去掉守卫、`offline_timestamp_ms(1, 3, 90000.0)` 返回 0,与 k=0 撞值。
+
+    红法:去掉步长守卫(把 `if step_ms < 1.0: raise` 删掉)。
+    """
+    import pytest
+
+    with pytest.raises(ValueError):
+        offline_timestamp_ms(1, 3, 90000.0)      # 步长 0.033 ms
+
+    # 边界另一侧:步长恰好 1 ms 时必须放行,且与 k=0 distinct
+    assert offline_timestamp_ms(1, 3, 3000.0) == 1

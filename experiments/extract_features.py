@@ -59,7 +59,18 @@ def offline_timestamp_ms(k: int, frame_skip: int, src_fps: float) -> int:
     """
     if not src_fps or src_fps != src_fps:      # 0 / NaN 都回退
         src_fps = 30.0
-    return int(round(k * frame_skip * 1000.0 / src_fps))
+
+    step_ms = frame_skip * 1000.0 / src_fps
+    if step_ms < 1.0:
+        # 审查 F1:步长不足 1 ms 时 `int(round(...))` 会让相邻两帧**撞值**,而 mediapipe 的
+        # VIDEO 模式对**相等**时间戳是**抛错**的。离线那条把异常吞进
+        # `except Exception: skipped_face += 1` —— 于是静默丢帧,而且该视频还会被标成
+        # completed(重跑直接跳过)。正是本项目一路在杀的「静默失败 + 报成功」。
+        raise ValueError(
+            f"步长 {step_ms:.4f} ms < 1 ms(src_fps={src_fps}, frame_skip={frame_skip}):"
+            f"相邻两个提交帧会算出同一个毫秒值,mediapipe 会对相等时间戳抛错,"
+            f"而离线路径会把它吞掉 —— 要么降 src_fps/帧率,要么显式处理,不许静默丢帧")
+    return int(round(k * step_ms))
 
 
 def log(msg: str) -> None:

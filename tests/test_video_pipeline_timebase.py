@@ -82,6 +82,55 @@ def test_eye_closed_seconds_uses_the_real_gap_between_frames():
     assert abs(eye_closed - 1.0) < 1e-6, f"应当是 1.0 秒(0.3+0.6+0.1),实际 {eye_closed}"
 
 
+def test_no_face_gap_is_not_credited_to_eye_closure():
+    """★ 审查 F2:`_update_blink_state` 只在**有脸帧**上跑,而时钟每帧都在走 ——
+    于是"上一帧"停在最后一个有脸帧,中间整段没人看的时间会被算成一个闭眼帧的时长。
+
+    实测(修前):一个有脸闭眼帧(t=0)+ 10 秒无脸 + 一个有脸闭眼帧(t=10000)
+    → `eye_closed_sec = 10.0`。真实会话里按实测 no_face 率(5 帧 1 帧),每个跟在
+    无脸帧后面的闭眼帧会被记成 ≈2 s 而不是 ≈1 s。该列进 TemporalStats 与 tension_engine。
+
+    红法:no_face 分支里不更新 `history_last_ms`。
+    """
+    p = VideoPipeline(session_id="s", detector=_FakeDetector())   # 替身恒返回 None = no_face
+    p._update_blink_state(0.10, 0)              # 有脸:闭眼,起点
+
+    for ts in range(1000, 10000, 1000):         # 1000..9000 全是无脸帧
+        p.process_frame(_FRAME, ts)
+
+    _, _, eye_closed = p._update_blink_state(0.10, 10000)
+    assert abs(eye_closed - 1.0) < 1e-6, (
+        f"只应记最后一帧间隔 1.0 s,实际 {eye_closed} —— 无脸那段被算成闭眼了")
+
+
+def test_is_blink_reaches_the_serialized_row(monkeypatch):
+    """★ 审查 F4:spec §3.4 的三列修复(`current_au.is_blink/...`)**此前没有任何测试**
+    —— 于是账本里那条"is_blink 1/5 非零"实际是 pandas 把 NaN 也算成 `!= 0` 的假象。
+    这里直接钉序列化出来的那个 dict。
+
+    红法:去掉 `current_au.is_blink = is_blink` 那三行(值只写深拷贝)。
+    """
+    from face_expression.models.features import AUFeatures
+    from face_expression.pipeline import video_pipeline as vp
+
+    class _FaceDetector:
+        def detect(self, image_rgb, timestamp_ms):
+            return [(0.5, 0.5)] * 500          # 一帧"有脸"(几何退化由管线自己兜住)
+        def reset(self):
+            pass
+        def close(self):
+            pass
+
+    p = vp.VideoPipeline(session_id="s", detector=_FaceDetector())
+    monkeypatch.setattr(p.feature_calculator, "calculate",
+                        lambda *a, **k: AUFeatures(avg_ear=0.10), raising=True)
+
+    _, _, d = p.process_frame(_FRAME, 1000)
+
+    assert d["is_blink"] == 1, f"序列化的行里 is_blink 不是真的:{d.get('is_blink')}"
+    assert d["blink_rate_per_min"] == 1, d.get("blink_rate_per_min")
+
+
 def test_no_face_row_carries_the_real_timestamp():
     """★ E2E 抓到的真缺陷:`no_face` 提前返回的 dict 以前**不带** timestamp,
     于是 face 的 logger 用 `datetime.now().timestamp()` **编了一个墙钟**
