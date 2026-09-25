@@ -81,7 +81,7 @@ def test_gesture_endpoint_hands_the_bytes_to_retention(wired):
 def test_gesture_declared_ts_comes_from_its_own_clock(wired):
     """gesture 有自己的会话时钟(M2.5 Task 6 加的),不是复用 face 的。"""
     _post(b"\xff\xd8jpeg", "20260925_120000_eeee")
-    line = json.loads((wired / "20260925_120000_eeee" / media_retention.RETENTION_FILENAME)
+    line = json.loads(media_retention.ledger_path("20260925_120000_eeee", "gesture")
                       .read_text(encoding="utf-8").splitlines()[0])
     assert 0 <= line["declared_ts"] < 1000          # 首帧 ≈ 0(不写死 == 0,机器慢时可能过了 1 ms)
     assert line["source"] == "/analyze"

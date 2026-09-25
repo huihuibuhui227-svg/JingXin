@@ -89,7 +89,7 @@ def test_declared_ts_matches_the_session_clock(wired):
     红法:把 declared_ts 换成 time.time()。
     """
     _post(b"\xff\xd8jpeg", "20260925_120000_bbbb")
-    line = json.loads((wired / "20260925_120000_bbbb" / media_retention.RETENTION_FILENAME)
+    line = json.loads(media_retention.ledger_path("20260925_120000_bbbb", "face")
                       .read_text(encoding="utf-8").splitlines()[0])
     # 首帧 → 会话相对时钟约等于 0(不写死 == 0:机器慢时可能已经过了 1 ms)
     assert 0 <= line["declared_ts"] < 1000

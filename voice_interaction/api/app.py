@@ -201,7 +201,8 @@ async def speech_to_text(request: Request, audio: UploadFile = File(...),
         contents = await audio.read()
         logger.info(f"读取音频数据: {len(contents)} bytes")
         # M2.6:原始上传原样留一份(扩展名由内容嗅探,webm/wav 都认)。
-        media_retention.retain_audio(sid, "raw", contents, source="/asr")
+        # 把这一行的 seq 留住 —— 下面转换后的 WAV 要显式用它配对(审查 Important 4)。
+        _raw_retained = media_retention.retain_audio(sid, "raw", contents, source="/asr")
 
         # 检查是否为标准 WAV 格式且符合要求
         if contents.startswith(b'RIFF') and len(contents) > 44:
@@ -271,8 +272,9 @@ async def speech_to_text(request: Request, audio: UploadFile = File(...),
             # 与同一段回答的 raw 共用序号(spec §4「管线所见 + 原始上传都有据」)。
             # ⚠️ 必须在下面那个 finally 删临时文件**之前**读。
             with open(output_path, "rb") as _retained_fh:
-                media_retention.retain_audio(sid, "converted", _retained_fh.read(),
-                                             source="/asr")
+                media_retention.retain_audio(
+                    sid, "converted", _retained_fh.read(), source="/asr",
+                    seq=(_raw_retained or {}).get("seq"))
 
             # 读取转换后的 WAV 文件
             with wave.open(output_path, 'rb') as wf:

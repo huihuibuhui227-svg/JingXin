@@ -97,8 +97,9 @@ def test_preflight_failure_is_only_loud_once(tmp_path, monkeypatch):
 
 # ── Task 2:存帧 ────────────────────────────────────────────────────────────
 
-def _jsonl(root: Path, sid: str = "s1") -> list[dict]:
-    p = root / sid / media_retention.RETENTION_FILENAME
+def _jsonl(root: Path, sid: str = "s1", writer: str = "face") -> list[dict]:
+    """读某个写入者的账本(每个写入者一个文件,见 media_retention._append_jsonl)。"""
+    p = root / sid / f"retention.{writer}.jsonl"
     if not p.exists():
         return []
     return [json.loads(ln) for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()]
@@ -136,9 +137,7 @@ def test_sequence_is_zero_padded_so_name_order_is_time_order(_isolated_root):
     names = sorted(p.name for p in (_isolated_root / "s1" / "media" / "face").iterdir())
     assert names[0] == "000001.jpg" and names[1] == "000002.jpg"
     assert names[9] == "000010.jpg"
-    assert [json.loads(l)["seq"] for l in
-            (_isolated_root / "s1" / media_retention.RETENTION_FILENAME)
-            .read_text(encoding="utf-8").splitlines()] == list(range(1, 13))
+    assert [r["seq"] for r in _jsonl(_isolated_root)] == list(range(1, 13))
 
 
 def test_two_modalities_count_separately(_isolated_root):
@@ -181,10 +180,7 @@ def test_concurrent_frames_do_not_collide(_isolated_root):
     [t.join() for t in ts]
     files = list((_isolated_root / "s1" / "media" / "face").iterdir())
     assert len(files) == 40
-    seqs = [json.loads(l)["seq"] for l in
-            (_isolated_root / "s1" / media_retention.RETENTION_FILENAME)
-            .read_text(encoding="utf-8").splitlines()]
-    assert sorted(seqs) == list(range(1, 41))
+    assert sorted(r["seq"] for r in _jsonl(_isolated_root)) == list(range(1, 41))
 
 
 # ── Task 3:存音频 ──────────────────────────────────────────────────────────
