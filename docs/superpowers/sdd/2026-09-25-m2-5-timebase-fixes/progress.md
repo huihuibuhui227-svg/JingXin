@@ -226,3 +226,11 @@ F11 `VideoPipeline.reset()` 无生产调用方且只重置探测器(`first_ts`/`
 F12 单帧测试用 `_stub_au` 手工造历史,钉的是替身路径;face 侧缺 gesture 那样的"时间戳真的递到了"断言。
 
 Task 9(剩余):complete (commits ead4b80..a4ebe48, tests: `pytest -q` → 250 passed)
+
+---
+
+## 收尾:deferred minors 清理(使用者 2026-09-25 指示"都做了")
+
+**Final: minor F7 + F6 已修**(按效果重判为应修,非修饰):`duration_sec` 改取会话跨度
+(first_ts/last_ts),连同**早退分支**里写死的 0;F6 不改数值、改把三个速率字段的口径写进
+docstring。钉子两条 + 修正了钉错定义的旧测试。套件 252 passed。
