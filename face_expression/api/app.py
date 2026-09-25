@@ -10,6 +10,7 @@ import time
 import logging
 from logging_config import setup_logging
 from session_clock import SessionClock
+import media_retention
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -281,6 +282,10 @@ async def analyze_frame(
             # 获取或创建 VideoPipeline
             pipeline = get_or_create_pipeline(session_id)
             timestamp_ms = _clock_for(session_id).stamp_ms()
+            # M2.6:先把这一帧的原始字节存一份,再算 —— 算的过程中抛异常也不丢素材。
+            # 留存关掉时(默认开)这里什么都不做,行为与 M2.6 之前逐字节相同。
+            media_retention.retain_frame(session_id, "face", contents,
+                                         declared_ts=timestamp_ms, source="/analyze")
 
             # 处理帧
             result_obj, mesh_results, features_dict = pipeline.process_frame(
