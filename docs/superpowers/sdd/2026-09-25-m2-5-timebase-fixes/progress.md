@@ -234,3 +234,23 @@ Task 9(剩余):complete (commits ead4b80..a4ebe48, tests: `pytest -q` → 250 pa
 **Final: minor F7 + F6 已修**(按效果重判为应修,非修饰):`duration_sec` 改取会话跨度
 (first_ts/last_ts),连同**早退分支**里写死的 0;F6 不改数值、改把三个速率字段的口径写进
 docstring。钉子两条 + 修正了钉错定义的旧测试。套件 252 passed。
+
+**Final: minor F11 + F5 已修**。F11:`reset()` 全量归零(修前实测重置后 measured_fps 仍 1.5),
+并把"当前无生产调用方"写进 docstring。F5:抽 `_warn_once_about_fps()`,申报 30 不记、
+真不一致每会话一次(修前它是永不触发的死代码,而注释在说"记一次就够")。套件 254 passed。
+
+**Final: Ruling: F8 不改。** — `measured_fps` 是 N/(N−1) 倍真值(5 帧会话 → 1.25),
+但公式就是 spec §5.5 定的,且验收窗口 [0.5, 2.0] 本来就吸收它;改成"正确"的公式会偏离
+已批准的 spec。 — 代价(若错):短会话的实测 fps 偏大,但不影响任何判定。
+
+**Final: Ruling: F9 不改代码,记账。** — gesture 的 CSV `timestamp` 列仍是绝对墙钟,
+与 face 改后的"会话相对秒"不同基。但 gesture 那条是**纯实时**路径,实时里墙钟**就是**真实
+时间(D2 成立),且眼下没有任何消费者把两列混用(审查已逐个核过 data_loader / feature_engine /
+duration_audit)。 — 代价(若错):将来若有人跨模态比较 `timestamp`,两列不同基会咬人;
+M3 重建 L0 列时应顺手统一。
+
+**Final: Ruling: F12 部分接受。** — face 侧"时间戳真的递到了"其实已由
+`test_pipeline_forwards_the_timestamp_to_the_detector`(断言 `d.seen == [0,1000,2000]`)压住;
+未覆盖的是"打戳值进到 CSV 行"这一层,以及 `_FakeFacePipeline` 只钉了 arity。
+留作 M3 的事 —— M3 本来就要重建 L0 列与它们的验收。 — 代价(若错):端到端那一层的
+"值真的落盘"仍只由 Task 9 的 E2E 一次性覆盖,不是常驻钉子。
