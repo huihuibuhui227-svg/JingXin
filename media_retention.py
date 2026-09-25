@@ -79,6 +79,20 @@ def recording_dir(session_id: str) -> Path:
     return d
 
 
+def media_dir(session_id: str, *parts: str) -> Path:
+    """`<会话>/media/<parts…>`,不存在就建。
+
+    为什么单独一个函数:帧与音频都写在 `media/` **下面**的子目录里,而
+    `write_bytes` 不会替调用方建父目录 —— 少了它,第一帧就 FileNotFoundError
+    (实测:这正是本模块第一次跑测试时的红法)。
+    """
+    d = recording_dir(session_id) / MEDIA_SUBDIR
+    for p in parts:
+        d = d / p
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def _can_write_here(directory: Path) -> bool:
     """真写一个探针文件再删掉 —— 比 `os.access` 可信(WSL 的 9p 挂载会骗人)。"""
     try:
@@ -134,7 +148,9 @@ def _prepare(session_id: str) -> bool:
     if session_id in _PREFLIGHTED:
         return True
     try:
-        d = recording_dir(session_id)
+        # 探到**真正要写的那个目录**(media/),不是只探会话目录 ——
+        # "会话目录建得出、里面的子目录建不出"这种情形也必须在首件就被拦住。
+        d = media_dir(session_id)
     except Exception as exc:
         _mark_degraded(session_id, f"preflight: 建目录失败 {type(exc).__name__}: {exc}")
         return _loud_or_silent(session_id, f"建目录失败 {type(exc).__name__}: {exc}")
@@ -176,13 +192,36 @@ def _current_seq(session_id: str, kind: str) -> int:
     return _COUNTERS.get((session_id, kind), 0)
 
 
+def _append_jsonl(session_id: str, record: dict) -> None:
+    """追加一行账。**追加**而不是读-改-写:进程被杀时已写下的行不会损坏。"""
+    p = recording_dir(session_id) / RETENTION_FILENAME
+    with p.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def _record(session_id: str, kind: str, modality: str | None, seq: int,
+            rel_file: str, data: bytes, declared_ts: int | None,
+            source: str) -> dict:
+    return {
+        "kind": kind,
+        "modality": modality,
+        "seq": seq,
+        "file": rel_file,
+        "bytes": len(data),
+        "sha256": hashlib.sha256(data).hexdigest(),
+        "received_at_wall": time.time(),
+        "declared_ts": declared_ts,
+        "source": source,
+        "session_id": session_id,
+    }
+
+
 def retain_frame(session_id: str, modality: str, data: bytes,
                  declared_ts: int | None = None, source: str = "") -> dict | None:
     """把一帧的**原始字节**存下来。返回写进账本的那一行;没存则 None。
 
     存的是服务端收到的**同一份 bytes**,不重新编码、不缩放(录制需求 §5)。
     """
-    # 守卫与预检在本步就位(两条预检测试压着它们);**落盘部分由 Task 2 补完**。
     if not enabled():
         return None
     sid = validate_session_id(session_id)
@@ -190,7 +229,17 @@ def retain_frame(session_id: str, modality: str, data: bytes,
     with _session_lock(sid):
         if not _prepare(sid):
             return None
-    raise NotImplementedError("Task 2 实现落盘部分")
+        seq = _bump_seq(sid, modality)
+        try:
+            fname = f"{seq:06d}.jpg"
+            (media_dir(sid, modality) / fname).write_bytes(data)
+            rel = f"{MEDIA_SUBDIR}/{modality}/{fname}"
+            rec = _record(sid, "frame", modality, seq, rel, data, declared_ts, source)
+            _append_jsonl(sid, rec)
+            return rec
+        except Exception as exc:
+            _mark_degraded(sid, f"frame {modality}#{seq}: {type(exc).__name__}: {exc}")
+            return None
 
 
 def retain_audio(session_id: str, kind: str, data: bytes, source: str = "") -> dict | None:

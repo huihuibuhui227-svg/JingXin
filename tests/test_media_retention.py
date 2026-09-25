@@ -93,3 +93,95 @@ def test_preflight_failure_is_only_loud_once(tmp_path, monkeypatch):
         media_retention.retain_frame("s1", "face", b"x", declared_ts=0)
     assert media_retention.retain_frame("s1", "face", b"x", declared_ts=1) is None
     assert media_retention.degraded_reasons("s1")
+
+
+# ── Task 2:存帧 ────────────────────────────────────────────────────────────
+
+def _jsonl(root: Path, sid: str = "s1") -> list[dict]:
+    p = root / sid / media_retention.RETENTION_FILENAME
+    if not p.exists():
+        return []
+    return [json.loads(ln) for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()]
+
+
+def test_frame_bytes_land_verbatim(_isolated_root):
+    """盘上的字节必须与收到的**逐字节相同**,账本里的 sha256 要能证明这一点。
+
+    红法:把 `path.write_bytes(data)` 换成一进一出的 `cv2.imencode/imdecode`
+    —— 看起来"还存了一张图",但重抽出来的值不再等于当场算的值,而这是留存存在的
+    全部理由(spec §7.1)。
+    """
+    payload = b"\xff\xd8\xff\xe0not-a-real-jpeg-but-bytes-are-bytes"
+    rec = media_retention.retain_frame("s1", "face", payload, declared_ts=1500,
+                                       source="/analyze")
+    assert rec is not None
+    f = _isolated_root / "s1" / "media" / "face" / "000001.jpg"
+    assert f.read_bytes() == payload
+    assert rec["sha256"] == hashlib.sha256(payload).hexdigest()
+    assert rec["bytes"] == len(payload)
+    assert rec["kind"] == "frame" and rec["modality"] == "face" and rec["seq"] == 1
+    assert rec["declared_ts"] == 1500 and rec["source"] == "/analyze"
+    assert rec["session_id"] == "s1"
+    assert rec["file"] == "media/face/000001.jpg"
+    assert isinstance(rec["received_at_wall"], float)
+
+
+def test_sequence_is_zero_padded_so_name_order_is_time_order(_isolated_root):
+    """`000001` 而不是 `1` —— 字典序即时间序,重抽脚本才能直接按文件名排。
+
+    红法:去掉 `:06d` 里的补零。第 10 帧会排到第 2 帧前面。
+    """
+    for i in range(12):
+        media_retention.retain_frame("s1", "face", b"x", declared_ts=i)
+    names = sorted(p.name for p in (_isolated_root / "s1" / "media" / "face").iterdir())
+    assert names[0] == "000001.jpg" and names[1] == "000002.jpg"
+    assert names[9] == "000010.jpg"
+    assert [json.loads(l)["seq"] for l in
+            (_isolated_root / "s1" / media_retention.RETENTION_FILENAME)
+            .read_text(encoding="utf-8").splitlines()] == list(range(1, 13))
+
+
+def test_two_modalities_count_separately(_isolated_root):
+    """face 与 gesture 各自从 1 开始 —— 它们是两条独立的字节流。"""
+    a = media_retention.retain_frame("s1", "face", b"f")
+    b = media_retention.retain_frame("s1", "gesture", b"g")
+    assert a["seq"] == 1 and b["seq"] == 1
+    assert (_isolated_root / "s1" / "media" / "gesture" / "000001.jpg").exists()
+
+
+def test_retention_off_writes_nothing(_isolated_root, monkeypatch):
+    """关掉时**一个文件都不写**,且不报错(它是旁路,关了就该与今天一样)。"""
+    monkeypatch.setenv("JINGXIN_RETAIN_MEDIA", "0")
+    assert media_retention.retain_frame("s1", "face", b"x") is None
+    assert not (_isolated_root / "s1" / "media").exists()
+    assert media_retention.degraded_reasons("s1") == []
+
+
+def test_none_bucket_is_retained_like_any_other_id(_isolated_root):
+    """`NONE` 是既有设计里的一个正常会话(transcript_store 也给它建目录)。
+
+    ⚠️ 代价要写在这里:不同场次、不同人的素材会**混进同一个 `NONE/` 目录**
+    (与下一步 §3 第 11 条的既有问题同源)。真要区分只能靠 `received_at_wall`。
+    """
+    rec = media_retention.retain_frame("NONE", "face", b"x")
+    assert rec is not None and rec["session_id"] == "NONE"
+
+
+def test_concurrent_frames_do_not_collide(_isolated_root):
+    """同一会话并发 40 帧 → 40 个文件、40 行账、序号无重复。
+
+    红法:去掉 _session_lock 的 with —— "取序号→写文件→写账"三步会交错,
+    出现同名文件互相覆盖(盘上文件数 < 账本行数)。
+    """
+    def burst():
+        for _ in range(10):
+            media_retention.retain_frame("s1", "face", b"x")
+    ts = [threading.Thread(target=burst) for _ in range(4)]
+    [t.start() for t in ts]
+    [t.join() for t in ts]
+    files = list((_isolated_root / "s1" / "media" / "face").iterdir())
+    assert len(files) == 40
+    seqs = [json.loads(l)["seq"] for l in
+            (_isolated_root / "s1" / media_retention.RETENTION_FILENAME)
+            .read_text(encoding="utf-8").splitlines()]
+    assert sorted(seqs) == list(range(1, 41))
