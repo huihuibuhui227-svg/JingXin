@@ -222,3 +222,92 @@ def write_template(session_id: str) -> Path:
     payload["recorded_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
     p.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return p
+
+
+# ---------------------------------------------------------------- 会话收尾对账
+
+
+def _media_counts(session_id: str) -> dict[str, int]:
+    """按**账本行数**数各模态的素材件数(不是数盘上文件)。
+
+    为什么以账本为准:账本记的是"服务端**收到了**什么",而盘上文件会被覆盖
+    (`camera.webm`)或被人手动动过。spec §7.7 的第一条判据正是
+    "帧数 == 服务端实际收到的帧数(以 retention.jsonl 的行数为准)"。
+    """
+    from media_retention import ledger_files
+    counts: dict[str, int] = {}
+    for book in ledger_files(session_id):
+        for line in book.read_text(encoding="utf-8", errors="replace").splitlines():
+            if not line.strip():
+                continue
+            rec = json.loads(line)
+            if rec.get("kind") in ("frame", "raw", "converted", "video"):
+                key = rec.get("modality") or rec.get("kind")
+                counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def check_session(session_id: str,
+                  expected_questions: int | None = None) -> dict:
+    """会话收尾对账。**任何缺项都只报不抛** —— 分析结果不因元数据缺失而作废
+    (spec §6:元数据缺项不阻断分析,但必须让人当场知道)。
+
+    为什么不硬塞进 `transcript_store.refresh_manifest`(spec §8.5 要求先确认它的形状):
+    实测那个函数只按 `payload["logs"][mod]["expected_file"]` 在 `log_dir` 下判存在
+    —— 它管的是**仓库内 `data/logs` 的三份 CSV**,与"`~/shared` 里的媒体齐不齐、
+    `meta.json` 填没填"是**两套不同的期望**。硬塞进去要么把它改成四不像,
+    要么让它的参数语义漂移。**另写。**
+    """
+    from media_retention import degraded_reasons
+    sid = validate_session_id(session_id)
+    rows = read_questions(sid)
+    reported = sorted(r["index"] for r in rows)
+    missing_q: list[int] = []
+    if expected_questions is not None:
+        missing_q = [i for i in range(expected_questions) if i not in set(reported)]
+    counts = _media_counts(sid)
+    return {
+        "session_id": sid,
+        "media": counts,
+        "video": counts.get("camera", 0) > 0,
+        "degraded": degraded_reasons(sid),
+        "missing_meta": missing_meta_fields(sid),
+        "reported_questions": reported,
+        "missing_questions": missing_q,
+    }
+
+
+if __name__ == "__main__":
+    import argparse
+    import sys
+
+    ap = argparse.ArgumentParser(description="阶段 A 元数据层:模板与收尾对账")
+    ap.add_argument("--write-template", metavar="SESSION_ID",
+                    help="把 meta.json 模板铺进该会话目录(已存在则不动)")
+    ap.add_argument("--check-session", metavar="SESSION_ID",
+                    help="对账:媒体件数 / 降级 / meta 缺项 / 题目漏报")
+    ap.add_argument("--expected-questions", type=int, default=None,
+                    help="本场实问题数,用来点名漏报的题(缺省 = 不对账题目)")
+    args = ap.parse_args()
+
+    if args.write_template:
+        p = write_template(args.write_template)
+        print(f"✅ 模板已铺到 {p} —— 请**当场**逐条填,不要事后补")
+        sys.exit(0)
+
+    if args.check_session:
+        r = check_session(args.check_session, args.expected_questions)
+        print(f"会话 {r['session_id']}")
+        print(f"  素材件数(按账本):{r['media'] or '(一件都没有)'}")
+        print(f"  前端原生视频:{'有' if r['video'] else '**没有**'}")
+        print(f"  留存降级:{r['degraded'] or '无'}")
+        print(f"  meta.json 缺项:{r['missing_meta'] or '无'}")
+        print(f"  已报题号:{r['reported_questions'] or '(一题都没报)'}")
+        if args.expected_questions is not None:
+            print(f"  漏报题号:{r['missing_questions'] or '无'}")
+        ok = not (r["degraded"] or r["missing_meta"] or r["missing_questions"])
+        print("✅ 齐了" if ok else "⚠️ 上面点出来的项没齐 —— 这一场缺的东西补不回来")
+        sys.exit(0 if ok else 1)
+
+    ap.print_help()
+    sys.exit(2)
