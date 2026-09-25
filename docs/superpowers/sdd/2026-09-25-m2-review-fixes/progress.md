@@ -48,3 +48,26 @@ Task 1: complete (commits 242f512..6e63202, tests: /home/huihuibuhui/miniconda3/
   - 变异 2:恢复 `if not data: return jsonify({"status":"error",…})` 早退 → **恰好 2 条红**(`..._the_target_has_no_logs` / `..._only_the_none_bucket_says_so`),`..._names_the_session_it_describes` **仍绿** —— 正是"空数据不再报错"这条契约把二者分开的证据。
   - 恢复后 3 passed;每次变异前清过 `__pycache__`。
 - Task 2: 前端构建门 `npm run build` → ✓ built in 13.87s(只有既有的 `GazeHeatmap` 4.7 MB chunk 警告)。**构建产物核过**:`dist/assets/api-021b99b1.js` 里 `session_id=` 在、`report/structured`,<override> 的拼参在;`dist/assets/ReportPage-*.js` 里有「本场会话」。
+Task 2: complete (commits 6e63202..88a1934, tests: /home/huihuibuhui/miniconda3/envs/jingxin/bin/python -m pytest -q → 214 passed in 20.64s)
+
+### Task 3(第 19 条 / 复审 I4)
+
+- Task 3: Ruling: **推翻 Ruling M1-14**(测试不许 import `voice_interaction.api.app`)—— 该裁定的前提"一 import 就因无关原因失败"在 2026-09-25 实测**不成立**(import 0.4 s 成功,TTS 后台线程正常起)。使用者审阅计划时已知悉并认可。代价:若判断有误,测试进程会多起一个 TTS 后台线程。 — cost if wrong: 测试进程里多一个 TTS 线程/听不到发声(本任务已把 `tts_engine.speak` 换掉)。
+- Task 3: Ruling: 一个 `pgrep -f "voice_interaction.api.app" | xargs kill` 把**执行该命令的 shell 自己**也匹配上了(命令行文本里就含这个模式),自杀 exit 144。改用 `pgrep -af` 查看 + 在 Python 侧做变异。与代码无关,记下以免后人重踩。 — cost if wrong: 零。
+- Task 3: 自动化测试红→绿:实现前 3 条全红,红因与 brief 的 Expected 逐字一致(`AssertionError: 科研评估没有铸号 —— 返回体是 {'status': 'started', 'question': '…'}` + 两处 `KeyError: 'session_id'`);实现后 3 passed。
+- Task 3: 反向复现(实施后):把 `/research/start` 退回「不铸号」(精确匹配科研那一处,不碰 `/interview/start` 的同形代码)→ **3 条全红**,报错文本与修前逐字相同;恢复后 `grep -c "session_mod.new_session_id()"` = 2 且全量绿。
+- Task 3: **端到端验收(HTTP 层唯一的强证据)**——`bash ~/shared/m21_acceptance.sh`,真服务(:8001)+ 局域网 FunASR + 真录音 `~/asr-test/zijijieshao.wav` 截 12 秒。原始输出:
+  ```
+  面试会话 = 20260925_124346_ff93
+  科研会话 = 20260925_124346_6e4a
+  --- ① 用**科研自己的号**提交语音回答(修好之后前端的行为)---
+  {"status":"success","session_id":"20260925_124346_6e4a","recognized_text":"获取大数据的大三本科生。…"}
+  ✅ 科研回答落在科研号的目录
+  ✅ 面试目录没被写入
+  --- ② 反向复现:把**上一场面试的号**喂给科研回答(修之前前端的行为)---
+  {"status":"success","session_id":"20260925_124346_ff93","recognized_text":"获取大数据的大三本科生。…"}
+  ✅ 复现成功:带旧号时科研回答确实会写进面试目录(这就是修掉的那条路)
+  M2.1 验收通过
+  ```
+  结论:失效场景 B **真实存在且已被修掉**——同一个音频,带科研号只落科研目录,带旧面试号就写进面试目录。
+- Task 3: 前端构建门 `npm run build` → ✓ built in 12.94s;产物核验 `dist/assets/api-*.js` 里有 `research/start`);return rt(((t=e.data)==null?void 0:t.session_id)??null),e.data}` —— 存号那行进了 bundle。

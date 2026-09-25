@@ -462,11 +462,19 @@ async def start_research_assessment():
     try:
         research_assessment.reset()
         first_question = research_assessment.get_next_question()
-        if first_question:
-            tts_engine.speak(first_question)
-            return {"status": "started", "question": first_question}
-        else:
+        if not first_question:
             raise HTTPException(status_code=500, detail="无法获取问题")
+
+        # 科研评估**自成一场**(M2.1 / 第 19 条):与 /interview/start 对称铸号。
+        # 不铸的话科研回答只能带客户端自己的 id —— 新页面直接做科研会落 NONE,
+        # 而"先面试、再科研"会顺延上一场的号,把科研回答的原句写进**面试会话**的录制目录。
+        sid = session_mod.new_session_id()
+        transcript_store.ensure_manifest(sid, _asr_meta())
+
+        tts_engine.speak(first_question)
+        return {"status": "started", "session_id": sid, "question": first_question}
+    except HTTPException:
+        raise          # 别再包一层:否则 500 会变成"启动科研评估失败: 500: 无法获取问题"
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"启动科研评估失败: {str(e)}")
 
