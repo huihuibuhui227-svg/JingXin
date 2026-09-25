@@ -156,3 +156,61 @@ Task 4: complete (commits c17c0ac..5faba37, tests: /home/huihuibuhui/miniconda3/
 
 - 复审结论已归档到本目录的 `final-review-report.md`(要点版;逐字报告只在会话记录里)。承 M2 的教训:报告放 **git 跟踪**的目录,不放 gitignore 的工作区。
 - 本计划的工作区 `.superpowers/sdd/2026-09-25-m2-review-fixes/` 已删除(git 历史即记录;两份 diff 可由 `git diff 242f512..5faba37` 与前端两个提交复现)。
+
+---
+
+## 追补(使用者 2026-09-25 授权「按你的倾向推荐和最优化方案进行操作」)
+
+### ① I2 收口:科研会话变成**读侧可描述**的一场
+
+**改动**(全在 `voice_interaction/api/app.py`):
+- 模块级 `research_logger = VoiceLogger(log_type='research')`(与面试侧对称);
+- `/research/start` 铸号后**带号重建**它(文件名在构造函数里定 —— 事后改 `.session_id` 只换列不换名,M1 记过这个坑);
+- `/research/answer_audio` 与面试侧**同口径**写一条 L0 特征行(`connective_density`,过短/空 → None 不写 0);
+- `/research/evaluation` 改用那个带号的,不再现造一个不带号的(否则评估行落 `..._NONE_<时间戳>.csv`,与特征行分家)。
+
+**测试**:新建 `tests/test_research_session_logging.py` 2 条。红因逐字:
+`AssertionError: 科研会话没有产出特征行 —— 盘上是 []`、
+`AssertionError: 评估行没落到本会话文件:…/research_emotion_log_NONE_20260925_132919.csv`。
+
+**反向复现**:退回「不调 log_prosody + logger 不带号」→ **2 条全红**,与上面同形;恢复后 2 passed。
+(变异时往**真实** `data/logs/` 写了一个空文件 —— 模块级 logger 在 import 时就绑定了真目录。已删;这也正是下面那条测试卫生问题的活样本。)
+
+**端到端验收**(`~/shared/m21_acceptance.sh` 扩了 ③④,真服务 + 局域网 FunASR + 真录音):
+```
+✅ 科研特征行落在 20260925_133215_ba6c 名下   ✅ 特征行含连接词密度列   ✅ 首列是本次会话号
+   voice_research → {'session_id': '20260925_133215_ba6c', 'status': 'loaded', 'rows': 1}
+✅ 报告侧把科研模态读成活的了
+M2.1 验收通过
+```
+修之前这在**结构上不可能**:科研特征行恒落 `research_emotion_log_NONE_<时间戳>.csv`,匹配不上任何 session id。
+顺带**修了验收脚本自己的 bug**:第 ④ 步用 `$PY - <<PYEOF` 跑 `from report_frontend…`,**依赖 cwd 是仓库根** —— 从 `~/shared` 直接跑就 `ModuleNotFoundError`,而前几步是纯 curl 所以照常绿,"看起来只是第④步失败"。改成子 shell `cd` 掉,并**从一个非仓库目录重跑**证明与 cwd 无关。
+
+### ② 前端不再印「综合评分 + 档位」
+
+- `ReportPage.tsx`:去掉 `total_score` / `getLevelLabel` 渲染,改为「**N / N 个指标槽通过证据门** + 置信度上限 + **综合总结**」——与 HTML 报告同一口径(spec §5.4/§5.6),也不再与载荷自述的「未产出综合评分,也不给评级」自相矛盾。
+- `RadarChart.tsx`:**删掉写死的「常模基准」**(`r: [60,60,60,60,60,60]`,五个维度全是常量 60,而本系统**没有任何常模样本**)—— 把它画成"基准"是让人以为存在人群参照(spec §5.5)。
+- 真浏览器复验(真 Edge + 真面板 + 真 vite):页面文本含 `0 / 20 个指标槽通过证据门`、`📝 综合总结`、`未产出综合评分,也不给评级…`;`document.body.innerText.includes("常模")` = **false**、`includes("综合评分:")` = **false**。`tsc --noEmit` exit 0、`npm run build` ✓。
+
+### 测试卫生(顺手根治):pytest 不再往仓库 `data/logs/` 写空文件
+
+根因:`VoiceLogger.__init__` **立刻**写 CSV 表头,而 `voice_interaction.api.app` 在**模块级**构造 logger → 每 import 一次(即每跑一次 pytest)就在仓库 `data/logs/` 留下**两个只有表头的 `*_log_NONE_<时间戳>.csv`**(面试一个、科研一个;盘上 9/24 那批先于本轮,是本轮之前的同一现象)。
+修法:`tests/conftest.py` 会话级把 `voice_interaction.utils.logger.LOGS_DIR` 指到 tmp(纯测试侧,不动生产代码)。复验:跑完全量后仓库里**无今天新增的 NONE 空文件** ✅。我这轮造的那批已删;9/24 那批不是我的,**没动**。
+
+### 本轮**未做**(记下来,别当成已做)
+
+1. **`dimensions.*.score` 仍被画成雷达图的「候选人得分」**(0–100 轴)—— 与 §5.4「不渲染未标定标尺上的点分」同轴,但改它属于**前端报告页整体收口**(§3 第 21–23 条:OpenAPI→TS 类型 + 报告入口收口),不在本次两条授权内。
+2. **`VoiceLogger` 构造即建文件**建议改惰性(删 `__init__` 里那行、改为首次写入前建):可一并消掉**服务启动**时的空文件,不止测试期。属既有行为,未动。
+3. `ReportViewer` 的 `dimensions.*.narrative` 在真实载荷里**不存在**(页面是照 mock 形状写的);`眼动行为分析` 里的坐标也是写死的示例数据。同属第 1 条那一摊。
+
+### 操作事故(第二次踩,记牢)
+
+`pkill -f "vite"` / `pgrep -f "voice_interaction.api.app"` **会匹配到执行该命令的 shell 自己**(命令文本里就含那个词)→ 自杀 `exit 144`。第一次已记过一次,这次用 `[v]ite` 括号技巧**仍然失败**,因为我的命令里还写了 `vite=$(pgrep …)` 这个字面量。**可靠做法:按端口杀** —— `fuser -k -n tcp <port>`,或 `ss -ltnp` 找 PID。以后不要用进程名 pkill/pgrep 去找自己启动的服务。
+
+### 提交范围的事后审计(必须交代)
+
+`5aa63c0`(Task 2 前端提交)对 `src/pages/ReportPage.tsx` 的改动是 **112 insertions / 93 deletions** —— 远超我计划里的增补。核对后确认:该文件当时带着**使用者未提交的整页重写**(旧版 108 行的简单页 → 带 `useParams`/`useEffect`/`store`/`Result`/`Loading` 的新版),被我**一并提交并推送**了。
+- 我能守的约束是"只 `git add` 我要提交的文件"—— 这一条**守住了**;但**我要改的那个文件里本来就装着使用者的未提交工作**,git 按文件暂存,绕不开。
+- `src/services/api.ts` 同一次提交是 12+/7−,与计划一致,**没有**夹带。
+- 正确做法是**提交前**就挑明并请使用者裁定(例如:先只提交不含该文件的部分、或让使用者先提交自己的版本)。这次是事后才发现并报告。
+- 后续(16964fe / 本次)对该文件的改动都发生在一个**已经包含使用者版本**的基线上,不再新增他人工作。

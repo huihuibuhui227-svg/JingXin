@@ -58,6 +58,9 @@ tts_engine = TTSEngine()
 interview_assessment = InterviewAssessmentPipeline()
 research_assessment = ResearchAssessmentPipeline()
 voice_logger = VoiceLogger(log_type='interview')
+# 科研那条日志器同样要在**铸号时换成带号的那一个**(见 /research/start)。文件名是**构造函数**
+# 算的 —— 事后改 `.session_id` 只换首列、不换文件名(M1 记过这个坑),所以不能沿用现造的。
+research_logger = VoiceLogger(log_type='research')
 
 # 音频契约:16 kHz / 16 bit / 单声道(四处 wave 校验与 ffmpeg 转换都用它)
 SAMPLE_RATE = 16000
@@ -459,6 +462,7 @@ async def get_session_summary(session_id: str, type: str = "interview"):
 
 @app.post("/research/start")
 async def start_research_assessment():
+    global research_logger
     try:
         research_assessment.reset()
         first_question = research_assessment.get_next_question()
@@ -470,6 +474,10 @@ async def start_research_assessment():
         # 而"先面试、再科研"会顺延上一场的号,把科研回答的原句写进**面试会话**的录制目录。
         sid = session_mod.new_session_id()
         transcript_store.ensure_manifest(sid, _asr_meta())
+        # 科研那条日志器也**带号建**:不换的话科研会话的特征行恒落
+        # `research_emotion_log_NONE_<时间戳>.csv`,读侧于是**永远**把 `语音（科研）`
+        # 判成 missing —— 一场科研会话再完整也描述不出来。
+        research_logger = VoiceLogger(log_type='research', session_id=sid)
 
         tts_engine.speak(first_question)
         return {"status": "started", "session_id": sid, "question": first_question}
@@ -534,6 +542,15 @@ async def submit_research_answer_audio(request: Request, audio: UploadFile = Fil
         # (连接词密度的特征行只写语音侧那一条日志 —— LOG_PREFIXES 里没有科研侧)
         transcript_store.append_utterance(sid, utt)
 
+        # 与面试侧**同口径**地写下这条 L0 特征行(此前科研侧完全没有产出方):
+        # 连接词密度是纯文本层,分母是字数(刻意不含时长,spec D4/D8);过短/空 → None(不写 0)。
+        density = connective_density(text)
+        question_index = len(research_assessment.qa_pairs)
+        research_logger.session_id = sid     # 首列随会话(文件名在 /research/start 里定)
+        research_logger.log_prosody(
+            {}, question_index=question_index, emotion="", feedback="",
+            connective_density=density, connective_density_std=0.0, n_rows=1)
+
         research_assessment.add_answer(text)
         try:
             research_assessment.save_log()
@@ -555,8 +572,8 @@ async def get_research_evaluation():
         # 保存日志到文件
         log_path = research_assessment.save_log()
 
-        # 创建科研评估的日志记录器
-        research_logger = VoiceLogger(log_type='research')
+        # 用**带会话号的那一个**(模块级,`/research/start` 里建的)—— 不再现造一个不带号的:
+        # 现造会把评估行写进 `research_emotion_log_NONE_<时间戳>.csv`,与特征行分了家。
         research_logger.log_assessment(
             total_questions=len(research_assessment.questions),
             answered_questions=len(research_assessment.qa_pairs),
