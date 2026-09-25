@@ -153,3 +153,6 @@ Task 4: complete (commits c17c0ac..5faba37, tests: /home/huihuibuhui/miniconda3/
   GATE_EXIT=0
   ```
 - 提交与推送:`3fb01a0`(后端修复波次)/ `16964fe`(前端修复波次);两仓 `main` 均已与 `origin/main` 同步。
+
+- 复审结论已归档到本目录的 `final-review-report.md`(要点版;逐字报告只在会话记录里)。承 M2 的教训:报告放 **git 跟踪**的目录,不放 gitignore 的工作区。
+- 本计划的工作区 `.superpowers/sdd/2026-09-25-m2-review-fixes/` 已删除(git 历史即记录;两份 diff 可由 `git diff 242f512..5faba37` 与前端两个提交复现)。
