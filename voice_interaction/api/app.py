@@ -458,7 +458,10 @@ async def start_interview():
         voice_logger = VoiceLogger(log_type='interview', session_id=sid)
 
         tts_engine.speak(first_question)
-        return {"status": "started", "session_id": sid, "question": first_question}
+        # 题库共几题由服务端给:前端手里没有任何来源(`setQuestions` 是死代码),
+        # 它原先写死的 `/10` 与真题库(8 题)无关,进度条永远到不了 100%。
+        return {"status": "started", "session_id": sid, "question": first_question,
+                "total_questions": len(interview_assessment.questions)}
     except HTTPException:
         raise          # 别再包一层:否则 500 会变成"启动面试失败: 500: 无法获取问题"
     except Exception as e:
@@ -717,7 +720,8 @@ async def start_research_assessment():
         research_logger = VoiceLogger(log_type='research', session_id=sid)
 
         tts_engine.speak(first_question)
-        return {"status": "started", "session_id": sid, "question": first_question}
+        return {"status": "started", "session_id": sid, "question": first_question,
+                "total_questions": len(research_assessment.questions)}
     except HTTPException:
         raise          # 别再包一层:否则 500 会变成"启动科研评估失败: 500: 无法获取问题"
     except Exception as e:
