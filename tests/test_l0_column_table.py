@@ -106,11 +106,18 @@ def test_hand_visible_rows_match_the_logger_contract(tmp_path, monkeypatch):
       ① 表里的列名 == 日志 `fieldnames` 里真有的列名(且在最末尾 —— acceptance ③);
       ② `status` 已翻 `implemented`;
       ③ `unit` 说的字母表 `{1, 空}`:实现只吐这两个值,**没有 `0`**;
-      ④ `definition` 说的合取:只有「知道是哪只手」**且**「手在」才写 `1`。
+      ④ `definition` 说的合取:只有「知道是哪只手」**且**「手在」才写 `1`;
+      ⑤ ★ `definition` **散文本身**必须还写着那两件事(`handedness_info` 这个判据入口,与
+         「不写 0」这条禁令)。复核 Minor 2:没有 ⑤ 的时候,④ 比的是**本测试自己抄的一遍规则** ——
+         表里 `definition` 若被改成「槽非空即为真」,④ 照样绿(只有 `unit` 串字面比对,
+         改措辞反而误红)。⑤ 把「表里那句话」也拉进断言。
 
     红法(逐条,都是生产改动):往 `fieldnames` 中间插一列(①)、把某行的 `status`
     改回 `pending`(②)、把 `_hand_visible_cells` 的 `else ""` 改成 `else "0"`(③)、
-    或把它的 `known and present.get(slot)` 删掉一半(④)。
+    把它的 `known and present.get(slot)` 删掉一半(④)、
+    **把表里 `definition` 换成「槽非空即为真」**(⑤)。
+    ⚠️ ⑤ 的边界(如实说):它钉的是**那两句话还在不在**,不是"散文与代码语义等价" ——
+    若有人保留这两个词、却把语义反过来写,⑤ 抓不到(那种改写只能靠人读)。
     """
     import gesture_analysis.utils.logger as glog
 
@@ -125,6 +132,13 @@ def test_hand_visible_rows_match_the_logger_contract(tmp_path, monkeypatch):
         assert row["status"] == "implemented", (
             f"{name} 的 status 还是 {row['status']!r} —— 实现已落地,表里没跟着翻")
         assert row["unit"] == "布尔(1 / 空)", row["unit"]
+        # ⑤ 判据入口与「不写 0」这两句必须在表里还写着(红法:改成「槽非空即为真」)
+        assert "handedness_info" in row["definition"], (
+            f"{name} 的 definition 不再点名判据入口 `handedness_info` —— "
+            f"「槽非空即为真」正是这条要防的写法:{row['definition'][:80]!r}")
+        assert "不写 0" in row["definition"], (
+            f"{name} 的 definition 不再写「不写 0」—— 「没测到」与「测到了没有」"
+            f"的区别在表里必须有:{row['definition'][:80]!r}")
 
     fieldnames = list(glog.GestureLogger(session_id="x").fieldnames)
     for name in names:

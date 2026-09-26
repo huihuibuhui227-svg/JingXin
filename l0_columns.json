@@ -559,13 +559,13 @@
     {
       "column": "timestamp",
       "modality": "gesture",
-      "why": "非测量列(标识列/时间基,不是 L0 测量量)。裁定 C5 已把 L0 计数口径定死为测量列 ⟹ 它不进 `columns`(否则 `actual` 会把它数进去)。 ⚠️ 它同时是**那 16 个 jitter 列时间归一化的分母来源**(窗内真实秒数 = t_last − t_first),所以它必须留在日志里;本服务现在写的是墙钟(logger.py:287 取 now,:293-294 写两列),而要会话相对秒 —— 与 face 的修法同源(face 已由 M2.5 落地:timestamp_ms ÷ 1000;gesture 端的钟见 api/app.py:311 的 `_clock_for`)。",
+      "why": "非测量列(标识列/时间基,不是 L0 测量量)。裁定 C5 已把 L0 计数口径定死为测量列 ⟹ 它不进 `columns`(否则 `actual` 会把它数进去)。 ⚠️ 它同时是**那 16 个 jitter 列时间归一化的分母来源**(窗内真实秒数 = t_last − t_first),所以它必须留在日志里;本服务现在写的是墙钟(logger.py:308 取 now,:314-315 写两列),而要会话相对秒 —— 与 face 的修法同源(face 已由 M2.5 落地:timestamp_ms ÷ 1000;gesture 端的钟见 api/app.py:311 的 `_clock_for`)。",
       "planned": "M3.3(作为元数据列单列,不进 L0 测量列)"
     },
     {
       "column": "timestamp_iso",
       "modality": "gesture",
-      "why": "非测量列(标识列/时间基,不是 L0 测量量)。裁定 C5 已把 L0 计数口径定死为测量列 ⟹ 它不进 `columns`(否则 `actual` 会把它数进去)。 它是 `timestamp` 的**可读副本**(同一时刻的 ISO 8601 串,logger.py:294),零额外信息;留它是为了人工看日志。",
+      "why": "非测量列(标识列/时间基,不是 L0 测量量)。裁定 C5 已把 L0 计数口径定死为测量列 ⟹ 它不进 `columns`(否则 `actual` 会把它数进去)。 它是 `timestamp` 的**可读副本**(同一时刻的 ISO 8601 串,logger.py:315),零额外信息;留它是为了人工看日志。",
       "planned": "M3.3(作为元数据列单列,不进 L0 测量列)"
     },
     {
@@ -697,7 +697,7 @@
     {
       "column": "is_valid",
       "modality": "gesture",
-      "why": "三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),**1418/1418 行全为 False**(`used_features` 恒 `none`)。三点:① 它是**非测量列**(C5 不计入);② 它装的是 **emotion 结果**的 is_valid,**不是** §4.2 说的那 4 个分析器的 `is_valid()` —— 那 4 个在日志列契约里的落点只有 1 列,文档没写合并后叫什么、装在哪;③ 有效性在本项目的既有约定里由**空值**表达(`_safe_get(None) → \"\"`,logger.py:391-404),再加一列布尔等于把同一件事数两遍 ⟹ 判删。evidence_gate.py:84 封停(unblock「M3 改真掩码」)。⚠️ 键名与列名对不上:名单里 face 侧那条叫 `is_valid`、这里同名,但 gesture 的这列语义不同(它是情绪块的),两者只共用了名字。",
+      "why": "三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),**1418/1418 行全为 False**(`used_features` 恒 `none`)。三点:① 它是**非测量列**(C5 不计入);② 它装的是 **emotion 结果**的 is_valid,**不是** §4.2 说的那 4 个分析器的 `is_valid()` —— 那 4 个在日志列契约里的落点只有 1 列,文档没写合并后叫什么、装在哪;③ 有效性在本项目的既有约定里由**空值**表达(`_safe_get(None) → \"\"`,logger.py:412-425),再加一列布尔等于把同一件事数两遍 ⟹ 判删。evidence_gate.py:84 封停(unblock「M3 改真掩码」)。⚠️ 键名与列名对不上:名单里 face 侧那条叫 `is_valid`、这里同名,但 gesture 的这列语义不同(它是情绪块的),两者只共用了名字。",
       "planned": "M3.3 删列"
     },
     {
@@ -1175,7 +1175,7 @@
     {
       "column": "left_thumb_angle",
       "modality": "gesture",
-      "definition": "left手拇指的关节角 ∠(mp[2], mp[3], mp[4]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`api/app.py:401-404` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:46-52(`_FINGER_JOINTS`)+ :101-110(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(logger.py:417-425 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :425)。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
+      "definition": "left手拇指的关节角 ∠(mp[2], mp[3], mp[4]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`api/app.py:401-404` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:46-52(`_FINGER_JOINTS`)+ :101-110(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(logger.py:438-446 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :446。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
       "source": "mediapipe hand landmarker 的 21 点(joint 索引 + x/y 归一化坐标);由 gesture_analysis/core/feature_extraction/angles.py:101-110 算出",
       "normalization": "none —— ∠ 的 cos 已除以 |a−b|·|c−b|(角度与尺度无关:平移/缩放裁剪框该列不变;透视与出平面旋转是二阶影响,见 acceptance)",
       "unit": "度",
@@ -1188,7 +1188,7 @@
     {
       "column": "left_index_angle",
       "modality": "gesture",
-      "definition": "left手食指的关节角 ∠(mp[5], mp[6], mp[8]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`api/app.py:401-404` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:46-52(`_FINGER_JOINTS`)+ :101-110(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(logger.py:417-425 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :425)。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
+      "definition": "left手食指的关节角 ∠(mp[5], mp[6], mp[8]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`api/app.py:401-404` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:46-52(`_FINGER_JOINTS`)+ :101-110(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(logger.py:438-446 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :446。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
       "source": "mediapipe hand landmarker 的 21 点(joint 索引 + x/y 归一化坐标);由 gesture_analysis/core/feature_extraction/angles.py:101-110 算出",
       "normalization": "none —— ∠ 的 cos 已除以 |a−b|·|c−b|(角度与尺度无关:平移/缩放裁剪框该列不变;透视与出平面旋转是二阶影响,见 acceptance)",
       "unit": "度",
@@ -1201,7 +1201,7 @@
     {
       "column": "left_middle_angle",
       "modality": "gesture",
-      "definition": "left手中指的关节角 ∠(mp[9], mp[10], mp[12]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`api/app.py:401-404` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:46-52(`_FINGER_JOINTS`)+ :101-110(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(logger.py:417-425 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :425)。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
+      "definition": "left手中指的关节角 ∠(mp[9], mp[10], mp[12]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`api/app.py:401-404` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:46-52(`_FINGER_JOINTS`)+ :101-110(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(logger.py:438-446 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :446。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
       "source": "mediapipe hand landmarker 的 21 点(joint 索引 + x/y 归一化坐标);由 gesture_analysis/core/feature_extraction/angles.py:101-110 算出",
       "normalization": "none —— ∠ 的 cos 已除以 |a−b|·|c−b|(角度与尺度无关:平移/缩放裁剪框该列不变;透视与出平面旋转是二阶影响,见 acceptance)",
       "unit": "度",
@@ -1214,7 +1214,7 @@
     {
       "column": "left_ring_angle",
       "modality": "gesture",
-      "definition": "left手无名指的关节角 ∠(mp[13], mp[14], mp[16]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`api/app.py:401-404` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:46-52(`_FINGER_JOINTS`)+ :101-110(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(logger.py:417-425 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :425)。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
+      "definition": "left手无名指的关节角 ∠(mp[13], mp[14], mp[16]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`api/app.py:401-404` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:46-52(`_FINGER_JOINTS`)+ :101-110(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(logger.py:438-446 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :446。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
       "source": "mediapipe hand landmarker 的 21 点(joint 索引 + x/y 归一化坐标);由 gesture_analysis/core/feature_extraction/angles.py:101-110 算出",
       "normalization": "none —— ∠ 的 cos 已除以 |a−b|·|c−b|(角度与尺度无关:平移/缩放裁剪框该列不变;透视与出平面旋转是二阶影响,见 acceptance)",
       "unit": "度",
@@ -1227,7 +1227,7 @@
     {
       "column": "left_pinky_angle",
       "modality": "gesture",
-      "definition": "left手小指的关节角 ∠(mp[17], mp[18], mp[20]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`api/app.py:401-404` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:46-52(`_FINGER_JOINTS`)+ :101-110(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(logger.py:417-425 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :425)。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
+      "definition": "left手小指的关节角 ∠(mp[17], mp[18], mp[20]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`api/app.py:401-404` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:46-52(`_FINGER_JOINTS`)+ :101-110(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(logger.py:438-446 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :446。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
       "source": "mediapipe hand landmarker 的 21 点(joint 索引 + x/y 归一化坐标);由 gesture_analysis/core/feature_extraction/angles.py:101-110 算出",
       "normalization": "none —— ∠ 的 cos 已除以 |a−b|·|c−b|(角度与尺度无关:平移/缩放裁剪框该列不变;透视与出平面旋转是二阶影响,见 acceptance)",
       "unit": "度",
@@ -1240,7 +1240,7 @@
     {
       "column": "right_thumb_angle",
       "modality": "gesture",
-      "definition": "right手拇指的关节角 ∠(mp[2], mp[3], mp[4]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`api/app.py:401-404` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:46-52(`_FINGER_JOINTS`)+ :101-110(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(logger.py:417-425 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :425)。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
+      "definition": "right手拇指的关节角 ∠(mp[2], mp[3], mp[4]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`api/app.py:401-404` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:46-52(`_FINGER_JOINTS`)+ :101-110(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(logger.py:438-446 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :446。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
       "source": "mediapipe hand landmarker 的 21 点(joint 索引 + x/y 归一化坐标);由 gesture_analysis/core/feature_extraction/angles.py:101-110 算出",
       "normalization": "none —— ∠ 的 cos 已除以 |a−b|·|c−b|(角度与尺度无关:平移/缩放裁剪框该列不变;透视与出平面旋转是二阶影响,见 acceptance)",
       "unit": "度",
@@ -1253,7 +1253,7 @@
     {
       "column": "right_index_angle",
       "modality": "gesture",
-      "definition": "right手食指的关节角 ∠(mp[5], mp[6], mp[8]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`api/app.py:401-404` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:46-52(`_FINGER_JOINTS`)+ :101-110(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(logger.py:417-425 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :425)。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
+      "definition": "right手食指的关节角 ∠(mp[5], mp[6], mp[8]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`api/app.py:401-404` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:46-52(`_FINGER_JOINTS`)+ :101-110(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(logger.py:438-446 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :446。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
       "source": "mediapipe hand landmarker 的 21 点(joint 索引 + x/y 归一化坐标);由 gesture_analysis/core/feature_extraction/angles.py:101-110 算出",
       "normalization": "none —— ∠ 的 cos 已除以 |a−b|·|c−b|(角度与尺度无关:平移/缩放裁剪框该列不变;透视与出平面旋转是二阶影响,见 acceptance)",
       "unit": "度",
@@ -1266,7 +1266,7 @@
     {
       "column": "right_middle_angle",
       "modality": "gesture",
-      "definition": "right手中指的关节角 ∠(mp[9], mp[10], mp[12]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`api/app.py:401-404` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:46-52(`_FINGER_JOINTS`)+ :101-110(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(logger.py:417-425 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :425)。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
+      "definition": "right手中指的关节角 ∠(mp[9], mp[10], mp[12]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`api/app.py:401-404` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:46-52(`_FINGER_JOINTS`)+ :101-110(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(logger.py:438-446 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :446。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
       "source": "mediapipe hand landmarker 的 21 点(joint 索引 + x/y 归一化坐标);由 gesture_analysis/core/feature_extraction/angles.py:101-110 算出",
       "normalization": "none —— ∠ 的 cos 已除以 |a−b|·|c−b|(角度与尺度无关:平移/缩放裁剪框该列不变;透视与出平面旋转是二阶影响,见 acceptance)",
       "unit": "度",
@@ -1279,7 +1279,7 @@
     {
       "column": "right_ring_angle",
       "modality": "gesture",
-      "definition": "right手无名指的关节角 ∠(mp[13], mp[14], mp[16]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`api/app.py:401-404` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:46-52(`_FINGER_JOINTS`)+ :101-110(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(logger.py:417-425 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :425)。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
+      "definition": "right手无名指的关节角 ∠(mp[13], mp[14], mp[16]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`api/app.py:401-404` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:46-52(`_FINGER_JOINTS`)+ :101-110(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(logger.py:438-446 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :446。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
       "source": "mediapipe hand landmarker 的 21 点(joint 索引 + x/y 归一化坐标);由 gesture_analysis/core/feature_extraction/angles.py:101-110 算出",
       "normalization": "none —— ∠ 的 cos 已除以 |a−b|·|c−b|(角度与尺度无关:平移/缩放裁剪框该列不变;透视与出平面旋转是二阶影响,见 acceptance)",
       "unit": "度",
@@ -1292,7 +1292,7 @@
     {
       "column": "right_pinky_angle",
       "modality": "gesture",
-      "definition": "right手小指的关节角 ∠(mp[17], mp[18], mp[20]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`api/app.py:401-404` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:46-52(`_FINGER_JOINTS`)+ :101-110(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(logger.py:417-425 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :425)。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
+      "definition": "right手小指的关节角 ∠(mp[17], mp[18], mp[20]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`api/app.py:401-404` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:46-52(`_FINGER_JOINTS`)+ :101-110(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(logger.py:438-446 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :446。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
       "source": "mediapipe hand landmarker 的 21 点(joint 索引 + x/y 归一化坐标);由 gesture_analysis/core/feature_extraction/angles.py:101-110 算出",
       "normalization": "none —— ∠ 的 cos 已除以 |a−b|·|c−b|(角度与尺度无关:平移/缩放裁剪框该列不变;透视与出平面旋转是二阶影响,见 acceptance)",
       "unit": "度",
@@ -1496,7 +1496,7 @@
     {
       "column": "left_wrist_jitter_world",
       "modality": "gesture",
-      "definition": "左腕的**米制 3D 坐标**(`pose_world_landmarks`,单位米、原点在髋中心)在 30 帧历史窗内逐轴标准差的均值,÷ 窗内真实秒数。公式与画面坐标那批**同一套**(`_calculate_jitter`),只换输入空间,出处 ArmAnalyzer(world 集) 的 wrist_jitter,api/app.py:385-397;窗长 30(config.py:105/119)。⚠️ 现行产出**不除时间** ⟹ 仍编码帧率(窗跨 30 帧);但**不**再需要除肩宽 —— 米制坐标本身就是解剖尺度,与取景无关(§4.5 规矩 1 说的是画面坐标那几个量)。日志里这 8 列保留 4 位小数(utils/logger.py:185-197 `_world_cells`)。",
+      "definition": "左腕的**米制 3D 坐标**(`pose_world_landmarks`,单位米、原点在髋中心)在 30 帧历史窗内逐轴标准差的均值,÷ 窗内真实秒数。公式与画面坐标那批**同一套**(`_calculate_jitter`),只换输入空间,出处 ArmAnalyzer(world 集) 的 wrist_jitter,api/app.py:385-397;窗长 30(config.py:105/119)。⚠️ 现行产出**不除时间** ⟹ 仍编码帧率(窗跨 30 帧);但**不**再需要除肩宽 —— 米制坐标本身就是解剖尺度,与取景无关(§4.5 规矩 1 说的是画面坐标那几个量)。日志里这 8 列保留 4 位小数(utils/logger.py:187-199 `_world_cells`)。",
       "source": "mediapipe pose landmarker 的 `pose_world_landmarks`(米制 3D);由 ArmAnalyzer(world 集) 的 wrist_jitter,api/app.py:385-397 算出",
       "normalization": "÷ 窗内真实秒数(会话相对秒);**不**除肩宽 —— 米制已是解剖尺度,取景无关",
       "unit": "米/秒",
@@ -1510,7 +1510,7 @@
     {
       "column": "left_elbow_jitter_world",
       "modality": "gesture",
-      "definition": "左肘的**米制 3D 坐标**(`pose_world_landmarks`,单位米、原点在髋中心)在 30 帧历史窗内逐轴标准差的均值,÷ 窗内真实秒数。公式与画面坐标那批**同一套**(`_calculate_jitter`),只换输入空间,出处 ArmAnalyzer(world 集) 的 elbow_jitter,api/app.py:385-397;窗长 30(config.py:105/119)。⚠️ 现行产出**不除时间** ⟹ 仍编码帧率(窗跨 30 帧);但**不**再需要除肩宽 —— 米制坐标本身就是解剖尺度,与取景无关(§4.5 规矩 1 说的是画面坐标那几个量)。日志里这 8 列保留 4 位小数(utils/logger.py:185-197 `_world_cells`)。",
+      "definition": "左肘的**米制 3D 坐标**(`pose_world_landmarks`,单位米、原点在髋中心)在 30 帧历史窗内逐轴标准差的均值,÷ 窗内真实秒数。公式与画面坐标那批**同一套**(`_calculate_jitter`),只换输入空间,出处 ArmAnalyzer(world 集) 的 elbow_jitter,api/app.py:385-397;窗长 30(config.py:105/119)。⚠️ 现行产出**不除时间** ⟹ 仍编码帧率(窗跨 30 帧);但**不**再需要除肩宽 —— 米制坐标本身就是解剖尺度,与取景无关(§4.5 规矩 1 说的是画面坐标那几个量)。日志里这 8 列保留 4 位小数(utils/logger.py:187-199 `_world_cells`)。",
       "source": "mediapipe pose landmarker 的 `pose_world_landmarks`(米制 3D);由 ArmAnalyzer(world 集) 的 elbow_jitter,api/app.py:385-397 算出",
       "normalization": "÷ 窗内真实秒数(会话相对秒);**不**除肩宽 —— 米制已是解剖尺度,取景无关",
       "unit": "米/秒",
@@ -1524,7 +1524,7 @@
     {
       "column": "right_wrist_jitter_world",
       "modality": "gesture",
-      "definition": "右腕的**米制 3D 坐标**(`pose_world_landmarks`,单位米、原点在髋中心)在 30 帧历史窗内逐轴标准差的均值,÷ 窗内真实秒数。公式与画面坐标那批**同一套**(`_calculate_jitter`),只换输入空间,出处 ArmAnalyzer(world 集) 的 wrist_jitter,api/app.py:385-397;窗长 30(config.py:105/119)。⚠️ 现行产出**不除时间** ⟹ 仍编码帧率(窗跨 30 帧);但**不**再需要除肩宽 —— 米制坐标本身就是解剖尺度,与取景无关(§4.5 规矩 1 说的是画面坐标那几个量)。日志里这 8 列保留 4 位小数(utils/logger.py:185-197 `_world_cells`)。",
+      "definition": "右腕的**米制 3D 坐标**(`pose_world_landmarks`,单位米、原点在髋中心)在 30 帧历史窗内逐轴标准差的均值,÷ 窗内真实秒数。公式与画面坐标那批**同一套**(`_calculate_jitter`),只换输入空间,出处 ArmAnalyzer(world 集) 的 wrist_jitter,api/app.py:385-397;窗长 30(config.py:105/119)。⚠️ 现行产出**不除时间** ⟹ 仍编码帧率(窗跨 30 帧);但**不**再需要除肩宽 —— 米制坐标本身就是解剖尺度,与取景无关(§4.5 规矩 1 说的是画面坐标那几个量)。日志里这 8 列保留 4 位小数(utils/logger.py:187-199 `_world_cells`)。",
       "source": "mediapipe pose landmarker 的 `pose_world_landmarks`(米制 3D);由 ArmAnalyzer(world 集) 的 wrist_jitter,api/app.py:385-397 算出",
       "normalization": "÷ 窗内真实秒数(会话相对秒);**不**除肩宽 —— 米制已是解剖尺度,取景无关",
       "unit": "米/秒",
@@ -1538,7 +1538,7 @@
     {
       "column": "right_elbow_jitter_world",
       "modality": "gesture",
-      "definition": "右肘的**米制 3D 坐标**(`pose_world_landmarks`,单位米、原点在髋中心)在 30 帧历史窗内逐轴标准差的均值,÷ 窗内真实秒数。公式与画面坐标那批**同一套**(`_calculate_jitter`),只换输入空间,出处 ArmAnalyzer(world 集) 的 elbow_jitter,api/app.py:385-397;窗长 30(config.py:105/119)。⚠️ 现行产出**不除时间** ⟹ 仍编码帧率(窗跨 30 帧);但**不**再需要除肩宽 —— 米制坐标本身就是解剖尺度,与取景无关(§4.5 规矩 1 说的是画面坐标那几个量)。日志里这 8 列保留 4 位小数(utils/logger.py:185-197 `_world_cells`)。",
+      "definition": "右肘的**米制 3D 坐标**(`pose_world_landmarks`,单位米、原点在髋中心)在 30 帧历史窗内逐轴标准差的均值,÷ 窗内真实秒数。公式与画面坐标那批**同一套**(`_calculate_jitter`),只换输入空间,出处 ArmAnalyzer(world 集) 的 elbow_jitter,api/app.py:385-397;窗长 30(config.py:105/119)。⚠️ 现行产出**不除时间** ⟹ 仍编码帧率(窗跨 30 帧);但**不**再需要除肩宽 —— 米制坐标本身就是解剖尺度,与取景无关(§4.5 规矩 1 说的是画面坐标那几个量)。日志里这 8 列保留 4 位小数(utils/logger.py:187-199 `_world_cells`)。",
       "source": "mediapipe pose landmarker 的 `pose_world_landmarks`(米制 3D);由 ArmAnalyzer(world 集) 的 elbow_jitter,api/app.py:385-397 算出",
       "normalization": "÷ 窗内真实秒数(会话相对秒);**不**除肩宽 —— 米制已是解剖尺度,取景无关",
       "unit": "米/秒",
@@ -1552,7 +1552,7 @@
     {
       "column": "left_arm_angle_world",
       "modality": "gesture",
-      "definition": "肘关节角 ∠(肩, 肘, 腕),顶点 = 肘(米制 3D 点 lm[11/13/15],取 `pose_world_landmarks`)。公式 = `arccos((肩−肘)·(腕−肘) ÷ (|肩−肘|·|腕−肘|))`,单位度;出处 gesture_analysis/core/analysis/arm_analyzer.py:138-171(`_calculate_arm_angle`),喂 world 坐标那一路在 api/app.py:385-397。日志里保留 4 位小数(logger.py:185-197)。⚠️ 与本列**同名不同空间**的画面坐标版 `left_arm_angle` 是同一个几何量的 2D 投影,那一列与 `left_elbow_angle` 逐帧等价(见那两条白名单的实测),已判删。",
+      "definition": "肘关节角 ∠(肩, 肘, 腕),顶点 = 肘(米制 3D 点 lm[11/13/15],取 `pose_world_landmarks`)。公式 = `arccos((肩−肘)·(腕−肘) ÷ (|肩−肘|·|腕−肘|))`,单位度;出处 gesture_analysis/core/analysis/arm_analyzer.py:138-171(`_calculate_arm_angle`),喂 world 坐标那一路在 api/app.py:385-397。日志里保留 4 位小数(logger.py:187-199)。⚠️ 与本列**同名不同空间**的画面坐标版 `left_arm_angle` 是同一个几何量的 2D 投影,那一列与 `left_elbow_angle` 逐帧等价(见那两条白名单的实测),已判删。",
       "source": "mediapipe pose landmarker 的 `pose_world_landmarks`(米制 3D);点取 lm[11/13/15]",
       "normalization": "none —— ∠ 的 cos 已除以 |ba|·|bc|(角度与尺度无关);米制坐标另使它取景无关",
       "unit": "度",
@@ -1565,7 +1565,7 @@
     {
       "column": "right_arm_angle_world",
       "modality": "gesture",
-      "definition": "肘关节角 ∠(肩, 肘, 腕),顶点 = 肘(米制 3D 点 lm[12/14/16],取 `pose_world_landmarks`)。公式 = `arccos((肩−肘)·(腕−肘) ÷ (|肩−肘|·|腕−肘|))`,单位度;出处 gesture_analysis/core/analysis/arm_analyzer.py:138-171(`_calculate_arm_angle`),喂 world 坐标那一路在 api/app.py:385-397。日志里保留 4 位小数(logger.py:185-197)。⚠️ 与本列**同名不同空间**的画面坐标版 `right_arm_angle` 是同一个几何量的 2D 投影,那一列与 `right_elbow_angle` 逐帧等价(见那两条白名单的实测),已判删。",
+      "definition": "肘关节角 ∠(肩, 肘, 腕),顶点 = 肘(米制 3D 点 lm[12/14/16],取 `pose_world_landmarks`)。公式 = `arccos((肩−肘)·(腕−肘) ÷ (|肩−肘|·|腕−肘|))`,单位度;出处 gesture_analysis/core/analysis/arm_analyzer.py:138-171(`_calculate_arm_angle`),喂 world 坐标那一路在 api/app.py:385-397。日志里保留 4 位小数(logger.py:187-199)。⚠️ 与本列**同名不同空间**的画面坐标版 `right_arm_angle` 是同一个几何量的 2D 投影,那一列与 `right_elbow_angle` 逐帧等价(见那两条白名单的实测),已判删。",
       "source": "mediapipe pose landmarker 的 `pose_world_landmarks`(米制 3D);点取 lm[12/14/16]",
       "normalization": "none —— ∠ 的 cos 已除以 |ba|·|bc|(角度与尺度无关);米制坐标另使它取景无关",
       "unit": "度",
@@ -1578,7 +1578,7 @@
     {
       "column": "left_shoulder_jitter_world",
       "modality": "gesture",
-      "definition": "左肩的**米制 3D 坐标**(`pose_world_landmarks`,单位米、原点在髋中心)在 30 帧历史窗内逐轴标准差的均值,÷ 窗内真实秒数。公式与画面坐标那批**同一套**(`_calculate_jitter`),只换输入空间,出处 ShoulderAnalyzer(world 集) 的 left_jitter,api/app.py:385-397;窗长 30(config.py:105/119)。⚠️ 现行产出**不除时间** ⟹ 仍编码帧率(窗跨 30 帧);但**不**再需要除肩宽 —— 米制坐标本身就是解剖尺度,与取景无关(§4.5 规矩 1 说的是画面坐标那几个量)。日志里这 8 列保留 4 位小数(utils/logger.py:185-197 `_world_cells`)。",
+      "definition": "左肩的**米制 3D 坐标**(`pose_world_landmarks`,单位米、原点在髋中心)在 30 帧历史窗内逐轴标准差的均值,÷ 窗内真实秒数。公式与画面坐标那批**同一套**(`_calculate_jitter`),只换输入空间,出处 ShoulderAnalyzer(world 集) 的 left_jitter,api/app.py:385-397;窗长 30(config.py:105/119)。⚠️ 现行产出**不除时间** ⟹ 仍编码帧率(窗跨 30 帧);但**不**再需要除肩宽 —— 米制坐标本身就是解剖尺度,与取景无关(§4.5 规矩 1 说的是画面坐标那几个量)。日志里这 8 列保留 4 位小数(utils/logger.py:187-199 `_world_cells`)。",
       "source": "mediapipe pose landmarker 的 `pose_world_landmarks`(米制 3D);由 ShoulderAnalyzer(world 集) 的 left_jitter,api/app.py:385-397 算出",
       "normalization": "÷ 窗内真实秒数(会话相对秒);**不**除肩宽 —— 米制已是解剖尺度,取景无关",
       "unit": "米/秒",
@@ -1592,7 +1592,7 @@
     {
       "column": "right_shoulder_jitter_world",
       "modality": "gesture",
-      "definition": "右肩的**米制 3D 坐标**(`pose_world_landmarks`,单位米、原点在髋中心)在 30 帧历史窗内逐轴标准差的均值,÷ 窗内真实秒数。公式与画面坐标那批**同一套**(`_calculate_jitter`),只换输入空间,出处 ShoulderAnalyzer(world 集) 的 right_jitter,api/app.py:385-397;窗长 30(config.py:105/119)。⚠️ 现行产出**不除时间** ⟹ 仍编码帧率(窗跨 30 帧);但**不**再需要除肩宽 —— 米制坐标本身就是解剖尺度,与取景无关(§4.5 规矩 1 说的是画面坐标那几个量)。日志里这 8 列保留 4 位小数(utils/logger.py:185-197 `_world_cells`)。",
+      "definition": "右肩的**米制 3D 坐标**(`pose_world_landmarks`,单位米、原点在髋中心)在 30 帧历史窗内逐轴标准差的均值,÷ 窗内真实秒数。公式与画面坐标那批**同一套**(`_calculate_jitter`),只换输入空间,出处 ShoulderAnalyzer(world 集) 的 right_jitter,api/app.py:385-397;窗长 30(config.py:105/119)。⚠️ 现行产出**不除时间** ⟹ 仍编码帧率(窗跨 30 帧);但**不**再需要除肩宽 —— 米制坐标本身就是解剖尺度,与取景无关(§4.5 规矩 1 说的是画面坐标那几个量)。日志里这 8 列保留 4 位小数(utils/logger.py:187-199 `_world_cells`)。",
       "source": "mediapipe pose landmarker 的 `pose_world_landmarks`(米制 3D);由 ShoulderAnalyzer(world 集) 的 right_jitter,api/app.py:385-397 算出",
       "normalization": "÷ 窗内真实秒数(会话相对秒);**不**除肩宽 —— 米制已是解剖尺度,取景无关",
       "unit": "米/秒",
@@ -1607,7 +1607,7 @@
       "column": "hand_visible_left",
       "modality": "gesture",
       "definition": "**本帧**该侧是否有**已署名**的手(逐帧标志,不是整场比例):`1` = 该侧槽有手**且**模型给了 handedness(`handedness_info[槽] is not None`);**空白** = 无手,或槽里是一只**来路不明**的手。⚠️ 「有手」与「知道是哪只手」是两件事:api/app.py:342-349 的兜底支路会把一只**没有 handedness 依据**的手塞进空槽,并把 `handedness_info[槽]` 置 None —— 那时「有手」是真的、「那是左手」是假的,写 1 就是把不知道的事说成知道。⚠️ **不写 0**:`0` 的意思是「确定没有左手」,与「不知道是哪只手」不是一回事(本项目既有的空值约定:`_safe_get(None) → \"\"`)。⚠️ 归 slot 的左右按模型的 handedness **翻转**后定(模型按镜像输入判左右,api/app.py:319-327),不是按检出顺序。",
-      "source": "mediapipe hand landmarker 的 `detect_with_handedness` 返回的 (label, confidence),经 api/app.py:328-350 归槽 + 镜像翻转;「槽里有手」的事实 = 同一段里帧循环维护的 `used_slots`(api/app.py:329,350),由端点按 `hand_present=` 传进 `logger.log()`(api/app.py:463-464),再由 `_hand_visible_cells()`(gesture_analysis/utils/logger.py:215-241)与 handedness 依据**取合取** —— 不从那两槽的 `*_hand_result` 反推(那只是它的下游代理)",
+      "source": "mediapipe hand landmarker 的 `detect_with_handedness` 返回的 (label, confidence),经 api/app.py:328-350 归槽 + 镜像翻转;「槽里有手」的事实 = 同一段里帧循环维护的 `used_slots`(api/app.py:329,350),由端点按 `hand_present=` 传进 `logger.log()`(api/app.py:463-464),再由 `_hand_visible_cells()`(gesture_analysis/utils/logger.py:217-253)与 handedness 依据**取合取** —— 不从那两槽的 `*_hand_result` 反推(那只是它的下游代理)",
       "normalization": "none —— 布尔标志;分母(整场帧数)在 L1 那一层的比例里",
       "unit": "布尔(1 / 空)",
       "maturity": "A",
@@ -1621,7 +1621,7 @@
       "column": "hand_visible_right",
       "modality": "gesture",
       "definition": "**本帧**该侧是否有**已署名**的手(逐帧标志,不是整场比例):`1` = 该侧槽有手**且**模型给了 handedness(`handedness_info[槽] is not None`);**空白** = 无手,或槽里是一只**来路不明**的手。⚠️ 「有手」与「知道是哪只手」是两件事:api/app.py:342-349 的兜底支路会把一只**没有 handedness 依据**的手塞进空槽,并把 `handedness_info[槽]` 置 None —— 那时「有手」是真的、「那是右手」是假的,写 1 就是把不知道的事说成知道。⚠️ **不写 0**:`0` 的意思是「确定没有右手」,与「不知道是哪只手」不是一回事(本项目既有的空值约定:`_safe_get(None) → \"\"`)。⚠️ 归 slot 的左右按模型的 handedness **翻转**后定(模型按镜像输入判左右,api/app.py:319-327),不是按检出顺序。",
-      "source": "mediapipe hand landmarker 的 `detect_with_handedness` 返回的 (label, confidence),经 api/app.py:328-350 归槽 + 镜像翻转;「槽里有手」的事实 = 同一段里帧循环维护的 `used_slots`(api/app.py:329,350),由端点按 `hand_present=` 传进 `logger.log()`(api/app.py:463-464),再由 `_hand_visible_cells()`(gesture_analysis/utils/logger.py:215-241)与 handedness 依据**取合取** —— 不从那两槽的 `*_hand_result` 反推(那只是它的下游代理)",
+      "source": "mediapipe hand landmarker 的 `detect_with_handedness` 返回的 (label, confidence),经 api/app.py:328-350 归槽 + 镜像翻转;「槽里有手」的事实 = 同一段里帧循环维护的 `used_slots`(api/app.py:329,350),由端点按 `hand_present=` 传进 `logger.log()`(api/app.py:463-464),再由 `_hand_visible_cells()`(gesture_analysis/utils/logger.py:217-253)与 handedness 依据**取合取** —— 不从那两槽的 `*_hand_result` 反推(那只是它的下游代理)",
       "normalization": "none —— 布尔标志;分母(整场帧数)在 L1 那一层的比例里",
       "unit": "布尔(1 / 空)",
       "maturity": "A",

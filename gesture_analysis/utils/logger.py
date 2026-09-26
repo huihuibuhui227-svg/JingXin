@@ -165,7 +165,9 @@ class GestureLogger:
             # **来路不明**的手塞进空槽(api/app.py 的兜底支路)—— 那时"有手"是真的、
             # "那是左手"是假的。写 1 就是把不知道的事说成知道。
             # ⚠️ **不写 0**:`0` 的意思是"确定没有这只手",与"没测到"不是一回事。
-            # 判据与 `_handedness_cells()` **同一套**(有无依据),不另起一套。
+            # 判据与 `_handedness_cells()` **同一约定、同一入口**(都读 `handedness_info`),
+            # 不另起一套;细节差异(它当真值用、本列判 `is not None`)见
+            # `_hand_visible_cells()` 的 docstring。
             "hand_visible_left",
             "hand_visible_right"
         ]
@@ -227,7 +229,17 @@ class GestureLogger:
         只看"槽非空"就写 1,等于把不知道的事说成知道。
 
         ⚠️ 没有依据时写 **空串**,**永不写 `0`**:`0` 的意思是"确定没有这只手",
-        与"不知道"是两回事(与 `_handedness_cells()` 同一套约定,不另起一套)。
+        与"不知道"是两回事(与 `_handedness_cells()` **同一约定、同一入口** —— 都是
+        `handedness_info`;不另起一套)。
+
+        ⚠️ **一处与 `_handedness_cells()` 的细微不同,别当成"逐字照抄"**(复核 Minor 3):
+        那个方法把条目当**真值**用(`entry if entry else ("", "")`),本方法判的是
+        `is not None`。差别只在"**假值但非 None**"的条目上(如 `("", 0.9)`):那时
+        `*_hand_model_label` 落空串,而本列写 `1`。**活路径产不出这种条目**
+        (端点在 `entry is not None` 时写的就是 `(label, conf)` 原样,label 来自模型、
+        非空),所以今天无实害;判据取 `is not None` 是因为表里 `definition` 写的**就是**
+        `handedness_info[槽] is not None`。要两边严格同形,就得把表里那句也改掉 —— 那是一次
+        语义选择,不是这里顺手能定的。
 
         `hand_present` 缺省(None)= **不知道**,⟹ 两格留空 —— 不拿"没传"当"没有",
         也不拿它当"有"(见 `log()` 的入参说明)。
@@ -279,6 +291,15 @@ class GestureLogger:
                 帧循环里的事实(`used_slots`),而 `left_hand_result` 只是它的一个下游代理。
                 缺省 `None` = **不知道** ⟹ `hand_visible_*` 两格留空:
                 既不当成"没有手"(那是编一个 0),也不当成"有手"(那会把不知道说成知道)。
+
+                ⚠️ **这个入参今天不改变任何一格**(复核 Minor 4,如实说):当前端点
+                (`api/app.py`)只在**填槽的同一迭代内**写 `handedness_info[槽]`,所以
+                "有依据"⟹"该槽在 `used_slots` 里",`and present.get(slot)` 恒等于左半。
+                它买到的是**面向将来**:哪天有人把 `_fresh(...)` 换回 `get_results()`
+                (那个改动会同时让"槽里这个值"变成上一帧的旧值),或者有人**直接调** `log()`
+                并只给 `handedness_info` —— 那时少了这半就会把"不知道是哪只手"写成
+                "这只手可见",而**不会有任何测试变红**(活路径那几条测不到)。
+                所以它是**防回归的冗余**,不是当下正确性的来源。
 
         返回:
             是否成功写入
