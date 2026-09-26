@@ -65,6 +65,8 @@ def test_dead_code_files_are_really_gone():
 def test_gesture_package_imports_without_the_dead_extractors():
     """红法①:删文件但不清 `__init__.py` 的 import ⟹ 本函数在 import 那一刻就炸。
     红法②:import 清了但 `gesture_analysis.__all__` 里的悬空名字没清 ⟹ 第 3 条断言红。
+    红法③(2026-09-26 Task 10 补):`__all__` 里**只有名字、没有对应的 import** ⟹
+      同上一条,`from ... import *` 会 `AttributeError`。
     """
     import gesture_analysis
     import gesture_analysis.core as core
@@ -78,6 +80,17 @@ def test_gesture_package_imports_without_the_dead_extractors():
         assert not hasattr(core, gone), (
             f"{gone} 还在 gesture_analysis.core 的导出表里 —— "
             f"core/__init__.py 的 `from .feature_extraction import (...)` 没清干净"
+        )
+        assert gone not in getattr(fe, "__all__", ()), (
+            f"{gone} 还挂在 gesture_analysis.core.feature_extraction.__all__ 上 —— "
+            f"`__all__` 与 import 是分开写的,把名字放回去而**不**恢复 import 时,"
+            f"`hasattr` 是 False(所以上面两条查不出来),而 "
+            f"`from gesture_analysis.core.feature_extraction import *` 会 AttributeError"
+        )
+        assert gone not in getattr(core, "__all__", ()), (
+            f"{gone} 还挂在 gesture_analysis.core.__all__ 上 —— "
+            f"同上:`core/__init__.py` 里 `__all__` 与 import 是分开写的,"
+            f"只把名字放回 `__all__` 不会让 `hasattr` 为真,但 `from gesture_analysis.core import *` 会炸"
         )
         assert gone not in gesture_analysis.__all__, (
             f"{gone} 还挂在 gesture_analysis.__all__ 上 —— "
