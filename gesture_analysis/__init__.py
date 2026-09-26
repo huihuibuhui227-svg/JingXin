@@ -20,12 +20,14 @@ from gesture_analysis.core.analysis.emotion_inferencer import EmotionInferencer
 
 __all__ = [
     # 新接口
-    # 特征提取器
-    "HandFeatureExtractor",
-    "ShoulderFeatureExtractor",
-    "ArmFeatureExtractor",
-    "UpperBodyFeatureExtractor",
-    
+    # ⚠️ 2026-09-26 M3.0 Task 9:这里原来还有 4 个 FeatureExtractor 名字
+    # (HandFeatureExtractor / ArmFeatureExtractor / ShoulderFeatureExtractor /
+    #  UpperBodyFeatureExtractor)。它们**从来没有在本文件 import 过**(纯悬空名字,
+    # `from gesture_analysis import *` 会因此 AttributeError),对应的模块也已删。
+    # 一并清掉。
+    # ⚠️ 本文件下面那些**没有对应 import** 的名字(HandEmotionAnalyzer / HandFeatures /
+    # GestureEmotionPipeline …)是**先前就存在**的同类悬空名字,**不在 Task 9 范围**,
+    # 未改动。
     # 情绪分析器
     "HandEmotionAnalyzer",
     "ShoulderEmotionAnalyzer",

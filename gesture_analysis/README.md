@@ -43,9 +43,8 @@ gesture_analysis/
 ├── models/
 │   ├── __init__.py
 │   └── data_models.py        # 数据模型
-├── pipeline/
-│   ├── __init__.py
-│   └── gesture_pipeline.py   # 手势分析流程
+├── pipeline/                  # ⚠️ 2026-09-26 M3.0 Task 9:gesture_pipeline.py 已删(死代码,不在 CSV 生产路径上)
+│   └── __init__.py            #    本包现已无内容;完整流程由 api/app.py 直接编排 core/analysis/*_analyzer.py
 ├── utils/
 │   ├── __init__.py
 │   ├── logger.py            # 日志工具
