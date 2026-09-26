@@ -56,10 +56,15 @@ class ProsodyFeatureExtractor:
         #     是最强的断言(「这不是语音」)。
         #   · **`f0_voiced` 上的五个统计量一律留空**(`None` → 落盘空串):`pitch_mean` /
         #     `pitch_std` / `pitch_trend` / `pitch_p10` / `pitch_p90`。`f0` 全 `nan` ⟹ 它们
-        #     **全都没有定义** —— 写 0 就是本项目一路在杀的「把没测到写成 0」:
-        #     `pitch_p90 = 0.0` 读起来是「音高的 90 分位是 0 Hz」,**一个看着像测量值、
-        #     其实什么都没量到的数**(2026-09-26 使用者裁定:五个一起改,别只改均值 ——
-        #     留一个修好、四个不修,读的人无法判断这一支可不可信)。
+        #     **全都没有定义**。
+        #     ⚠️ **改前的实情(2026-09-26 复核实测,别把它记错)**:这一支当时只写 `pitch_std` /
+        #     `pitch_trend` 为 `0.0`,而 `pitch_p10` / `pitch_p90` **连键都没有**(落盘由 logger 的
+        #     `.get` 兜成空串)。所以"把没测到写成 0"的受害列是**两列**(std / trend),
+        #     `p10` / `p90` 的问题是**缺键** —— 缺键与显式空值对下游不是一回事(按列名读的代码
+        #     拿到 `KeyError`,而 `.get` 与 `if` 判断会给出两种不同结论)。
+        #     两者一起收口:`0.0` 是「一个看着像测量值、其实什么都没量到的数」
+        #     (2026-09-26 使用者裁定:五个一起改,别只改均值 —— 留一个修好、四个不修,
+        #     读的人无法判断这一支可不可信);**键必须存在**(显式的空值)。
         #     同一个判据只写一遍:这一支是那五个量的**唯一**出口,不在别处再复制。
         if len(f0_voiced) == 0:
             return {
@@ -75,8 +80,13 @@ class ProsodyFeatureExtractor:
         pitch_mean = float(np.mean(f0_voiced))
         pitch_std = float(np.std(f0_voiced))
 
-        # 分析语调趋势
-        if len(f0_voiced) > 1:
+        # 分析语调趋势。★ 门槛是 **≥3 帧**:切"首/末三分之一"要 `n//3 ≥ 1`,少于 3 帧切出来是**空切片**,
+        # `np.mean([])` 给 `nan` —— 于是 `pitch_trend` 会变成 `nan`(落盘成字符串 `"nan"`,又一个
+        # "看着像测量值、其实什么都没量到"的数),而 `pitch_direction` 还会写 `"平稳"`
+        # (因为 `nan > 10` 与 `nan < -10` 都是 False)—— 那是一句**假话**(根本没量到趋势)。
+        # 实测(2026-09-26,复核 Minor 7 的同一条判据):1 帧 → 0.0、2 帧 → nan + "平稳"、
+        # 3 帧 → 有值。⟹ <3 帧一律留空 + `"无法判断"`。
+        if len(f0_voiced) >= 3:
             n = len(f0_voiced)
             first_third = np.mean(f0_voiced[:n//3])
             last_third = np.mean(f0_voiced[-n//3:])
@@ -90,13 +100,19 @@ class ProsodyFeatureExtractor:
             else:
                 pitch_direction = "平稳"
         else:
-            pitch_trend = 0.0
+            # ★ **少于 3 帧浊音也算不出「首末之差」** ⟹ 与零浊音帧同一条判据:留空,不写 0.0
+            # (写 0.0 就是"一个看着像测量值、其实什么都没量到的数";2026-09-26 复核 Minor 7)。
+            # `pitch_direction` 有它自己的"测不出"取值(分类型),照旧写 `"无法判断"`。
+            pitch_trend = None
             pitch_direction = "无法判断"
 
         # 分位数:与 mean/std 不同,它们**不受极端帧拖拽**,而且是"会话内归一"的原料
         # (报告的 energy/pitch 封停理由之一就是"跨会话不可比,需会话内归一")。
-        p10 = float(np.percentile(f0_voiced, 10)) if len(f0_voiced) else 0.0
-        p90 = float(np.percentile(f0_voiced, 90)) if len(f0_voiced) else 0.0
+        # ⚠️ 这两行**故意不带 `if len(f0_voiced) else 0.0` 兜底**(2026-09-26 复核 Minor 6 删掉):
+        # `:64` 那一支已经把"零浊音帧"挡掉了,兜底在这里是**死代码**,而它是本函数里**仅存**的
+        # 一处"没数据就写 0.0"的写法 —— 留着会削弱"这一支只有一个出口"的可读性。
+        p10 = float(np.percentile(f0_voiced, 10))
+        p90 = float(np.percentile(f0_voiced, 90))
 
         # ★ 浊音概率的均值:取**全部帧**(不是"浊音帧的均值")。只在 `voiced_flag` 为真的帧上
         # 取均值会与 `voiced_flag` 的含义重合,而且全静音段会变成"无值";取全部帧的均值才同时
@@ -107,7 +123,7 @@ class ProsodyFeatureExtractor:
         return {
             "pitch_mean": round(pitch_mean, 2),
             "pitch_std": round(pitch_std, 2),
-            "pitch_trend": round(pitch_trend, 2),
+            "pitch_trend": None if pitch_trend is None else round(pitch_trend, 2),
             "pitch_direction": pitch_direction,
             "pitch_p10": round(p10, 2),
             "pitch_p90": round(p90, 2),

@@ -299,6 +299,68 @@ def test_zero_voiced_frames_leave_every_pitch_statistic_empty():
             f" —— 0 是个会被下游当成真值的数")
 
 
+def test_too_few_voiced_frames_have_no_trend_but_keeps_the_other_statistics(monkeypatch):
+    """★ **浊音帧少于 3 帧**时:`pitch_trend` 该留空,不写 0.0、更不许写 `nan`。
+
+    与零浊音帧**同一条判据**:切「首/末三分之一」要 `n//3 ≥ 1`,少于 3 帧切出来是**空切片**
+    ⟹ `np.mean([])` = `nan`。改前实测(2026-09-26):**1 帧 → `0.0`**(一个看着像测量值、
+    其实什么都没量到的数);**2 帧 → `nan`**(落盘成字符串 `"nan"`,同一类假值),而且
+    `pitch_direction` 会写 `"平稳"` —— 那是一句**假话**(根本没量到趋势)。现在 <3 帧一律留空 +
+    `"无法判断"`。
+
+    ⚠️ 同一支里 `pitch_mean` / `pitch_std` / `pitch_p10` / `pitch_p90` **照常有值** ——
+    它们对 1 帧**是**有定义的(均值就是那个数、单样本标准差按定义 0.0、分位也是那个数),
+    所以这一条与"零浊音帧五个一起留空"**不冲突**:判据是"该量有没有定义",不是"帧数够不够多"。
+
+    红法:把门槛改回 `> 1`(或把 `else` 支改回 `pitch_trend = 0.0`)⟹ 第一句红。
+    用假 `pyin` 造确定的帧数,因为靠真音频凑不出。
+    """
+    import types
+    prosody_mod = importlib.import_module(
+        "voice_interaction.core.feature_extraction.prosody_extractor")
+    ext = prosody_mod.ProsodyFeatureExtractor()          # 先构造(init 里要用真的 librosa)
+
+    def _fake_pyin(audio, fmin=None, fmax=None, sr=None, **kw):
+        f0 = np.array([180.0, 180.0, np.nan, np.nan])
+        vf = np.array([True, True, False, False])        # 恰好 2 帧浊音
+        vp = np.array([0.9, 0.9, 0.01, 0.01])
+        return f0, vf, vp
+
+    monkeypatch.setattr(prosody_mod, "librosa", types.SimpleNamespace(pyin=_fake_pyin))
+    f = ext.extract_pitch_features(np.ones(16000, dtype=np.float32))
+
+    assert f["pitch_trend"] is None, (
+        f"2 帧浊音算不出趋势(空切片 → nan),该留空,实为 {f['pitch_trend']!r}")
+    assert f["pitch_direction"] == "无法判断", (
+        f"趋势没量到就不许写方向,实为 {f['pitch_direction']!r}(改前这里会写「平稳」)")
+    # 同支的其余四个统计量对 2 帧**有**定义,照常有值(别把它一起写成空)
+    assert f["pitch_mean"] == 180.0, f["pitch_mean"]
+    assert f["pitch_std"] == 0.0, f["pitch_std"]
+    assert f["pitch_p10"] == 180.0 and f["pitch_p90"] == 180.0, (f["pitch_p10"], f["pitch_p90"])
+
+
+def test_three_voiced_frames_do_have_a_trend(monkeypatch):
+    """反向那半:`n//3 ≥ 1`(3 帧)时趋势**有**定义,照常出值 —— 别把门槛修成"永远空"。
+
+    红法:把门槛提到 `>= 4` ⟹ 立刻红。
+    """
+    import types
+    prosody_mod = importlib.import_module(
+        "voice_interaction.core.feature_extraction.prosody_extractor")
+    ext = prosody_mod.ProsodyFeatureExtractor()
+
+    def _fake_pyin(audio, fmin=None, fmax=None, sr=None, **kw):
+        return (np.array([100.0, 150.0, 200.0, np.nan]),
+                np.array([True, True, True, False]),
+                np.array([0.9, 0.9, 0.9, 0.01]))
+
+    monkeypatch.setattr(prosody_mod, "librosa", types.SimpleNamespace(pyin=_fake_pyin))
+    f = ext.extract_pitch_features(np.ones(16000, dtype=np.float32))
+    # 3 帧:首三分之一 = 第 1 帧(100)、末三分之一 = 最后一帧(200)⟹ 差 100 Hz
+    assert f["pitch_trend"] == 100.0, f["pitch_trend"]
+    assert f["pitch_direction"] == "上扬", f["pitch_direction"]
+
+
 def test_a_voiced_clip_still_fills_every_pitch_statistic():
     """★ 反向那半:有浊音帧时这五个统计量**照常有值** —— 别把"留空"修成"永远空"。
 
