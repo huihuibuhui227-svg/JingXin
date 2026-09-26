@@ -92,7 +92,7 @@
     {
       "column": "session_id",
       "modality": "face",
-      "why": "非测量列(标识列,不是 L0 测量量):spec §1 把「不计入 is_valid/session_id/timestamp 三个非测量列」点为**文档从未声明的决定**,裁定 C5 已把 L0 计数口径定死为测量列。§4.1:210 的修法(硬编码 \"batch\" → 真 session_id)已由 M1 落地(face_expression/utils/logger.py:32,100-101;会话 id 校验见 face_expression/api/app.py:105-162)。",
+      "why": "非测量列(标识列,不是 L0 测量量):spec §1 把「不计入 is_valid/session_id/timestamp 三个非测量列」点为**文档从未声明的决定**,裁定 C5 已把 L0 计数口径定死为测量列。§4.1:210 的修法(硬编码 \"batch\" → 真 session_id)已由 M1 落地(face_expression/utils/logger.py:32,100-101;会话 id 校验见 face_expression/api/app.py:112-169)。",
       "planned": "M3.2(作为元数据列单列,不进 L0 测量列)"
     },
     {
@@ -548,13 +548,13 @@
     {
       "column": "session_id",
       "modality": "gesture",
-      "why": "非测量列(标识列/时间基,不是 L0 测量量)。裁定 C5 已把 L0 计数口径定死为测量列 ⟹ 它不进 `columns`(否则 `actual` 会把它数进去)。 M1 已把它从硬编码改成真会话 id(m2 的会话 id 校验见 face_expression/api/app.py:105-162 同族做法;本服务见 gesture_analysis/utils/logger.py:16(NONE_SESSION)/42(self.session_id)。",
+      "why": "非测量列(标识列/时间基,不是 L0 测量量)。裁定 C5 已把 L0 计数口径定死为测量列 ⟹ 它不进 `columns`(否则 `actual` 会把它数进去)。 M1 已把它从硬编码改成真会话 id(m2 的会话 id 校验见 face_expression/api/app.py:112-169 同族做法;本服务见 gesture_analysis/utils/logger.py:16(NONE_SESSION)/42(self.session_id)。",
       "planned": "M3.3(作为元数据列单列,不进 L0 测量列)"
     },
     {
       "column": "timestamp",
       "modality": "gesture",
-      "why": "非测量列(标识列/时间基,不是 L0 测量量)。裁定 C5 已把 L0 计数口径定死为测量列 ⟹ 它不进 `columns`(否则 `actual` 会把它数进去)。 ⚠️ 它同时是**那 16 个 jitter 列时间归一化的分母来源**(窗内真实秒数 = t_last − t_first),所以它必须留在日志里;本服务现在写的是墙钟(logger.py:242 取 now,:248-249 写两列),而要会话相对秒 —— 与 face 的修法同源(face 已由 M2.5 落地:timestamp_ms ÷ 1000;gesture 端的钟见 api/app.py:311 的 `_clock_for`)。",
+      "why": "非测量列(标识列/时间基,不是 L0 测量量)。裁定 C5 已把 L0 计数口径定死为测量列 ⟹ 它不进 `columns`(否则 `actual` 会把它数进去)。 ⚠️ 它同时是**那 16 个 jitter 列时间归一化的分母来源**(窗内真实秒数 = t_last − t_first),所以它必须留在日志里;本服务现在写的是墙钟(logger.py:242 取 now,:248-249 写两列),而要会话相对秒 —— 与 face 的修法同源(face 已由 M2.5 落地:timestamp_ms ÷ 1000;gesture 端的钟见 api/app.py:318 的 `_clock_for`)。",
       "planned": "M3.3(作为元数据列单列,不进 L0 测量列)"
     },
     {
@@ -728,13 +728,13 @@
     {
       "column": "unix_timestamp",
       "modality": "voice",
-      "why": "非测量列(时间基,不是测量量);裁定 C5 不计入。⚠️ 它是 `datetime.now().timestamp()`(voice_interaction/utils/logger.py:142)——**写日志那一刻**,不是回答时刻;面部的同名列已由 M2.5 改成会话相对时间,语音这条没有(时间基不统一,登记给 M3.4)。",
+      "why": "非测量列(时间基,不是测量量);裁定 C5 不计入。⚠️ 它是 `datetime.now().timestamp()`(voice_interaction/utils/logger.py:153)——**写日志那一刻**,不是回答时刻;面部的同名列已由 M2.5 改成会话相对时间,语音这条没有(时间基不统一,登记给 M3.4)。",
       "planned": "M3.4(作为元数据列单列,不进 L0 测量列)"
     },
     {
       "column": "timestamp",
       "modality": "voice",
-      "why": "非测量列(同一刻的 ISO 8601 形式,utils/logger.py:143);裁定 C5 不计入。同 `unix_timestamp`:墙钟、非会话相对 —— 而面部 `timestamp` 的修法(§4.1:211,挂钟 → 会话相对)已由 M2.5 落地。",
+      "why": "非测量列(同一刻的 ISO 8601 形式,utils/logger.py:154);裁定 C5 不计入。同 `unix_timestamp`:墙钟、非会话相对 —— 而面部 `timestamp` 的修法(§4.1:211,挂钟 → 会话相对)已由 M2.5 落地。",
       "planned": "M3.4(作为元数据列单列,不进 L0 测量列)"
     },
     {
@@ -752,25 +752,25 @@
     {
       "column": "pitch_direction",
       "modality": "voice",
-      "why": "**判删(处置由本行定,§4.3:233-239 一个字都没提它)**。① 它是 `pitch_trend` 的**确定性离散化**:`> 10 → 上扬 / < −10 → 下降 / 否则平稳`(prosody_extractor.py:69-74)。**实测**(2026-09-26,全仓 interview 语音日志):45 条有方向值的行(平稳 17 / 上扬 15 / 下降 13)上这条 ±10 Hz 规则**逐行成立,0 处违反** ⟹ 零额外信息(与面部 `head_tilt`/`head_tilt_angle` 同一判法)。② 那个「10」是**写死且无出处**的常数(§5.1:291 禁止 (a)):全仓除这一处外没有第二处定义这个门限。③ 分类型字段还多一层口径问题(「平稳」把 |差| ≤ 10 Hz 全吞进去;而数据里真正「没测出方向」的行写的是**另一个值**「无法判断」)。替代物是 `pitch_trend` 那一行的半音值。",
+      "why": "**判删(处置由本行定,§4.3:233-239 一个字都没提它)**。① 它是 `pitch_trend` 的**确定性离散化**:`> 10 → 上扬 / < −10 → 下降 / 否则平稳`(prosody_extractor.py:81-86)。**实测**(2026-09-26,全仓 interview 语音日志):45 条有方向值的行(平稳 17 / 上扬 15 / 下降 13)上这条 ±10 Hz 规则**逐行成立,0 处违反** ⟹ 零额外信息(与面部 `head_tilt`/`head_tilt_angle` 同一判法)。② 那个「10」是**写死且无出处**的常数(§5.1:291 禁止 (a)):全仓除这一处外没有第二处定义这个门限。③ 分类型字段还多一层口径问题(「平稳」把 |差| ≤ 10 Hz 全吞进去;而数据里真正「没测出方向」的行写的是**另一个值**「无法判断」)。替代物是 `pitch_trend` 那一行的半音值。",
       "planned": "M3.4 删列"
     },
     {
       "column": "emotion",
       "modality": "voice",
-      "why": "**判删(处置由本行定,§4.3 未提它)**:**实测全仓 86 行语音日志里 `emotion` 全是空串**(86/86,含科研侧),因为两个端点都是显式传 `emotion=\"\"`(app.py:598 / :867)⟹ 零信息量。面部那一族已有同样的处置(`overall_score` / `emotion_state` / `feedback` 恒常量 ⟹ 判删,Task 2)。⚠️ 删它不影响报告的情绪槽:那一条本来就没有产出方。",
+      "why": "**判删(处置由本行定,§4.3 未提它)**:**实测全仓 86 行语音日志里 `emotion` 全是空串**(86/86,含科研侧),因为两个端点都是显式传 `emotion=\"\"`(app.py:605 / :867)⟹ 零信息量。面部那一族已有同样的处置(`overall_score` / `emotion_state` / `feedback` 恒常量 ⟹ 判删,Task 2)。⚠️ 删它不影响报告的情绪槽:那一条本来就没有产出方。",
       "planned": "M3.4 删列"
     },
     {
       "column": "feedback",
       "modality": "voice",
-      "why": "同 `emotion`:实测 86/86 空串(app.py:598 / :867 显式传 `feedback=\"\"`);判删由本行定,§4.3 未提。面部同名列已在 Task 2 判删。",
+      "why": "同 `emotion`:实测 86/86 空串(app.py:605 / :867 显式传 `feedback=\"\"`);判删由本行定,§4.3 未提。面部同名列已在 Task 2 判删。",
       "planned": "M3.4 删列"
     },
     {
       "column": "question_index",
       "modality": "voice",
-      "why": "非测量列(题目下标,= 回答前 `qa_pairs` 的长度、0 基;app.py:592-593);裁定 C5 不计入。⚠️ 它必须**留着**:它是 `reaction_time` 与题目台账(`questions.jsonl` 的 `ask_end`)对上的**连接键**(app.py:592-597),删了反应延迟就不可复核。",
+      "why": "非测量列(题目下标,= 回答前 `qa_pairs` 的长度、0 基;app.py:599-600);裁定 C5 不计入。⚠️ 它必须**留着**:它是 `reaction_time` 与题目台账(`questions.jsonl` 的 `ask_end`)对上的**连接键**(app.py:599-604),删了反应延迟就不可复核。",
       "planned": "M3.4(作为元数据/连接键单列,不进 L0 测量列)"
     },
     {
@@ -782,19 +782,19 @@
     {
       "column": "connective_density",
       "modality": "voice",
-      "why": "§4.4:258 的「**结构**」类派生指标(连接词密度);§4.4 的派生表(:256-262)明确延后 —— :263 的语义 embedding「先进 L1 观望,不直接进 L2」、§5.5:370 的三个文本族指标「先占位,**标注到位前不实现**」⟹ 不进本轮 L0 契约,归文本层单独定义。⚠️ 它**现在是活的**(voice 端点每次回答写一行,app.py:573 / :848;报告层 research_mapper.py:106 在消费),所以这条不是「删掉」。⚠️ 口径:它与 `n_chars` 用**同一个** `count_cjk_chars`(app.py:583-584);过短/空 → **None(留空),不写 0**(connective_density.py)。",
+      "why": "§4.4:258 的「**结构**」类派生指标(连接词密度);§4.4 的派生表(:256-262)明确延后 —— :263 的语义 embedding「先进 L1 观望,不直接进 L2」、§5.5:370 的三个文本族指标「先占位,**标注到位前不实现**」⟹ 不进本轮 L0 契约,归文本层单独定义。⚠️ 它**现在是活的**(voice 端点每次回答写一行,app.py:580 / :848;报告层 research_mapper.py:106 在消费),所以这条不是「删掉」。⚠️ 口径:它与 `n_chars` 用**同一个** `count_cjk_chars`(app.py:590-591);过短/空 → **None(留空),不写 0**(connective_density.py)。",
       "planned": "M4 或更后(文本层;§4.4 的派生指标)"
     },
     {
       "column": "connective_density_std",
       "modality": "voice",
-      "why": "同族(§4.4:258 结构类派生);现行实现**恒 0.0** —— 端点是整句算一次、`n_rows=1`,单个值的标准差按定义为 0.0(app.py:599-601 的注释,与「没算出来」的 None 是两回事)⟹ 现在这列没有信息量,文本层重新定义时一并处理。",
+      "why": "同族(§4.4:258 结构类派生);现行实现**恒 0.0** —— 端点是整句算一次、`n_rows=1`,单个值的标准差按定义为 0.0(app.py:606-608 的注释,与「没算出来」的 None 是两回事)⟹ 现在这列没有信息量,文本层重新定义时一并处理。",
       "planned": "M4 或更后(文本层;§4.4 的派生指标)"
     },
     {
       "column": "n_rows",
       "modality": "voice",
-      "why": "派生指标的**辅助计数列**(参与密度计算的句数),端点恒写 `n_rows=1`(app.py:601);它不是 L0 测量列(裁定 C5 的非测量列一族:数的是「算密度用了几句」,不是行为量),处置随它的母指标走。",
+      "why": "派生指标的**辅助计数列**(参与密度计算的句数),端点恒写 `n_rows=1`(app.py:608);它不是 L0 测量列(裁定 C5 的非测量列一族:数的是「算密度用了几句」,不是行为量),处置随它的母指标走。",
       "planned": "M4 或更后(文本层;与 connective_density 同批)"
     }
   ],
@@ -1643,8 +1643,8 @@
     {
       "column": "pitch_mean",
       "modality": "voice",
-      "definition": "该段回答里 **pyin 判为浊音**那批帧的 f0 均值(Hz)= `mean(f0[voiced_flag])`(prosody_extractor.py:45-48,58)。⚠️ §4.3:235 判「**修**」,依据栏给的缺陷是「`pyin` 无能量门限且丢 `voiced_prob`」:现在**没有任何能量门限**,纯噪声帧只要 pyin 判浊音就进均值。实测症状(2026-09-26):3 场正式素材 24 行的 `pitch_mean` 最大 **398.20 Hz**,而同一批行的 `pitch_p90` 最大 **1729.76 Hz**(两者都在 `data/logs/interview_emotion_log_20260926_155559_caf0.csv` 第 0 题那行)—— 后一个数就是噪声帧的直接证据。修法 = 用 pyin 的第 3 个返回值 `voiced_prob`(现被 `_` 丢弃)当门控。",
-      "source": "该段回答的 16 kHz/16 bit/单声道 PCM(端点在 app.py:559-562 校验过格式)→ `librosa.pyin(audio, fmin=C2, fmax=C7, sr=16000)`(prosody_extractor.py:45-48)",
+      "definition": "该段回答里 **pyin 判为浊音**那批帧的 f0 均值(Hz)= `mean(f0[voiced_flag])`(prosody_extractor.py:47-50,70)。⚠️ §4.3:235 判「**修**」,依据栏给的缺陷是「`pyin` 无能量门限且丢 `voiced_prob`」:现在**没有任何能量门限**,纯噪声帧只要 pyin 判浊音就进均值。实测症状(2026-09-26):3 场正式素材 24 行的 `pitch_mean` 最大 **398.20 Hz**,而同一批行的 `pitch_p90` 最大 **1729.76 Hz**(两者都在 `data/logs/interview_emotion_log_20260926_155559_caf0.csv` 第 0 题那行)—— 后一个数就是噪声帧的直接证据。修法 = 用 pyin 的第 3 个返回值 `voiced_prob`(现被 `_` 丢弃)当门控。",
+      "source": "该段回答的 16 kHz/16 bit/单声道 PCM(端点在 app.py:566-569 校验过格式)→ `librosa.pyin(audio, fmin=C2, fmax=C7, sr=16000)`(prosody_extractor.py:47-50)",
       "normalization": "none —— Hz 是绝对量,没有解剖尺度可除;跨会话可比性由 `pitch_p10`/`pitch_p90` 两列承担(会话内归一的原料)",
       "unit": "Hz",
       "maturity": "C",
@@ -1656,34 +1656,34 @@
     {
       "column": "pitch_variation",
       "modality": "voice",
-      "definition": "与 `pitch_mean` **同一批帧**(`voiced_flag` 为真)的 f0 标准差(Hz)= `std(f0[voiced_flag])`(prosody_extractor.py:48,59)。它**就是 §4.3:235 那一行里的 `pitch_std`** —— 上游产出名与下游列名不同,靠 `app.py:97-100` 的 `_EXTRACTOR_TO_LOG_COLUMNS`(`pitch_std → pitch_variation`)接上;少了那张表本列会**静默留 0**(app.py:94-96 的注释记的就是这条教训)。与 `pitch_mean` 同一条缺陷(无能量门限、同一批帧)⟹ 同一档。",
+      "definition": "与 `pitch_mean` **同一批帧**(`voiced_flag` 为真)的 f0 标准差(Hz)= `std(f0[voiced_flag])`(prosody_extractor.py:50,71)。它**就是 §4.3:235 那一行里的 `pitch_std`** —— 上游产出名与下游列名不同,靠 `app.py:97-107` 的 `_EXTRACTOR_TO_LOG_COLUMNS`(`pitch_std → pitch_variation`)接上;少了那张表本列会**静默留 0**(app.py:94-96 的注释记的就是这条教训)。与 `pitch_mean` 同一条缺陷(无能量门限、同一批帧)⟹ 同一档。",
       "source": "同 `pitch_mean`(`librosa.pyin` 的 f0 在 `voiced_flag` 上的标准差)",
       "normalization": "none(同 `pitch_mean`:它是 Hz 的离散度,没有可除的解剖尺度)",
       "unit": "Hz",
       "maturity": "C",
       "l0_output": "吐**未加能量门限**的 voiced f0 标准差(现状);门控同 `pitch_mean`,留给 L1/标定。",
       "status": "pending",
-      "quarantine_ref": "pitch_variation —— 名单原文:「实际取的是 pitch_mean,名字与计算不符」(report_frontend/evidence_gate.py:80);unblock:「改名后」。⚠️ **这条封停理由现在已过期**:接线后 `app.py:97-100` 把上游 `pitch_std` 映射进本列,实测全仓 interview 语音日志 45 条有真值的行里 `pitch_variation == pitch_mean` 的**一行都没有**(0/45,2026-09-26 复算)⟹ 它现在装的是 f0 标准差。是否解封归 M3.4。",
+      "quarantine_ref": "pitch_variation —— 名单原文:「实际取的是 pitch_mean,名字与计算不符」(report_frontend/evidence_gate.py:80);unblock:「改名后」。⚠️ **这条封停理由现在已过期**:接线后 `app.py:97-107` 把上游 `pitch_std` 映射进本列,实测全仓 interview 语音日志 45 条有真值的行里 `pitch_variation == pitch_mean` 的**一行都没有**(0/45,2026-09-26 复算)⟹ 它现在装的是 f0 标准差。是否解封归 M3.4。",
       "acceptance": "① 与 `pitch_mean` 同批过门控;② 在真素材上复算本列与 `pitch_mean` 的相关,确认不是同一个量;③ 报告层对 `evidence_gate.py:80` 那条封停重新裁定(理由已过期);④ M3.4。"
     },
     {
       "column": "pitch_trend",
       "modality": "voice",
-      "definition": "末三分之一与首三分之一 **voiced f0 均值之差**,单位**半音**:`12 × log2(mean(f0[−n/3:]) ÷ mean(f0[:n/3:]))`,n = 浊音帧数(切法沿用 prosody_extractor.py:62-66)。§4.3:236 判「**改定义+改名**」,依据栏:「是首末均值之差,单位 Hz 不是 Hz/s(拉长 4 倍几乎不变)」—— 名字叫 trend,量的却不是趋势。§7:504 给的修法是「`pitch_trend` **改半音或改名**」;本行选**改半音、保留列名**(见 basis)。",
-      "source": "同 `pitch_mean`(同一批 voiced f0 帧);现行实现 prosody_extractor.py:62-66",
+      "definition": "末三分之一与首三分之一 **voiced f0 均值之差**,单位**半音**:`12 × log2(mean(f0[−n/3:]) ÷ mean(f0[:n/3:]))`,n = 浊音帧数(切法沿用 prosody_extractor.py:74-78)。§4.3:236 判「**改定义+改名**」,依据栏:「是首末均值之差,单位 Hz 不是 Hz/s(拉长 4 倍几乎不变)」—— 名字叫 trend,量的却不是趋势。§7:504 给的修法是「`pitch_trend` **改半音或改名**」;本行选**改半音、保留列名**(见 basis)。",
+      "source": "同 `pitch_mean`(同一批 voiced f0 帧);现行实现 prosody_extractor.py:74-78",
       "normalization": "同量纲比值(末 ÷ 首)再取对数 ⟹ 不需要外部归一化基准;半音本身是跨说话人可比的相对量",
       "unit": "半音(semitone)",
       "maturity": "B",
       "l0_output": "吐「首末 f0 之比」的对数量;「语调是升还是降」的事件门限留给 L1(现行的 ±10 Hz 离散化见 `pitch_direction` 那条白名单)。",
       "status": "pending",
       "quarantine_ref": "",
-      "acceptance": "① 代码里 `pitch_trend` 的返回是半音值(`12·log2`),不再直接吐 Hz 差(prosody_extractor.py:66);② 合成信号单测造一个已知半音差的 f0 序列,断言输出等于该差(§9:519);③ M3.4。",
-      "basis": "① **「首末」的切法由本行定**:§4.3:236 只说「首末均值之差」没给比例,本行沿用现行代码的**首末三分之一**(prosody_extractor.py:64-65)—— 改单位不改数据形态,风险最小;若改成别的切法(如前后各 20%)必须另立依据。② 换算用 `12·log2(末/首)` 而不是音分(`1200·log2`):L1 的对应指标叫 `pitch_range_semitone`(§5.4:363),单位必须与它一致,否则 L1 拿到的数与它表里的单位差 100 倍。③ **为什么是「改半音」而不是「改名」**:§7:504 的两个选项里,改名要同时动 `VoiceLogger.fieldnames`(列契约)、钉子方向 1/2 以及历史 CSV 的列序,而改半音只动一个返回值 —— 错判代价明显更低。"
+      "acceptance": "① 代码里 `pitch_trend` 的返回是半音值(`12·log2`),不再直接吐 Hz 差(prosody_extractor.py:78);② 合成信号单测造一个已知半音差的 f0 序列,断言输出等于该差(§9:519);③ M3.4。",
+      "basis": "① **「首末」的切法由本行定**:§4.3:236 只说「首末均值之差」没给比例,本行沿用现行代码的**首末三分之一**(prosody_extractor.py:76-77)—— 改单位不改数据形态,风险最小;若改成别的切法(如前后各 20%)必须另立依据。② 换算用 `12·log2(末/首)` 而不是音分(`1200·log2`):L1 的对应指标叫 `pitch_range_semitone`(§5.4:363),单位必须与它一致,否则 L1 拿到的数与它表里的单位差 100 倍。③ **为什么是「改半音」而不是「改名」**:§7:504 的两个选项里,改名要同时动 `VoiceLogger.fieldnames`(列契约)、钉子方向 1/2 以及历史 CSV 的列序,而改半音只动一个返回值 —— 错判代价明显更低。"
     },
     {
       "column": "energy_mean",
       "modality": "voice",
-      "definition": "该段音频的 rms 帧序列均值 = `mean(librosa.feature.rms(y=audio)[0])`(prosody_extractor.py:108-109,四舍五入 4 位)。§4.3:237 判「**保**」—— 依据栏:「真实测量(两者 r = 0.92)」。",
+      "definition": "该段音频的 rms 帧序列均值 = `mean(librosa.feature.rms(y=audio)[0])`(prosody_extractor.py:128-129,四舍五入 4 位)。§4.3:237 判「**保**」—— 依据栏:「真实测量(两者 r = 0.92)」。",
       "source": "16 kHz PCM → `librosa.feature.rms(y=audio)[0]`(帧长/跳长用 librosa 默认)",
       "normalization": "none —— rms 是绝对幅值(`无量纲`),随麦克风增益/距离变;§4.5:272 的两条路里本列走第二条「显式输出为协变量」,会话内归一在 L1 做",
       "unit": "无量纲(rms 幅值)",
@@ -1697,7 +1697,7 @@
     {
       "column": "energy_variation",
       "modality": "voice",
-      "definition": "同一批 rms 帧的标准差 = `std(librosa.feature.rms(y=audio)[0])`(prosody_extractor.py:110,四舍五入 4 位)。它**就是 §4.3:237 那一行的 `energy_std`**:上游 `energy_std` → 列 `energy_variation` 的映射在 `app.py:97-100`。§4.3:237 判「**保**」。",
+      "definition": "同一批 rms 帧的标准差 = `std(librosa.feature.rms(y=audio)[0])`(prosody_extractor.py:130,四舍五入 4 位)。它**就是 §4.3:237 那一行的 `energy_std`**:上游 `energy_std` → 列 `energy_variation` 的映射在 `app.py:97-107`。§4.3:237 判「**保**」。",
       "source": "同 `energy_mean`(同一批 rms 帧)",
       "normalization": "none(同 `energy_mean`:幅值的离散度)",
       "unit": "无量纲(rms 幅值)",
@@ -1711,7 +1711,7 @@
     {
       "column": "pause_duration_mean",
       "modality": "voice",
-      "definition": "该段音频里**被判为停顿**的区间的平均时长(秒)= `mean(pause_intervals)`(prosody_extractor.py:171-183);停顿区间 = 连续 `rms ≤ mean(rms) × 0.3` 的帧段,且只统计 > 0.1 秒的(:178)。§4.3:238 判「**修**」,依据栏:「循环结束无收尾 → 回答末尾整段沉默被丢弃」—— 现行 for 循环(:171-179)**循环后没有收尾**:音频以静音结尾时 `in_pause` 到最后仍为真,那段停顿不进 `pause_intervals`。",
+      "definition": "该段音频里**被判为停顿**的区间的平均时长(秒)= `mean(pause_intervals)`(prosody_extractor.py:191-203);停顿区间 = 连续 `rms ≤ mean(rms) × 0.3` 的帧段,且只统计 > 0.1 秒的(:178)。§4.3:238 判「**修**」,依据栏:「循环结束无收尾 → 回答末尾整段沉默被丢弃」—— 现行 for 循环(:171-179)**循环后没有收尾**:音频以静音结尾时 `in_pause` 到最后仍为真,那段停顿不进 `pause_intervals`。",
       "source": "16 kHz PCM → `librosa.feature.rms` → 能量门 `mean(rms) × 0.3`(:163-164)",
       "normalization": "none(秒;跨会话可比性由 L1 的 `pause_ratio` / `pause_rate_per_min`(§5.4:357-359)负责)",
       "unit": "秒",
@@ -1724,7 +1724,7 @@
     {
       "column": "pause_duration_max",
       "modality": "voice",
-      "definition": "同一批停顿区间的**最长**时长(秒)= `max(pause_intervals)`(prosody_extractor.py:184);区间的定义与缺陷同 `pause_duration_mean`(§4.3:238「修」:循环无收尾)。",
+      "definition": "同一批停顿区间的**最长**时长(秒)= `max(pause_intervals)`(prosody_extractor.py:204);区间的定义与缺陷同 `pause_duration_mean`(§4.3:238「修」:循环无收尾)。",
       "source": "同 `pause_duration_mean`",
       "normalization": "none(秒;同 `pause_duration_mean`)",
       "unit": "秒",
@@ -1737,7 +1737,7 @@
     {
       "column": "pause_frequency",
       "modality": "voice",
-      "definition": "停顿**频次**(每分钟)= 停顿次数 ÷(语音时长 ÷ 60)。现行是 ÷ **整段时长**(prosody_extractor.py:185:`len(pause_intervals) / duration * 60`),§4.3:239 明文要改:「现用总时长(含静音)→ 改语音时长」;分母用本表的 `speech_duration_sec`。§5.4:357 的 L1 指标 `pause_rate_per_min` 就是这条式子。§4.3:238 的「循环无收尾」同样适用于它(停顿次数本身少算)。",
+      "definition": "停顿**频次**(每分钟)= 停顿次数 ÷(语音时长 ÷ 60)。现行是 ÷ **整段时长**(prosody_extractor.py:205:`len(pause_intervals) / duration * 60`),§4.3:239 明文要改:「现用总时长(含静音)→ 改语音时长」;分母用本表的 `speech_duration_sec`。§5.4:357 的 L1 指标 `pause_rate_per_min` 就是这条式子。§4.3:238 的「循环无收尾」同样适用于它(停顿次数本身少算)。",
       "source": "同 `pause_duration_mean`(停顿区间个数)+ `speech_duration_sec`(本表另一行)",
       "normalization": "÷ 语音时长(分钟)—— 分母由 §4.3:239 指定,是本列唯一的归一化",
       "unit": "次/分钟",
@@ -1750,8 +1750,8 @@
     {
       "column": "voiced_prob_mean",
       "modality": "voice",
-      "definition": "pyin 第 3 个返回值 `voiced_prob`(逐帧「是浊音」的概率)在该段音频**全部帧**上的均值 = `mean(voiced_prob)`,取值 [0,1]。**它现在不存在** —— prosody_extractor.py:45 写的是 `f0, voiced_flag, _ = librosa.pyin(...)`,第 3 个返回值被 `_` 丢掉。§4.3:235 的依据栏点名它是 pitch 修正的原料(「`pyin` 无能量门限且丢 `voiced_prob`」);M3.0 spec §7.1 把它列为「5 个零实现的新列」之一。",
-      "source": "`librosa.pyin(...)` 的第三个返回值(prosody_extractor.py:45);帧数与 f0 同长",
+      "definition": "pyin 第 3 个返回值 `voiced_prob`(逐帧「是浊音」的概率)在该段音频**全部帧**上的均值 = `mean(voiced_prob)`,取值 [0,1]。**它现在不存在** —— prosody_extractor.py:47 写的是 `f0, voiced_flag, _ = librosa.pyin(...)`,第 3 个返回值被 `_` 丢掉。`docs/superpowers/specs/2026-09-21-jingxin-feature-redesign-design.md:235` 的依据栏点名它是 pitch 修正的原料(「`pyin` 无能量门限且丢 `voiced_prob`」);`docs/superpowers/specs/2026-09-26-l0-column-table-design.md:172-177` 把它列为「5 个零实现的新列」之一。",
+      "source": "`librosa.pyin(...)` 的第三个返回值(prosody_extractor.py:47);帧数与 f0 同长",
       "normalization": "none —— 概率均值天然有界于 [0,1],不需要外部基准",
       "unit": "概率([0,1])",
       "maturity": "B",
@@ -1764,7 +1764,7 @@
     {
       "column": "speech_duration_sec",
       "modality": "voice",
-      "definition": "该段音频里**被判为有声**的帧数 × 帧长(秒)= `np.count_nonzero(is_speech) × (duration / len(rms))`(prosody_extractor.py:195-196,四舍五入 2 位);`is_speech = rms > mean(rms) × 0.3`(:163-164)。它与 `duration_sec`(整段时长,已判「移出特征集」)不是一回事 —— 差值就是静音总量。",
+      "definition": "该段音频里**被判为有声**的帧数 × 帧长(秒)= `np.count_nonzero(is_speech) × (duration / len(rms))`(prosody_extractor.py:215-216,四舍五入 2 位);`is_speech = rms > mean(rms) × 0.3`(:163-164)。它与 `duration_sec`(整段时长,已判「移出特征集」)不是一回事 —— 差值就是静音总量。",
       "source": "16 kHz PCM → `librosa.feature.rms` → 同一个能量门(:163-164)",
       "normalization": "none —— 秒;它**本身就是** §4.3:239 指定的那个归一化分母",
       "unit": "秒",
@@ -1778,8 +1778,8 @@
     {
       "column": "n_chars",
       "modality": "voice",
-      "definition": "该段回答的 ASR 文本里**中日韩字符**的个数 = `count_cjk_chars(text)` = `len(_CJK.findall(text))`,去标点与空白(funasr_engine.py:31-33);`text` 是同一次识别的 `utt.text.strip()`(app.py:565 → :584)。它与连接词密度用的是**同一个计数器**。",
-      "source": "FunASR 识别文本 → `count_cjk_chars`(app.py:583-584 的注释:两处「字数」必须同口径)",
+      "definition": "该段回答的 ASR 文本里**中日韩字符**的个数 = `count_cjk_chars(text)` = `len(_CJK.findall(text))`,去标点与空白(funasr_engine.py:31-33);`text` 是同一次识别的 `utt.text.strip()`(app.py:572 → :584)。它与连接词密度用的是**同一个计数器**。",
+      "source": "FunASR 识别文本 → `count_cjk_chars`(app.py:590-591 的注释:两处「字数」必须同口径)",
       "normalization": "none(计数)",
       "unit": "个(字符数)",
       "maturity": "B",
@@ -1787,26 +1787,26 @@
       "status": "implemented",
       "quarantine_ref": "",
       "acceptance": "① 报告「回答详尽度」槽由它**唯一**产出(§8.2:384;report_frontend/research_mapper.py:156),那个槽不再渲染成「尚无产出方」;② 与 `connective_density` 的分母逐行一致(同一个 `count_cjk_chars`);③ M3.4。",
-      "basis": "① **归一化 none 的理由**:它是计数,没有可除的解剖/会话尺度。② **与 §4.5:273「不出总量」的关系(由本行定)**:本条确实是总量,但它是 L1 的 `speech_rate = 字数 ÷ 语音秒数`(§5.4:354)的**分子**,不是直接进模型的量 —— 设计禁的是「把总量当特征」,不是「不许量出总量」;③ **为什么用 `count_cjk_chars` 而不是 `len(text)`**:同一个「字数」不能在两处口径不同(app.py:583-584),而连接词密度的分母用的就是它。"
+      "basis": "① **归一化 none 的理由**:它是计数,没有可除的解剖/会话尺度。② **与 §4.5:273「不出总量」的关系(由本行定)**:本条确实是总量,但它是 L1 的 `speech_rate = 字数 ÷ 语音秒数`(§5.4:354)的**分子**,不是直接进模型的量 —— 设计禁的是「把总量当特征」,不是「不许量出总量」;③ **为什么用 `count_cjk_chars` 而不是 `len(text)`**:同一个「字数」不能在两处口径不同(app.py:590-591),而连接词密度的分母用的就是它。"
     },
     {
       "column": "chars_per_sec",
       "modality": "voice",
-      "definition": "语速 = `n_chars ÷ speech_duration_sec`,四舍五入 2 位;**有声秒为 0 时留空,不写 0**(app.py:588-590)。它**就是** §5.4:354 的 L1 指标 `speech_rate` 的原料。",
-      "source": "同 `n_chars` 与 `speech_duration_sec`(两个 L0 列相除,app.py:588-590)",
+      "definition": "语速 = `n_chars ÷ speech_duration_sec`,四舍五入 2 位;**有声秒为 0 时留空,不写 0**(app.py:595-597)。它**就是** §5.4:354 的 L1 指标 `speech_rate` 的原料。",
+      "source": "同 `n_chars` 与 `speech_duration_sec`(两个 L0 列相除,app.py:595-597)",
       "normalization": "÷ 语音时长(秒)—— 分母是**有声**秒,不是整段时长",
       "unit": "字/秒",
       "maturity": "B",
       "l0_output": "吐字/秒这个率;「说得快/慢」的门限留给 L1。",
       "status": "implemented",
       "quarantine_ref": "",
-      "acceptance": "① 分母是 `speech_duration_sec`(有声秒),不是 `duration_sec`(app.py:588 的注释:「用整段会把静音算成说得慢」);② 3 场正式素材实测 2.25~7.25 字/秒(24 行);③ 有声秒为 0 的行留空而不是 0;④ M3.4。",
-      "basis": "① **分母必须是有声秒**:依据 app.py:588 的注释,与 §4.3:239 对 `pause_frequency` 分母的同一取向(时长类分母要去掉静音)。② **它与 `n_chars`/`speech_duration_sec` 是精确可重构关系**(前者 = 后两者相除,只差一个四舍五入)—— 按 §4.5:273 与 Task 3 对 `*_arm_angle = 180 − *_elbow_angle` 的处置(能精确重构即判删),这一族本该只留一侧。**本行两侧都留,由本行定并写明理由**:率与总量在报告层各有消费方(§5.4:354 的 `speech_rate` 吃率;§8.2:382 的「回答详尽度」吃字数),是否合并(判据 `|r| ≥ 0.99`)推给 **M3.4** —— 与裁定 E2(「`spread`/`fist` 可能同一个量,各留一行、合并条件推给 M3.3」)同一处置。"
+      "acceptance": "① 分母是 `speech_duration_sec`(有声秒),不是 `duration_sec`(app.py:595 的注释:「用整段会把静音算成说得慢」);② 3 场正式素材实测 2.25~7.25 字/秒(24 行);③ 有声秒为 0 的行留空而不是 0;④ M3.4。",
+      "basis": "① **分母必须是有声秒**:依据 app.py:595 的注释,与 §4.3:239 对 `pause_frequency` 分母的同一取向(时长类分母要去掉静音)。② **它与 `n_chars`/`speech_duration_sec` 是精确可重构关系**(前者 = 后两者相除,只差一个四舍五入)—— 按 §4.5:273 与 Task 3 对 `*_arm_angle = 180 − *_elbow_angle` 的处置(能精确重构即判删),这一族本该只留一侧。**本行两侧都留,由本行定并写明理由**:率与总量在报告层各有消费方(§5.4:354 的 `speech_rate` 吃率;§8.2:382 的「回答详尽度」吃字数),是否合并(判据 `|r| ≥ 0.99`)推给 **M3.4** —— 与裁定 E2(「`spread`/`fist` 可能同一个量,各留一行、合并条件推给 M3.3」)同一处置。"
     },
     {
       "column": "energy_p10",
       "modality": "voice",
-      "definition": "该段音频 rms 帧序列的 **10 分位** = `np.percentile(rms, 10)`(prosody_extractor.py:112,四舍五入 4 位)。分位点取 10/90 **由本行定**(与 pitch 侧的 `pitch_p10`/`pitch_p90` 对称;依据见 basis)。",
+      "definition": "该段音频 rms 帧序列的 **10 分位** = `np.percentile(rms, 10)`(prosody_extractor.py:132,四舍五入 4 位)。分位点取 10/90 **由本行定**(与 pitch 侧的 `pitch_p10`/`pitch_p90` 对称;依据见 basis)。",
       "source": "同 `energy_mean`(同一批 rms 帧)",
       "normalization": "none(无量纲 rms 幅值)—— 它的**用途**是给会话内归一当基准",
       "unit": "无量纲(rms 幅值)",
@@ -1815,12 +1815,12 @@
       "status": "implemented",
       "quarantine_ref": "",
       "acceptance": "① 报告层做 energy 会话内归一时**确实用这两个分位**(封停 :82 的 unblock「M3 会话内归一」的原料);② 逐行 `energy_p10 < energy_p90`(实测 3 场正式素材 24 行:p10 0.0002~0.0169);③ M3.4。",
-      "basis": "**分位点选 10/90 的依据(由本行定)**:① 与 pitch 侧的 `pitch_p10`/`pitch_p90` 对称 —— 同一个语音族里两套会话内归一取同一个分位点,下游不会拿到两套口径;② 比极值抗噪:被设备/噪声拖坏的就是极端帧,用 min/max 当基准会把归一化带坏;③ 为什么能源列要有分位而 `pitch_mean` 那类没有 —— 分位数不受极端帧拖拽(prosody_extractor.py:79-80 的注释就是这个理由)。**归一化 none 的理由**:分位点本身是幅值,没有可除的基准;它**就是**那个基准。"
+      "basis": "**分位点选 10/90 的依据(由本行定)**:① 与 pitch 侧的 `pitch_p10`/`pitch_p90` 对称 —— 同一个语音族里两套会话内归一取同一个分位点,下游不会拿到两套口径;② 比极值抗噪:被设备/噪声拖坏的就是极端帧,用 min/max 当基准会把归一化带坏;③ 为什么能源列要有分位而 `pitch_mean` 那类没有 —— 分位数不受极端帧拖拽(prosody_extractor.py:91-92 的注释就是这个理由)。**归一化 none 的理由**:分位点本身是幅值,没有可除的基准;它**就是**那个基准。"
     },
     {
       "column": "energy_p90",
       "modality": "voice",
-      "definition": "同一批 rms 帧的 **90 分位** = `np.percentile(rms, 90)`(prosody_extractor.py:113,四舍五入 4 位);分位点选择同 `energy_p10`。",
+      "definition": "同一批 rms 帧的 **90 分位** = `np.percentile(rms, 90)`(prosody_extractor.py:133,四舍五入 4 位);分位点选择同 `energy_p10`。",
       "source": "同 `energy_mean`",
       "normalization": "none(同 `energy_p10`)",
       "unit": "无量纲(rms 幅值)",
@@ -1834,7 +1834,7 @@
     {
       "column": "pitch_p10",
       "modality": "voice",
-      "definition": "与 `pitch_mean` **同一批帧**(`voiced_flag` 为真)的 f0 的 **10 分位** = `np.percentile(f0_voiced, 10)`(prosody_extractor.py:81,四舍五入 2 位)。分位点取 10/90 **由本行定**(与 `energy_p10`/`energy_p90` 对称,依据见那两行的 basis)。⚠️ 它吃的是与 `pitch_mean` **同一批未门控的帧**⟹ §4.3:235 的门控落地之前不能算「已实现」。",
+      "definition": "与 `pitch_mean` **同一批帧**(`voiced_flag` 为真)的 f0 的 **10 分位** = `np.percentile(f0_voiced, 10)`(prosody_extractor.py:93,四舍五入 2 位)。分位点取 10/90 **由本行定**(与 `energy_p10`/`energy_p90` 对称,依据见那两行的 basis)。⚠️ 它吃的是与 `pitch_mean` **同一批未门控的帧**⟹ §4.3:235 的门控落地之前不能算「已实现」。",
       "source": "同 `pitch_mean`(同一批 voiced f0 帧)",
       "normalization": "none(Hz)—— 它的**用途**是给会话内归一当基准",
       "unit": "Hz",
@@ -1847,7 +1847,7 @@
     {
       "column": "pitch_p90",
       "modality": "voice",
-      "definition": "同一批 voiced f0 的 **90 分位** = `np.percentile(f0_voiced, 90)`(prosody_extractor.py:82,四舍五入 2 位);⚠️ 同样是**未门控**帧。",
+      "definition": "同一批 voiced f0 的 **90 分位** = `np.percentile(f0_voiced, 90)`(prosody_extractor.py:94,四舍五入 2 位);⚠️ 同样是**未门控**帧。",
       "source": "同 `pitch_mean`",
       "normalization": "none(Hz;同 `pitch_p10`)",
       "unit": "Hz",
@@ -1860,12 +1860,12 @@
     {
       "column": "speech_onset_sec",
       "modality": "voice",
-      "definition": "该段音频里**首次出现有声帧**的位置(秒)= 第一个 `is_speech` 为真的帧下标 × 帧长(prosody_extractor.py:200-201,四舍五入 2 位);**全段无声时留空**(None → 空格),不写 0。",
+      "definition": "该段音频里**首次出现有声帧**的位置(秒)= 第一个 `is_speech` 为真的帧下标 × 帧长(prosody_extractor.py:220-221,四舍五入 2 位);**全段无声时留空**(None → 空格),不写 0。",
       "source": "16 kHz PCM → `librosa.feature.rms` → 同一个能量门(:163-164)",
       "normalization": "none —— 它是**段内相对秒**(从这段音频的起点算),不是墙钟;转成墙钟是 `answer_onset_wall` 那行的活",
       "unit": "秒(段内相对)",
       "maturity": "B",
-      "l0_output": "吐「开口在这段音频里的位置」。⚠️ 它**本身不是反应时间**:录音开始到真的开口之间那段前导静音不是反应时间,但推首次开口的**墙钟**必须把它算进去(prosody_extractor.py:197-199)。",
+      "l0_output": "吐「开口在这段音频里的位置」。⚠️ 它**本身不是反应时间**:录音开始到真的开口之间那段前导静音不是反应时间,但推首次开口的**墙钟**必须把它算进去(prosody_extractor.py:217-219)。",
       "status": "implemented",
       "quarantine_ref": "",
       "acceptance": "① 3 场正式素材实测 0.00~3.16 秒(24 行);② `reaction_time` 的可复核性依赖它逐行落盘(§8.2:385-386);③ 全段无声时留空而不是 0;④ M3.4。",
@@ -1874,7 +1874,7 @@
     {
       "column": "answer_onset_wall",
       "modality": "voice",
-      "definition": "推定的**首次开口墙钟** = (该段音频到达本服务的时刻 `received_at_wall`) − 音频时长 + `speech_onset_sec`,四舍五入 3 位(app.py:186-192)。",
+      "definition": "推定的**首次开口墙钟** = (该段音频到达本服务的时刻 `received_at_wall`) − 音频时长 + `speech_onset_sec`,四舍五入 3 位(app.py:193-199)。",
       "source": "`media_retention` 记的 `received_at_wall`(= `time.time()`,media_retention.py:234/359)+ `duration_sec` + `speech_onset_sec`",
       "normalization": "none(Unix 墙钟秒,绝对时间戳)",
       "unit": "秒(Unix 墙钟)",
@@ -1882,14 +1882,14 @@
       "l0_output": "吐推定首次开口的绝对墙钟;它是 `reaction_time` 的中间量,单独看没有意义(但**必须落盘**,否则那个数不可复核)。",
       "status": "implemented",
       "quarantine_ref": "",
-      "acceptance": "① 到达时刻取 `received_at_wall`、**不用** `time.time()`(app.py:169-171:后者比真正到达晚好几秒);② 3 场正式素材实测落在 1790407973.795 ~ 1790409923.312(= 2026-09-26 当天);③ 与 `questions.jsonl` 的 `ask_end` **同一时间基**;④ 缺任一成分(到达时刻/时长/题目窗口)时**整组留空**,不写半个数(app.py:183-184);⑤ M3.4。",
+      "acceptance": "① 到达时刻取 `received_at_wall`、**不用** `time.time()`(app.py:176-178:后者比真正到达晚好几秒);② 3 场正式素材实测落在 1790407973.795 ~ 1790409923.312(= 2026-09-26 当天);③ 与 `questions.jsonl` 的 `ask_end` **同一时间基**;④ 缺任一成分(到达时刻/时长/题目窗口)时**整组留空**,不写半个数(app.py:190-191);⑤ M3.4。",
       "basis": "**为什么保留绝对墙钟、不像面部那样改成会话相对时间**(面部的 `timestamp` 已由 M2.5 改成会话相对):它要与 `questions.jsonl` 的 `ask_end` 相减,而那份台账写的就是客户端上报的 `float(ask_end)`(session_meta.py:145-157,同一条记录里还有 `reported_at_wall: time.time()`),两侧必须同一时间基。**由本行定**,并登记为「L1/报告层读本列时的时基约定」。⚠️ 因此本列**不是**会话相对秒,跨会话直接比较无意义(报出的是绝对时刻)。"
     },
     {
       "column": "reaction_time",
       "modality": "voice",
-      "definition": "**反应延迟** = `answer_onset_wall` − 该题 `ask_end`(秒,2 位小数,app.py:193)。**允许为负**(抢答),**不做截断**(app.py:176-177)。它**就是** §5.4:360 的 L1 指标 `response_latency_sec` 的原料;§8.2:384-386 把它记为「报告层「反应延迟」槽」的产出方。",
-      "source": "`answer_onset_wall`(本表另一行)+ `questions.jsonl` 台账的 `ask_end`(按 `question_index` 对上,app.py:593-594)",
+      "definition": "**反应延迟** = `answer_onset_wall` − 该题 `ask_end`(秒,2 位小数,app.py:200)。**允许为负**(抢答),**不做截断**(app.py:183-184)。它**就是** §5.4:360 的 L1 指标 `response_latency_sec` 的原料;§8.2:384-386 把它记为「报告层「反应延迟」槽」的产出方。",
+      "source": "`answer_onset_wall`(本表另一行)+ `questions.jsonl` 台账的 `ask_end`(按 `question_index` 对上,app.py:600-601)",
       "normalization": "none —— 它已经是一个**差**(减掉了该题播完时刻),没有可除基准",
       "unit": "秒",
       "maturity": "B",
@@ -1897,7 +1897,7 @@
       "status": "implemented",
       "quarantine_ref": "",
       "acceptance": "① 全仓 interview 语音日志实测 31 条有值,范围 **−1.42 ~ 205.98** 秒,**含 1 条负值** —— 负值是真实现象(候选人抢答),不许为了「好看」截断;② 三个成分逐行落盘 ⟹ 任一行都能用 `answer_onset_wall − ask_end` 复算;③ 按题号对窗口(并发/补推时不串题);④ M3.4。",
-      "basis": "① **为什么按 `question_index` 对题目窗口、不用「最近一条」**:并发或补推时会串题(app.py:592 的注释);② **为什么不截断负值**:截成 0 会让「抢答」与「0 秒反应」分不开(app.py:176-177;`下一步.md` §8.2:388 的原话「允许为负(抢答)—— **不截断**,截了……就分不开(实测出现过 −1.42)」—— 本行的实测(31 条里 1 条 −1.42)与那条记录逐字吻合);③ **归一化 none 的理由**:它本身已经是一个差,减掉了题目播完这个基准。"
+      "basis": "① **为什么按 `question_index` 对题目窗口、不用「最近一条」**:并发或补推时会串题(app.py:599 的注释);② **为什么不截断负值**:截成 0 会让「抢答」与「0 秒反应」分不开(app.py:183-184;`下一步.md` §8.2:388 的原话「允许为负(抢答)—— **不截断**,截了……就分不开(实测出现过 −1.42)」—— 本行的实测(31 条里 1 条 −1.42)与那条记录逐字吻合);③ **归一化 none 的理由**:它本身已经是一个差,减掉了题目播完这个基准。"
     },
     {
       "column": "transcript_raw",
