@@ -7,18 +7,771 @@
                "unit", "maturity", "l0_output", "status", "quarantine_ref", "acceptance"]
   },
   "count_reconciliation": {
-    "doc_estimate": {"face": 22, "gesture": 13, "voice": 16, "text": 3},
-    "actual": {"face": 0, "gesture": 0, "voice": 0, "text": 0},
-    "deltas": [],
-    "note": "actual 由 Task 2/3/4 逐列定义后填写;deltas 必须逐条写明差异原因(spec §4.3)。"
+    "doc_estimate": {
+      "face": 22,
+      "gesture": 13,
+      "voice": 16,
+      "text": 3
+    },
+    "actual": {
+      "face": 20,
+      "gesture": 0,
+      "voice": 0,
+      "text": 0
+    },
+    "scope": "actual 数的是 spec 口径的 L0 **目标测量列**(「≈54」那个口径,预检裁定 C5):不含 session_id / timestamp / timestamp_iso / is_valid 这类非测量列,也不含 2026-09-26 新增的 52 个 bs_*(2026-09-21 的设计表早于它们)。⚠️ 钉子方向 1 覆盖的是**日志列契约全量**(face 91 条 = 本表 20 行 + 白名单 71 条),与本口径不是一件事,不要互相核对。",
+    "deltas": [
+      {
+        "modality": "face",
+        "doc_estimate": 22,
+        "actual": 20,
+        "arithmetic": "22(§4.1:161-211 标 保/修/重构/新增 的行)− 3(is_valid / session_id / timestamp 三个非测量列)+ 3(iris 一行拆 4 列)− 1(micro_exp_* 整族,按 R9)− 1(head_roll 归 Task 8)= 20",
+        "reasons": [
+          "iris 一行拆 4 列(§4.1:188 的 `left/right_iris_x/y` 在文档里是**一行**,落到日志列名上必须拆成 4 列):+3 —— spec §1 点名的第一个未声明决定。",
+          "is_valid / session_id / timestamp 三个**非测量列**不计入(spec §1 点名的第二个未声明决定;裁定 C5 已定死):−3。",
+          "micro_exp_* 整族移出本轮 L0 契约(R9,m2-6 spec:66 / :454),§4.1:202 原标「修」的 micro_exp_duration_frames 也随之不进表:−1。",
+          "head_roll 由 Task 8 新建(裁定 F1:一行只能有一个属主),本轮不建:−1;Task 8 建后本模态回到 21。",
+          "§4.1 判「删」的活列共 16 条(含 Task 1 已登记的 focus_score)进 legacy_allowlist,另有 6 条族级/非活列一并登记 —— 它们本来就不在上面那 22 的计数里,不产生差值,登记在此以免读者以为漏了。",
+          "symmetry_score 由 legacy_allowlist **移入** columns:§4.1:208 的处置是「重构」而不是「删」,白名单因此净减 1 条(只剩 focus_score 那条是 Task 1 留下的)。"
+        ]
+      }
+    ],
+    "note": "actual 由 Task 2/3/4 逐列定义后填写 —— face 已填(Task 2,2026-09-26);gesture / voice / text 归 Task 3/4。deltas 逐条写明差异原因(spec §4.3):文档的估数是估数,**不许悄悄改成实际数**。"
   },
   "legacy_allowlist": [
-    {"column": "focus_score", "modality": "face",
-     "why": "3 个硬编码取值,99.7% 恒 0.3(QUARANTINE 已封停)",
-     "planned": "M3.2"},
-    {"column": "symmetry_score", "modality": "face",
-     "why": "未除人脸尺度,近常量,取景代理(QUARANTINE 已封停)",
-     "planned": "M3.2"}
+    {
+      "column": "focus_score",
+      "modality": "face",
+      "why": "3 个硬编码取值,99.7% 恒 0.3(QUARANTINE 已封停)",
+      "planned": "M3.2"
+    },
+    {
+      "column": "session_id",
+      "modality": "face",
+      "why": "非测量列(标识列,不是 L0 测量量):spec §1 把「不计入 is_valid/session_id/timestamp 三个非测量列」点为**文档从未声明的决定**,裁定 C5 已把 L0 计数口径定死为测量列。§4.1:210 的修法(硬编码 \"batch\" → 真 session_id)已由 M1 落地(face_expression/utils/logger.py:32,100-101;会话 id 校验见 face_expression/api/app.py:105-162)。",
+      "planned": "M3.2(作为元数据列单列,不进 L0 测量列)"
+    },
+    {
+      "column": "timestamp",
+      "modality": "face",
+      "why": "非测量列(时间基,不是测量量);裁定 C5 不计入 L0 计数口径。§4.1:211 的修法(挂钟 time.time() → 会话相对时间)已由 M2.5 落地:现为 timestamp_ms ÷ 1000(video_pipeline.py:196-200),缺 timestamp 键时才回退墙钟(logger.py:94-95)。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "blink_rate_per_min",
+      "modality": "face",
+      "why": "§4.1:186 依据栏原文:「直接列恒 0;衍生列走挂钟 60 秒窗 → 编码机器负载」,L0 形态栏:「从 is_blink 算 per-sec」。⚠️ 「恒 0」这条已由 M2.5 修掉(序列化改用 current_au,video_pipeline.py:97-101;evidence_gate.py:78 的 blink_rate 封停 unblock 写的正是「M2 修序列化」);剩下的删除理由是「60 秒窗」那条:窗口按会话相对秒算,量的不是 per-sec 眨眼率。",
+      "planned": "M3.2 删列"
+    },
+    {
+      "column": "au2_outer_brow_raise",
+      "modality": "face",
+      "why": "§4.1:162 依据栏原文:「与 au1 组内 r = 0.93」",
+      "planned": "M3.2 删列"
+    },
+    {
+      "column": "au7_eye_squeeze",
+      "modality": "face",
+      "why": "§4.1:165 依据栏原文:「au7 + avg_ear ≡ 1.0」(实测 17105/17105 帧);L0 形态栏:「留 avg_ear」",
+      "planned": "M3.2 删列"
+    },
+    {
+      "column": "au14_dimpler",
+      "modality": "face",
+      "why": "§4.1:169 依据栏原文:「实为颊-嘴角距 ÷ 面宽 ×5,系数无出处,大量饱和」;L0 形态栏:「酒窝无法从 landmark 可靠测」",
+      "planned": "M3.2 删列"
+    },
+    {
+      "column": "au20_lip_stretcher",
+      "modality": "face",
+      "why": "§4.1:171 依据栏原文:「与 au12 逐字符相同的同一行代码」;L0 形态栏:「复制粘贴 bug」(实测 17105/17105 帧逐位等于 au12)",
+      "planned": "M3.2 删列"
+    },
+    {
+      "column": "gaze_direction_y",
+      "modality": "face",
+      "why": "§4.1:190 依据栏原文:「恒负,max 仅 +0.045,是解剖常量」",
+      "planned": "M3.2 删列"
+    },
+    {
+      "column": "gaze_deviation",
+      "modality": "face",
+      "why": "§4.1:191 依据栏原文:「与 gaze_direction_y 组内 r = −0.994」",
+      "planned": "M3.2 删列"
+    },
+    {
+      "column": "eye_closed_sec",
+      "modality": "face",
+      "why": "§4.1:187 依据栏原文:「恒 0;+=1/30 在 10fps 下低估 3 倍;与 is_blink 冗余」,L0 形态栏:「用眨眼时长替代」。⚠️ 「恒 0」与「+=1/30」两条都已由 M2.5 的序列化/时间基修复消失(现按真实时间差累加,video_pipeline.py:270-275);删除的主因剩下「与 is_blink 冗余」。",
+      "planned": "M3.2 删列"
+    },
+    {
+      "column": "dominant_emotion",
+      "modality": "face",
+      "why": "§4.1:205 依据栏原文:「argmax / 归一化最大值,非置信度」(该行同时覆盖 dominant_emotion 与 confidence);evidence_gate.py:74 永久封停(permanent)",
+      "planned": "M3.2 删列"
+    },
+    {
+      "column": "confidence",
+      "modality": "face",
+      "why": "§4.1:205 依据栏原文:「argmax / 归一化最大值,非置信度」;evidence_gate.py:74 永久封停(permanent)",
+      "planned": "M3.2 删列"
+    },
+    {
+      "column": "tension_score",
+      "modality": "face",
+      "why": "§4.1:197 依据栏原文:「伪合成:5 项里 eye_closed 恒 0、expression_instability 饱和 1.0、au4 86~92% 为 0;与倒置 au23 相关 0.87」;evidence_gate.py:46 封停",
+      "planned": "M3.2 删列"
+    },
+    {
+      "column": "tension_level",
+      "modality": "face",
+      "why": "§4.1:198 依据栏原文:「字符串分箱」;evidence_gate.py:47 封停",
+      "planned": "M3.2 删列"
+    },
+    {
+      "column": "micro_exp_au_name",
+      "modality": "face",
+      "why": "§4.1:200 依据栏原文:「每帧取字典序第一个命中项」;并见 R9(2026-09-25-m2-6-raw-media-retention-design.md:66 / :454「micro_exp_* 整族不进本轮 L0 契约」)",
+      "planned": "M3.2 删列"
+    },
+    {
+      "column": "micro_exp_intensity",
+      "modality": "face",
+      "why": "§4.1:201 依据栏原文:「触发 AU 原值转抄,跨行不可比」;并见 R9(m2-6 spec:454:micro_exp_* 整族不进本轮 L0 契约)",
+      "planned": "M3.2 删列"
+    },
+    {
+      "column": "micro_exp_duration_frames",
+      "modality": "face",
+      "why": "§4.1:202 判「修」(依据栏:8 个**采样帧**中超阈个数;窗口 maxlen=15 硬编码,10fps 下 1.5s),但 **R9 裁定 micro_exp_* 整族移出本轮 54 列**(m2-6 spec:66 / :454:5 fps = 每帧 200 ms,而微表情是 40–200 ms 的 onset–apex–offset 结构 ⟹ 硬算出来就是伪测量)。以上游裁定为准 ⟹ 本轮不进 columns;等从 camera.webm 原生帧率重抽时再加回。",
+      "planned": "M4 或更后(原生帧率重抽后加回)"
+    },
+    {
+      "column": "micro_exp_onset_frame",
+      "modality": "face",
+      "why": "§4.1:203 依据栏原文:「15 帧环形缓冲下标,恒在 5~13」;evidence_gate.py:75 永久封停(permanent);并见 R9(m2-6 spec:454)",
+      "planned": "M3.2 删列"
+    },
+    {
+      "column": "_trend / _volatility / _change_rate 派生族(84 列)",
+      "modality": "face",
+      "why": "§4.1:176 依据栏原文:「逐帧滚动二阶量再叠 9 统计量 → 三阶」,L0 形态栏:「L0 只出一阶」⟹ 整族全删。这 84 列不在三份日志的列契约里,是 face 结果对象摊平出来的派生键(face_expression/models/results.py:143-161:28 个前缀 × 3 个后缀),故按**族**登记。",
+      "planned": "M3.2 删列"
+    },
+    {
+      "column": "tension_sources_*(×5: brow_furrow / lip_compression / eye_closure / expression_instability / emotional_influence)",
+      "modality": "face",
+      "why": "§4.1:199 依据栏原文:「au4/au23 副本或恒定量」;evidence_gate.py:48 的 tension_sources_ 封停。5 列见 face_expression/models/results.py:130-134(其中 eye_closure 等结构性恒 0,spec §1)。",
+      "planned": "M3.2 删列"
+    },
+    {
+      "column": "emotion_*(×15: happy / sadness / anger / fear / surprise / disgust / contempt / anxiety / fatigue / polite_smile / distress / forced_smile / startled_anxiety / cognitive_load / moral_disgust)",
+      "modality": "face",
+      "why": "§4.1:204 依据栏原文:「单形归一化互相竞争;7 个分量结构性恒 0;neutral 时 confidence 恒 1.0」;evidence_gate.py:73 的 emotion_ 永久封停(permanent)。15 列清单见 face_expression/models/results.py:164-172。",
+      "planned": "M3.2 删列"
+    },
+    {
+      "column": "overall_score",
+      "modality": "face",
+      "why": "§4.1:206 依据栏原文:「属性不存在 → 恒 0 / 恒 neutral」(该行同时覆盖 overall_score 与 emotion_state);evidence_gate.py:71 永久封停(permanent)。它不在日志列契约里,是结果对象摊平出来的字段(results.py:177)。",
+      "planned": "M3.2 删列"
+    },
+    {
+      "column": "emotion_state",
+      "modality": "face",
+      "why": "§4.1:206 依据栏原文:「属性不存在 → 恒 0 / 恒 neutral」;evidence_gate.py:72 永久封停(permanent);摊平来源 results.py:178。",
+      "planned": "M3.2 删列"
+    },
+    {
+      "column": "is_valid",
+      "modality": "face",
+      "why": "§4.1:209 处置「修」:「恒 1 且下游从未使用 → 改真实有效帧掩码」;evidence_gate.py:84 封停。它是**非测量列**(裁定 C5 不计入 L0 计数口径;spec §1 把「不计入 is_valid/session_id/timestamp」点为未声明决定)。⚠️ face 的 is_valid 根本不在日志列契约里(logger.py:43-59 无此列),它是结果对象摊平出来的恒 1 字段(results.py:179);gesture / voice 的 is_valid 归各自任务。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs__neutral",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_browDownLeft",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_browDownRight",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_browInnerUp",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_browOuterUpLeft",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_browOuterUpRight",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_cheekPuff",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_cheekSquintLeft",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_cheekSquintRight",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_eyeBlinkLeft",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_eyeBlinkRight",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_eyeLookDownLeft",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_eyeLookDownRight",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_eyeLookInLeft",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_eyeLookInRight",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_eyeLookOutLeft",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_eyeLookOutRight",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_eyeLookUpLeft",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_eyeLookUpRight",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_eyeSquintLeft",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_eyeSquintRight",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_eyeWideLeft",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_eyeWideRight",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_jawForward",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_jawLeft",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_jawOpen",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_jawRight",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_mouthClose",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_mouthDimpleLeft",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_mouthDimpleRight",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_mouthFrownLeft",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_mouthFrownRight",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_mouthFunnel",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_mouthLeft",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_mouthLowerDownLeft",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_mouthLowerDownRight",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_mouthPressLeft",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_mouthPressRight",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_mouthPucker",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_mouthRight",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_mouthRollLower",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_mouthRollUpper",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_mouthShrugLower",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_mouthShrugUpper",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_mouthSmileLeft",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_mouthSmileRight",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_mouthStretchLeft",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_mouthStretchRight",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_mouthUpperUpLeft",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_mouthUpperUpRight",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_noseSneerLeft",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    },
+    {
+      "column": "bs_noseSneerRight",
+      "modality": "face",
+      "why": "2026-09-26 新增的 blendshape 近似:模型自带的 52 个 ARKit 风格分数(face_expression/models/blendshapes.py:24-50 是单一真源)。2026-09-21 的设计表**早于**它,那份处置表整个没有覆盖这一族(§4.1 里没有它们的行)⟹ 进白名单,待 M3.2 逐列判留删。",
+      "planned": "M3.2"
+    }
   ],
-  "columns": []
+  "columns": [
+    {
+      "column": "au1_inner_brow_raise",
+      "modality": "face",
+      "definition": "眉内端相对眉中心的竖直抬起量,左右取均值:((lm[168].y − lm[52].y) + (lm[168].y − lm[55].y)) ÷ (2 × face_height);负值截 0、上限截 1。**不**减视频内中位数(§4.1:161「保留原值;是否减视频内中位数由标定定」)。下标:lm[52]/lm[55] = 左右眉内端,lm[168] = 眉中心,见 face_expression/core/feature_extraction/au_calculator.py:135-146(BrowRaiserExtractor)。",
+      "source": "mediapipe face landmarker 的 478 点归一化坐标;由 au_calculator.py:132-155 的几何比值算出",
+      "normalization": "÷ face_height(分母 = dist(lm[1], lm[152]),鼻尖→下巴;face_expression/pipeline/video_pipeline.py:77)",
+      "unit": "比值",
+      "maturity": "C",
+      "l0_output": "吐**未中心化**的原始值:((lm[168].y−lm[52].y)+(lm[168].y−lm[55].y)) ÷ (2×face_height)。减不减视频内中位数、减哪个分位,留 L1(§4.1:161 明文「由标定定」)。",
+      "status": "implemented",
+      "quarantine_ref": "",
+      "acceptance": "重构好 = ① 中心化版与未中心化版都在标定集上评过,留相关性更稳的那版(§4.1:161);② 该列不再被下游当「习惯性眉位」之外的信号直接用。在 2026-09-26 的 3 场正式素材上重抽验证(spec §9)。"
+    },
+    {
+      "column": "au4_frown",
+      "modality": "face",
+      "definition": "双眉内侧点距 ÷ 眼距 = dist(lm[107], lm[336]) ÷ dist(lm[130], lm[359])(§4.1:163「双眉内侧点距(107/336 或 52/55)÷ 眼距」)。是**比值本身**,不是 1 − 比值:现行 au_calculator.py:124-127 算的是 1 − dist(lm[276], lm[33]) ÷ face_width(眉-眼角距 ÷ 面宽),实测 86~92% 触地板,§4.1:163 判「重构」。",
+      "source": "mediapipe face landmarker 的 478 点;眉内端取 107/336、眼距取 130/359(见 basis)",
+      "normalization": "÷ 眼距 = dist(lm[130], lm[359])(face_expression/core/feature_extraction/landmarks.py:30-31 声明的 EYE_CORNER_LEFT / EYE_CORNER_RIGHT)",
+      "unit": "比值",
+      "maturity": "B",
+      "l0_output": "吐「眉间距 ÷ 眼距」这个比值;「皱眉」的事件门限留给 L1。",
+      "status": "pending",
+      "quarantine_ref": "au4_freq —— 从 micro_exp 字符串解析出的垃圾匹配(report_frontend/evidence_gate.py:61);unblock: M3 修 au4 landmark",
+      "acceptance": "重构好 = ① 代码里眉内端用 107/336(不再是 276/33),分母用眼距(不再是 face_width);② 该列的取值不再 86~92% 触地板(spec §1 的实测症状消失);③ evidence_gate.py:61 的 au4_freq 封停可解。",
+      "basis": "两处下标由本行定(§4.1:163 给了两套候选、没定眼距):① 眉内端取 107/336 —— landmarks.py:10-11 把 107/336 声明为左右眉上缘的第一个点(LEFT_EYEBROW_UPPER[0] / RIGHT_EYEBROW_UPPER[0]),即内端;候选的 52/55 在这张映射表里**没有声明**(只在 au_calculator.py:135-136 现用)。② 眼距取 dist(lm[130], lm[359]) —— landmarks.py:30-31 直接把这两个下标声明为 EYE_CORNER_LEFT / EYE_CORNER_RIGHT,是映射表里唯一现成的「眼距」;候选 dist(lm[33], lm[263]) 要从 LEFT_EYE/RIGHT_EYE 列表的元素次序反推哪个是外角,不如前者直接。"
+    },
+    {
+      "column": "au6_cheek_raise",
+      "modality": "face",
+      "definition": "颊抬起量 = 1 − (dist(lm[205], lm[145]) + dist(lm[425], lm[374])) ÷ (2 × 眼距),眼距 = dist(lm[130], lm[359])(§4.1:164「分母 ÷ 眼距」)。下标:lm[205]/lm[425] = 左右颊(landmarks.py:32-33 CHEEK_LEFT / CHEEK_RIGHT),lm[145]/lm[374] = 左右眼下缘(au_calculator.py:193-194 现用)。",
+      "source": "mediapipe face landmarker 的 478 点;由 au_calculator.py:188-199 的几何比值算出(改分母)",
+      "normalization": "÷ 眼距 dist(lm[130], lm[359])(现行是 ÷ face_height ⟹ 本列待 M3.2 改)",
+      "unit": "比值",
+      "maturity": "B",
+      "l0_output": "吐「颊-眼竖直距 ÷ 眼距」这个比值;「颊抬起」的事件门限留给 L1。",
+      "status": "pending",
+      "quarantine_ref": "",
+      "acceptance": "重构好 = ① 分母不再是 face_height 而是眼距;② 左右转头素材上该列的会话内方差不再随 yaw 单向漂移(拿 3 场正式素材逐帧比对 yaw 与本品)。",
+      "basis": "分母由本行定:§4.1:164 只写了「分母 ÷ 眼距」,没给下标,故达不到 A 的②。取 landmarks.py:30-31 声明的 EYE_CORNER_LEFT/RIGHT。为什么必须是水平尺度:§4.1:164 依据栏说现行「分子水平向、分母竖直向,随转头不成比例」;换成同为水平向的眼距后,转头造成的透视缩短在分子分母上同比抵消。"
+    },
+    {
+      "column": "au9_nose_wrinkle",
+      "modality": "face",
+      "definition": "鼻翼收缩量 = 1 − (dist(lm[1], lm[129]) + dist(lm[1], lm[358])) ÷ (2 × face_width)。鼻翼取 landmarks.py:17-18 声明的 NOSE_WING_LEFT=129 / NOSE_WING_RIGHT=358(§4.1:166 的「L0 形态」栏:「改用 129/358」)。⚠️ §4.1:166 的「依据」栏里的 234/455 描述的是**旧实现的 bug**(234/455 是脸颊轮廓点),不是目标下标。",
+      "source": "mediapipe face landmarker 的 478 点;鼻翼取 landmarks.py:17-18 声明的 129/358",
+      "normalization": "÷ face_width(分母 = dist(lm[234], lm[455]);video_pipeline.py:78)—— 沿用现行分母(au_calculator.py:164-167),只换下标",
+      "unit": "比值",
+      "maturity": "B",
+      "l0_output": "吐「1 − 鼻尖到两鼻翼均距 ÷ face_width」这个比值;「皱鼻」的事件门限留给 L1。",
+      "status": "pending",
+      "quarantine_ref": "",
+      "acceptance": "重构好 = ① 代码里鼻翼用 129/358(不再是 234/455);② spec §1 的实测症状消失:每视频 max 不再恰为 0.5(实测 46/60 场恰为 0.5);③ 60 场素材上该列不再触顶。",
+      "basis": "分母由本行定:§4.1:166 的「L0 形态」栏只给了下标(129/358),没给归一化分母 ⟹ 达不到 A 的②。取现行实现的 face_width(au_calculator.py:164-167 就是除以 2×face_width),一次只改一处 —— §4.1 点名要改的是下标,同时改分母会让「改坏了是下标还是分母」不可回答。"
+    },
+    {
+      "column": "au10_upper_lip_raise",
+      "modality": "face",
+      "definition": "上唇抬起量 = max(0, (rest_upper_lip_y − lm[164].y) ÷ face_height),rest_upper_lip_y = 会话开头 10 帧的上唇 y 滑动均值(au_calculator.py:39-73,max_calibration = 10、alpha = 1/(n+1));上限截 1(au_calculator.py:104)。§4.1:167 判「保」(依据栏「方向正确」)⟹ L0 形态就是现行实现,不改。",
+      "source": "mediapipe face landmarker 的 478 点;由 au_calculator.py:31-118(MouthFeatureExtractor)的几何比值算出",
+      "normalization": "÷ face_height;基线是会话内自采的开头 10 帧均值(会话内数据,不是标定集常量)",
+      "unit": "比值",
+      "maturity": "B",
+      "l0_output": "吐相对会话开头基线的上唇抬升比值;「抬唇」的事件门限留给 L1。",
+      "status": "implemented",
+      "quarantine_ref": "",
+      "acceptance": "保的行:验收 = ① definition 与产出逐字一致(基线口径、截断都在表里写明);② 若 M3.2 改了基线机制,必须同时改本行的 normalization —— definition 是契约,不是说明文。",
+      "basis": "「开头 10 帧」这个窗长是现行代码里的常量(au_calculator.py:40 的 max_calibration = 10),文档里没有出处,所以本列够不上 A 的③。本行把它**定为** L0 的基线口径:§4.1:167 对 au10 的处置是「保」,故不引入新基线机制(与 au12/au15/au25 的基线改动分开处理),保留现行窗长并把「未标定」这件事写进 acceptance。"
+    },
+    {
+      "column": "au12_smile",
+      "modality": "face",
+      "definition": "笑容量 = max(0, (口宽 − 基线) ÷ 基线),口宽 = dist(lm[61], lm[291])(landmarks.py:21-22 MOUTH_CORNER_LEFT / MOUTH_CORNER_RIGHT);基线 = **全程**口宽的低分位 p10(§4.1:168「基线改全程低分位(p10)」)。现行实现是开头 10 帧冻结均值(au_calculator.py:57-82),§4.1:168 判「修」⟹ pending。",
+      "source": "mediapipe face landmarker 的 478 点;口宽取 lm[61]/lm[291]",
+      "normalization": "÷ 基线(全程 p10 口宽)—— 归一化基准是被试自己的静息口宽,不是 face_width",
+      "unit": "比值",
+      "maturity": "A",
+      "l0_output": "吐「(口宽 − 基线) ÷ 基线」这个相对变化量;「笑没笑」的阈值判定留给 L1。",
+      "status": "pending",
+      "quarantine_ref": "",
+      "acceptance": "重构好 = ① 代码里的基线不再是「开头 1 秒冻结」,而是全程 p10;② 会话中后段不再出现「基线跳变后比值恒定」的形态。⚠️ 「全程」用到会话未来 ⟹ 实时流上必须取因果近似(滚动 p10);那层近似不改本行的定义,但要与「禁止用视频内分位定义**事件**」(§4.2 引的上游规矩 1)区分开 —— 本列的分位是**基线**,不是事件门限。"
+    },
+    {
+      "column": "au15_mouth_down",
+      "modality": "face",
+      "definition": "§4.1:170 的「L0 形态」栏:用 head_yaw / head_pitch / head_roll 回归预测 au15,输出**残差**(去掉头姿分量)。现行实现是 max(0, (嘴角 y 均值 − 基线) ÷ face_height)(au_calculator.py:87-88),没有去头姿分量。回归系数必须拟合得到(标定集)⟹ C;头姿 3D 本身没实现 ⟹ blocked。",
+      "source": "mediapipe face landmarker 的 478 点(嘴角 lm[61]/lm[291])+ 待实现头姿 3D 作为回归量",
+      "normalization": "÷ face_height;去头姿的残差形式还需要 head_yaw / head_pitch / head_roll 作为回归量",
+      "unit": "比值",
+      "maturity": "C",
+      "l0_output": "吐**未去头姿分量**的原始一阶量:max(0, (嘴角 y 均值 − 基线) ÷ face_height),嘴角 = lm[61]/lm[291](landmarks.py:21-22)。",
+      "status": "blocked",
+      "quarantine_ref": "",
+      "acceptance": "解封条件:head_yaw / head_pitch / head_roll 的 3D 版可用(它们由 Task 8 登记为 blocked:无相机内参);且需要一套拟合数据定回归系数(M3.1 仪器标定)。解封前本列只吐原始量,不做「去头姿」的近似 —— 用 face_width 归一化的 2D 近似正是 §4.1:170 判「修」的那个形态。"
+    },
+    {
+      "column": "au23_lip_compression",
+      "modality": "face",
+      "definition": "唇红厚度(上唇上缘 → 唇缝)÷ face_height = dist(lm[0], lm[13]) ÷ face_height。上唇上缘取 landmarks.py:25 声明的 LIP_TOP=0;唇缝取 landmarks.py:23 声明的 MOUTH_CENTER_TOP=13(闭口时 lm[13]≈lm[14] 即唇缝;张口时它随上唇抬起,不随下颌下沉)。§4.1:172 判「重构」,并点名现行实现 lm[13]−lm[14] 是**口内开合度**、与 au25 相关 −0.50、语义相反。",
+      "source": "mediapipe face landmarker 的 478 点;只取上唇两点 lm[0]/lm[13]",
+      "normalization": "÷ face_height(竖直量除以竖直尺度;与 §4.1:164 给 au6 的理由同源:分子分母同向,转头时同比缩短)",
+      "unit": "比值",
+      "maturity": "B",
+      "l0_output": "吐「上唇唇红厚度 ÷ face_height」这个比值;「抿唇」的事件门限留给 L1。",
+      "status": "pending",
+      "quarantine_ref": "",
+      "acceptance": "重构好 = ① 代码里 au23 与 au25 不再互为镜像(该列与 au25 的会话内相关从 −0.50 移向 0 附近或正);② 该列不再等于「1 − 口内开合度 ÷ 静息值」。",
+      "basis": "两处由本行定:① 下标 —— §4.1:172 只写了「唇红厚度(上唇上缘→唇缝)」,没给下标;上唇上缘、唇缝各取 landmarks.py 里已声明的 LIP_TOP=0 与 MOUTH_CENTER_TOP=13。② 分母 —— 该栏没有分母;取 face_height(竖直÷竖直,理由同上)。开口度那一支留给 au25,本行不再用 lm[14]。"
+    },
+    {
+      "column": "au25_mouth_open",
+      "modality": "face",
+      "definition": "口内开合度 = dist(lm[13], lm[14]) ÷ face_height(上/下唇内缘;landmarks.py:23-24 MOUTH_CENTER_TOP / MOUTH_CENTER_BOTTOM)。§4.1:173 的处置是「修」,但只写了「基线改滑动分位」,**没给分位点与窗长** ⟹ 按 spec §4.2 的灰区规则判 C:L0 只吐原始一阶量,减基线留给 L1。现行实现是「(口内开合度 − 开头 10 帧冻结基线) ÷ 基线」(au_calculator.py:83-84),且用的是 lm[0]/lm[17](唇外缘),不是唇内缘。",
+      "source": "mediapipe face landmarker 的 478 点;口内开合度取 lm[13]/lm[14]",
+      "normalization": "÷ face_height;不做基线减法(基线/滑动分位留给 L1)",
+      "unit": "比值",
+      "maturity": "C",
+      "l0_output": "吐口内开合度的原始值 dist(lm[13], lm[14]) ÷ face_height,**不减去任何基线**。",
+      "status": "pending",
+      "quarantine_ref": "",
+      "acceptance": "重构好 = ① L0 只吐原始比值,基线不在 L0 里做;② 与 au23 的定义不再重叠(一个量口内开合、一个量唇红厚度)。"
+    },
+    {
+      "column": "au26_jaw_drop",
+      "modality": "face",
+      "definition": "(下巴 − 上唇的竖直距)÷ face_height = |lm[152].y − lm[13].y| ÷ face_height;再用标定集的 p1/p99 线性映射到 [0,1](§4.1:174)。下巴 = landmarks.py:29 的 CHIN=152,上唇 = landmarks.py:23 的 MOUTH_CENTER_TOP=13。与现行实现的差别:① 分母从无出处的 0.1×face_height(au_calculator.py:97)改成 face_height;② 不再减开头 10 帧基线(它的作用被 p1/p99 映射取代);③ 不在 L0 里截顶。",
+      "source": "mediapipe face landmarker 的 478 点;下巴 lm[152] 与上唇 lm[13]",
+      "normalization": "÷ face_height(分母 = dist(lm[1], lm[152]);video_pipeline.py:77)",
+      "unit": "比值",
+      "maturity": "C",
+      "l0_output": "吐 (下巴−上唇竖直距) ÷ face_height 这个比值;不做 p1/p99 → [0,1] 线性映射(映射范围来自标定集)。",
+      "status": "pending",
+      "quarantine_ref": "",
+      "acceptance": "重构好 = ① 分母不再是 0.1*face_height(那个 0.1 在文档里查不到出处);② L0 不再截顶,饱和交给 L1 的 p1/p99 映射(§4.1:174「饱和即消失」);③ 3 场正式素材重抽后该列仍有方差且不触顶。"
+    },
+    {
+      "column": "avg_ear",
+      "modality": "face",
+      "definition": "标准 EAR(eye aspect ratio),左右眼取均值:单眼 EAR = (dist(p_上1, p_下2) + dist(p_上2, p_下1)) ÷ (2 × dist(p_左角, p_右角))。第一只眼取 lm[160], lm[144], lm[159], lm[153], lm[33], lm[133];第二只取 lm[387], lm[373], lm[386], lm[380], lm[362], lm[263];输出两者均值(au_calculator.py:7-28 的 EyeFeatureExtractor,含 au_calculator.py:23-28 的 _eye_aspect_ratio)。",
+      "source": "mediapipe face landmarker 的 478 点;纯几何比值,与模型自带的 bs_eyeBlinkLeft/Right 是两个独立来源",
+      "normalization": "÷ 单眼宽 dist(lm[33], lm[133])(分母与被测的两条竖距同尺度 ⟹ EAR 与画面缩放无关)",
+      "unit": "比值",
+      "maturity": "A",
+      "l0_output": "吐 EAR 比值本身(0~1 附近的小数),不做阈值判定 —— 闭眼/眨眼的事件门限留给 L1。",
+      "status": "implemented",
+      "quarantine_ref": "",
+      "acceptance": "保的行:验收 = ① definition 与产出逐字一致;② 与 blendshape 的 bs_eyeBlinkLeft/Right 的关系(spec §1 实测 au7 = 1 − avg_ear,零额外信息)在 M3.2 里判谁留下 —— 本列是 EAR 的原始量,不参与那条裁定。⚠️ 代码里 `left_eye_pts` 取 lm[33..]/lm[133..](au_calculator.py:10),而 landmarks.py:5 把这一组声明为 RIGHT_EYE ⟹ 代码的左右命名与映射表相反;avg_ear 取均值故无影响,但 iris 那 4 列必须按代码的配对定义(见那 4 行)。"
+    },
+    {
+      "column": "head_yaw",
+      "modality": "face",
+      "definition": "solvePnP 真 3D 头姿的偏航角(§4.1:182 的「L0 形态」栏:「solvePnP 真 3D yaw」)。现行实现是 2D 近似 (lm[1].x − 双颊中点.x) ÷ face_width(au_calculator.py:179),§4.1:182 判「重构」:它的实测形态是常量偏移(60 场里负值数 = 0;全局最小 −15.59)。",
+      "source": "mediapipe face landmarker 的 478 点(真 3D 版还需要 3D 对应模型点)",
+      "normalization": "none —— 3D 角度本身是尺度无关量;除以 face_width 恰恰是 §4.1:182 判「重构」的那个 2D 近似",
+      "unit": "度",
+      "maturity": "C",
+      "l0_output": "(未实现)真 3D 头姿需要相机内参(焦距 / 主点 / 畸变),本项目**没有任何内参来源**;不近似、不编内参。",
+      "status": "blocked",
+      "quarantine_ref": "",
+      "acceptance": "解封条件:取得相机内参(仪器标定 / 设备规格 / 用已知尺寸物标定,任一条均可)。在此之前本列不实现、不近似。⚠️ 本行由 Task 8 复核(它同时负责新建 head_roll):一行只能有一个属主,故 head_roll 不由本任务建。"
+    },
+    {
+      "column": "head_pitch",
+      "modality": "face",
+      "definition": "solvePnP 真 3D 头姿的俯仰角(§4.1:183 的「L0 形态」栏:「同上(solvePnP 真 3D)」)。现行实现是 2D 近似 (lm[1].y − lm[152].y) ÷ face_height(au_calculator.py:181),分子分母同源 ⟹ §4.1:183 判「重构」:均值 −0.9979、值域 [−1, −0.979]。",
+      "source": "mediapipe face landmarker 的 478 点(真 3D 版还需要 3D 对应模型点)",
+      "normalization": "none —— 3D 角度本身是尺度无关量;分子分母同源正是 §4.1:183 判「重构」的原因",
+      "unit": "度",
+      "maturity": "C",
+      "l0_output": "(未实现)真 3D 头姿需要相机内参(焦距 / 主点 / 畸变),本项目**没有任何内参来源**;不近似、不编内参。",
+      "status": "blocked",
+      "quarantine_ref": "",
+      "acceptance": "解封条件:取得相机内参(仪器标定 / 设备规格 / 用已知尺寸物标定,任一条均可)。在此之前本列不实现、不近似。⚠️ 本行由 Task 8 复核(它同时负责新建 head_roll)。"
+    },
+    {
+      "column": "symmetry_score",
+      "modality": "face",
+      "definition": "面部左右对称度 = 1 − (|左眼中心 y − 右眼中心 y| + |左嘴角 y − 右嘴角 y|) ÷ face_height。眼中心 = 该眼两角的均值,嘴角 = lm[61]/lm[291](landmarks.py:21-22)。现行实现不除任何尺度(au_calculator.py:211:symmetry_score = 1 − (eye_y_diff + mouth_y_diff)),而差值是归一化图像坐标 ⟹ 编码的是取景(§4.1:208 依据栏「未除人脸尺度 → 取景代理」)。⚠️ 本行由白名单移入 columns:§4.1:208 的处置是「重构」,不是「删」。",
+      "source": "mediapipe face landmarker 的 478 点;眼中心由 lm[33]/lm[133] 与 lm[362]/lm[263] 取均值(au_calculator.py:205-206)",
+      "normalization": "÷ face_height(竖直差 ÷ 竖直尺度;§4.1:208 只写了「未除人脸尺度」,没给分母 ⟹ 本行定,见 basis)",
+      "unit": "比值",
+      "maturity": "B",
+      "l0_output": "吐 1 − (两个竖直差之和 ÷ face_height) 这个对称度比值;「不对称」的阈值留给 L1。",
+      "status": "pending",
+      "quarantine_ref": "symmetry_score —— 未除人脸尺度,近常量,取景代理(evidence_gate.py:45);unblock: M3",
+      "acceptance": "重构好 = ① 该列不再随人脸在画面中的位置/大小变化(平移或缩放裁剪框,该列不变);② 会话内不再是近常量(spec §1 实测 mean 0.9825);③ evidence_gate.py:45 的 symmetry_score 封停可解。",
+      "basis": "分母由本行定:§4.1:208 只说「未除人脸尺度」,没说除哪个。取 face_height —— 被除的两个差都是**竖直**距离,分母取竖直尺度,与 §4.1:164 给 au6 的理由一致(分子分母同向,转头时同比缩短);若取 face_width,左右转头会直接污染对称度。"
+    },
+    {
+      "column": "left_iris_x",
+      "modality": "face",
+      "definition": "眼内相对横坐标 =(虹膜中心 x − 眼中心 x) ÷ 眼宽。虹膜中心 = mean(lm[468], lm[469], lm[470], lm[471]) 的 x(au_calculator.py:220-224);配对的眼 = au_calculator.py:10 与这个虹膜同组的那一圈 [33, 160, 159, 133, 153, 144];眼中心 x =(lm[33].x + lm[133].x) ÷ 2;眼宽 = dist(lm[33], lm[133])(au_calculator.py:27 的 C 项就是这么取的)。§4.1:188:「眼内相对坐标 =(iris − eye_center) ÷ eye_width」。",
+      "source": "mediapipe face landmarker 的 478 点(含虹膜 468-477);虹膜中心取 468-471 的均值",
+      "normalization": "÷ 眼宽 dist(lm[33], lm[133])(x、y 同除眼宽 —— 同一分母才是各向同性,虹膜圆不会被拉扁)",
+      "unit": "比值",
+      "maturity": "B",
+      "l0_output": "吐「虹膜中心相对眼中心」的眼内归一化横坐标;「看哪边」的阈值留给 L1。",
+      "status": "pending",
+      "quarantine_ref": "eye_contact —— iris 图像坐标到画面中心距离,是取景代理(evidence_gate.py:65);unblock: M3 改眼内相对坐标",
+      "acceptance": "重构好 = ① 平移裁剪框(人脸在画面里的位置变)该列不变;② evidence_gate.py:65 的 eye_contact 封停可解(它的 unblock 就是这 4 列);③ 左右列名与实际虹膜的一致性在 M3.2 定(本行保留现名,改名会动日志列契约)。",
+      "basis": "① eye_center / eye_width 的下标由本行定:§4.1:188 只写了「(iris − eye_center) ÷ eye_width」,没给这两个量怎么取;本行取该眼两角的均值与距离(角点出处:landmarks.py:5 的 RIGHT_EYE 含 33/133、landmarks.py:4 的 LEFT_EYE 含 362/263;au_calculator.py:27 也把 dist(lm[33], lm[133]) 当该眼宽用)。② ⚠️ 左右命名:landmarks.py:4-5 与 mediapipe 的 FACEMESH_LEFT_EYE / RIGHT_EYE **逐点相同**,即 lm[33..133] 是**右**眼;而 au_calculator.py:10-11 把它叫 left。本行按**代码的配对**(日志列实际装的量)定义并保留列名 —— 改列名会动日志列契约(钉子方向 1),那是 M3.2 的决定。"
+    },
+    {
+      "column": "left_iris_y",
+      "modality": "face",
+      "definition": "眼内相对纵坐标 =(虹膜中心 y − 眼中心 y) ÷ 眼宽。虹膜中心 = mean(lm[468], lm[469], lm[470], lm[471]) 的 y(au_calculator.py:220-224);配对的眼 = [33, 160, 159, 133, 153, 144](au_calculator.py:10);眼中心 y =(lm[33].y + lm[133].y) ÷ 2;眼宽 = dist(lm[33], lm[133])。§4.1:188:「眼内相对坐标 =(iris − eye_center) ÷ eye_width」。",
+      "source": "mediapipe face landmarker 的 478 点(含虹膜 468-477);虹膜中心取 468-471 的均值",
+      "normalization": "÷ 眼宽 dist(lm[33], lm[133])(与 x 同分母,保持各向同性)",
+      "unit": "比值",
+      "maturity": "B",
+      "l0_output": "吐「虹膜中心相对眼中心」的眼内归一化纵坐标;「看上/下」的阈值留给 L1。",
+      "status": "pending",
+      "quarantine_ref": "eye_contact —— iris 图像坐标到画面中心距离,是取景代理(evidence_gate.py:65);unblock: M3 改眼内相对坐标",
+      "acceptance": "同 left_iris_x:① 平移裁剪框该列不变;② evidence_gate.py:65 的 eye_contact 封停可解;③ 列名与虹膜左右的一致性归 M3.2。",
+      "basis": "同 left_iris_x:eye_center / eye_width 的下标由本行定(§4.1:188 没给),取该眼两角的均值与距离;并提醒代码的 left/right 与 landmarks.py:4-5 的声明相反,本行按代码的配对定义。"
+    },
+    {
+      "column": "right_iris_x",
+      "modality": "face",
+      "definition": "眼内相对横坐标 =(虹膜中心 x − 眼中心 x) ÷ 眼宽。虹膜中心 = mean(lm[473], lm[474], lm[475], lm[476]) 的 x(au_calculator.py:221-225);配对的眼 = [362, 387, 386, 263, 380, 373](au_calculator.py:11);眼中心 x =(lm[362].x + lm[263].x) ÷ 2;眼宽 = dist(lm[362], lm[263])。§4.1:188:「眼内相对坐标 =(iris − eye_center) ÷ eye_width」。",
+      "source": "mediapipe face landmarker 的 478 点(含虹膜 468-477);虹膜中心取 473-476 的均值",
+      "normalization": "÷ 眼宽 dist(lm[362], lm[263])(x、y 同分母)",
+      "unit": "比值",
+      "maturity": "B",
+      "l0_output": "吐「虹膜中心相对眼中心」的眼内归一化横坐标;「看哪边」的阈值留给 L1。",
+      "status": "pending",
+      "quarantine_ref": "eye_contact —— iris 图像坐标到画面中心距离,是取景代理(evidence_gate.py:65);unblock: M3 改眼内相对坐标",
+      "acceptance": "同 left_iris_x:① 平移裁剪框该列不变;② evidence_gate.py:65 的 eye_contact 封停可解;③ 列名与虹膜左右的一致性归 M3.2。",
+      "basis": "同 left_iris_x:eye_center / eye_width 的下标由本行定(§4.1:188 没给);角点出处 landmarks.py:4(LEFT_EYE 含 362/263)。代码的 left/right 命名与 landmarks.py:4-5 相反,本行按代码的配对定义并保留列名。"
+    },
+    {
+      "column": "right_iris_y",
+      "modality": "face",
+      "definition": "眼内相对纵坐标 =(虹膜中心 y − 眼中心 y) ÷ 眼宽。虹膜中心 = mean(lm[473], lm[474], lm[475], lm[476]) 的 y(au_calculator.py:221-225);配对的眼 = [362, 387, 386, 263, 380, 373](au_calculator.py:11);眼中心 y =(lm[362].y + lm[263].y) ÷ 2;眼宽 = dist(lm[362], lm[263])。§4.1:188:「眼内相对坐标 =(iris − eye_center) ÷ eye_width」。",
+      "source": "mediapipe face landmarker 的 478 点(含虹膜 468-477);虹膜中心取 473-476 的均值",
+      "normalization": "÷ 眼宽 dist(lm[362], lm[263])(与 x 同分母,保持各向同性)",
+      "unit": "比值",
+      "maturity": "B",
+      "l0_output": "吐「虹膜中心相对眼中心」的眼内归一化纵坐标;「看上/下」的阈值留给 L1。",
+      "status": "pending",
+      "quarantine_ref": "eye_contact —— iris 图像坐标到画面中心距离,是取景代理(evidence_gate.py:65);unblock: M3 改眼内相对坐标",
+      "acceptance": "同 left_iris_x:① 平移裁剪框该列不变;② evidence_gate.py:65 的 eye_contact 封停可解;③ 列名与虹膜左右的一致性归 M3.2。",
+      "basis": "同 left_iris_x:eye_center / eye_width 的下标由本行定(§4.1:188 没给);角点出处 landmarks.py:4(LEFT_EYE 含 362/263)。代码的 left/right 命名与 landmarks.py:4-5 相反,本行按代码的配对定义并保留列名。"
+    },
+    {
+      "column": "gaze_direction_x",
+      "modality": "face",
+      "definition": "视线水平偏移 =(双眼虹膜中心中点 x − 鼻尖 x) ÷ face_width:eye_mid =(mean(lm[468..471]) + mean(lm[473..476])) ÷ 2,nose_tip = lm[1](landmarks.py:16 NOSE_TIP=1),face_width = dist(lm[234], lm[455])(video_pipeline.py:78)。au_calculator.py:234-238 现行实现同式。§4.1:189 判「保」(依据栏:7 个视线列里唯一真携带眼动信息)。",
+      "source": "mediapipe face landmarker 的 478 点;虹膜中心与鼻尖",
+      "normalization": "÷ face_width(水平偏移除以水平尺度,转头时同比缩短 —— 与 §4.1:164 给 au6 的理由同源)",
+      "unit": "比值",
+      "maturity": "A",
+      "l0_output": "吐 (眼中心 x − 鼻尖 x) ÷ face_width 这个偏移比值;「看向哪」的门限留给 L1。",
+      "status": "implemented",
+      "quarantine_ref": "",
+      "acceptance": "保的行:验收 = ① definition 与产出逐字一致;② 本列是 gaze_direction_y / gaze_deviation 被删后**留下**的那一列(§4.1:189-191);L1 不许再把 gaze_deviation 从别处派生回来 —— evidence_gate.py:60 的 gaze_stability(由被封停的 gaze_deviation 派生)就是这个形态。"
+    },
+    {
+      "column": "is_blink",
+      "modality": "face",
+      "definition": "当前帧是否闭眼(布尔事件):avg_ear < EAR_THRESHOLD ⟹ 1,否则 0。阈值现行硬编码 EAR_THRESHOLD = 0.21(video_pipeline.py:24),文档里**没有出处** ⟹ 事件门限来自标定集,判 C。§4.1:185 的处置是「修」(依据栏「值写进深拷贝」),M2.5 已修(序列化改用 current_au,video_pipeline.py:97-101)⟹ 该列现在真的写得出非 0 值。",
+      "source": "mediapipe face landmarker 的 478 点 → avg_ear → 阈值比较(video_pipeline.py:252-278 的 _update_blink_state)",
+      "normalization": "none —— 布尔事件标志不做尺度归一;尺度归一在它的输入 avg_ear 上",
+      "unit": "布尔(0/1)",
+      "maturity": "C",
+      "l0_output": "吐布尔事件标志;阈值(EAR 门限)来自标定集 —— 标定前这一列只是「0.21 之下」的布尔,不是经过标定的眨眼判定。",
+      "status": "implemented",
+      "quarantine_ref": "",
+      "acceptance": "重构好 = ① 阈值不再硬编码在 video_pipeline.py:24,而是从数据文件/标定结果取(全局约束「阈值/常量一律进数据文件」);② 该列与 avg_ear 一起进标定,能给出闭眼判定的误差口径。"
+    }
+  ]
 }
