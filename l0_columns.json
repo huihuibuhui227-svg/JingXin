@@ -1,0 +1,24 @@
+{
+  "_schema": {
+    "version": "1.0.0",
+    "_provisional": true,
+    "basis": "M3.0 spec(2026-09-26)。列定义来自 2026-09-21 特征重构设计 §4 的处置表 + 2026-09-26 的逐行核实。",
+    "fields": ["column", "modality", "definition", "source", "normalization",
+               "unit", "maturity", "l0_output", "status", "quarantine_ref", "acceptance"]
+  },
+  "count_reconciliation": {
+    "doc_estimate": {"face": 22, "gesture": 13, "voice": 16, "text": 3},
+    "actual": {"face": 0, "gesture": 0, "voice": 0, "text": 0},
+    "deltas": [],
+    "note": "actual 由 Task 2/3/4 逐列定义后填写;deltas 必须逐条写明差异原因(spec §4.3)。"
+  },
+  "legacy_allowlist": [
+    {"column": "focus_score", "modality": "face",
+     "why": "3 个硬编码取值,99.7% 恒 0.3(QUARANTINE 已封停)",
+     "planned": "M3.2"},
+    {"column": "symmetry_score", "modality": "face",
+     "why": "未除人脸尺度,近常量,取景代理(QUARANTINE 已封停)",
+     "planned": "M3.2"}
+  ],
+  "columns": []
+}
