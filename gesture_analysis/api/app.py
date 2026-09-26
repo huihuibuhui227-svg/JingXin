@@ -20,7 +20,8 @@ from gesture_analysis.core.analysis.shoulder_analyzer import ShoulderAnalyzer
 from gesture_analysis.core.analysis.arm_analyzer import ArmAnalyzer
 from gesture_analysis.core.analysis.emotion_inferencer import EmotionInferencer
 from gesture_analysis.core.analysis.upper_body_analyzer import UpperBodyAnalyzer
-from gesture_analysis.core.feature_extraction.angles import finger_angles, pose_angles
+from gesture_analysis.core.feature_extraction.angles import (finger_angles, pose_angles,
+                                                             shoulder_width)
 from gesture_analysis.utils.logger import GestureLogger, NONE_SESSION
 from gesture_analysis.config import API_CONFIG, MEDIAPIPE_CONFIG, LOGS_DIR
 # close() 实测恒 5.0s,所以回收/重置路径一律走这个后台 helper(I1)。**只 import 这一个
@@ -376,6 +377,10 @@ async def analyze_image(
             right_arm_score = right_arm_result.get('arm_score', 50.0) if right_arm_result.get('is_valid') else 50.0
             # 姿态角度(肘/肩/头倾/头俯仰/肩线/躯干) —— 定义照 examples 移植,见 angles.py
             angles_data.update(pose_angles(pose_landmarks))
+            # 双肩的**归一化图像距离** —— 协变量(报告层拿它当尺度基准消取景影响),
+            # 单位**不是米**:本项目没有任何相机内参来源,给不出米制(见 angles.shoulder_width
+            # 与 l0_columns.json 那一行)。缺任一肩时这里是 None ⟹ 日志落**空**,不落 0。
+            angles_data["shoulder_width"] = shoulder_width(pose_landmarks)
 
         if pose_world:
             # 同一套公式喂米制坐标。**两个分析器集各自独立**,不然状态会串。

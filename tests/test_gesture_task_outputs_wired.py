@@ -20,7 +20,7 @@ import media_retention                                                # noqa: E4
 gesture_app = importlib.import_module("gesture_analysis.api.app")     # noqa: E402
 gl = importlib.import_module("gesture_analysis.utils.logger")         # noqa: E402
 from gesture_analysis.core.feature_extraction.angles import (         # noqa: E402
-    finger_angles, joint_angle, pose_angles)
+    finger_angles, joint_angle, pose_angles, shoulder_width)
 
 SID = "20260926_120000_zzzz"
 
@@ -104,6 +104,24 @@ def _pose33():
     put(13, 0.40, 0.70)     # left_elbow
     put(15, 0.40, 0.90)     # left_wrist  → 肩-肘-腕 共线 ⟹ 180°
     put(23, 0.38, 0.95)     # left_hip
+    return pts
+
+
+def _pose_with_shoulders(lm11, lm12):
+    """33 点姿态,只把**左右肩**放到指定的归一化坐标(其余保持 `_pose33` 的占位)。
+
+    `lm11` / `lm12` 传 `None` 表示**那一侧的肩缺了** —— mediapipe 的 33 点总是整份给,
+    所以这只是替「模型这一帧没交出那一只肩」构造输入,不是在模拟常规帧。
+    """
+    pts = _pose33()
+    if lm11 is not None:
+        pts[11] = _Pt(*lm11)
+    else:
+        pts[11] = None
+    if lm12 is not None:
+        pts[12] = _Pt(*lm12)
+    else:
+        pts[12] = None
     return pts
 
 
@@ -352,3 +370,114 @@ def test_hand_visible_needs_the_hand_to_be_there_at_all(tmp_path, monkeypatch):
             hand_present={"left_hand": True, "right_hand": False})
     rows = list(csv.DictReader(open(log.log_file, encoding="utf-8")))
     assert rows[-1]["hand_visible_left"] == "1", rows[-1]["hand_visible_left"]
+
+
+# ── 手势协变量 shoulder_width(2026-09-26 Task 7)──────────────────────
+# ⚠️ 单位是**归一化图像单位**,不是米。转米要相机内参,而本项目**没有任何内参来源**
+#    (2026-09-26 全仓 grep `solvePnP` / `camera_matrix` / `Rodrigues` / 焦距:0 命中;
+#    `models/` 下只有 4 个 `.task`、无标定文件)—— Task 8 已据此把 3D 头姿登记为 blocked。
+#    这一列是**协变量**用途:报告层拿它作**分母**消掉取景/距离的影响(spec §4.5 规矩)。
+#    下面这几条测试**证不了单位**(单位是约束不是可测事实),能测的是几何与缺失行为;
+#    单位那一半由 `tests/test_l0_column_table.py` 的钉子钉在**表里那行**上。
+def test_shoulder_width_is_the_normalized_distance_between_lm11_and_lm12():
+    """双肩归一化图像坐标的**欧氏**距离 —— 轴对齐与斜着各验一遍。
+
+    红法:把 `shoulder_width` 改成只取 |Δx|(斜着那个用例会得 0.3,而不是 0.5)。
+    """
+    assert shoulder_width(_pose_with_shoulders((0.3, 0.4), (0.7, 0.4))) == pytest.approx(0.4, abs=1e-6)
+    assert shoulder_width(_pose_with_shoulders((0.3, 0.4), (0.6, 0.8))) == pytest.approx(0.5, abs=1e-6)
+
+
+def test_shoulder_width_is_none_when_a_shoulder_is_missing():
+    """★ 缺任一肩 ⟹ `None`(**不写 0**)。
+
+    为什么 0 不行:在归一化坐标里 `0` 的意思是「两肩重合」—— 一个**看着像测量值**的
+    假数,下游拿它做分母会得到 inf/NaN,而不是"这一帧没有这个量"。
+
+    四种「缺」都验:单缺右肩 / 单缺左肩 / 点数不够(只有 13 个点)/ 整份姿态为 `None`。
+    红法:把任一条缺失分支改成 `return 0.0`。
+    """
+    assert shoulder_width(_pose_with_shoulders((0.3, 0.4), None)) is None
+    assert shoulder_width(_pose_with_shoulders(None, (0.7, 0.4))) is None
+    assert shoulder_width([_Pt(0.5, 0.5)] * 12) is None
+    assert shoulder_width(None) is None
+
+
+def test_shoulder_width_reaches_the_log_row(monkeypatch, tmp_path):
+    """★ 端点手里的 `pose_landmarks` 真的变成了日志里那一格(**归一化图像单位**)。
+
+    红法:把 `angles_data["shoulder_width"] = ...` 从端点里去掉 ⟹ 该格变空。
+    """
+    loggers = _wired(monkeypatch, tmp_path,
+                     pose=_pose_with_shoulders((0.30, 0.40), (0.70, 0.40)))
+    _post()
+    row = _row(loggers)
+    assert row["shoulder_width"] != "", "新列没写进日志(端点没把手里的 pose 用上)"
+    assert float(row["shoulder_width"]) == pytest.approx(0.40, abs=1e-6), row["shoulder_width"]
+
+
+def test_shoulder_width_is_empty_when_one_shoulder_is_missing_in_the_live_path(monkeypatch, tmp_path):
+    """★ 缺一只肩 —— 走**端点 → CSV** 整条路,该格必须是**空**,不是 `0`。
+
+    活路径上 mediapipe 的 33 点总是整份给(要么整份 `None`),所以「只缺一只肩」这条
+    分支由替身探测器构造。它守的是表里 acceptance ② 那句话,也是**下游最怕的那一格**:
+    `0` 会被当成「肩宽 = 0」。
+
+    红法:把 `shoulder_width` 的 `if a is None or b is None: return None` 改成 `return 0.0`。
+    """
+    loggers = _wired(monkeypatch, tmp_path,
+                     pose=_pose_with_shoulders((0.30, 0.40), None))    # 右肩缺
+    _post()
+    row = _row(loggers)
+    assert row["shoulder_score"] != "", "前提:这一帧是有姿态的(否则测的是「没姿态」那条)"
+    assert row["shoulder_width"] == "", f"缺一只肩却写了值:{row['shoulder_width']!r}"
+
+
+def test_shoulder_width_is_empty_not_zero_when_there_is_no_pose(monkeypatch, tmp_path):
+    """没有姿态的帧 ⟹ **空**,不是 `0`。
+
+    红法:把端点那句写成 `... or 0.0`,或把 `shoulder_width` 的缺失分支改成 `return 0.0`。
+    """
+    loggers = _wired(monkeypatch, tmp_path, pose=None)
+    _post()
+    row = _row(loggers)
+    assert row["shoulder_score"] == "", "前提:这一帧确实没有姿态"
+    assert row["shoulder_width"] == "", f"没有姿态却写了值:{row['shoulder_width']!r}"
+
+
+# ── 两个手部单元格帮手的**分歧机制**(2026-09-26 Task 7 顺手修的说明)──────
+def test_the_two_hand_cell_helpers_diverge_on_two_different_mechanisms():
+    """★ `logger.py` 里那段"两处细微不同"的说明,机制**是两个**,不是一个。
+
+    原话是「差别只在**假值但非 None** 的条目上(如 `("", 0.9)`)」——
+    **`("", 0.9)` 是非空元组 = 真值**,`_handedness_cells` 走的是**正常分支**,
+    根本不会碰 `("", "")` 那一支;它的 label 格空是**另一个原因**。这条测试把两种机制分开钉住:
+
+      · **甲** `()`(假值非 None):那个三元把**整个条目**换成 `("", "")`
+        ⟹ label 与 conf **两格都空**;而 `_hand_visible_cells` 判 `is not None` ⟹ `1`。
+      · **乙** `("", 0.9)`(真值):正常解包 ⟹ conf 格**有值** `0.9`,
+        label 格空是因为**模型给的 label 就是空串**(不是三元的功劳);`_hand_visible_cells` 也写 `1`。
+
+    红法(都是"把两套判据统一起来"这种自然改动):
+      · 把 `_hand_visible_cells` 的 `known = info.get(slot) is not None` 改成
+        `known = bool(info.get(slot))` ⟹ 甲的第三条断言变红;
+      · 把 `_handedness_cells` 改成「label 空即视为没有依据」⟹ 乙的 conf 格从 `0.9` 变空,变红。
+    """
+    G = gl.GestureLogger
+
+    # 甲
+    cells = G._handedness_cells({"left_hand": ()})
+    assert cells["left_hand_model_label"] == ""
+    assert cells["left_hand_model_label_conf"] == "", \
+        "假值条目被当成了'有置信度'的条目 —— 三元那一支没生效"
+    assert G._hand_visible_cells({"left_hand": ()},
+                                {"left_hand": True})["hand_visible_left"] == "1", \
+        "判据若是真值判断,这一格会是空 —— 那说明两套判据被统一了"
+
+    # 乙
+    cells = G._handedness_cells({"left_hand": ("", 0.9)})
+    assert cells["left_hand_model_label"] == ""
+    assert cells["left_hand_model_label_conf"] == pytest.approx(0.9), \
+        "非空元组(真值)该走**正常分支** —— conf 有值;空的是 label 元素本身"
+    assert G._hand_visible_cells({"left_hand": ("", 0.9)},
+                                {"left_hand": True})["hand_visible_left"] == "1"

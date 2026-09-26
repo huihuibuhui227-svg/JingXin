@@ -23,6 +23,9 @@
 
 `dims=3` 走 x/y/z(现成的 **world 米制坐标**用它):角度与尺度无关,但**深度**该算进去 ——
 臂朝镜头伸出去时,只看 x/y 会把一个 3D 角读小。
+
+另有 `shoulder_width()`(**不在**上表里,2026-09-26 新增):它不是角度,是双肩的
+**归一化图像距离**,给报告层当**协变量/尺度基准**用 —— 单位**不是米**,理由见该函数。
 """
 from __future__ import annotations
 
@@ -41,6 +44,11 @@ _POSE = {
     "left_wrist": 15, "right_wrist": 16,
     "left_hip": 23, "right_hip": 24,
 }
+
+# `shoulder_width` 用的两个下标 —— 与 `_POSE` 里那两个**同值**,只是取个名字,
+# 免得函数体里出现裸的 11/12(表里 l0_columns.json 的定义也点了名:lm[11]/lm[12])。
+_POSE_LEFT_SHOULDER = _POSE["left_shoulder"]
+_POSE_RIGHT_SHOULDER = _POSE["right_shoulder"]
 
 # 手指 → 三个关节的索引(与 examples/main_integrator.py 一致)。
 _FINGER_JOINTS = {
@@ -169,3 +177,40 @@ def pose_angles(pose_landmarks, dims: int = 2) -> Dict[str, float]:
             put("torso_angle", abs(90 - deg))
 
     return out
+
+
+def shoulder_width(pose_landmarks) -> float | None:
+    """双肩在**归一化图像坐标**里的欧氏距离 = dist(lm[11], lm[12])。缺任一肩 ⟹ `None`。
+
+    ★★ **单位是归一化图像单位,不是米** ★★
+    转成米需要**相机内参**,而本项目**没有任何内参来源** —— 2026-09-26 全仓核实:
+    `solvePnP` / `Rodrigues` / `camera_matrix` / 焦距 **0 命中**,`models/` 下只有 4 个
+    `.task` 模型文件、**没有标定文件**(见 spec §10 风险 2;Task 8 已据此把 3D 头姿
+    登记为 `blocked`)。所以**没有**一条"归一化单位 → 米"的换算路可走,谁要把它当
+    「被测者肩宽多少厘米」用,都得先**编一个内参** —— 那正是本项目禁止的形态。
+
+    **它是协变量用途**:报告层拿它作**分母/尺度基准**,去消掉取景与距离对别的量的影响
+    (spec §4.5 规矩:「凡是取景/设备/机器负载会影响的列,要么按解剖尺度归一,要么显式
+    输出为协变量」)。它测的是**画面尺度**,不是人体测量值。
+
+    ⚠️ 缺任一肩 / 点数不够 / 整份姿态为 `None` ⟹ 交 `None`(**不写 0**):
+    在归一化坐标里 `0` 的意思是「两肩重合」—— 一个**看着像测量值**的假数,
+    下游拿它当分母会得到 inf/NaN,而不是"这一帧没有这个量"。
+
+    ⚠️ **本函数不看 `visibility`**(与 `pose_angles` 那 5 个角度不同:那一批有 0.6 门限)。
+    口径照 `l0_columns.json` 那一行:判据是 `dist(lm[11], lm[12])`、缺则空,
+    没有可见度门限这一条 —— 要加就得先改表里那句,不是一个函数能顺手定的。
+    """
+    if pose_landmarks is None or len(pose_landmarks) <= _POSE_RIGHT_SHOULDER:
+        return None
+    a = pose_landmarks[_POSE_LEFT_SHOULDER]
+    b = pose_landmarks[_POSE_RIGHT_SHOULDER]
+    if a is None or b is None:
+        return None
+    try:
+        ax, ay = _vec(a, 2)
+        bx, by = _vec(b, 2)
+    except (TypeError, ValueError):
+        # 坐标取不出来(缺 x/y、不是数)⟹ 与"肩缺了"同等对待:没有这个量
+        return None
+    return float(math.hypot(ax - bx, ay - by))

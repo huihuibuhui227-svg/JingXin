@@ -169,7 +169,17 @@ class GestureLogger:
             # 不另起一套;细节差异(它当真值用、本列判 `is not None`)见
             # `_hand_visible_cells()` 的 docstring。
             "hand_visible_left",
-            "hand_visible_right"
+            "hand_visible_right",
+
+            # ── 双肩的归一化图像距离(2026-09-26 加,Task 7)──────────────────
+            # ★★ **单位是归一化图像单位,不是米。** 转米要相机内参,而本项目**没有任何
+            # 内参来源**(2026-09-26 全仓 grep `solvePnP`/`Rodrigues`/`camera_matrix`/
+            # 焦距 0 命中,`models/` 下无标定文件)⟹ 米制肩宽只能靠**编一个内参**。
+            # 它的用途是**协变量**:报告层拿它作**分母/尺度基准**,消掉取景与距离对别的量的
+            # 影响(spec §4.5 规矩)。它测的是**画面尺度**,不是「被测者肩宽多少厘米」。
+            # ⚠️ 缺任一肩 / 本帧没有姿态 ⟹ **空**(不写 0 —— 归一化坐标里 0 是「两肩重合」,
+            # 一个看着像测量值的假数)。取值口径见 angles.shoulder_width()。
+            "shoulder_width"
         ]
 
         # 写入文件头（仅一次）
@@ -232,14 +242,30 @@ class GestureLogger:
         与"不知道"是两回事(与 `_handedness_cells()` **同一约定、同一入口** —— 都是
         `handedness_info`;不另起一套)。
 
-        ⚠️ **一处与 `_handedness_cells()` 的细微不同,别当成"逐字照抄"**(复核 Minor 3):
+        ⚠️ **一处与 `_handedness_cells()` 的细微不同,别当成"逐字照抄"**(复核 Minor 3)。
         那个方法把条目当**真值**用(`entry if entry else ("", "")`),本方法判的是
-        `is not None`。差别只在"**假值但非 None**"的条目上(如 `("", 0.9)`):那时
-        `*_hand_model_label` 落空串,而本列写 `1`。**活路径产不出这种条目**
-        (端点在 `entry is not None` 时写的就是 `(label, conf)` 原样,label 来自模型、
-        非空),所以今天无实害;判据取 `is not None` 是因为表里 `definition` 写的**就是**
-        `handedness_info[槽] is not None`。要两边严格同形,就得把表里那句也改掉 —— 那是一次
-        语义选择,不是这里顺手能定的。
+        `is not None`。两处都会出现「label 格空,而本列写 `1`」,但**机制是两个**
+        (2026-09-26 复核指出:原文只举了第二种,却按第一种的机制解释 —— 效果描述碰巧对、
+        机制说错了;两种机制都由 `tests/test_gesture_task_outputs_wired.py::
+        test_the_two_hand_cell_helpers_diverge_on_two_different_mechanisms` 钉住):
+          · **甲:假值但非 `None`** 的条目(`()` / `0` / `""` / `{}`)—— 那个三元把**整个
+            条目**换成 `("", "")` ⟹ label 与 conf **两格都空**;而本列判 `is not None` ⟹ 写 `1`。
+            **`("", 0.9)` 不属于这一类**:它是**非空元组 = 真值**,`_handedness_cells`
+            根本不会走 `("", "")` 那一支(原文正是把它当成了本类的例子)。
+          · **乙:条目里的 label 元素本身为空**(如 `("", 0.9)`)—— 走**正常分支**,
+            label 格空是因为**模型给的那个 label 就是空串**(`label or ""` 只是顺手把
+            `None` 之类归一成空串,不是原因);conf 格**有值**(`0.9`)。本列同样写 `1`。
+        判据取 `is not None` 是因为表里 `definition` 写的**就是** `handedness_info[槽] is not None`;
+        要两边严格同形,得先改表里那句话 —— 那是一次语义选择,不是这里顺手能定的。
+
+        ⚠️ **活路径会不会给出这两种条目**:甲类**活路径产不出** —— 端点在 `entry is not None`
+        时写的就是 `(label, conf)` 原样,而 `detectors.py` 的 `handedness` 逐条要么给
+        `(category_name, score)` 要么给 `None`,不走三元那条路;乙类**代码上也没被排除**:
+        `detectors.py` 取的是 `entry[0].category_name` **原样**,没查过它非空 ⟹ 模型哪天给出
+        空 `category_name`,乙类就进得来。2026-09-26 实测:`data/logs/` 下**所有带
+        `*_hand_model_label_conf` 列的 gesture 日志**(12 场 / 2933 行 / 5866 格)里,
+        乙类的签名(`label == ""` 且 `conf != ""`)的格子 **0 个**。
+        ⟹ 准确说法是「**没观测到过**(且甲类今天产不出)」,**不是**「构造上产不出」。
 
         `hand_present` 缺省(None)= **不知道**,⟹ 两格留空 —— 不拿"没传"当"没有",
         也不拿它当"有"(见 `log()` 的入参说明)。
@@ -390,6 +416,12 @@ class GestureLogger:
 
                 # 躯干角度（屏幕显示）
                 "torso_angle": self._safe_get(angles_data, 'torso_angle', None),
+
+                # 双肩的归一化图像距离(**协变量**,不是米 —— 见字段说明)。
+                # 缺 ⟹ 空:`_safe_get` 在"端点没放这个键"时交 `None`,而 **csv 把 `None`
+                # 落成空串**(与左邻那 18 个角度列同一机制 —— 它们也走 `default=None`,
+                # 而 `left_thumb_angle == ""` 已被 tests/test_gesture_task_outputs_wired.py 钉住)。
+                "shoulder_width": self._safe_get(angles_data, 'shoulder_width', None),
 
                 # 情绪特征
                 "overall_score": self._safe_get(emotion_result, 'overall_score', 0.0),
