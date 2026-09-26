@@ -66,6 +66,13 @@ def schema_errors(doc: dict) -> list[str]:
         if row.get("status") == "implemented" and row.get("modality") not in ("face", "gesture", "voice"):
             errs.append(f"{name}: status=implemented 但 modality={row.get('modality')!r} "
                         f"—— 已实现的列必须标产出它的服务(face/gesture/voice)")
+        # ★ Task 8(2026-09-26):`blocked` 的行必须在 `acceptance` 里写下**解封条件**。
+        #   理由:`blocked` 是唯一一个"什么都不产出也算合格"的状态 —— 不写解封条件,
+        #   「卡在某个外部条件上」与「只是不打算做」在表上长得一模一样,读表的人无从
+        #   知道它等的是什么。判据是那四个字在不在(同 `asr_confidence` 那行的写法)。
+        if row.get("status") == "blocked" and "解封条件" not in str(row.get("acceptance", "")):
+            errs.append(f"{name}: status=blocked 但 acceptance 里没写「解封条件」"
+                        f"—— 卡住的行必须写清它等的是什么(缺什么、怎么拿到)")
     if not doc.get("count_reconciliation"):
         errs.append("缺 count_reconciliation —— 「54」这个数必须登记来源与差异")
     # ★ 计数收口(2026-09-26,预检裁定 C5 + Task 2 复核 §5 C10):`actual` 的每个模态数

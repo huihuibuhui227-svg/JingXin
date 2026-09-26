@@ -82,6 +82,33 @@ def test_schema_errors_is_empty_on_the_shipped_file():
     assert l0.schema_errors(l0.load()) == []
 
 
+def test_blocked_rows_state_their_unblock_condition():
+    """★ 红法:把某条 `blocked` 行的 `acceptance` 清空(或把「解封条件」四个字删掉)。
+
+    为什么需要它:`blocked` 是**唯一一个「什么都不产出也算合格」的状态** ——
+    `schema_errors()` 只判结构,钉子方向 2 又只查 `implemented` 行。于是不写解封条件的话,
+    「卡在某个外部条件上(缺相机内参 / 缺置信度来源)」与「只是不打算做」在表上**长得一模一样**,
+    读表的人无从知道它等的是什么。判据形状与 `asr_confidence` 那行一致(它写的是
+    `**解封条件(缺什么、怎么拿到)**:`)。
+
+    ★ 同一条规则也写在 `l0_columns.py::schema_errors()` 里 —— 两处都放:那一条让
+    **写表的人**立刻看到错,这一条让**读表/复核的人**不依赖 schema_errors 的实现。
+
+    ⚠️ 边界(如实说):它钉的是**那四个字还在不在**,不是「解封条件写得对不对」——
+    写一句「等有空」也能过。要判内容对不对只能人读;这条断言的价值在于**删掉**那句
+    或者**清空 `acceptance`** 会立刻红(后者同时被 `_REQUIRED_FIELDS` 的空值检查覆盖,
+    但那条说的是「字段为空」、这条说的是「字段写了却没写解封条件」,两种漏法都要挡)。
+    """
+    blocked = [c for c in l0.columns() if c["status"] == "blocked"]
+    assert blocked, (
+        "表里一条 blocked 行都没有 —— 本测试会**假绿**(它靠 blocked 行存在才有意义);"
+        "若 blocked 确实已清零,请连同这条断言一起删掉")
+    for c in blocked:
+        assert "解封条件" in c["acceptance"], (
+            f"{c['column']} 是 blocked,但 acceptance 里没写「解封条件」—— "
+            f"读表的人无从知道它等的是什么(缺什么、怎么拿到):{c['acceptance'][:80]!r}")
+
+
 def test_load_hands_back_a_copy():
     """★ 红法:把 `load()` 改成 `return _CACHE`(去掉 deepcopy)⟹ 本测试必须红。
 
@@ -209,11 +236,25 @@ def test_shoulder_width_row_matches_the_implementation():
       ⑤ 表里判据区不再写「不写 0」;
       ⑥ 实现改用别的下标(lm[13]/lm[14]);
       ⑦ 实现里缺肩 `return 0.0`;
-      ⑧ 给实现加一个 `visibility <= 0.6` 的门限(表里写着没有)。
+      ⑦-3 删掉实现里那个 `except (TypeError, ValueError)`(坐标取不出来时不再交 `None`);
+      ⑧ 给实现加一个 `visibility <= 0.6` 的门限(表里写着没有);
+      ⑧-反向 把表里那句从「**没有可见度门限**」改成「**有可见度门限**」,或改成
+             「**没有**可见度门限」→「**有**可见度门限」(两种加粗写法都要红);
+      ⑨ 把表里那个「**10** 个画面坐标 jitter 列」的数改错(改回 16 / 改成别的);
 
     ⚠️ ⑧ 的边界(如实说):它钉的是「表里写着没有门限、代码也不许有」。**加门限本身不是错**,
     错的是**偷偷加**(表里那句还写着"没有")。反过来,若有人把 definition 里那句删掉再加门限
     —— ⑤⑧ 里"可见度门限"那条子串断言会红,提醒两处要一起改。
+
+    ⚠️ ⑧-反向 的边界(如实说):它钉的是**判据那句**是否定式(= 含「可见度门限」那个 ⚠️ 段里、
+    破折号之前那一段),而**不**管破折号之后的对照句 —— 所以
+    「本列没有可见度门限;同模块 `pose_angles` 那 5 个角度**有可见度门限**」这种**合法的对照句
+    不会误红**。它是同一条判据的**极性**那一半,与 ⑤⑧ 合起来才是"表与代码逐条对上"。
+
+    ⚠️ ⑨ 的边界(如实说):它钉的是「散文里的数 == 表里数出来的数」与「每个 jitter 行都有个
+    明确归属」,**不**保证"10 这个集合语义上就该是这 10 条" —— 若有人把某条改错、又顺手把散文
+    改成新数,⑨ 会绿。那种错只能靠人读 `normalization` 那一栏。它拦的是**静默过期**那一类
+    (T7 复核 Minor 4 的原始形态:散文写 16、表里实为 10,而没有任何断言数过它)。
     """
     import gesture_analysis.utils.logger as glog
     from gesture_analysis.core.feature_extraction import angles
@@ -301,6 +342,29 @@ def test_shoulder_width_row_matches_the_implementation():
             f"缺 lm[{missing}] 时交的不是 None —— 归一化坐标里 `0` 是「两肩重合」,不是「没测到」")
     assert angles.shoulder_width([_Pt(0.5, 0.5)] * 12) is None, "点数不够时交的不是 None"
 
+    # ⑦-3 ★ 坐标取不出来 ⟹ 与「肩缺了」同等对待(`_vec` 抛的 `TypeError`/`ValueError`
+    #    由 `shoulder_width` 接住 ⟹ `None`)。红法:**删掉实现里那个
+    #    `except (TypeError, ValueError)`** ⟹ 这里当场抛出去,本测试红。
+    #    ⚠️ 为什么补它(Task 7 复核 Minor 3):那个 except 此前**没有任何测试覆盖**,
+    #    活路径也进不去(mediapipe 的 landmark 必带 x/y)。选「补用例」而不是「删掉」的理由:
+    #    本列的判据是「**缺 ⟹ 空,不写 0**」,而 `x` 取不出来正是「缺」的一种形态 ——
+    #    删掉 except 会让它从「交空」变成「整帧抛异常」,那是**改判据**而不是去掉死代码;
+    #    而 `shoulder_width` 按设计就是纯函数、可单测(表里 `source` 那栏写着),
+    #    补一条断言的成本低于改语义的风险。
+    class _PtNoX:
+        y = 0.5                      # 有 y、没有 x ⟹ float(None) 抛 TypeError
+
+    class _PtStrX:
+        x = "abc"                    # 坐标不是数 ⟹ float("abc") 抛 ValueError
+        y = 0.5
+
+    for cls, why in ((_PtNoX, "x 缺了"), (_PtStrX, "x 不是数")):
+        broken = list(pose)
+        broken[11] = cls()
+        assert angles.shoulder_width(broken) is None, (
+            f"lm[11] 的 {why}(=「量不出来」)时交的不是 None —— 判据里「缺 ⟹ 空」"
+            f"对坐标取不出来的情形同样成立")
+
     # ⑧ ★ 判据**逐条**一致:表里 `definition` 现在明写「**没有**可见度门限」
     #    (与同模块 `pose_angles` 的 0.6 门限不同)⟹ 实现也不许有。
     #    ⚠️ 这条**不是**替「不加门限」背书 —— 它钉的是「表与代码一致」。要不要加门限是**口径**
@@ -318,8 +382,68 @@ def test_shoulder_width_row_matches_the_implementation():
     assert "可见度门限" in definition, (
         f"{name} 的 definition 不再写「可见度门限」这件事 —— 表与代码的判据要能逐条对上:"
         f"{definition[:80]!r}")
+    # ⑧-反向 ★ **极性**:上一条只证「可见度门限」这几个字还在 —— 把表里那句从
+    #    「**没有**可见度门限」改成「**有**可见度门限」,上一条**照样绿**(2026-09-26
+    #    Task 7 复核 Minor 1 实测)。那正是"表里定义被改反、钉子不响"这一类。
+    #    形态照同文件 ③(`assert "厘米" not in criterion and "米制" not in criterion`):
+    #    正面那句必须还在,而且**肯定式不许出现**。
+    #    ⚠️ 三个坑,都是实测踩出来的:
+    #      ① 必须先去掉 markdown 强调符:`**有**可见度门限` 里的 `**` 会把
+    #         `有可见度门限` 这个子串**切断**,直接 `"有可见度门限" not in definition`
+    #         抓不到这一种改法;
+    #      ② `没有可见度门限` **自己就包含** `有可见度门限` 这个子串 ⟹ 判定必须写成
+    #         "把正确那句整段删掉之后,剩下的话里不许再出现肯定式";
+    #      ③ 上面那条若拿**整条 definition** 去判,会对**合法的对照句**误红 ——
+    #         「本列没有可见度门限;同模块 `pose_angles` 那 5 个角度**有可见度门限**」
+    #         是一句真话,却会被判成"写反了"(2026-09-26 实测过这个形态)。
+    #         ⟹ 判定**限定在判据那句本身**(= 含「可见度门限」那个 ⚠️ 段里、破折号
+    #         之前那一段;破折号之后是对照与说明)。这与 ③ 的「判据区」是同一个手法。
+    gate_sections = [s for s in definition.split("⚠️") if "可见度门限" in s]
+    assert gate_sections, (
+        f"{name} 的 definition 里「可见度门限」不再出现在任何 ⚠️ 说明段里 —— "
+        f"判据与禁令的写法被大改过,请人工读一遍:{definition[:80]!r}")
+    gate_claim = gate_sections[0].replace("*", "").split("——")[0]
+    assert "没有可见度门限" in gate_claim, (
+        f"{name} 的 definition 不再写「没有可见度门限」—— 本列**没有**门限这件事"
+        f"必须被正面写着:{gate_claim[:80]!r}")
+    assert "有可见度门限" not in gate_claim.replace("没有可见度门限", ""), (
+        f"{name} 的 definition 把那句判据**写反了**(出现了肯定式的「有可见度门限」)"
+        f"—— 而实现里没有门限:{gate_claim[:80]!r}")
     got2 = angles.shoulder_width(invisible)
     assert got2 is not None and abs(got2 - expected) < 1e-9, (
         f"两个 visibility=0.0 的肩就交不出距离了({got2!r})—— 而表里 definition 写着本列"
         f"**没有**可见度门限。要么改实现,要么把 definition 那句一起改掉")
 
+    # ⑨ ★ 「它是几个 jitter 列的分母」这个**数**,拿**表自己**数出来,不靠散文。
+    #    红法(都是生产改动):① 再往表里加/删一行画面坐标 jitter ⟹ 数变了而
+    #    shoulder_width 那两处散文没改 ⟹ 红;② 把某个 `*_jitter_world` 行的
+    #    `normalization` 改成「÷ 肩宽」⟹ 它被数进分母、而「不除肩宽」那批少一条 ⟹ 红;
+    #    ③ 直接改散文里的数字(改错) ⟹ 红。
+    #    为什么需要它(Task 7 复核 Minor 4 的同类):这里原先写的是「16 个 jitter 列」,
+    #    而真正把肩宽写进 `normalization` 当分母的是 **10 行**(另 6 个 `*_jitter_world`
+    #    明写「**不**除肩宽 —— 米制已是解剖尺度」)。**没有任何断言数过它** ⟹ 那个 16
+    #    既核不到、也不会因为加了一行而红 —— 与 `live_contract` 那件事同形。
+    #    ⚠️ 判 `normalization` 里有没有「不除肩宽」时**先去 markdown 强调符** ——
+    #    表里写的是 `**不**除肩宽`,带星号时子串 `不除肩宽` **匹配不上**(2026-09-26 实测)。
+    def _norm(c):
+        return c["normalization"].replace("*", "")
+
+    jitter_rows = [c for c in l0.columns()
+                   if c["normalization"].strip()
+                   and (c["column"].endswith("_jitter") or c["column"].endswith("_jitter_world"))]
+    uses = [c for c in jitter_rows if "肩宽" in _norm(c) and "不除肩宽" not in _norm(c)]
+    world = [c for c in jitter_rows if "不除肩宽" in _norm(c)]
+    # 二分律:每个 jitter 行要么拿肩宽当分母、要么明写「不除肩宽」—— 没有第三种状态。
+    # (红法:加一个 `normalization` 里两边都不提的新 jitter 行 ⟹ 「几个」这个数就失去含义)
+    unclassified = [c["column"] for c in jitter_rows if c not in uses and c not in world]
+    assert not unclassified, (
+        f"这些 jitter 行的 `normalization` 既没拿肩宽当分母、也没写「除/不除肩宽」,"
+        f"于是「有几个 jitter 列拿肩宽当分母」**数不出来**:{unclassified}")
+    # ⚠️ 这里**不**钉「jitter 行恰好 16 条」:追加一行是常规操作,钉死条数会误伤每一次追加
+    #    (Task 7 在 `fieldnames[-2:]` 上刚踩过这个坑,见另一个测试的说明)。
+    #    要钉的性质是「**散文里的数** == **表里数出来的数**」。
+    for field in ("definition", "acceptance"):
+        assert f"{len(uses)} 个画面坐标 jitter 列" in row[field].replace("*", ""), (
+            f"{name} 的 {field} 里那个「几个 jitter 列」的数与表里数出来的"
+            f"({len(uses)} 条:{[c['column'] for c in uses]})对不上 —— "
+            f"加/删一行 jitter 就要同步这句:{row[field][:80]!r}")
