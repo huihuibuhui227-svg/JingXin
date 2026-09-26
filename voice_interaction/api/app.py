@@ -304,7 +304,7 @@ def _to_wav16k_bytes(contents: bytes) -> bytes:
 
 @app.post("/asr")
 async def speech_to_text(request: Request, audio: UploadFile = File(...),
-                         session_id: str = None):
+                         session_id: str = None, record: bool = True):
     """
     语音识别（ASR）：接收音频文件，返回识别文本
     支持：WAV、WebM、MP3 等格式（自动转换为 16kHz WAV）
@@ -313,6 +313,15 @@ async def speech_to_text(request: Request, audio: UploadFile = File(...),
     (见 `_resolve_session_id`)。给了就把这次识别累积进**仓库外**的该会话
     transcript.json(缺省落 NONE,报告侧整体排除)。纯 ASR 不写语音特征行 ——
     那是回答的语义。id 必须匹配 `[A-Za-z0-9_-]{1,128}`,否则 400。
+
+    `record=False` = **这次识别是预览,不是回答** ⟹ 不算进 transcript.json。
+    为什么需要它(2026-09-26 实测):客户端录音后先调本端点把文本显示给面试官看,
+    点提交时**同一份音频**再走 `/interview/answer_audio` —— 两个端点各自都 append
+    一次 ⟹ 每句话在账本里存两遍(该场 24 段 = 12 段 × 2),而 M3 要用逐字时间戳
+    算语速/停顿/反应潜伏期,翻倍是**静默**的。预览方传 `record=false` 即消歧。
+    **默认 True 不变**:不给这个参数的调用方(纯 ASR 用法)行为与从前逐字一致。
+    ⚠️ 原始字节的留存**不受本开关影响** —— 预览过又被重录的那一版只在 `/asr` 下
+    留过底,抹掉它就是抹掉"客户端到底发过什么"(M2.6 存在的理由)。
     """
     import tempfile
     import subprocess
@@ -342,7 +351,9 @@ async def speech_to_text(request: Request, audio: UploadFile = File(...),
                     logger.info("开始 ASR 识别...")
                     utt = await _transcribe_async(audio_data)
                     text = utt.text.strip()
-                    if text:                       # 空结果不落盘:不留一场没有段的会话文件
+                    # 空结果不落盘:不留一场没有段的会话文件。
+                    # `record=False` = 预览(见 docstring):不记账,但仍把文本回给调用方。
+                    if text and record:
                         transcript_store.append_utterance(sid, utt)
 
                     log_recognition(utt)
@@ -409,7 +420,7 @@ async def speech_to_text(request: Request, audio: UploadFile = File(...),
             logger.info("开始 ASR 识别...")
             utt = await _transcribe_async(audio_data)
             text = utt.text.strip()
-            if text:
+            if text and record:      # 同上面那条 WAV 分支:预览不记账
                 transcript_store.append_utterance(sid, utt)
 
             log_recognition(utt)
