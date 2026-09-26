@@ -280,6 +280,40 @@ def test_voiced_prob_is_zero_on_all_silence_but_pitch_mean_is_empty():
         f"f0 全 nan ⟹ `pitch_mean` 该留空,实为 {f['pitch_mean']!r}(0 是「量到 0 Hz」)")
 
 
+def test_zero_voiced_frames_leave_every_pitch_statistic_empty():
+    """★ 零浊音帧:`f0_voiced` 上的**五个统计量一个都不许写 0**(2026-09-26 使用者裁定)。
+
+    为什么把这四个跟 `pitch_mean` 一起改(裁定原话的意识):`pitch_p90 = 0.0` 读起来是
+    「音高的 90 分位是 0 Hz」—— **一个看着像测量值、其实什么都没量到的数**。只修均值、
+    留四个不修,读的人**无法判断这一支到底可不可信**。它们与 `pitch_mean` 是同一个判据
+    (`f0` 全 `nan` ⟹ 该量无定义),所以复用同一支、不在别处复制逻辑。
+
+    红法:把那一支里任一个改回 `0.0`(`pitch_std` / `pitch_trend` / `pitch_p10` / `pitch_p90`)⟹ 立刻红。
+    """
+    f = _extractor_features(np.zeros(3 * 16000, dtype=np.float32))
+    assert f["pitch_direction"] == "无法判断", f"这不是'零浊音帧'那条分支:{f}"
+    for col in ("pitch_mean", "pitch_std", "pitch_trend", "pitch_p10", "pitch_p90"):
+        assert col in f, f"{col} 连键都没有 —— 下游按列名读会读到'缺列',不是'空值'"
+        assert f[col] is None, (
+            f"{col} 该留空(f0 全 nan、无定义),实为 {f[col]!r}"
+            f" —— 0 是个会被下游当成真值的数")
+
+
+def test_a_voiced_clip_still_fills_every_pitch_statistic():
+    """★ 反向那半:有浊音帧时这五个统计量**照常有值** —— 别把"留空"修成"永远空"。
+
+    红法:把那一支的 `return` 之上去掉 `if`(或让正常分支也返回 `None`)⟹ 立刻红。
+    """
+    f = _extractor_features(_wav_like())          # 前 1s 静音 + 后 2s 180 Hz 正弦
+    assert f["pitch_direction"] != "无法判断", f"这段有浊音帧,不该走那一支:{f}"
+    for col in ("pitch_mean", "pitch_std", "pitch_trend", "pitch_p10", "pitch_p90"):
+        assert f[col] is not None, f"{col} 在有浊音帧时也该有值,实为 {f[col]!r}"
+    # 与这段构造对得上的量:音高在 180 Hz 一带、p10 < p90、std > 0
+    assert 150 < f["pitch_mean"] < 210, f["pitch_mean"]
+    assert f["pitch_p10"] < f["pitch_p90"], (f["pitch_p10"], f["pitch_p90"])
+    assert f["pitch_std"] > 0, f["pitch_std"]
+
+
 def test_voiced_prob_mean_is_always_a_probability():
     """`docs/superpowers/specs/2026-09-21-jingxin-feature-redesign-design.md:520` §8 验证策略第 3 条:归一化量的实测取值域必须落在物理范围内 ⟹ 概率 ∈ [0,1]。
 
@@ -295,15 +329,15 @@ def test_voiced_prob_mean_is_always_a_probability():
 
 
 def test_voiced_prob_and_pitch_mean_land_differently_on_all_silence(tmp_path, monkeypatch):
-    """★ 全静音那一行**落盘后**长什么样:两格、两种处置(plan:38 的正面验收)。
+    """★ 全静音那一行**落盘后**长什么样:两类量、两种处置(plan:38 的正面验收)。
 
-      · `pitch_mean` → `""`(**空串**,不是 `"0.0"`);
+      · `pitch_mean` / `pitch_std` / `pitch_trend` / `pitch_p10` / `pitch_p90` → `""`(**空串**,不是 `"0.0"`);
       · `voiced_prob_mean` → `"0.0"`(**真值**,不是 `""`)。
 
-    为什么必须在 CSV 那一层再钉一遍:两个量在提取器里就已经分开了,但**落盘**还要过
+    为什么必须在 CSV 那一层再钉一遍:两类量在提取器里就已经分开了,但**落盘**还要过
     logger 行体那一层(`.get(...)` 的缺省值:`pitch_mean` 那格写的是 `.get("pitch_mean", 0)`,
     若它给的是 `None` 就落成空串 —— 一旦有人把它改成 `or 0`,空串会**静默变回 0.0**)。
-    红法:① `pitch_mean` 恢复写 0.0 → 第一句红;② `voiced_prob_mean` 特殊处理成空 → 第二句红。
+    红法:① 任一 pitch 列恢复写 0.0 → 第一组红;② `voiced_prob_mean` 特殊处理成空 → 第二句红。
     """
     voice_app = importlib.import_module("voice_interaction.api.app")
     feats = voice_app.prosody_features_from_pcm(
@@ -312,7 +346,9 @@ def test_voiced_prob_and_pitch_mean_land_differently_on_all_silence(tmp_path, mo
     log = vl.VoiceLogger(log_type="interview", session_id="20260926_120000_vvps")
     log.log_prosody(feats, question_index=0, emotion="", feedback="")
     r = list(csv.DictReader(open(log.csv_file, encoding="utf-8")))[-1]
-    assert r["pitch_mean"] == "", f"全静音的 pitch_mean 该留空,实为 {r['pitch_mean']!r}"
+    # ⚠️ 这里用的是**日志列名**:提取器的 `pitch_std` 经改名表(`app.py:97-100`)落成 `pitch_variation`
+    for col in ("pitch_mean", "pitch_variation", "pitch_trend", "pitch_p10", "pitch_p90"):
+        assert r[col] == "", f"全静音的 {col} 该留空,实为 {r[col]!r}"
     assert r["voiced_prob_mean"] == "0.0", (
         f"全静音的概率均值是**真值** 0.0,实为 {r['voiced_prob_mean']!r}")
 

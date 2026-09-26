@@ -50,19 +50,24 @@ class ProsodyFeatureExtractor:
         f0_voiced = f0[voiced_flag]
 
         # ★ 零浊音帧(全静音):`voiced_flag` 全 `False` ⟹ `f0_voiced` 是空的、`f0` 全 `nan`。
-        # 这一支里**两个量必须分开处置**(plan `docs/superpowers/plans/2026-09-26-m3-0-l0-column-table.md:38`):
+        # 这一支里**两类量必须分开处置**(plan `docs/superpowers/plans/2026-09-26-m3-0-l0-column-table.md:38`):
         #   · `voiced_prob_mean` = **0.0 是真值**(确实一个浊音帧都没有,pyin 的概率恒 0)⟹
         #     **不做特殊处理**。把它写成空等于把「量到了 0」降级成「没测到」,而 0 在这里
         #     是最强的断言(「这不是语音」)。
-        #   · `pitch_mean` = **`None`(落盘成空串)** —— `f0` 全 `nan`,均值**无定义**。
-        #     写 0 就是本项目一路在杀的「把没测到写成 0」:0 Hz 是个会被下游当成真值的数。
-        #     ⚠️ 同分支的 `pitch_std` / `pitch_trend` / `pitch_p10` / `pitch_p90` 是**同类缺陷**
-        #     (同样是 `f0_voiced` 上的统计量),本任务未改(plan:38 只点了 `pitch_mean`)。
+        #   · **`f0_voiced` 上的五个统计量一律留空**(`None` → 落盘空串):`pitch_mean` /
+        #     `pitch_std` / `pitch_trend` / `pitch_p10` / `pitch_p90`。`f0` 全 `nan` ⟹ 它们
+        #     **全都没有定义** —— 写 0 就是本项目一路在杀的「把没测到写成 0」:
+        #     `pitch_p90 = 0.0` 读起来是「音高的 90 分位是 0 Hz」,**一个看着像测量值、
+        #     其实什么都没量到的数**(2026-09-26 使用者裁定:五个一起改,别只改均值 ——
+        #     留一个修好、四个不修,读的人无法判断这一支可不可信)。
+        #     同一个判据只写一遍:这一支是那五个量的**唯一**出口,不在别处再复制。
         if len(f0_voiced) == 0:
             return {
                 "pitch_mean": None,
-                "pitch_std": 0.0,
-                "pitch_trend": 0.0,
+                "pitch_std": None,
+                "pitch_trend": None,
+                "pitch_p10": None,
+                "pitch_p90": None,
                 "pitch_direction": "无法判断",
                 "voiced_prob_mean": float(np.mean(voiced_prob)),
             }
