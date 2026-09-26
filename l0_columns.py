@@ -70,16 +70,22 @@ def schema_errors(doc: dict) -> list[str]:
         errs.append("缺 count_reconciliation —— 「54」这个数必须登记来源与差异")
     # ★ 计数收口(2026-09-26,预检裁定 C5 + Task 2 复核 §5 C10):`actual` 的每个模态数
     #   必须等于 `columns` 里该模态的行数。在此之前这两处全靠人记得同步 —— 加了一行忘了
-    #   改 `actual` **不会红**,是这份数据里唯一没有钉子守着的部分。一行断言把它变成机器检查。
+    #   改 `actual` **不会红**,是这份数据里唯一没有钉子守着的部分。一条断言把它变成机器检查。
     #   口径:按**行**数,不按活列数(裁定 F2 已把协变量列按产出它的服务计入,见 count_reconciliation.scope)。
+    #   ⚠️ **两个方向都要查**:只遍历 `actual` 里已有的键时,「把整个模态键删掉 / 清空 actual」
+    #   不报错(2026-09-26 复核实测)—— 那正是"忘了同步"的另一种形态,所以遍历两边的并集。
     actual = (doc.get("count_reconciliation") or {}).get("actual") or {}
     per_modality: dict = {}
     for row in doc.get("columns", []):
         key = row.get("modality")
         per_modality[key] = per_modality.get(key, 0) + 1
-    for modality, claimed in actual.items():
+    for modality in sorted(set(actual) | set(per_modality), key=str):
+        if modality not in actual:
+            errs.append(f"count_reconciliation.actual 缺模态 {modality!r} 的键,而 columns 里有 "
+                        f"{per_modality[modality]} 行 —— 新模态要在这里登记")
+            continue
         counted = per_modality.get(modality, 0)
-        if counted != claimed:
-            errs.append(f"count_reconciliation.actual.{modality}={claimed} 与 columns 里该模态的行数 "
+        if counted != actual[modality]:
+            errs.append(f"count_reconciliation.actual.{modality}={actual[modality]} 与 columns 里该模态的行数 "
                         f"{counted} 不等 —— 加/删一行就要同步这四个数")
     return errs

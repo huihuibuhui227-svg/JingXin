@@ -19,7 +19,7 @@
       "voice": 19,
       "text": 4
     },
-    "scope": "actual 数的是 spec 口径的 L0 **目标测量列**(「≈54」那个口径,预检裁定 C5):不含 session_id / timestamp / timestamp_iso / is_valid 这类非测量列,也不含 2026-09-26 新增的 52 个 bs_*(2026-09-21 的设计表早于它们)。⚠️ 钉子方向 1 覆盖的是**日志列契约全量**(face 91 条 = 本表 21 行 − 1(`face_scale` 不在活列里)+ 白名单 71 条;gesture 67 条 = 本表 38 行 + 白名单 29 条;voice 31 条 = 本表 18 行 + 白名单 13 条),与本口径不是一件事,不要互相核对。⚠️ **协变量怎么数**:这张表只有一个 `modality` 字段,所以协变量用途的列按**产出它的服务**计数(裁定 F2)——`face_scale` 计入 face、`shoulder_width` / `hand_visible_left` / `hand_visible_right` 计入 gesture;§4.6:279-281 的 54 里本来没有协变量这一块,读的人请按 `definition`/`acceptance` 里的用途区分。⚠️ **机器检查**:`schema_errors()` 断言 `actual` 的每个模态数 == `columns` 里该模态的行数(2026-09-26 加)——这四行不再靠手工同步,忘了改就红。",
+    "scope": "actual 数的是 spec 口径的 L0 **目标测量列**(「≈54」那个口径,预检裁定 C5):不含 session_id / timestamp / timestamp_iso / is_valid 这类非测量列,也不含 2026-09-26 新增的 52 个 bs_*(2026-09-21 的设计表早于它们)。⚠️ 钉子方向 1 覆盖的是**日志列契约全量**(face 91 条 = 本表 21 行 − 1(`face_scale` 不在活列里)+ 白名单 71 条;gesture 67 条 = 本表 38 行 + 白名单 29 条;voice 31 条 = 本表 18 行 + 白名单 13 条),与本口径不是一件事,不要互相核对。⚠️ **协变量怎么数**:这张表只有一个 `modality` 字段,所以协变量用途的列按**产出它的服务**计数(裁定 F2)——`face_scale` 计入 face、`shoulder_width` / `hand_visible_left` / `hand_visible_right` 计入 gesture;§4.6:279-281 的 54 里本来没有协变量这一块,读的人请按 `definition`/`acceptance` 里的用途区分。⚠️ **机器检查**:`schema_errors()` 断言 `actual` 的每个模态数 == `columns` 里该模态的行数(2026-09-26 加)——「忘了改数」与「忘了整个模态键」两个方向都会红,这四行不再靠手工同步。",
     "deltas": [
       {
         "modality": "face",
@@ -64,7 +64,7 @@
           "**补的不是 8 列,是 11 列,来源有两处(逐条有出处)**:① §4.3 **自己的依据栏**点名了两个当时不存在的量 ——`speech_duration_sec`(依据栏::239「现用总时长(含静音)→ 改语音时长」,那个「语音时长」此前**没有列**,代码里算完就丢,prosody_extractor.py:191-196)与 `voiced_prob_mean`(依据栏::235「pyin 无能量门限且丢 `voiced_prob`」—— 丢的就是它:prosody_extractor.py:45 的 `_`);② **2026-09-26 的采集层补的一阶量**(`下一步.md` §8.1:378-380,提交 `a3b130a`/`879a086`):`n_chars`、`chars_per_sec`、`energy_p10`、`energy_p90`、`pitch_p10`、`pitch_p90`、`speech_onset_sec`、`answer_onset_wall`、`reaction_time` 共 9 条。8 + 2 + 9 = 19。",
           "**这 11 条逐条都有消费方,不是凑数**:`speech_duration_sec` 是 §4.3:239 要的那个分母、也是 `chars_per_sec` 的分母、L1 的 `speech_rate`(§5.4:354)的分母;`voiced_prob_mean` 是 pitch 族门控的原料(Task 5 的实现对象,spec §7.1 的「5 个零实现新列」之一);`n_chars` 是报告「回答详尽度」槽**唯一**的产出方(§8.2:384);`chars_per_sec` 就是 §5.4:354 的 `speech_rate`;`energy_p10`/`p90` 是 energy 封停 unblock「M3 会话内归一」的原料(§8.1:380);`pitch_p10`/`p90` 是 pitch 侧的会话内归一同族;`speech_onset_sec`/`answer_onset_wall`/`reaction_time` 是 `response_latency_sec`(§5.4:360)的三个成分,§8.2:385-386 明写「三个成分都落盘,所以这个数是可复核的」。",
           "**13 条活列进 `legacy_allowlist`**(不产生差值,登记在此以免读者以为漏了):5 条非测量列(`session_id` / `unix_timestamp` / `timestamp` / `question_index` / `is_valid`)+ §4.3 判删的 `speech_ratio` 与判移出的 `duration_sec` + `pitch_direction`(§4.3 未提,本行判删:它是 `pitch_trend` 的确定性离散化、实测 ±10 Hz 规则逐行成立,且那个门限无出处)+ `emotion` / `feedback`(§4.3 未提,本行判删:实测全仓 86 行全是空串)+ 3 条文本层派生指标(`connective_density` / `connective_density_std` / `n_rows`,按 §4.4:256-262 延后)。13 + 18 = 31 ✓",
-          "**`status` 的分档口径(一次说清)**:§4.3 判「保」的两条 `energy_mean`/`energy_variation` 记 `implemented`;判「修/改定义」的 6 条(pitch 三列 + pause 三列)记 `pending` —— 它们的 `definition` 写的是**修好之后**的形态,而代码还没改(与面部 `au4_frown` 判 pending 同一口径);2026-09-26 那 9 条里,代码已按本表定义产出的 7 条记 `implemented`(实测在 3 场正式素材上逐行有值),`pitch_p10`/`pitch_p90` 记 `pending`(它们吃的是与 `pitch_mean` **同一批未门控**的帧),`voiced_prob_mean` 记 `pending`(Task 5 的实现对象)。",
+          "**`status` 的分档口径(一次说清)**:§4.3 判「保」的两条 `energy_mean`/`energy_variation` 记 `implemented`;判「修/改定义」的 6 条(pitch 三列 + pause 三列)记 `pending` —— 这 6 行的 `acceptance` 都要求改代码;`definition` 按**现行/目标形态分别写明**(`pitch_trend` 与 `pause_frequency` 写的是改后形态,`pitch_mean`/`pitch_variation`/`pause_duration_mean`/`pause_duration_max` 写的是现行形态并在行内标了缺陷)(与面部 `au4_frown` 判 pending 同一口径);2026-09-26 那 9 条里,代码已按本表定义产出的 7 条记 `implemented`(实测在 3 场正式素材上逐行有值),`pitch_p10`/`pitch_p90` 记 `pending`(它们吃的是与 `pitch_mean` **同一批未门控**的帧),`voiced_prob_mean` 记 `pending`(Task 5 的实现对象)。",
           "**`duration_sec` 为什么不在这里计数**:§4.3:233 把它判「移出特征集」⟹ 它不是 L0 目标测量列(裁定 C5 的口径),所以进 `legacy_allowlist` 而不是 `columns`。⚠️ 这是本任务与 C5 的一处**交叉**:钉子方向 1 要求每条活列都有着落,而 C5 要求 actual 只数目标测量列 —— 两者同时成立的唯一放法是白名单(Task 2 对 `session_id`/`timestamp` 用的是同一条推理,裁定 D2)。"
         ]
       },
@@ -80,7 +80,7 @@
         ]
       }
     ],
-    "note": "四个模态的 `actual` 已按逐列定义的结果填满(face 21 / gesture 41 / voice 19 / text 4,2026-09-26,Task 2/3/4)。⚠️ **文档的 54 是估数,实际为 85** —— `doc_estimate` 保留原值(spec §4.3 明文:不许把估数悄悄改成实际数),差异逐条在 `deltas` 里。deltas 逐条写明差异原因。**actual 与 `columns` 的行数逐模态由 `schema_errors()` 断言相等**(2026-09-26 加):忘了同步 → schema 测试红 —— 在此之前这四行是这份数据里唯一没有钉子守着的部分。"
+    "note": "四个模态的 `actual` 已按逐列定义的结果填满(face 21 / gesture 41 / voice 19 / text 4,2026-09-26,Task 2/3/4)。⚠️ **文档的 54 是估数,实际为 85** —— `doc_estimate` 保留原值(spec §4.3 明文:不许把估数悄悄改成实际数),差异逐条在 `deltas` 里。deltas 逐条写明差异原因。**actual 与 `columns` 的行数逐模态由 `schema_errors()` 断言相等**(2026-09-26 加,**双向**:`actual` 少一个模态键也会红):忘了同步 → schema 测试红 —— 在此之前这四行是这份数据里唯一没有钉子守着的部分。"
   },
   "legacy_allowlist": [
     {
@@ -776,7 +776,7 @@
     {
       "column": "is_valid",
       "modality": "voice",
-      "why": "非测量列(有效性标志);裁定 C5 不计入。**实测全仓 86 行全是 `True`** ⟹ 常量。QUARANTINE :66 封停它(理由「恒 1 且下游从未使用」,unblock「M3 改真掩码」)。有效性在本项目的既有约定里由**空值**表达(`_safe_get(None) → \"\"`),再加一列布尔等于把同一件事数两遍 —— 与手势侧 4 个 `*_is_valid` 合并为 1 的裁定(§4.2:220)同一方向。",
+      "why": "非测量列(有效性标志);裁定 C5 不计入。**实测全仓 86 行全是 `True`** ⟹ 常量。QUARANTINE :84 封停它(理由「恒 1 且下游从未使用」,unblock「M3 改真掩码」)。有效性在本项目的既有约定里由**空值**表达(`_safe_get(None) → \"\"`),再加一列布尔等于把同一件事数两遍 —— 与手势侧 4 个 `*_is_valid` 合并为 1 的裁定(§4.2:220)同一方向。",
       "planned": "M3.4 删列(改真掩码)"
     },
     {
