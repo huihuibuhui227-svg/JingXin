@@ -47,6 +47,29 @@ def test_every_implemented_row_really_is_produced():
     assert not bad, f"表里标了已实现、日志里却没有:{bad}"
 
 
+def test_live_contract_matches_the_real_log_contract():
+    """★ 红法:往任一 logger 的 `fieldnames` 加一列(或删一列)而不更新 `live_contract` ⟹ 必须红。
+
+    为什么需要这一条:三个模态的**活列数**此前只写在 `count_reconciliation.scope` 的**散文里**
+    (「face 91 条 = …;gesture 67 条 = …;voice 31 条 = …」),而 `schema_errors()` 的计数断言查的是
+    `actual` vs `columns` 的**行数**,**不查这句散文**。于是 2026-09-26 Task 5 往 `VoiceLogger.fieldnames`
+    末尾加了 `voiced_prob_mean`(voice 活列 31 → 32)之后,那句散文**静默过期**,而它自己正写着
+    「这四行不再靠手工同步」—— 一句话自称不再手工同步,而它自己就是手工同步的。
+
+    处置(2026-09-26,使用者裁定):把那些数字从散文里抽成 `count_reconciliation.live_contract`
+    这个**结构化字段**,由本测试对着三个 logger 的 `fieldnames` 实测;散文只引用字段名,不再内联数字。
+    """
+    doc = l0.load()
+    live = _live_columns()
+    claimed = doc["count_reconciliation"]["live_contract"]
+    assert set(claimed) == set(live), (
+        f"模态对不上:live_contract 声称 {sorted(claimed)},日志契约实测 {sorted(live)}")
+    for modality, n in claimed.items():
+        assert n == len(live[modality]), (
+            f"{modality}: live_contract 声称日志契约有 {n} 列,实测 {len(live[modality])} 列 —— "
+            f"加/删一列就要同步这个字段(红法:往该 logger 的 fieldnames 末尾加一列)")
+
+
 def test_allowlist_entries_carry_a_reason_and_a_target():
     """白名单不许变成万能垃圾桶:每条都要有 why 与 planned。"""
     for a in l0.load()["legacy_allowlist"]:

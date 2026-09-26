@@ -31,7 +31,7 @@ def _wav_like(seconds=3.0, sr=16000):
 def _pcm_bytes(x: np.ndarray) -> bytes:
     """float 波形 → 16k/16bit 小端 PCM 字节(**活路径**的入口口径)。
 
-    活路径 `api/app.py:133` 的 `prosody_features_from_pcm(audio_data: bytes)` 吃的就是
+    活路径 `voice_interaction/api/app.py:140` 的 `prosody_features_from_pcm(audio_data: bytes)` 吃的就是
     这个格式,所以端到端那一条测试必须从这里进 —— 直接调提取器会绕过改名映射表。
     """
     return (np.clip(x, -1.0, 1.0) * 32767).astype(np.int16).tobytes()
@@ -215,7 +215,8 @@ def test_endpoint_writes_reaction_time_from_the_question_ledger(tmp_path, monkey
 
 # ─────────────────────────────────────────────────────────────────────────────
 # `voiced_prob`(2026-09-26,Task 5):`librosa.pyin` 的**第 3 个返回值**此前被 `_` 丢掉
-# (`prosody_extractor.py:45`)。`docs/superpowers/specs/2026-09-21-jingxin-feature-redesign-design.md:235` 的依据栏点名它是 pitch 修正的原料
+# (`prosody_extractor.py:47` 的 `f0, voiced_flag, voiced_prob = librosa.pyin(...)`;改前那一行是 `_`)。
+# `docs/superpowers/specs/2026-09-21-jingxin-feature-redesign-design.md:235` 的依据栏点名它是 pitch 修正的原料
 # (「`pyin` 无能量门限且丢 `voiced_prob`」)。
 #
 # ★ 全静音是这条列的**分水岭**,两个量必须**分开**处理(plan

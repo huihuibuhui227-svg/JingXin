@@ -19,7 +19,12 @@
       "voice": 19,
       "text": 4
     },
-    "scope": "actual 数的是 spec 口径的 L0 **目标测量列**(「≈54」那个口径,预检裁定 C5):不含 session_id / timestamp / timestamp_iso / is_valid 这类非测量列,也不含 2026-09-26 新增的 52 个 bs_*(2026-09-21 的设计表早于它们)。⚠️ 钉子方向 1 覆盖的是**日志列契约全量**(face 91 条 = 本表 21 行 − 1(`face_scale` 不在活列里)+ 白名单 71 条;gesture 67 条 = 本表 38 行 + 白名单 29 条;voice 31 条 = 本表 18 行 + 白名单 13 条),与本口径不是一件事,不要互相核对。⚠️ **协变量怎么数**:这张表只有一个 `modality` 字段,所以协变量用途的列按**产出它的服务**计数(裁定 F2)——`face_scale` 计入 face、`shoulder_width` / `hand_visible_left` / `hand_visible_right` 计入 gesture;§4.6:279-281 的 54 里本来没有协变量这一块,读的人请按 `definition`/`acceptance` 里的用途区分。⚠️ **机器检查**:`schema_errors()` 断言 `actual` 的每个模态数 == `columns` 里该模态的行数(2026-09-26 加)——「忘了改数」与「忘了整个模态键」两个方向都会红,这四行不再靠手工同步。",
+    "live_contract": {
+      "face": 91,
+      "gesture": 67,
+      "voice": 32
+    },
+    "scope": "actual 数的是 spec 口径的 L0 **目标测量列**(「≈54」那个口径,预检裁定 C5):不含 session_id / timestamp / timestamp_iso / is_valid 这类非测量列,也不含 2026-09-26 新增的 52 个 bs_*(2026-09-21 的设计表早于它们)。⚠️ 钉子方向 1 覆盖的是**日志列契约全量** —— 逐模态的条数见 **`live_contract`**(= 该模态在表里的活列行 + `legacy_allowlist` 里的条目;**那些数由 `tests/test_l0_column_table.py::test_live_contract_matches_the_real_log_contract` 对着三个 logger 的 `fieldnames` 实测,不写在这句散文里** —— 这句散文此前内联了那三个数,2026-09-26 Task 5 加了 `voiced_prob_mean` 之后它就静默过期了,而它自己正说着「不再靠手工同步」)。它与本口径不是一件事,不要互相核对。⚠️ **协变量怎么数**:这张表只有一个 `modality` 字段,所以协变量用途的列按**产出它的服务**计数(裁定 F2)——`face_scale` 计入 face、`shoulder_width` / `hand_visible_left` / `hand_visible_right` 计入 gesture;§4.6:279-281 的 54 里本来没有协变量这一块,读的人请按 `definition`/`acceptance` 里的用途区分。⚠️ **机器检查**:`schema_errors()` 断言 `actual` 的每个模态数 == `columns` 里该模态的行数(2026-09-26 加)——「忘了改数」与「忘了整个模态键」两个方向都会红,这四行不再靠手工同步。",
     "deltas": [
       {
         "modality": "face",
