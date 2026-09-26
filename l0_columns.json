@@ -2,6 +2,7 @@
   "_schema": {
     "version": "1.0.0",
     "_provisional": true,
+    "_provisional_note": "`version` 与 `_provisional` 说的是**两件事**,不是一个矛盾:`version` 管**文件结构契约**(顶层有哪几个键、逐行有 `fields` 那 11 个字段 —— 结构一变才升)，`_provisional` 管**定义本身的成熟度**(逐列的定义/口径还归 M3.2/3/4 重定)。**转正式的条件**:M3.5 收尾(报告对齐 + 阈值重登记、三模态逐列定义冻结)时把 `_provisional` 改成 `false`;若那时 `fields` 也动过,`version` 一并升 `2.0.0`,否则保持 `1.0.0`。在此之前 `version: 1.0.0` **不代表定义已定稿** —— 2026-09-26 整支复核 Minor 12 的裁定。",
     "basis": "M3.0 spec(2026-09-26)。列定义来自 2026-09-21 特征重构设计 §4 的处置表 + 2026-09-26 的逐行核实。",
     "fields": ["column", "modality", "definition", "source", "normalization",
                "unit", "maturity", "l0_output", "status", "quarantine_ref", "acceptance"]
@@ -36,7 +37,7 @@
           "is_valid / session_id / timestamp 三个**非测量列**不计入(spec §1 点名的第二个未声明决定;裁定 C5 已定死):−3。",
           "micro_exp_* 整族移出本轮 L0 契约(R9,m2-6 spec:66 / :454),§4.1:202 原标「修」的 micro_exp_duration_frames 也随之不进表:−1。",
           "head_roll 由 Task 8 新建(裁定 F1:一行只能有一个属主)—— Task 2/3/4 那一轮不建,当时记 −1;2026-09-26 Task 8 已建起本行(登记为 `blocked`:无相机内参),那一项归零,本模态回到 22。⚠️ 它与 head_yaw/head_pitch 是**同一个属主问题的三个面**:那两行归 Task 2,本行归 Task 8,一行只有一个属主。",
-          "§4.1 判「删」的活列共 16 条(含 Task 1 已登记的 focus_score)进 legacy_allowlist,另有 6 条族级/非活列一并登记 —— 它们本来就不在上面那 22 的计数里,不产生差值,登记在此以免读者以为漏了。",
+          "§4.1 判「删」的活列共 16 条(含 Task 1 已登记的 focus_score)进 legacy_allowlist,另有 6 条族级/非活列一并登记 —— 它们本来就不在上面那 22 的计数里,不产生差值,登记在此以免读者以为漏了。⚠️ **这两个数是从 `legacy_allowlist` 里数出来的,不是手抄的**(16 = face 白名单里**在日志契约中**的条目 − 52 个 `bs_*` − 2 个非测量列 − `micro_exp_duration_frames`;6 = face 白名单里**不在**日志契约中的条目)—— 由 `tests/test_l0_column_table.py::test_delta_reason_numbers_match_the_table` 实测。",
           "symmetry_score 由 legacy_allowlist **移入** columns:§4.1:208 的处置是「重构」而不是「删」,白名单因此净减 1 条(只剩 focus_score 那条是 Task 1 留下的)。",
           "`face_scale` 由 Task 4 登记(§3:133 的协变量档):+1。⚠️ 于是本模态的计数里**含一条协变量用途的列**(§4.6:279 的面部 ≈22 那一栏不含协变量)—— 本表只有一个 `modality` 字段,协变量按**产出它的服务**计数(裁定 F2),用途写在 `definition`/`acceptance` 里;同族的 `shoulder_width`/`hand_visible_*` 也是这样计进 gesture 的 41(Task 3)。"
         ]
@@ -48,10 +49,10 @@
         "arithmetic": "13(§4.2 的估数 —— 该表**无「L0 形态」栏、也无逐列枚举**,spec §1 已证推不出) → 41(本表逐列定义的实际数)= 38(现存活列里进 columns 的测量列) + 3(新增列 hand_visible_left / hand_visible_right / shoulder_width);另有 29 条现存活列进 legacy_allowlist(3 非测量列 + 4 标签元数据 + 22 判删)。**手势活列总数见 `live_contract.gesture`**(2026-09-26 起由钉子对着 `GestureLogger.fieldnames` 实测);「38 + 29」只是本行过去的内联分解式 —— 同一类数**不再写在这里**",
         "reasons": [
           "**13 核不出来(主因)**:§4.2 那张表只有「列 | 处置 | 依据」三栏 —— **没有「L0 形态」栏**(§4.1 的面部两张表有),整表没有一处枚举。按行展开它的「保/修/重构」行是:8 个 `*_jitter` + 1(`*_is_valid` 若合并为 1)+ 1(`shoulder_shrug_level`)+ 10(手部 10 列)= 20 列,再加「新增」栏 3 项 ≈ 23 列 —— 与 13 差 ≥ 10 列,而文档没有给任何能把它减到 13 的口径(哪一栏该合并、哪一栏该删都没写)。spec §1 的结论在本模态**逐条落实**。",
-          "**39 条活列在 §4.2 里一个字都没有**:`live_contract.gesture` 那 67 条活列里被 §4.2 点到名的只有 28 条(手部 8 + 非手 score 5 + jitter 8 + stability 3 + shrug_level + is_calibrated + head_tilt + is_valid)。剩下 39 条 = 3 非测量列 + 4 个 handedness 标签(2026-09-26 加)+ 10 个手指角度(2026-09-26 接进活路径,spec §10 风险 4 点名)+ 8 个姿态角度(「屏幕显示」那批) + 2 个 `*_arm_angle` + 8 个 world 列(2026-09-26 加)+ 4 个情绪块 —— 它们既不在「保留」也不在「删除」里,本表逐列定处置(其中 **9 条判删**、**7 条作元数据进白名单**、其余 **23 条进 columns**)。",
+          "**§4.2 的处置表覆盖不到的活列 42 条**:`live_contract.gesture` 那 70 条活列里被 §4.2 **处置表**逐项点到名的只有 28 条(手部 8 + 非手 score 5 + jitter 8 + stability 3 + shrug_level + is_calibrated + head_tilt + is_valid)。剩下 42 条 = 3 非测量列 + 4 个 handedness 标签(2026-09-26 加)+ 10 个手指角度(2026-09-26 接进活路径,spec §10 风险 4 点名)+ 8 个姿态角度(「屏幕显示」那批) + 2 个 `*_arm_angle` + 8 个 world 列(2026-09-26 加)+ 4 个情绪块 + 3 个 2026-09-26 新增列(`hand_visible_left` / `hand_visible_right` / `shoulder_width` —— §4.2 的**新增**栏点了名,但**没有处置行**,故不计入上面那 28) —— 它们既不在「保留」也不在「删除」里,本表逐列定处置(其中 **9 条判删**、**7 条作元数据进白名单**、其余 **26 条进 columns**)。⚠️ **本句里的 70 / 42 / 9 / 7 / 26 不是手抄的**:70 = `live_contract.gesture`;42 = 70 − 28,**28 这一边是人工逐条读 §4.2 那张 markdown 表点出来的**(§4.2 没有机器可读形态,所以 28 **不是**机器导出的,它在本测试里是**逐条枚举的名单**);9 / 7 / 26 = 那 42 条按「进白名单且是元数据(3 非测量列 + 4 个 handedness 标签)/ 进白名单的其余(判删)/ 进 `columns`」三分,三者之和必须 = 42 —— 全部由 `tests/test_l0_column_table.py::test_delta_reason_numbers_match_the_table` 对着 `live_contract.gesture`、`legacy_allowlist` 与 `columns` 实测(2026-09-26 整支复核:本句原先写 67 / 39 / 23,而 `live_contract.gesture` 早已是 70 —— **它自己点名引用了那个被实测的字段却差 3**)。",
           "**名字对不上的 5 处**(按日志列名逐条核过):`shoulder_shrug_level` → 日志列 `shrug_level`;`shoulder_is_calibrated` → `is_calibrated`;`upper_body_head_tilt` → `head_tilt`;`hand_visible_ratio` → 逐帧 `hand_visible_left` / `hand_visible_right`(Task 6 的决定:`GestureLogger` 只有逐帧写,整场比值无处可放 ⟹ 那是 L1 的活;§4.2 的是**设计意图**、不是列名契约);「6 个 `*_score`」「4 个 `*_is_valid`」**都没有枚举**到底是哪几个(带 `_score` 后缀的活列实为 7 条,另有 `overall_score` 一条;4 个分析器的 is_valid 在日志里只落 1 列)。",
           "**合并与否是本任务的决定,不是事实**(简报 Step 3):① `*_jitter` **不合并** —— §4.2 给它们的处置是「修」而不是「合并」,而合并会把「哪个部位在动」抹掉(手腕抖与躯干抖不是同一个量);真正在文档里写「合并为 1」的是 `*_is_valid`。② `*_is_valid` **不建列** —— 文档说的 4 个是 4 个分析器各自的 `is_valid()`,它们在日志列契约里只有 1 条落点,而且那一条装的是 **emotion 结果**的 is_valid(不是分析器的);有效性在本项目的既有约定里由**空值**表达(`_safe_get(None) → \"\"`),再加一列布尔等于把同一件事数两遍 ⟹ 判删。③ 「新增」栏第三项 `*_per_sec`(运动起始率)**不单独建列** —— 它只有一个方向、没有定义(起始怎么判、门限多少都没有出处),按全局约束「不许编数据」,没有定义就建列等于编;本表把「÷ 时间」这条方向落成 **16 个 jitter 列的时间归一**(它们才是有产出的量)。若 M3.3 要建真正的「运动起始率」,那是一个新列,按 spec §3.1 追加到**列序末尾**。",
-          "**手部 10 列的处置**(简报 Step 1/2):① `*_hand_fist_status` 判 **C** —— §4.2 依据栏点名的 `fist_threshold = 0.08` 没有出处(config.py:93),而代码量的(指尖 ↔ 近端指间关节)就是**远端指骨长度**:解剖常数,只随手的成像大小变 ⟹ 实测两列合计有值 499 帧:496 帧判握拳、**3 帧判非握拳(全在 `right_hand_fist_status`**,caf0 的第 6/9/13 行);`left_hand_fist_status` 则 261/261 全为 1 —— 近似常量(99.4% 为 1)⟹ 零信息。本表把 L0 形态改成无量纲屈曲比(÷ 掌长),门限推给标定集。② `*_hand_score` 判删(可由 jitter 精确重构,实测 max|diff| = 0;§4.2 说的「87%/85% 为 0」实测指向的是 score —— caf0 上 81%/85%,不是 spread)。③ `*_hand_spread` **留**,补「÷ 掌长」的分母(手与肩不在同一深度,除肩宽消不掉距离)。④ `*_hand_jitter` 与另 8 个 jitter 同一处置(÷ 肩宽 ÷ 时间)。⑤ 4 个 handedness 标签列进白名单:它们是**标签来源的审计元数据**,不是 L0 测量列。",
+          "**手部 10 列的处置**(简报 Step 1/2):① `*_hand_fist_status` 判 **C** —— §4.2 依据栏点名的 `fist_threshold = 0.08` 没有出处(gesture_analysis/config.py:93),而代码量的(指尖 ↔ 近端指间关节)就是**远端指骨长度**:解剖常数,只随手的成像大小变 ⟹ 实测两列合计有值 499 帧:496 帧判握拳、**3 帧判非握拳(全在 `right_hand_fist_status`**,caf0 的第 6/9/13 行);`left_hand_fist_status` 则 261/261 全为 1 —— 近似常量(99.4% 为 1)⟹ 零信息。本表把 L0 形态改成无量纲屈曲比(÷ 掌长),门限推给标定集。② `*_hand_score` 判删(可由 jitter 精确重构,实测 max|diff| = 0;§4.2 说的「87%/85% 为 0」实测指向的是 score —— caf0 上 81%/85%,不是 spread)。③ `*_hand_spread` **留**,补「÷ 掌长」的分母(手与肩不在同一深度,除肩宽消不掉距离)。④ `*_hand_jitter` 与另 8 个 jitter 同一处置(÷ 肩宽 ÷ 时间)。⑤ 4 个 handedness 标签列进白名单:它们是**标签来源的审计元数据**,不是 L0 测量列。",
           "**本任务新加的两条判删依据是实测量到的**(不是从文档推的):① `left/right_arm_angle` 与 `left/right_elbow_angle` 是**同一个几何量的两种约定** —— 实测共现帧上 `|180 − arm_angle − elbow_angle| ≤ 0.005°`(arm_analyzer 量的是外角);② `*_score` 与 `*_stability` 可由同 block 的 jitter **精确重构** —— 实测四个 score + arm_stability 在 1418 行上 `max|diff| = 0`。§4.2 说的「max|diff| = 0」**是真的**,本表把它变成了可复算的实测记录。",
           "**3 条姿态角度判删的依据是覆盖率为零**(§4.2 没提它们,处置由本行定):`left_shoulder_angle` 0/1418、`right_shoulder_angle` 12/1418、`torso_angle` 11/1418 —— 它们要髋部关键点(lm[23]/[24])`visibility > 0.6`,而三场正式素材的取景里髋部不在画面里。§4.5 规矩 2「证明不了就删」;白名单条目里写明了**加回条件**(取景纳入髋部后作为**新列**追加,不动历史列序)。",
           "**`head_tilt` 判删的依据实测过**:§4.2 写「参考系错位 180°」,实测 `head_tilt + head_tilt_angle = 180°`(最大偏差 0.005°,1414 帧)⟹ 它与 `head_tilt_angle` 是**同一个量的两种约定**,零额外信息;留 angles.py 那份(有 0.6 可见度门限、同时喂屏幕显示)。",
@@ -68,7 +69,7 @@
           "**16 推不出来(主因)**:§4.3 只列了 10 个旧列(:233-239),扣掉 `speech_ratio`(删,:234)与 `duration_sec`(移出,:233)后**只剩 8 个** —— 文档说 ≈16,那多出来的 8 列是什么,文档里**一个字都没有**(`doc_estimate` 保持原值;M3.0 spec §1 已把这条点名为「三处计数对不上」之一,而 §4.3 是那份 spec 的权威上游)。",
           "**补的不是 8 列,是 11 列,来源有两处(逐条有出处)**:① §4.3 **自己的依据栏**点名了两个当时不存在的量 ——`speech_duration_sec`(依据栏::239「现用总时长(含静音)→ 改语音时长」,那个「语音时长」此前**没有列**,代码里算完就丢,prosody_extractor.py:236-237)与 `voiced_prob_mean`(依据栏::235「pyin 无能量门限且丢 `voiced_prob`」—— 丢的就是它:prosody_extractor.py:47 那一行原先写的是 `f0, voiced_flag, _ = librosa.pyin(...)`);② **2026-09-26 的采集层补的一阶量**(`下一步.md` §8.1:378-380,提交 `a3b130a`/`879a086`):`n_chars`、`chars_per_sec`、`energy_p10`、`energy_p90`、`pitch_p10`、`pitch_p90`、`speech_onset_sec`、`answer_onset_wall`、`reaction_time` 共 9 条。8 + 2 + 9 = 19。",
           "**这 11 条逐条都有消费方,不是凑数**:`speech_duration_sec` 是 §4.3:239 要的那个分母、也是 `chars_per_sec` 的分母、L1 的 `speech_rate`(§5.4:354)的分母;`voiced_prob_mean` 是 pitch 族门控的原料(Task 5 的实现对象,spec §7.1 的「5 个零实现新列」之一);`n_chars` 是报告「回答详尽度」槽**唯一**的产出方(§8.2:384);`chars_per_sec` 就是 §5.4:354 的 `speech_rate`;`energy_p10`/`p90` 是 energy 封停 unblock「M3 会话内归一」的原料(§8.1:380);`pitch_p10`/`p90` 是 pitch 侧的会话内归一同族;`speech_onset_sec`/`answer_onset_wall`/`reaction_time` 是 `response_latency_sec`(§5.4:360)的三个成分,§8.2:385-386 明写「三个成分都落盘,所以这个数是可复核的」。",
-          "**13 条活列进 `legacy_allowlist`**(不产生差值,登记在此以免读者以为漏了):5 条非测量列(`session_id` / `unix_timestamp` / `timestamp` / `question_index` / `is_valid`)+ §4.3 判删的 `speech_ratio` 与判移出的 `duration_sec` + `pitch_direction`(§4.3 未提,本行判删:它是 `pitch_trend` 的确定性离散化、实测 ±10 Hz 规则逐行成立,且那个门限无出处)+ `emotion` / `feedback`(§4.3 未提,本行判删:实测全仓 86 行全是空串)+ 3 条文本层派生指标(`connective_density` / `connective_density_std` / `n_rows`,按 §4.4:256-262 延后)。⚠️ 这一句此前内联「13 + 18 = 31 ✓」—— Task 5 加了 `voiced_prob_mean` 之后它已**静默过期**(31→32),而同一句上文的 `arithmetic` 栏还正说着「那些数不再写在这里」 ⟹ 白名单 13 条的**逐条枚举**在本段上一条里(那才是有信息的部分),**合计数只看 `live_contract.voice`**(由钉子对着 `VoiceLogger.fieldnames` 实测)",
+          "**13 条活列进 `legacy_allowlist`**(不产生差值,登记在此以免读者以为漏了;这个 13 是 `live_contract.voice` **减去本表 voice 活列行数算出来的**,不是手抄的 —— 由 `tests/test_l0_column_table.py::test_delta_reason_numbers_match_the_table` 实测):5 条非测量列(`session_id` / `unix_timestamp` / `timestamp` / `question_index` / `is_valid`)+ §4.3 判删的 `speech_ratio` 与判移出的 `duration_sec` + `pitch_direction`(§4.3 未提,本行判删:它是 `pitch_trend` 的确定性离散化、实测 ±10 Hz 规则逐行成立,且那个门限无出处)+ `emotion` / `feedback`(§4.3 未提,本行判删:实测全仓 86 行全是空串)+ 3 条文本层派生指标(`connective_density` / `connective_density_std` / `n_rows`,按 §4.4:256-262 延后)。⚠️ 这一句此前内联「13 + 18 = 31 ✓」—— Task 5 加了 `voiced_prob_mean` 之后它已**静默过期**(31→32),而同一句上文的 `arithmetic` 栏还正说着「那些数不再写在这里」 ⟹ 白名单 13 条的**逐条枚举**在本段上一条里(那才是有信息的部分),**合计数只看 `live_contract.voice`**(由钉子对着 `VoiceLogger.fieldnames` 实测)",
           "**`status` 的分档口径(一次说清)**:§4.3 判「保」的两条 `energy_mean`/`energy_variation` 记 `implemented`;判「修/改定义」的 6 条(pitch 三列 + pause 三列)记 `pending` —— 这 6 行的 `acceptance` 都要求改代码;`definition` 按**现行/目标形态分别写明**(`pitch_trend` 与 `pause_frequency` 写的是改后形态,`pitch_mean`/`pitch_variation`/`pause_duration_mean`/`pause_duration_max` 写的是现行形态并在行内标了缺陷)(与面部 `au4_frown` 判 pending 同一口径);2026-09-26 那 9 条里,代码已按本表定义产出的 7 条记 `implemented`(实测在 3 场正式素材上逐行有值),`pitch_p10`/`pitch_p90` 记 `pending`(它们吃的是与 `pitch_mean` **同一批未门控**的帧),`voiced_prob_mean` 记 `pending`(Task 5 的实现对象)。",
           "**`duration_sec` 为什么不在这里计数**:§4.3:233 把它判「移出特征集」⟹ 它不是 L0 目标测量列(裁定 C5 的口径),所以进 `legacy_allowlist` 而不是 `columns`。⚠️ 这是本任务与 C5 的一处**交叉**:钉子方向 1 要求每条活列都有着落,而 C5 要求 actual 只数目标测量列 —— 两者同时成立的唯一放法是白名单(Task 2 对 `session_id`/`timestamp` 用的是同一条推理,裁定 D2)。"
         ]
@@ -103,7 +104,7 @@
     {
       "column": "timestamp",
       "modality": "face",
-      "why": "非测量列(时间基,不是测量量);裁定 C5 不计入 L0 计数口径。§4.1:211 的修法(挂钟 time.time() → 会话相对时间)已由 M2.5 落地:现为 timestamp_ms ÷ 1000(video_pipeline.py:196-200),缺 timestamp 键时才回退墙钟(logger.py:94-95)。",
+      "why": "非测量列(时间基,不是测量量);裁定 C5 不计入 L0 计数口径。§4.1:211 的修法(挂钟 time.time() → 会话相对时间)已由 M2.5 落地:现为 timestamp_ms ÷ 1000(video_pipeline.py:196-200),缺 timestamp 键时才回退墙钟(face_expression/utils/logger.py:94-95)。",
       "planned": "M3.2"
     },
     {
@@ -235,7 +236,7 @@
     {
       "column": "is_valid",
       "modality": "face",
-      "why": "§4.1:209 处置「修」:「恒 1 且下游从未使用 → 改真实有效帧掩码」;evidence_gate.py:84 封停。它是**非测量列**(裁定 C5 不计入 L0 计数口径;spec §1 把「不计入 is_valid/session_id/timestamp」点为未声明决定)。⚠️ face 的 is_valid 根本不在日志列契约里(logger.py:43-59 无此列),它是结果对象摊平出来的恒 1 字段(results.py:179);gesture / voice 的 is_valid 归各自任务。",
+      "why": "§4.1:209 处置「修」:「恒 1 且下游从未使用 → 改真实有效帧掩码」;evidence_gate.py:84 封停。它是**非测量列**(裁定 C5 不计入 L0 计数口径;spec §1 把「不计入 is_valid/session_id/timestamp」点为未声明决定)。⚠️ face 的 is_valid 根本不在日志列契约里(face_expression/utils/logger.py:43-59 无此列),它是结果对象摊平出来的恒 1 字段(results.py:179);gesture / voice 的 is_valid 归各自任务。",
       "planned": "M3.2"
     },
     {
@@ -559,43 +560,43 @@
     {
       "column": "timestamp",
       "modality": "gesture",
-      "why": "非测量列(标识列/时间基,不是 L0 测量量)。裁定 C5 已把 L0 计数口径定死为测量列 ⟹ 它不进 `columns`(否则 `actual` 会把它数进去)。 ⚠️ 它同时是**那 16 个 jitter 列时间归一化的分母来源**(窗内真实秒数 = t_last − t_first),所以它必须留在日志里;本服务现在写的是墙钟(logger.py:334 取 now,:340-341 写两列),而要会话相对秒 —— 与 face 的修法同源(face 已由 M2.5 落地:timestamp_ms ÷ 1000;gesture 端的钟见 api/app.py:312 的 `_clock_for`)。",
+      "why": "非测量列(标识列/时间基,不是 L0 测量量)。裁定 C5 已把 L0 计数口径定死为测量列 ⟹ 它不进 `columns`(否则 `actual` 会把它数进去)。 ⚠️ 它同时是**那 16 个 jitter 列时间归一化的分母来源**(窗内真实秒数 = t_last − t_first),所以它必须留在日志里;本服务现在写的是墙钟(gesture_analysis/utils/logger.py:334 取 now,:340-341 写两列),而要会话相对秒 —— 与 face 的修法同源(face 已由 M2.5 落地:timestamp_ms ÷ 1000;gesture 端的钟见 gesture_analysis/api/app.py:312 的 `_clock_for`)。",
       "planned": "M3.3(作为元数据列单列,不进 L0 测量列)"
     },
     {
       "column": "timestamp_iso",
       "modality": "gesture",
-      "why": "非测量列(标识列/时间基,不是 L0 测量量)。裁定 C5 已把 L0 计数口径定死为测量列 ⟹ 它不进 `columns`(否则 `actual` 会把它数进去)。 它是 `timestamp` 的**可读副本**(同一时刻的 ISO 8601 串,logger.py:341),零额外信息;留它是为了人工看日志。",
+      "why": "非测量列(标识列/时间基,不是 L0 测量量)。裁定 C5 已把 L0 计数口径定死为测量列 ⟹ 它不进 `columns`(否则 `actual` 会把它数进去)。 它是 `timestamp` 的**可读副本**(同一时刻的 ISO 8601 串,gesture_analysis/utils/logger.py:341),零额外信息;留它是为了人工看日志。",
       "planned": "M3.3(作为元数据列单列,不进 L0 测量列)"
     },
     {
       "column": "left_hand_score",
       "modality": "gesture",
-      "why": "§4.2 依据栏原文:「可由同 block jitter 精确重构(max\\|diff\\| = 0)」。**实测证实**(不是照抄):三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),用现行公式从**同 block 的其余列**重算 **本列 `left_hand_score`**(连同 head / torso / shoulder / arm 的 score 与 `left_arm_stability`),`max|diff| = 0`(261 个共现行)。`_compute_resilience_score`(hand_analyzer.py:154-176)吃**三个**输入:jitter + is_fist + spread(常量 config.py:92-97)。⟹ 它是同 block 其余列的**确定性函数**,零额外信息(§4.5 规矩 2)。⚠️ §4.2 写的「6 个 `*_score`」**没有枚举**是哪 6 个(带 `_score` 后缀的活列实为 7 条),本表按后缀逐列处置。 evidence_gate.py:51 的 `hand_score` 封停;unblock: M3。",
+      "why": "§4.2 依据栏原文:「可由同 block jitter 精确重构(max\\|diff\\| = 0)」。**实测证实**(不是照抄):三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),用现行公式从**同 block 的其余列**重算 **本列 `left_hand_score`**(连同 head / torso / shoulder / arm 的 score 与 `left_arm_stability`),`max|diff| = 0`(261 个共现行)。`_compute_resilience_score`(hand_analyzer.py:154-176)吃**三个**输入:jitter + is_fist + spread(常量 gesture_analysis/config.py:92-97)。⟹ 它是同 block 其余列的**确定性函数**,零额外信息(§4.5 规矩 2)。⚠️ §4.2 写的「6 个 `*_score`」**没有枚举**是哪 6 个(带 `_score` 后缀的活列实为 7 条),本表按后缀逐列处置。 evidence_gate.py:51 的 `hand_score` 封停;unblock: M3。",
       "planned": "M3.3 删列"
     },
     {
       "column": "right_hand_score",
       "modality": "gesture",
-      "why": "§4.2 依据栏原文:「可由同 block jitter 精确重构(max\\|diff\\| = 0)」。**实测证实**(不是照抄):三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),用现行公式从**同 block 的其余列**重算 **本列 `right_hand_score`**(连同 head / torso / shoulder / arm 的 score 与 `left_arm_stability`),`max|diff| = 0`(238 个共现行)。`_compute_resilience_score`(hand_analyzer.py:154-176)吃**三个**输入:jitter + is_fist + spread(常量 config.py:92-97)。⟹ 它是同 block 其余列的**确定性函数**,零额外信息(§4.5 规矩 2)。⚠️ §4.2 写的「6 个 `*_score`」**没有枚举**是哪 6 个(带 `_score` 后缀的活列实为 7 条),本表按后缀逐列处置。 evidence_gate.py:51 的 `hand_score` 封停;unblock: M3。",
+      "why": "§4.2 依据栏原文:「可由同 block jitter 精确重构(max\\|diff\\| = 0)」。**实测证实**(不是照抄):三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),用现行公式从**同 block 的其余列**重算 **本列 `right_hand_score`**(连同 head / torso / shoulder / arm 的 score 与 `left_arm_stability`),`max|diff| = 0`(238 个共现行)。`_compute_resilience_score`(hand_analyzer.py:154-176)吃**三个**输入:jitter + is_fist + spread(常量 gesture_analysis/config.py:92-97)。⟹ 它是同 block 其余列的**确定性函数**,零额外信息(§4.5 规矩 2)。⚠️ §4.2 写的「6 个 `*_score`」**没有枚举**是哪 6 个(带 `_score` 后缀的活列实为 7 条),本表按后缀逐列处置。 evidence_gate.py:51 的 `hand_score` 封停;unblock: M3。",
       "planned": "M3.3 删列"
     },
     {
       "column": "shoulder_score",
       "modality": "gesture",
-      "why": "§4.2 依据栏原文:「可由同 block jitter 精确重构(max\\|diff\\| = 0)」。**实测证实**(不是照抄):三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),用现行公式从**同 block 的其余列**重算 **本列 `shoulder_score`**(连同 head / torso / shoulder / arm 的 score 与 `left_arm_stability`),`max|diff| = 0`(1414 个共现行)。`_compute_shoulder_score`(shoulder_analyzer.py:157-173)吃 left_jitter + right_jitter + shrug_level(常量 config.py:119-124)。⟹ 它是同 block 其余列的**确定性函数**,零额外信息(§4.5 规矩 2)。⚠️ §4.2 写的「6 个 `*_score`」**没有枚举**是哪 6 个(带 `_score` 后缀的活列实为 7 条),本表按后缀逐列处置。 evidence_gate.py:52 的 `shoulder_score` 封停;unblock: M3。",
+      "why": "§4.2 依据栏原文:「可由同 block jitter 精确重构(max\\|diff\\| = 0)」。**实测证实**(不是照抄):三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),用现行公式从**同 block 的其余列**重算 **本列 `shoulder_score`**(连同 head / torso / shoulder / arm 的 score 与 `left_arm_stability`),`max|diff| = 0`(1414 个共现行)。`_compute_shoulder_score`(shoulder_analyzer.py:157-173)吃 left_jitter + right_jitter + shrug_level(常量 gesture_analysis/config.py:119-124)。⟹ 它是同 block 其余列的**确定性函数**,零额外信息(§4.5 规矩 2)。⚠️ §4.2 写的「6 个 `*_score`」**没有枚举**是哪 6 个(带 `_score` 后缀的活列实为 7 条),本表按后缀逐列处置。 evidence_gate.py:52 的 `shoulder_score` 封停;unblock: M3。",
       "planned": "M3.3 删列"
     },
     {
       "column": "is_calibrated",
       "modality": "gesture",
-      "why": "§4.2 依据栏原文:「纯时长变量(与帧数 r = 0.684,控时长后 → 0.014)」;evidence_gate.py:70 的 `shoulder_is_calibrated` 永久封停(permanent)。**实测证实它是纯帧序**:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),三场各有 **29 行**写 `0`;第一个 `1` 落在 2b11 的第 **30** 行、落在 1592 与 caf0 的第 **31** 行(后两场在这之前各有一行为空:第 9 行 / 第 7 行 —— 姿态没检出时本列也写空;1592 此后还有第 33 / 37 两行为空);**除这些空行外,第一个 `1` 之后再没出现过 `0`**。与 `baseline_frames_needed = 30`(config.py:120)一一对应 ⟹ 它只是「本场跑了几帧」的另一种写法。⚠️ **键名与列名对不上**:名单里的键是 `shoulder_is_calibrated`,日志列叫 `is_calibrated` —— `is_quarantined('is_calibrated')` 实测返回 **None** ⟹ 永久封停不会命中这一列。",
+      "why": "§4.2 依据栏原文:「纯时长变量(与帧数 r = 0.684,控时长后 → 0.014)」;evidence_gate.py:70 的 `shoulder_is_calibrated` 永久封停(permanent)。**实测证实它是纯帧序**:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),三场各有 **29 行**写 `0`;第一个 `1` 落在 2b11 的第 **30** 行、落在 1592 与 caf0 的第 **31** 行(后两场在这之前各有一行为空:第 9 行 / 第 7 行 —— 姿态没检出时本列也写空;1592 此后还有第 33 / 37 两行为空);**除这些空行外,第一个 `1` 之后再没出现过 `0`**。与 `baseline_frames_needed = 30`(gesture_analysis/config.py:120)一一对应 ⟹ 它只是「本场跑了几帧」的另一种写法。⚠️ **键名与列名对不上**:名单里的键是 `shoulder_is_calibrated`,日志列叫 `is_calibrated` —— `is_quarantined('is_calibrated')` 实测返回 **None** ⟹ 永久封停不会命中这一列。",
       "planned": "M3.3 删列"
     },
     {
       "column": "left_arm_score",
       "modality": "gesture",
-      "why": "§4.2 依据栏原文:「可由同 block jitter 精确重构(max\\|diff\\| = 0)」。**实测证实**(不是照抄):三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),用现行公式从**同 block 的其余列**重算 **本列 `left_arm_score`**(连同 head / torso / shoulder / arm 的 score 与 `left_arm_stability`),`max|diff| = 0`(1414 个共现行)。`_compute_arm_score`(arm_analyzer.py:189-223)吃 wrist/elbow jitter + arm_angle + arm_stability(常量 config.py:105-111)。⟹ 它是同 block 其余列的**确定性函数**,零额外信息(§4.5 规矩 2)。⚠️ §4.2 写的「6 个 `*_score`」**没有枚举**是哪 6 个(带 `_score` 后缀的活列实为 7 条),本表按后缀逐列处置。 evidence_gate.py:53 的 `arm_score` 封停;unblock: M3。",
+      "why": "§4.2 依据栏原文:「可由同 block jitter 精确重构(max\\|diff\\| = 0)」。**实测证实**(不是照抄):三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),用现行公式从**同 block 的其余列**重算 **本列 `left_arm_score`**(连同 head / torso / shoulder / arm 的 score 与 `left_arm_stability`),`max|diff| = 0`(1414 个共现行)。`_compute_arm_score`(arm_analyzer.py:189-223)吃 wrist/elbow jitter + arm_angle + arm_stability(常量 gesture_analysis/config.py:105-111)。⟹ 它是同 block 其余列的**确定性函数**,零额外信息(§4.5 规矩 2)。⚠️ §4.2 写的「6 个 `*_score`」**没有枚举**是哪 6 个(带 `_score` 后缀的活列实为 7 条),本表按后缀逐列处置。 evidence_gate.py:53 的 `arm_score` 封停;unblock: M3。",
       "planned": "M3.3 删列"
     },
     {
@@ -607,13 +608,13 @@
     {
       "column": "left_arm_stability",
       "modality": "gesture",
-      "why": "§4.2 依据栏原文:「同上(可由同 block jitter 精确重构)」。**实测证实**:`1 − avg_jitter × jitter_multiplier ÷ 100` 重算后与产出 `max|diff| = 0`(三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测);公式出处 upper_body_analyzer.py:161 / arm_analyzer.py:186,`jitter_multiplier` = 1500,config.py:106)。⟹ 它是 jitter 的确定性函数,零额外信息。(`is_quarantined('left_arm_stability') -> None`,实测:封停名单里没有 stability 这一族。)",
+      "why": "§4.2 依据栏原文:「同上(可由同 block jitter 精确重构)」。**实测证实**:`1 − avg_jitter × jitter_multiplier ÷ 100` 重算后与产出 `max|diff| = 0`(三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测);公式出处 upper_body_analyzer.py:161 / arm_analyzer.py:186,`jitter_multiplier` = 1500,gesture_analysis/config.py:106)。⟹ 它是 jitter 的确定性函数,零额外信息。(`is_quarantined('left_arm_stability') -> None`,实测:封停名单里没有 stability 这一族。)",
       "planned": "M3.3 删列"
     },
     {
       "column": "right_arm_score",
       "modality": "gesture",
-      "why": "§4.2 依据栏原文:「可由同 block jitter 精确重构(max\\|diff\\| = 0)」。**实测证实**(不是照抄):三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),用现行公式从**同 block 的其余列**重算 **本列 `right_arm_score`**(连同 head / torso / shoulder / arm 的 score 与 `left_arm_stability`),`max|diff| = 0`(1414 个共现行)。`_compute_arm_score`(arm_analyzer.py:189-223)吃 wrist/elbow jitter + arm_angle + arm_stability(常量 config.py:105-111)。⟹ 它是同 block 其余列的**确定性函数**,零额外信息(§4.5 规矩 2)。⚠️ §4.2 写的「6 个 `*_score`」**没有枚举**是哪 6 个(带 `_score` 后缀的活列实为 7 条),本表按后缀逐列处置。 evidence_gate.py:53 的 `arm_score` 封停;unblock: M3。",
+      "why": "§4.2 依据栏原文:「可由同 block jitter 精确重构(max\\|diff\\| = 0)」。**实测证实**(不是照抄):三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),用现行公式从**同 block 的其余列**重算 **本列 `right_arm_score`**(连同 head / torso / shoulder / arm 的 score 与 `left_arm_stability`),`max|diff| = 0`(1414 个共现行)。`_compute_arm_score`(arm_analyzer.py:189-223)吃 wrist/elbow jitter + arm_angle + arm_stability(常量 gesture_analysis/config.py:105-111)。⟹ 它是同 block 其余列的**确定性函数**,零额外信息(§4.5 规矩 2)。⚠️ §4.2 写的「6 个 `*_score`」**没有枚举**是哪 6 个(带 `_score` 后缀的活列实为 7 条),本表按后缀逐列处置。 evidence_gate.py:53 的 `arm_score` 封停;unblock: M3。",
       "planned": "M3.3 删列"
     },
     {
@@ -625,7 +626,7 @@
     {
       "column": "right_arm_stability",
       "modality": "gesture",
-      "why": "§4.2 依据栏原文:「同上(可由同 block jitter 精确重构)」。**实测证实**:`1 − avg_jitter × jitter_multiplier ÷ 100` 重算后与产出 `max|diff| = 0`(三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测);公式出处 upper_body_analyzer.py:161 / arm_analyzer.py:186,`jitter_multiplier` = 1500,config.py:106)。⟹ 它是 jitter 的确定性函数,零额外信息。(`is_quarantined('right_arm_stability') -> None`,实测:封停名单里没有 stability 这一族。)",
+      "why": "§4.2 依据栏原文:「同上(可由同 block jitter 精确重构)」。**实测证实**:`1 − avg_jitter × jitter_multiplier ÷ 100` 重算后与产出 `max|diff| = 0`(三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测);公式出处 upper_body_analyzer.py:161 / arm_analyzer.py:186,`jitter_multiplier` = 1500,gesture_analysis/config.py:106)。⟹ 它是 jitter 的确定性函数,零额外信息。(`is_quarantined('right_arm_stability') -> None`,实测:封停名单里没有 stability 这一族。)",
       "planned": "M3.3 删列"
     },
     {
@@ -643,7 +644,7 @@
     {
       "column": "head_score",
       "modality": "gesture",
-      "why": "§4.2 依据栏原文:「可由同 block jitter 精确重构(max\\|diff\\| = 0)」。**实测证实**(不是照抄):三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),用现行公式从**同 block 的其余列**重算 **本列 `head_score`**(连同 head / torso / shoulder / arm 的 score 与 `left_arm_stability`),`max|diff| = 0`(1414 个共现行)。`_compute_head_score`(upper_body_analyzer.py:164-190)吃 head_jitter + head_tilt(常量 config.py:105-111)。⟹ 它是同 block 其余列的**确定性函数**,零额外信息(§4.5 规矩 2)。⚠️ §4.2 写的「6 个 `*_score`」**没有枚举**是哪 6 个(带 `_score` 后缀的活列实为 7 条),本表按后缀逐列处置。 evidence_gate.py:54 的 `head_score` 封停;unblock: M3。",
+      "why": "§4.2 依据栏原文:「可由同 block jitter 精确重构(max\\|diff\\| = 0)」。**实测证实**(不是照抄):三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),用现行公式从**同 block 的其余列**重算 **本列 `head_score`**(连同 head / torso / shoulder / arm 的 score 与 `left_arm_stability`),`max|diff| = 0`(1414 个共现行)。`_compute_head_score`(upper_body_analyzer.py:164-190)吃 head_jitter + head_tilt(常量 gesture_analysis/config.py:105-111)。⟹ 它是同 block 其余列的**确定性函数**,零额外信息(§4.5 规矩 2)。⚠️ §4.2 写的「6 个 `*_score`」**没有枚举**是哪 6 个(带 `_score` 后缀的活列实为 7 条),本表按后缀逐列处置。 evidence_gate.py:54 的 `head_score` 封停;unblock: M3。",
       "planned": "M3.3 删列"
     },
     {
@@ -661,7 +662,7 @@
     {
       "column": "torso_stability",
       "modality": "gesture",
-      "why": "§4.2 依据栏原文:「同上(可由同 block jitter 精确重构)」。**实测证实**:`1 − avg_jitter × jitter_multiplier ÷ 100` 重算后与产出 `max|diff| = 0`(三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测);公式出处 upper_body_analyzer.py:161 / arm_analyzer.py:186,`jitter_multiplier` = 1500,config.py:106)。⟹ 它是 jitter 的确定性函数,零额外信息。(`is_quarantined('torso_stability') -> None`,实测:封停名单里没有 stability 这一族。)",
+      "why": "§4.2 依据栏原文:「同上(可由同 block jitter 精确重构)」。**实测证实**:`1 − avg_jitter × jitter_multiplier ÷ 100` 重算后与产出 `max|diff| = 0`(三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测);公式出处 upper_body_analyzer.py:161 / arm_analyzer.py:186,`jitter_multiplier` = 1500,gesture_analysis/config.py:106)。⟹ 它是 jitter 的确定性函数,零额外信息。(`is_quarantined('torso_stability') -> None`,实测:封停名单里没有 stability 这一族。)",
       "planned": "M3.3 删列"
     },
     {
@@ -697,31 +698,31 @@
     {
       "column": "is_valid",
       "modality": "gesture",
-      "why": "三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),**1418/1418 行全为 False**(`used_features` 恒 `none`)。三点:① 它是**非测量列**(C5 不计入);② 它装的是 **emotion 结果**的 is_valid,**不是** §4.2 说的那 4 个分析器的 `is_valid()` —— 那 4 个在日志列契约里的落点只有 1 列,文档没写合并后叫什么、装在哪;③ 有效性在本项目的既有约定里由**空值**表达(`_safe_get(None) → \"\"`,logger.py:444-457),再加一列布尔等于把同一件事数两遍 ⟹ 判删。evidence_gate.py:84 封停(unblock「M3 改真掩码」)。⚠️ 键名与列名对不上:名单里 face 侧那条叫 `is_valid`、这里同名,但 gesture 的这列语义不同(它是情绪块的),两者只共用了名字。",
+      "why": "三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),**1418/1418 行全为 False**(`used_features` 恒 `none`)。三点:① 它是**非测量列**(C5 不计入);② 它装的是 **emotion 结果**的 is_valid,**不是** §4.2 说的那 4 个分析器的 `is_valid()` —— 那 4 个在日志列契约里的落点只有 1 列,文档没写合并后叫什么、装在哪;③ 有效性在本项目的既有约定里由**空值**表达(`_safe_get(None) → \"\"`,gesture_analysis/utils/logger.py:444-457),再加一列布尔等于把同一件事数两遍 ⟹ 判删。evidence_gate.py:84 封停(unblock「M3 改真掩码」)。⚠️ 键名与列名对不上:名单里 face 侧那条叫 `is_valid`、这里同名,但 gesture 的这列语义不同(它是情绪块的),两者只共用了名字。",
       "planned": "M3.3 删列"
     },
     {
       "column": "left_hand_model_label",
       "modality": "gesture",
-      "why": "**不是 L0 测量列**,是**标签来源的审计元数据**:模型给的原始 handedness 标签(`Left`/`Right`,字符串)。2026-09-26 加它是因为在它之前 `left_hand_*` / `right_hand_*` 是按**检出顺序**分的(第一只/第二只),而模型本来给了 handedness(api/app.py:317-351;logger.py:137-145 的说明)。留着才能审计「左右有没有翻对」;空 = 那一槽**没有依据**(模型没给 handedness 的兜底),不是「标签是空串」。按裁定 C5 的口径它不计入 `actual.gesture`。",
+      "why": "**不是 L0 测量列**,是**标签来源的审计元数据**:模型给的原始 handedness 标签(`Left`/`Right`,字符串)。2026-09-26 加它是因为在它之前 `left_hand_*` / `right_hand_*` 是按**检出顺序**分的(第一只/第二只),而模型本来给了 handedness(gesture_analysis/api/app.py:317-351;gesture_analysis/utils/logger.py:137-145 的说明)。留着才能审计「左右有没有翻对」;空 = 那一槽**没有依据**(模型没给 handedness 的兜底),不是「标签是空串」。按裁定 C5 的口径它不计入 `actual.gesture`。",
       "planned": "M3.3(作为元数据列单列,不进 L0 测量列)"
     },
     {
       "column": "left_hand_model_label_conf",
       "modality": "gesture",
-      "why": "**不是 L0 测量列**,是**标签来源的审计元数据**:该标签的置信度。2026-09-26 加它是因为在它之前 `left_hand_*` / `right_hand_*` 是按**检出顺序**分的(第一只/第二只),而模型本来给了 handedness(api/app.py:317-351;logger.py:137-145 的说明)。留着才能审计「左右有没有翻对」;空 = 那一槽**没有依据**(模型没给 handedness 的兜底),不是「标签是空串」。按裁定 C5 的口径它不计入 `actual.gesture`。",
+      "why": "**不是 L0 测量列**,是**标签来源的审计元数据**:该标签的置信度。2026-09-26 加它是因为在它之前 `left_hand_*` / `right_hand_*` 是按**检出顺序**分的(第一只/第二只),而模型本来给了 handedness(gesture_analysis/api/app.py:317-351;gesture_analysis/utils/logger.py:137-145 的说明)。留着才能审计「左右有没有翻对」;空 = 那一槽**没有依据**(模型没给 handedness 的兜底),不是「标签是空串」。按裁定 C5 的口径它不计入 `actual.gesture`。",
       "planned": "M3.3(作为元数据列单列,不进 L0 测量列)"
     },
     {
       "column": "right_hand_model_label",
       "modality": "gesture",
-      "why": "**不是 L0 测量列**,是**标签来源的审计元数据**:模型给的原始 handedness 标签(`Left`/`Right`,字符串)。2026-09-26 加它是因为在它之前 `left_hand_*` / `right_hand_*` 是按**检出顺序**分的(第一只/第二只),而模型本来给了 handedness(api/app.py:317-351;logger.py:137-145 的说明)。留着才能审计「左右有没有翻对」;空 = 那一槽**没有依据**(模型没给 handedness 的兜底),不是「标签是空串」。按裁定 C5 的口径它不计入 `actual.gesture`。",
+      "why": "**不是 L0 测量列**,是**标签来源的审计元数据**:模型给的原始 handedness 标签(`Left`/`Right`,字符串)。2026-09-26 加它是因为在它之前 `left_hand_*` / `right_hand_*` 是按**检出顺序**分的(第一只/第二只),而模型本来给了 handedness(gesture_analysis/api/app.py:317-351;gesture_analysis/utils/logger.py:137-145 的说明)。留着才能审计「左右有没有翻对」;空 = 那一槽**没有依据**(模型没给 handedness 的兜底),不是「标签是空串」。按裁定 C5 的口径它不计入 `actual.gesture`。",
       "planned": "M3.3(作为元数据列单列,不进 L0 测量列)"
     },
     {
       "column": "right_hand_model_label_conf",
       "modality": "gesture",
-      "why": "**不是 L0 测量列**,是**标签来源的审计元数据**:该标签的置信度。2026-09-26 加它是因为在它之前 `left_hand_*` / `right_hand_*` 是按**检出顺序**分的(第一只/第二只),而模型本来给了 handedness(api/app.py:317-351;logger.py:137-145 的说明)。留着才能审计「左右有没有翻对」;空 = 那一槽**没有依据**(模型没给 handedness 的兜底),不是「标签是空串」。按裁定 C5 的口径它不计入 `actual.gesture`。",
+      "why": "**不是 L0 测量列**,是**标签来源的审计元数据**:该标签的置信度。2026-09-26 加它是因为在它之前 `left_hand_*` / `right_hand_*` 是按**检出顺序**分的(第一只/第二只),而模型本来给了 handedness(gesture_analysis/api/app.py:317-351;gesture_analysis/utils/logger.py:137-145 的说明)。留着才能审计「左右有没有翻对」;空 = 那一槽**没有依据**(模型没给 handedness 的兜底),不是「标签是空串」。按裁定 C5 的口径它不计入 `actual.gesture`。",
       "planned": "M3.3(作为元数据列单列,不进 L0 测量列)"
     },
     {
@@ -739,7 +740,7 @@
     {
       "column": "timestamp",
       "modality": "voice",
-      "why": "非测量列(同一刻的 ISO 8601 形式,utils/logger.py:154);裁定 C5 不计入。同 `unix_timestamp`:墙钟、非会话相对 —— 而面部 `timestamp` 的修法(§4.1:211,挂钟 → 会话相对)已由 M2.5 落地。",
+      "why": "非测量列(同一刻的 ISO 8601 形式,voice_interaction/utils/logger.py:154);裁定 C5 不计入。同 `unix_timestamp`:墙钟、非会话相对 —— 而面部 `timestamp` 的修法(§4.1:211,挂钟 → 会话相对)已由 M2.5 落地。",
       "planned": "M3.4(作为元数据列单列,不进 L0 测量列)"
     },
     {
@@ -763,19 +764,19 @@
     {
       "column": "emotion",
       "modality": "voice",
-      "why": "**判删(处置由本行定,§4.3 未提它)**:**实测全仓 86 行语音日志里 `emotion` 全是空串**(86/86,含科研侧),因为两个端点都是显式传 `emotion=\"\"`(app.py:605 / :867)⟹ 零信息量。面部那一族已有同样的处置(`overall_score` / `emotion_state` / `feedback` 恒常量 ⟹ 判删,Task 2)。⚠️ 删它不影响报告的情绪槽:那一条本来就没有产出方。",
+      "why": "**判删(处置由本行定,§4.3 未提它)**:**实测全仓 86 行语音日志里 `emotion` 全是空串**(86/86,含科研侧),因为两个端点都是显式传 `emotion=\"\"`(voice_interaction/api/app.py:605 / :867)⟹ 零信息量。面部那一族已有同样的处置(`overall_score` / `emotion_state` / `feedback` 恒常量 ⟹ 判删,Task 2)。⚠️ 删它不影响报告的情绪槽:那一条本来就没有产出方。",
       "planned": "M3.4 删列"
     },
     {
       "column": "feedback",
       "modality": "voice",
-      "why": "同 `emotion`:实测 86/86 空串(app.py:605 / :867 显式传 `feedback=\"\"`);判删由本行定,§4.3 未提。面部同名列已在 Task 2 判删。",
+      "why": "同 `emotion`:实测 86/86 空串(voice_interaction/api/app.py:605 / :867 显式传 `feedback=\"\"`);判删由本行定,§4.3 未提。面部同名列已在 Task 2 判删。",
       "planned": "M3.4 删列"
     },
     {
       "column": "question_index",
       "modality": "voice",
-      "why": "非测量列(题目下标,= 回答前 `qa_pairs` 的长度、0 基;app.py:599-600);裁定 C5 不计入。⚠️ 它必须**留着**:它是 `reaction_time` 与题目台账(`questions.jsonl` 的 `ask_end`)对上的**连接键**(app.py:599-604),删了反应延迟就不可复核。",
+      "why": "非测量列(题目下标,= 回答前 `qa_pairs` 的长度、0 基;voice_interaction/api/app.py:599-600);裁定 C5 不计入。⚠️ 它必须**留着**:它是 `reaction_time` 与题目台账(`questions.jsonl` 的 `ask_end`)对上的**连接键**(voice_interaction/api/app.py:599-604),删了反应延迟就不可复核。",
       "planned": "M3.4(作为元数据/连接键单列,不进 L0 测量列)"
     },
     {
@@ -787,19 +788,19 @@
     {
       "column": "connective_density",
       "modality": "voice",
-      "why": "§4.4:258 的「**结构**」类派生指标(连接词密度);§4.4 的派生表(:256-262)明确延后 —— :263 的语义 embedding「先进 L1 观望,不直接进 L2」、§5.5:370 的三个文本族指标「先占位,**标注到位前不实现**」⟹ 不进本轮 L0 契约,归文本层单独定义。⚠️ 它**现在是活的**(voice 端点每次回答写一行,app.py:580 / :855;报告层 research_mapper.py:106 在消费),所以这条不是「删掉」。⚠️ 口径:它与 `n_chars` 用**同一个** `count_cjk_chars`(app.py:590-591);过短/空 → **None(留空),不写 0**(connective_density.py)。",
+      "why": "§4.4:258 的「**结构**」类派生指标(连接词密度);§4.4 的派生表(:256-262)明确延后 —— :263 的语义 embedding「先进 L1 观望,不直接进 L2」、§5.5:370 的三个文本族指标「先占位,**标注到位前不实现**」⟹ 不进本轮 L0 契约,归文本层单独定义。⚠️ 它**现在是活的**(voice 端点每次回答写一行,voice_interaction/api/app.py:580 / :855;报告层 research_mapper.py:106 在消费),所以这条不是「删掉」。⚠️ 口径:它与 `n_chars` 用**同一个** `count_cjk_chars`(voice_interaction/api/app.py:590-591);过短/空 → **None(留空),不写 0**(connective_density.py)。",
       "planned": "M4 或更后(文本层;§4.4 的派生指标)"
     },
     {
       "column": "connective_density_std",
       "modality": "voice",
-      "why": "同族(§4.4:258 结构类派生);现行实现**恒 0.0** —— 端点是整句算一次、`n_rows=1`,单个值的标准差按定义为 0.0(app.py:606-608 的注释,与「没算出来」的 None 是两回事)⟹ 现在这列没有信息量,文本层重新定义时一并处理。",
+      "why": "同族(§4.4:258 结构类派生);现行实现**恒 0.0** —— 端点是整句算一次、`n_rows=1`,单个值的标准差按定义为 0.0(voice_interaction/api/app.py:606-608 的注释,与「没算出来」的 None 是两回事)⟹ 现在这列没有信息量,文本层重新定义时一并处理。",
       "planned": "M4 或更后(文本层;§4.4 的派生指标)"
     },
     {
       "column": "n_rows",
       "modality": "voice",
-      "why": "派生指标的**辅助计数列**(参与密度计算的句数),端点恒写 `n_rows=1`(app.py:608);它不是 L0 测量列(裁定 C5 的非测量列一族:数的是「算密度用了几句」,不是行为量),处置随它的母指标走。",
+      "why": "派生指标的**辅助计数列**(参与密度计算的句数),端点恒写 `n_rows=1`(voice_interaction/api/app.py:608);它不是 L0 测量列(裁定 C5 的非测量列一族:数的是「算密度用了几句」,不是行为量),处置随它的母指标走。",
       "planned": "M4 或更后(文本层;与 connective_density 同批)"
     }
   ],
@@ -1104,8 +1105,8 @@
     {
       "column": "left_hand_jitter",
       "modality": "gesture",
-      "definition": "左手食指指尖(lm[8])的**归一化图像坐标**在 30 帧历史窗内**逐轴标准差的均值**,再 ÷ 肩宽(同坐标系)÷ 窗内真实秒数。分子 = 现行 `_calculate_jitter`(`np.std(positions, axis=0).mean()`),出处 gesture_analysis/core/analysis/hand_analyzer.py:99-105(tip_history[8],`HandAnalyzer(hand_id=0)`,api/app.py:180);窗长 `history_length = 30`(gesture_analysis/config.py:92/105/119,三处 history_length 同值 30)。分母 1 = `shoulder_width`(dist(lm[11], lm[12]),归一化图像单位;本表另有一行),取**窗内中位数**;分母 2 = 窗内真实秒数(会话相对秒的 t_last − t_first,取自本日志的 timestamp)。⚠️ 现行产出**没有这两层归一**:单位是归一化图像单位 ⟹ 同时编码**帧率**(窗跨 30 帧:1 fps 下 30 s、30 fps 下 1 s)与**离镜头远近**(同一动作离镜头近一倍,该值也大一倍)。这正是 §4.5 规矩 1 点名的病,也是 QUARANTINE 的 `jitter` 键那条封停的成因。",
-      "source": "mediapipe pose/hand landmarker 的归一化图像坐标;由 gesture_analysis/core/analysis/hand_analyzer.py:99-105(tip_history[8],`HandAnalyzer(hand_id=0)`,api/app.py:180) 的几何标准差算出",
+      "definition": "左手食指指尖(lm[8])的**归一化图像坐标**在 30 帧历史窗内**逐轴标准差的均值**,再 ÷ 肩宽(同坐标系)÷ 窗内真实秒数。分子 = 现行 `_calculate_jitter`(`np.std(positions, axis=0).mean()`),出处 gesture_analysis/core/analysis/hand_analyzer.py:99-105(tip_history[8],`HandAnalyzer(hand_id=0)`,gesture_analysis/api/app.py:180);窗长 `history_length = 30`(gesture_analysis/config.py:92/105/119,三处 history_length 同值 30)。分母 1 = `shoulder_width`(dist(lm[11], lm[12]),归一化图像单位;本表另有一行),取**窗内中位数**;分母 2 = 窗内真实秒数(会话相对秒的 t_last − t_first,取自本日志的 timestamp)。⚠️ 现行产出**没有这两层归一**:单位是归一化图像单位 ⟹ 同时编码**帧率**(窗跨 30 帧:1 fps 下 30 s、30 fps 下 1 s)与**离镜头远近**(同一动作离镜头近一倍,该值也大一倍)。这正是 §4.5 规矩 1 点名的病,也是 QUARANTINE 的 `jitter` 键那条封停的成因。",
+      "source": "mediapipe pose/hand landmarker 的归一化图像坐标;由 gesture_analysis/core/analysis/hand_analyzer.py:99-105(tip_history[8],`HandAnalyzer(hand_id=0)`,gesture_analysis/api/app.py:180) 的几何标准差算出",
       "normalization": "÷ 肩宽(窗内中位数,归一化图像单位,同坐标系)÷ 窗内真实秒数(会话相对秒)",
       "unit": "肩宽/秒",
       "maturity": "B",
@@ -1113,12 +1114,12 @@
       "status": "pending",
       "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(report_frontend/evidence_gate.py:63);unblock: M3 归一化(除肩宽除时间)",
       "acceptance": "重构好 = ① 该列不再随帧率变(同一段动作在 1 fps 与 30 fps 下抽,值差 < 20%);② 不再随人离镜头远近变(平移/缩放裁剪框该列不变);③ 与同名 `*_world`(米制)列的会话内相关 > 0.9 —— 两份量的是同一个动作,相关低就说明还有一路的归一化没做对;④ evidence_gate.py:63 的 `jitter` 封停可解。",
-      "basis": "两处分母的口径由**本行定**(§4.2 只写「÷ 肩宽、÷ 时间」,没给口径):① 肩宽取**窗内中位数** —— 窗统计量用窗级标尺,避免瞬时肩宽噪声进分母;分母本身的口径见 `shoulder_width` 那一行(Task 7 建)。② 时间分母取**窗内真实秒数**(t_last − t_first),**不取 30 ÷ fps** —— 后者等于假设帧率恒定,而帧率正是被污染的那个量。窗长 30 帧是现行代码常量(config.py:92/105/119)、文档里没有出处 ⟹ 本行把它**定为** L0 口径(与 `au10_upper_lip_raise` 对「开头 10 帧」的处置同一理由,那次同样判 B)。够 B 的判据:缺的只是一个现在就能定的参数(两个分母的口径),不需要标定数据。"
+      "basis": "两处分母的口径由**本行定**(§4.2 只写「÷ 肩宽、÷ 时间」,没给口径):① 肩宽取**窗内中位数** —— 窗统计量用窗级标尺,避免瞬时肩宽噪声进分母;分母本身的口径见 `shoulder_width` 那一行(Task 7 建)。② 时间分母取**窗内真实秒数**(t_last − t_first),**不取 30 ÷ fps** —— 后者等于假设帧率恒定,而帧率正是被污染的那个量。窗长 30 帧是现行代码常量(gesture_analysis/config.py:92/105/119)、文档里没有出处 ⟹ 本行把它**定为** L0 口径(与 `au10_upper_lip_raise` 对「开头 10 帧」的处置同一理由,那次同样判 B)。够 B 的判据:缺的只是一个现在就能定的参数(两个分母的口径),不需要标定数据。"
     },
     {
       "column": "left_hand_fist_status",
       "modality": "gesture",
-      "definition": "该侧手的**屈曲度**(无量纲比):mean(dist(指尖_i, 掌心)) ÷ 掌长。指尖 = lm[8]/lm[12]/lm[16]/lm[20](食指/中指/无名/小指指尖),掌心 = lm[0](腕)与 lm[9](中指掌指关节)的中点,掌长 = dist(lm[0], lm[9])(由本行定,见 basis)。⚠️ **现行实现不是这个**:`HandAnalyzer._is_fist`(hand_analyzer.py:107-131)算的是 mean(dist(指尖_i, 近端指间关节_i)) = lm[8]/[12]/[16]/[20] 到 lm[7]/[11]/[15]/[19] 的距离,再与 `fist_threshold = 0.08`(config.py:93)比大小。而**指间关节到指尖就是远端指骨的长度** —— 它是解剖常数,与握不握拳无关,只随**手的成像大小**(离镜头远近/裁剪框)变 ⟹ 现行那一列量的其实是「手在画面里多大」,不是「握没握拳」。config.py:93 的注释写的是「指尖到手掌心平均距离」,与代码实际算的(指尖到 DIP)**不是一件事** —— 注释与代码不一致。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),**两列合计有值 499 帧 —— 496 帧判握拳、3 帧判非握拳(全在 `right_hand_fist_status`)**;本列(left手)有值 261 帧:**261 帧全判握拳**(0 帧判非握拳)。近似常量(99.4% 为 1)⟹ 零信息列。",
+      "definition": "该侧手的**屈曲度**(无量纲比):mean(dist(指尖_i, 掌心)) ÷ 掌长。指尖 = lm[8]/lm[12]/lm[16]/lm[20](食指/中指/无名/小指指尖),掌心 = lm[0](腕)与 lm[9](中指掌指关节)的中点,掌长 = dist(lm[0], lm[9])(由本行定,见 basis)。⚠️ **现行实现不是这个**:`HandAnalyzer._is_fist`(hand_analyzer.py:107-131)算的是 mean(dist(指尖_i, 近端指间关节_i)) = lm[8]/[12]/[16]/[20] 到 lm[7]/[11]/[15]/[19] 的距离,再与 `fist_threshold = 0.08`(gesture_analysis/config.py:93)比大小。而**指间关节到指尖就是远端指骨的长度** —— 它是解剖常数,与握不握拳无关,只随**手的成像大小**(离镜头远近/裁剪框)变 ⟹ 现行那一列量的其实是「手在画面里多大」,不是「握没握拳」。gesture_analysis/config.py:93 的注释写的是「指尖到手掌心平均距离」,与代码实际算的(指尖到 DIP)**不是一件事** —— 注释与代码不一致。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),**两列合计有值 499 帧 —— 496 帧判握拳、3 帧判非握拳(全在 `right_hand_fist_status`)**;本列(left手)有值 261 帧:**261 帧全判握拳**(0 帧判非握拳)。近似常量(99.4% 为 1)⟹ 零信息列。",
       "source": "mediapipe hand landmarker 的 21 点(x/y/z);现行产出由 hand_analyzer.py:107-131 算出,阈值来自 gesture_analysis/config.py:93",
       "normalization": "÷ 掌长 dist(lm[0], lm[9])(同坐标系)—— 手的成像大小随离镜头远近变,除以**手自己的**骨性长度才能把「屈曲」与「距离」分开。**不用肩宽**:手前伸时与肩不在同一深度,除肩宽会把深度差算成屈曲度变化",
       "unit": "比值",
@@ -1146,8 +1147,8 @@
     {
       "column": "right_hand_jitter",
       "modality": "gesture",
-      "definition": "右手食指指尖(lm[8])的**归一化图像坐标**在 30 帧历史窗内**逐轴标准差的均值**,再 ÷ 肩宽(同坐标系)÷ 窗内真实秒数。分子 = 现行 `_calculate_jitter`(`np.std(positions, axis=0).mean()`),出处 gesture_analysis/core/analysis/hand_analyzer.py:99-105(`HandAnalyzer(hand_id=1)`,api/app.py:181);窗长 `history_length = 30`(gesture_analysis/config.py:92/105/119,三处 history_length 同值 30)。分母 1 = `shoulder_width`(dist(lm[11], lm[12]),归一化图像单位;本表另有一行),取**窗内中位数**;分母 2 = 窗内真实秒数(会话相对秒的 t_last − t_first,取自本日志的 timestamp)。⚠️ 现行产出**没有这两层归一**:单位是归一化图像单位 ⟹ 同时编码**帧率**(窗跨 30 帧:1 fps 下 30 s、30 fps 下 1 s)与**离镜头远近**(同一动作离镜头近一倍,该值也大一倍)。这正是 §4.5 规矩 1 点名的病,也是 QUARANTINE 的 `jitter` 键那条封停的成因。",
-      "source": "mediapipe pose/hand landmarker 的归一化图像坐标;由 gesture_analysis/core/analysis/hand_analyzer.py:99-105(`HandAnalyzer(hand_id=1)`,api/app.py:181) 的几何标准差算出",
+      "definition": "右手食指指尖(lm[8])的**归一化图像坐标**在 30 帧历史窗内**逐轴标准差的均值**,再 ÷ 肩宽(同坐标系)÷ 窗内真实秒数。分子 = 现行 `_calculate_jitter`(`np.std(positions, axis=0).mean()`),出处 gesture_analysis/core/analysis/hand_analyzer.py:99-105(`HandAnalyzer(hand_id=1)`,gesture_analysis/api/app.py:181);窗长 `history_length = 30`(gesture_analysis/config.py:92/105/119,三处 history_length 同值 30)。分母 1 = `shoulder_width`(dist(lm[11], lm[12]),归一化图像单位;本表另有一行),取**窗内中位数**;分母 2 = 窗内真实秒数(会话相对秒的 t_last − t_first,取自本日志的 timestamp)。⚠️ 现行产出**没有这两层归一**:单位是归一化图像单位 ⟹ 同时编码**帧率**(窗跨 30 帧:1 fps 下 30 s、30 fps 下 1 s)与**离镜头远近**(同一动作离镜头近一倍,该值也大一倍)。这正是 §4.5 规矩 1 点名的病,也是 QUARANTINE 的 `jitter` 键那条封停的成因。",
+      "source": "mediapipe pose/hand landmarker 的归一化图像坐标;由 gesture_analysis/core/analysis/hand_analyzer.py:99-105(`HandAnalyzer(hand_id=1)`,gesture_analysis/api/app.py:181) 的几何标准差算出",
       "normalization": "÷ 肩宽(窗内中位数,归一化图像单位,同坐标系)÷ 窗内真实秒数(会话相对秒)",
       "unit": "肩宽/秒",
       "maturity": "B",
@@ -1155,12 +1156,12 @@
       "status": "pending",
       "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(report_frontend/evidence_gate.py:63);unblock: M3 归一化(除肩宽除时间)",
       "acceptance": "重构好 = ① 该列不再随帧率变(同一段动作在 1 fps 与 30 fps 下抽,值差 < 20%);② 不再随人离镜头远近变(平移/缩放裁剪框该列不变);③ 与同名 `*_world`(米制)列的会话内相关 > 0.9 —— 两份量的是同一个动作,相关低就说明还有一路的归一化没做对;④ evidence_gate.py:63 的 `jitter` 封停可解。",
-      "basis": "两处分母的口径由**本行定**(§4.2 只写「÷ 肩宽、÷ 时间」,没给口径):① 肩宽取**窗内中位数** —— 窗统计量用窗级标尺,避免瞬时肩宽噪声进分母;分母本身的口径见 `shoulder_width` 那一行(Task 7 建)。② 时间分母取**窗内真实秒数**(t_last − t_first),**不取 30 ÷ fps** —— 后者等于假设帧率恒定,而帧率正是被污染的那个量。窗长 30 帧是现行代码常量(config.py:92/105/119)、文档里没有出处 ⟹ 本行把它**定为** L0 口径(与 `au10_upper_lip_raise` 对「开头 10 帧」的处置同一理由,那次同样判 B)。够 B 的判据:缺的只是一个现在就能定的参数(两个分母的口径),不需要标定数据。"
+      "basis": "两处分母的口径由**本行定**(§4.2 只写「÷ 肩宽、÷ 时间」,没给口径):① 肩宽取**窗内中位数** —— 窗统计量用窗级标尺,避免瞬时肩宽噪声进分母;分母本身的口径见 `shoulder_width` 那一行(Task 7 建)。② 时间分母取**窗内真实秒数**(t_last − t_first),**不取 30 ÷ fps** —— 后者等于假设帧率恒定,而帧率正是被污染的那个量。窗长 30 帧是现行代码常量(gesture_analysis/config.py:92/105/119)、文档里没有出处 ⟹ 本行把它**定为** L0 口径(与 `au10_upper_lip_raise` 对「开头 10 帧」的处置同一理由,那次同样判 B)。够 B 的判据:缺的只是一个现在就能定的参数(两个分母的口径),不需要标定数据。"
     },
     {
       "column": "right_hand_fist_status",
       "modality": "gesture",
-      "definition": "该侧手的**屈曲度**(无量纲比):mean(dist(指尖_i, 掌心)) ÷ 掌长。指尖 = lm[8]/lm[12]/lm[16]/lm[20](食指/中指/无名/小指指尖),掌心 = lm[0](腕)与 lm[9](中指掌指关节)的中点,掌长 = dist(lm[0], lm[9])(由本行定,见 basis)。⚠️ **现行实现不是这个**:`HandAnalyzer._is_fist`(hand_analyzer.py:107-131)算的是 mean(dist(指尖_i, 近端指间关节_i)) = lm[8]/[12]/[16]/[20] 到 lm[7]/[11]/[15]/[19] 的距离,再与 `fist_threshold = 0.08`(config.py:93)比大小。而**指间关节到指尖就是远端指骨的长度** —— 它是解剖常数,与握不握拳无关,只随**手的成像大小**(离镜头远近/裁剪框)变 ⟹ 现行那一列量的其实是「手在画面里多大」,不是「握没握拳」。config.py:93 的注释写的是「指尖到手掌心平均距离」,与代码实际算的(指尖到 DIP)**不是一件事** —— 注释与代码不一致。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),**两列合计有值 499 帧 —— 496 帧判握拳、3 帧判非握拳(全在 `right_hand_fist_status`)**;本列(right手)有值 238 帧:**235 帧判握拳、3 帧判非握拳**(caf0 的第 6/9/13 行;同帧 `right_hand_spread` 非空、`right_hand_score` 非默认值 ⟹ 手确实被检出、确系「判非握拳」)。近似常量(99.4% 为 1)⟹ 零信息列。",
+      "definition": "该侧手的**屈曲度**(无量纲比):mean(dist(指尖_i, 掌心)) ÷ 掌长。指尖 = lm[8]/lm[12]/lm[16]/lm[20](食指/中指/无名/小指指尖),掌心 = lm[0](腕)与 lm[9](中指掌指关节)的中点,掌长 = dist(lm[0], lm[9])(由本行定,见 basis)。⚠️ **现行实现不是这个**:`HandAnalyzer._is_fist`(hand_analyzer.py:107-131)算的是 mean(dist(指尖_i, 近端指间关节_i)) = lm[8]/[12]/[16]/[20] 到 lm[7]/[11]/[15]/[19] 的距离,再与 `fist_threshold = 0.08`(gesture_analysis/config.py:93)比大小。而**指间关节到指尖就是远端指骨的长度** —— 它是解剖常数,与握不握拳无关,只随**手的成像大小**(离镜头远近/裁剪框)变 ⟹ 现行那一列量的其实是「手在画面里多大」,不是「握没握拳」。gesture_analysis/config.py:93 的注释写的是「指尖到手掌心平均距离」,与代码实际算的(指尖到 DIP)**不是一件事** —— 注释与代码不一致。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),**两列合计有值 499 帧 —— 496 帧判握拳、3 帧判非握拳(全在 `right_hand_fist_status`)**;本列(right手)有值 238 帧:**235 帧判握拳、3 帧判非握拳**(caf0 的第 6/9/13 行;同帧 `right_hand_spread` 非空、`right_hand_score` 非默认值 ⟹ 手确实被检出、确系「判非握拳」)。近似常量(99.4% 为 1)⟹ 零信息列。",
       "source": "mediapipe hand landmarker 的 21 点(x/y/z);现行产出由 hand_analyzer.py:107-131 算出,阈值来自 gesture_analysis/config.py:93",
       "normalization": "÷ 掌长 dist(lm[0], lm[9])(同坐标系)—— 手的成像大小随离镜头远近变,除以**手自己的**骨性长度才能把「屈曲」与「距离」分开。**不用肩宽**:手前伸时与肩不在同一深度,除肩宽会把深度差算成屈曲度变化",
       "unit": "比值",
@@ -1188,7 +1189,7 @@
     {
       "column": "left_thumb_angle",
       "modality": "gesture",
-      "definition": "left手拇指的关节角 ∠(mp[2], mp[3], mp[4]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`api/app.py:406-409` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:54-60(`_FINGER_JOINTS`)+ :109-118(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(logger.py:470-478 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :478)。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
+      "definition": "left手拇指的关节角 ∠(mp[2], mp[3], mp[4]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`gesture_analysis/api/app.py:406-409` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:54-60(`_FINGER_JOINTS`)+ :109-118(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(gesture_analysis/utils/logger.py:470-478 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :478)。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
       "source": "mediapipe hand landmarker 的 21 点(joint 索引 + x/y 归一化坐标);由 gesture_analysis/core/feature_extraction/angles.py:109-118 算出",
       "normalization": "none —— ∠ 的 cos 已除以 |a−b|·|c−b|(角度与尺度无关:平移/缩放裁剪框该列不变;透视与出平面旋转是二阶影响,见 acceptance)",
       "unit": "度",
@@ -1201,7 +1202,7 @@
     {
       "column": "left_index_angle",
       "modality": "gesture",
-      "definition": "left手食指的关节角 ∠(mp[5], mp[6], mp[8]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`api/app.py:406-409` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:54-60(`_FINGER_JOINTS`)+ :109-118(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(logger.py:470-478 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :478)。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
+      "definition": "left手食指的关节角 ∠(mp[5], mp[6], mp[8]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`gesture_analysis/api/app.py:406-409` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:54-60(`_FINGER_JOINTS`)+ :109-118(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(gesture_analysis/utils/logger.py:470-478 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :478)。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
       "source": "mediapipe hand landmarker 的 21 点(joint 索引 + x/y 归一化坐标);由 gesture_analysis/core/feature_extraction/angles.py:109-118 算出",
       "normalization": "none —— ∠ 的 cos 已除以 |a−b|·|c−b|(角度与尺度无关:平移/缩放裁剪框该列不变;透视与出平面旋转是二阶影响,见 acceptance)",
       "unit": "度",
@@ -1214,7 +1215,7 @@
     {
       "column": "left_middle_angle",
       "modality": "gesture",
-      "definition": "left手中指的关节角 ∠(mp[9], mp[10], mp[12]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`api/app.py:406-409` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:54-60(`_FINGER_JOINTS`)+ :109-118(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(logger.py:470-478 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :478)。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
+      "definition": "left手中指的关节角 ∠(mp[9], mp[10], mp[12]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`gesture_analysis/api/app.py:406-409` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:54-60(`_FINGER_JOINTS`)+ :109-118(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(gesture_analysis/utils/logger.py:470-478 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :478)。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
       "source": "mediapipe hand landmarker 的 21 点(joint 索引 + x/y 归一化坐标);由 gesture_analysis/core/feature_extraction/angles.py:109-118 算出",
       "normalization": "none —— ∠ 的 cos 已除以 |a−b|·|c−b|(角度与尺度无关:平移/缩放裁剪框该列不变;透视与出平面旋转是二阶影响,见 acceptance)",
       "unit": "度",
@@ -1227,7 +1228,7 @@
     {
       "column": "left_ring_angle",
       "modality": "gesture",
-      "definition": "left手无名指的关节角 ∠(mp[13], mp[14], mp[16]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`api/app.py:406-409` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:54-60(`_FINGER_JOINTS`)+ :109-118(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(logger.py:470-478 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :478)。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
+      "definition": "left手无名指的关节角 ∠(mp[13], mp[14], mp[16]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`gesture_analysis/api/app.py:406-409` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:54-60(`_FINGER_JOINTS`)+ :109-118(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(gesture_analysis/utils/logger.py:470-478 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :478)。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
       "source": "mediapipe hand landmarker 的 21 点(joint 索引 + x/y 归一化坐标);由 gesture_analysis/core/feature_extraction/angles.py:109-118 算出",
       "normalization": "none —— ∠ 的 cos 已除以 |a−b|·|c−b|(角度与尺度无关:平移/缩放裁剪框该列不变;透视与出平面旋转是二阶影响,见 acceptance)",
       "unit": "度",
@@ -1240,7 +1241,7 @@
     {
       "column": "left_pinky_angle",
       "modality": "gesture",
-      "definition": "left手小指的关节角 ∠(mp[17], mp[18], mp[20]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`api/app.py:406-409` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:54-60(`_FINGER_JOINTS`)+ :109-118(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(logger.py:470-478 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :478)。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
+      "definition": "left手小指的关节角 ∠(mp[17], mp[18], mp[20]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`gesture_analysis/api/app.py:406-409` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:54-60(`_FINGER_JOINTS`)+ :109-118(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(gesture_analysis/utils/logger.py:470-478 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :478)。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
       "source": "mediapipe hand landmarker 的 21 点(joint 索引 + x/y 归一化坐标);由 gesture_analysis/core/feature_extraction/angles.py:109-118 算出",
       "normalization": "none —— ∠ 的 cos 已除以 |a−b|·|c−b|(角度与尺度无关:平移/缩放裁剪框该列不变;透视与出平面旋转是二阶影响,见 acceptance)",
       "unit": "度",
@@ -1253,7 +1254,7 @@
     {
       "column": "right_thumb_angle",
       "modality": "gesture",
-      "definition": "right手拇指的关节角 ∠(mp[2], mp[3], mp[4]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`api/app.py:406-409` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:54-60(`_FINGER_JOINTS`)+ :109-118(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(logger.py:470-478 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :478)。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
+      "definition": "right手拇指的关节角 ∠(mp[2], mp[3], mp[4]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`gesture_analysis/api/app.py:406-409` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:54-60(`_FINGER_JOINTS`)+ :109-118(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(gesture_analysis/utils/logger.py:470-478 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :478)。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
       "source": "mediapipe hand landmarker 的 21 点(joint 索引 + x/y 归一化坐标);由 gesture_analysis/core/feature_extraction/angles.py:109-118 算出",
       "normalization": "none —— ∠ 的 cos 已除以 |a−b|·|c−b|(角度与尺度无关:平移/缩放裁剪框该列不变;透视与出平面旋转是二阶影响,见 acceptance)",
       "unit": "度",
@@ -1266,7 +1267,7 @@
     {
       "column": "right_index_angle",
       "modality": "gesture",
-      "definition": "right手食指的关节角 ∠(mp[5], mp[6], mp[8]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`api/app.py:406-409` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:54-60(`_FINGER_JOINTS`)+ :109-118(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(logger.py:470-478 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :478)。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
+      "definition": "right手食指的关节角 ∠(mp[5], mp[6], mp[8]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`gesture_analysis/api/app.py:406-409` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:54-60(`_FINGER_JOINTS`)+ :109-118(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(gesture_analysis/utils/logger.py:470-478 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :478)。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
       "source": "mediapipe hand landmarker 的 21 点(joint 索引 + x/y 归一化坐标);由 gesture_analysis/core/feature_extraction/angles.py:109-118 算出",
       "normalization": "none —— ∠ 的 cos 已除以 |a−b|·|c−b|(角度与尺度无关:平移/缩放裁剪框该列不变;透视与出平面旋转是二阶影响,见 acceptance)",
       "unit": "度",
@@ -1279,7 +1280,7 @@
     {
       "column": "right_middle_angle",
       "modality": "gesture",
-      "definition": "right手中指的关节角 ∠(mp[9], mp[10], mp[12]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`api/app.py:406-409` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:54-60(`_FINGER_JOINTS`)+ :109-118(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(logger.py:470-478 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :478)。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
+      "definition": "right手中指的关节角 ∠(mp[9], mp[10], mp[12]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`gesture_analysis/api/app.py:406-409` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:54-60(`_FINGER_JOINTS`)+ :109-118(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(gesture_analysis/utils/logger.py:470-478 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :478)。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
       "source": "mediapipe hand landmarker 的 21 点(joint 索引 + x/y 归一化坐标);由 gesture_analysis/core/feature_extraction/angles.py:109-118 算出",
       "normalization": "none —— ∠ 的 cos 已除以 |a−b|·|c−b|(角度与尺度无关:平移/缩放裁剪框该列不变;透视与出平面旋转是二阶影响,见 acceptance)",
       "unit": "度",
@@ -1292,7 +1293,7 @@
     {
       "column": "right_ring_angle",
       "modality": "gesture",
-      "definition": "right手无名指的关节角 ∠(mp[13], mp[14], mp[16]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`api/app.py:406-409` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:54-60(`_FINGER_JOINTS`)+ :109-118(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(logger.py:470-478 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :478)。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
+      "definition": "right手无名指的关节角 ∠(mp[13], mp[14], mp[16]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`gesture_analysis/api/app.py:406-409` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:54-60(`_FINGER_JOINTS`)+ :109-118(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(gesture_analysis/utils/logger.py:470-478 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :478)。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
       "source": "mediapipe hand landmarker 的 21 点(joint 索引 + x/y 归一化坐标);由 gesture_analysis/core/feature_extraction/angles.py:109-118 算出",
       "normalization": "none —— ∠ 的 cos 已除以 |a−b|·|c−b|(角度与尺度无关:平移/缩放裁剪框该列不变;透视与出平面旋转是二阶影响,见 acceptance)",
       "unit": "度",
@@ -1305,7 +1306,7 @@
     {
       "column": "right_pinky_angle",
       "modality": "gesture",
-      "definition": "right手小指的关节角 ∠(mp[17], mp[18], mp[20]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`api/app.py:406-409` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:54-60(`_FINGER_JOINTS`)+ :109-118(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(logger.py:470-478 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :478)。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
+      "definition": "right手小指的关节角 ∠(mp[17], mp[18], mp[20]),顶点 = 中间那个关节;算法 = arccos((a−b)·(c−b) ÷ (|a−b|·|c−b|)),**度**。取点用**归一化图像坐标**(x/y,dims=2;`gesture_analysis/api/app.py:406-409` 调 `finger_angles(_lms)` 走默认 dims=2)。出处 gesture_analysis/core/feature_extraction/angles.py:54-60(`_FINGER_JOINTS`)+ :109-118(`finger_angles`)。点数不足 21 ⟹ 该指**缺席**(不编 0);日志保留 **1** 位小数(gesture_analysis/utils/logger.py:470-478 的 `_safe_get_angle` 做 `round(angle, 1)`,取值在 :478)。⚠️ 这 10 列是 2026-09-26 才接进活路径的(spec §10 风险 4):它们**不在** §4.2 的旧列处置表里 —— 既不在「保留」也不在「删除」,本行**单独登记**。⚠️ 本指角度**没有**可见度门限(与上面 5 个姿态角度不同:那一批在 `pose_angles` 里有 0.6 门限,`finger_angles` 里没有)—— 这一点写进 acceptance 供 M3.3 判。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),左 261 行 / 右 238 行有值,与手是否被检出同步。",
       "source": "mediapipe hand landmarker 的 21 点(joint 索引 + x/y 归一化坐标);由 gesture_analysis/core/feature_extraction/angles.py:109-118 算出",
       "normalization": "none —— ∠ 的 cos 已除以 |a−b|·|c−b|(角度与尺度无关:平移/缩放裁剪框该列不变;透视与出平面旋转是二阶影响,见 acceptance)",
       "unit": "度",
@@ -1327,7 +1328,7 @@
       "status": "pending",
       "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(report_frontend/evidence_gate.py:63);unblock: M3 归一化(除肩宽除时间)",
       "acceptance": "重构好 = ① 该列不再随帧率变(同一段动作在 1 fps 与 30 fps 下抽,值差 < 20%);② 不再随人离镜头远近变(平移/缩放裁剪框该列不变);③ 与同名 `*_world`(米制)列的会话内相关 > 0.9 —— 两份量的是同一个动作,相关低就说明还有一路的归一化没做对;④ evidence_gate.py:63 的 `jitter` 封停可解。",
-      "basis": "两处分母的口径由**本行定**(§4.2 只写「÷ 肩宽、÷ 时间」,没给口径):① 肩宽取**窗内中位数** —— 窗统计量用窗级标尺,避免瞬时肩宽噪声进分母;分母本身的口径见 `shoulder_width` 那一行(Task 7 建)。② 时间分母取**窗内真实秒数**(t_last − t_first),**不取 30 ÷ fps** —— 后者等于假设帧率恒定,而帧率正是被污染的那个量。窗长 30 帧是现行代码常量(config.py:92/105/119)、文档里没有出处 ⟹ 本行把它**定为** L0 口径(与 `au10_upper_lip_raise` 对「开头 10 帧」的处置同一理由,那次同样判 B)。够 B 的判据:缺的只是一个现在就能定的参数(两个分母的口径),不需要标定数据。"
+      "basis": "两处分母的口径由**本行定**(§4.2 只写「÷ 肩宽、÷ 时间」,没给口径):① 肩宽取**窗内中位数** —— 窗统计量用窗级标尺,避免瞬时肩宽噪声进分母;分母本身的口径见 `shoulder_width` 那一行(Task 7 建)。② 时间分母取**窗内真实秒数**(t_last − t_first),**不取 30 ÷ fps** —— 后者等于假设帧率恒定,而帧率正是被污染的那个量。窗长 30 帧是现行代码常量(gesture_analysis/config.py:92/105/119)、文档里没有出处 ⟹ 本行把它**定为** L0 口径(与 `au10_upper_lip_raise` 对「开头 10 帧」的处置同一理由,那次同样判 B)。够 B 的判据:缺的只是一个现在就能定的参数(两个分母的口径),不需要标定数据。"
     },
     {
       "column": "right_shoulder_jitter",
@@ -1341,14 +1342,14 @@
       "status": "pending",
       "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(report_frontend/evidence_gate.py:63);unblock: M3 归一化(除肩宽除时间)",
       "acceptance": "重构好 = ① 该列不再随帧率变(同一段动作在 1 fps 与 30 fps 下抽,值差 < 20%);② 不再随人离镜头远近变(平移/缩放裁剪框该列不变);③ 与同名 `*_world`(米制)列的会话内相关 > 0.9 —— 两份量的是同一个动作,相关低就说明还有一路的归一化没做对;④ evidence_gate.py:63 的 `jitter` 封停可解。",
-      "basis": "两处分母的口径由**本行定**(§4.2 只写「÷ 肩宽、÷ 时间」,没给口径):① 肩宽取**窗内中位数** —— 窗统计量用窗级标尺,避免瞬时肩宽噪声进分母;分母本身的口径见 `shoulder_width` 那一行(Task 7 建)。② 时间分母取**窗内真实秒数**(t_last − t_first),**不取 30 ÷ fps** —— 后者等于假设帧率恒定,而帧率正是被污染的那个量。窗长 30 帧是现行代码常量(config.py:92/105/119)、文档里没有出处 ⟹ 本行把它**定为** L0 口径(与 `au10_upper_lip_raise` 对「开头 10 帧」的处置同一理由,那次同样判 B)。够 B 的判据:缺的只是一个现在就能定的参数(两个分母的口径),不需要标定数据。"
+      "basis": "两处分母的口径由**本行定**(§4.2 只写「÷ 肩宽、÷ 时间」,没给口径):① 肩宽取**窗内中位数** —— 窗统计量用窗级标尺,避免瞬时肩宽噪声进分母;分母本身的口径见 `shoulder_width` 那一行(Task 7 建)。② 时间分母取**窗内真实秒数**(t_last − t_first),**不取 30 ÷ fps** —— 后者等于假设帧率恒定,而帧率正是被污染的那个量。窗长 30 帧是现行代码常量(gesture_analysis/config.py:92/105/119)、文档里没有出处 ⟹ 本行把它**定为** L0 口径(与 `au10_upper_lip_raise` 对「开头 10 帧」的处置同一理由,那次同样判 B)。够 B 的判据:缺的只是一个现在就能定的参数(两个分母的口径),不需要标定数据。"
     },
     {
       "column": "shrug_level",
       "modality": "gesture",
-      "definition": "耸肩程度 = max(0, (基线 − 当前双肩平均 y)) ÷ `max_shrug_diff`(现行;0.1,config.py:123),再截顶 1。基线 = 双肩平均 y 的**指数滑动均值**(`baseline_smoothing = 0.9`),现行只在**开头 30 帧**内收集(`baseline_frames_needed = 30`,config.py:120(块见 :119-124);`ShoulderAnalyzer._calculate_shrug_level`,shoulder_analyzer.py:121-155)。§4.2 的处置是**重构**,依据栏原文:「基准线取开头 30 帧 → 时间漂移量;改全程中位数」。本行的 L0 形态 = ① 基线改**全程中位数**(不再冻结开头 30 帧);② 分母从 0.1 改**肩宽**(归一化图像单位,同坐标系)。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),该列非空 1414 行,其中为 0 的 759 行(54%)。",
+      "definition": "耸肩程度 = max(0, (基线 − 当前双肩平均 y)) ÷ `max_shrug_diff`(现行;0.1,gesture_analysis/config.py:123),再截顶 1。基线 = 双肩平均 y 的**指数滑动均值**(`baseline_smoothing = 0.9`),现行只在**开头 30 帧**内收集(`baseline_frames_needed = 30`,gesture_analysis/config.py:120(块见 :119-124);`ShoulderAnalyzer._calculate_shrug_level`,shoulder_analyzer.py:121-155)。§4.2 的处置是**重构**,依据栏原文:「基准线取开头 30 帧 → 时间漂移量;改全程中位数」。本行的 L0 形态 = ① 基线改**全程中位数**(不再冻结开头 30 帧);② 分母从 0.1 改**肩宽**(归一化图像单位,同坐标系)。实测:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),该列非空 1414 行,其中为 0 的 759 行(54%)。",
       "source": "mediapipe pose 的 lm[11]/lm[12] 的 y(归一化图像坐标);现行产出由 shoulder_analyzer.py:121-155 算出",
-      "normalization": "÷ 肩宽(归一化图像单位,同坐标系)。⚠️ 现行除的 `max_shrug_diff = 0.1` 是 config.py:123 的裸常量、文档里查不到出处,量纲上与「肩抬了多少」无关",
+      "normalization": "÷ 肩宽(归一化图像单位,同坐标系)。⚠️ 现行除的 `max_shrug_diff = 0.1` 是 gesture_analysis/config.py:123 的裸常量、文档里查不到出处,量纲上与「肩抬了多少」无关",
       "unit": "比值",
       "maturity": "B",
       "l0_output": "吐 max(0, (全程中位数基线 − 当前双肩平均 y)) ÷ 肩宽 这个比值,**不截顶**(截顶会把幅度藏起来;饱和交给 L1 的分位映射,与 `au26_jaw_drop` 同一处置);「耸没耸肩」的门限留给 L1。",
@@ -1369,7 +1370,7 @@
       "status": "pending",
       "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(report_frontend/evidence_gate.py:63);unblock: M3 归一化(除肩宽除时间)",
       "acceptance": "重构好 = ① 该列不再随帧率变(同一段动作在 1 fps 与 30 fps 下抽,值差 < 20%);② 不再随人离镜头远近变(平移/缩放裁剪框该列不变);③ 与同名 `*_world`(米制)列的会话内相关 > 0.9 —— 两份量的是同一个动作,相关低就说明还有一路的归一化没做对;④ evidence_gate.py:63 的 `jitter` 封停可解。",
-      "basis": "两处分母的口径由**本行定**(§4.2 只写「÷ 肩宽、÷ 时间」,没给口径):① 肩宽取**窗内中位数** —— 窗统计量用窗级标尺,避免瞬时肩宽噪声进分母;分母本身的口径见 `shoulder_width` 那一行(Task 7 建)。② 时间分母取**窗内真实秒数**(t_last − t_first),**不取 30 ÷ fps** —— 后者等于假设帧率恒定,而帧率正是被污染的那个量。窗长 30 帧是现行代码常量(config.py:92/105/119)、文档里没有出处 ⟹ 本行把它**定为** L0 口径(与 `au10_upper_lip_raise` 对「开头 10 帧」的处置同一理由,那次同样判 B)。够 B 的判据:缺的只是一个现在就能定的参数(两个分母的口径),不需要标定数据。"
+      "basis": "两处分母的口径由**本行定**(§4.2 只写「÷ 肩宽、÷ 时间」,没给口径):① 肩宽取**窗内中位数** —— 窗统计量用窗级标尺,避免瞬时肩宽噪声进分母;分母本身的口径见 `shoulder_width` 那一行(Task 7 建)。② 时间分母取**窗内真实秒数**(t_last − t_first),**不取 30 ÷ fps** —— 后者等于假设帧率恒定,而帧率正是被污染的那个量。窗长 30 帧是现行代码常量(gesture_analysis/config.py:92/105/119)、文档里没有出处 ⟹ 本行把它**定为** L0 口径(与 `au10_upper_lip_raise` 对「开头 10 帧」的处置同一理由,那次同样判 B)。够 B 的判据:缺的只是一个现在就能定的参数(两个分母的口径),不需要标定数据。"
     },
     {
       "column": "left_elbow_jitter",
@@ -1383,7 +1384,7 @@
       "status": "pending",
       "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(report_frontend/evidence_gate.py:63);unblock: M3 归一化(除肩宽除时间)",
       "acceptance": "重构好 = ① 该列不再随帧率变(同一段动作在 1 fps 与 30 fps 下抽,值差 < 20%);② 不再随人离镜头远近变(平移/缩放裁剪框该列不变);③ 与同名 `*_world`(米制)列的会话内相关 > 0.9 —— 两份量的是同一个动作,相关低就说明还有一路的归一化没做对;④ evidence_gate.py:63 的 `jitter` 封停可解。",
-      "basis": "两处分母的口径由**本行定**(§4.2 只写「÷ 肩宽、÷ 时间」,没给口径):① 肩宽取**窗内中位数** —— 窗统计量用窗级标尺,避免瞬时肩宽噪声进分母;分母本身的口径见 `shoulder_width` 那一行(Task 7 建)。② 时间分母取**窗内真实秒数**(t_last − t_first),**不取 30 ÷ fps** —— 后者等于假设帧率恒定,而帧率正是被污染的那个量。窗长 30 帧是现行代码常量(config.py:92/105/119)、文档里没有出处 ⟹ 本行把它**定为** L0 口径(与 `au10_upper_lip_raise` 对「开头 10 帧」的处置同一理由,那次同样判 B)。够 B 的判据:缺的只是一个现在就能定的参数(两个分母的口径),不需要标定数据。"
+      "basis": "两处分母的口径由**本行定**(§4.2 只写「÷ 肩宽、÷ 时间」,没给口径):① 肩宽取**窗内中位数** —— 窗统计量用窗级标尺,避免瞬时肩宽噪声进分母;分母本身的口径见 `shoulder_width` 那一行(Task 7 建)。② 时间分母取**窗内真实秒数**(t_last − t_first),**不取 30 ÷ fps** —— 后者等于假设帧率恒定,而帧率正是被污染的那个量。窗长 30 帧是现行代码常量(gesture_analysis/config.py:92/105/119)、文档里没有出处 ⟹ 本行把它**定为** L0 口径(与 `au10_upper_lip_raise` 对「开头 10 帧」的处置同一理由,那次同样判 B)。够 B 的判据:缺的只是一个现在就能定的参数(两个分母的口径),不需要标定数据。"
     },
     {
       "column": "right_wrist_jitter",
@@ -1397,7 +1398,7 @@
       "status": "pending",
       "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(report_frontend/evidence_gate.py:63);unblock: M3 归一化(除肩宽除时间)",
       "acceptance": "重构好 = ① 该列不再随帧率变(同一段动作在 1 fps 与 30 fps 下抽,值差 < 20%);② 不再随人离镜头远近变(平移/缩放裁剪框该列不变);③ 与同名 `*_world`(米制)列的会话内相关 > 0.9 —— 两份量的是同一个动作,相关低就说明还有一路的归一化没做对;④ evidence_gate.py:63 的 `jitter` 封停可解。",
-      "basis": "两处分母的口径由**本行定**(§4.2 只写「÷ 肩宽、÷ 时间」,没给口径):① 肩宽取**窗内中位数** —— 窗统计量用窗级标尺,避免瞬时肩宽噪声进分母;分母本身的口径见 `shoulder_width` 那一行(Task 7 建)。② 时间分母取**窗内真实秒数**(t_last − t_first),**不取 30 ÷ fps** —— 后者等于假设帧率恒定,而帧率正是被污染的那个量。窗长 30 帧是现行代码常量(config.py:92/105/119)、文档里没有出处 ⟹ 本行把它**定为** L0 口径(与 `au10_upper_lip_raise` 对「开头 10 帧」的处置同一理由,那次同样判 B)。够 B 的判据:缺的只是一个现在就能定的参数(两个分母的口径),不需要标定数据。"
+      "basis": "两处分母的口径由**本行定**(§4.2 只写「÷ 肩宽、÷ 时间」,没给口径):① 肩宽取**窗内中位数** —— 窗统计量用窗级标尺,避免瞬时肩宽噪声进分母;分母本身的口径见 `shoulder_width` 那一行(Task 7 建)。② 时间分母取**窗内真实秒数**(t_last − t_first),**不取 30 ÷ fps** —— 后者等于假设帧率恒定,而帧率正是被污染的那个量。窗长 30 帧是现行代码常量(gesture_analysis/config.py:92/105/119)、文档里没有出处 ⟹ 本行把它**定为** L0 口径(与 `au10_upper_lip_raise` 对「开头 10 帧」的处置同一理由,那次同样判 B)。够 B 的判据:缺的只是一个现在就能定的参数(两个分母的口径),不需要标定数据。"
     },
     {
       "column": "right_elbow_jitter",
@@ -1411,7 +1412,7 @@
       "status": "pending",
       "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(report_frontend/evidence_gate.py:63);unblock: M3 归一化(除肩宽除时间)",
       "acceptance": "重构好 = ① 该列不再随帧率变(同一段动作在 1 fps 与 30 fps 下抽,值差 < 20%);② 不再随人离镜头远近变(平移/缩放裁剪框该列不变);③ 与同名 `*_world`(米制)列的会话内相关 > 0.9 —— 两份量的是同一个动作,相关低就说明还有一路的归一化没做对;④ evidence_gate.py:63 的 `jitter` 封停可解。",
-      "basis": "两处分母的口径由**本行定**(§4.2 只写「÷ 肩宽、÷ 时间」,没给口径):① 肩宽取**窗内中位数** —— 窗统计量用窗级标尺,避免瞬时肩宽噪声进分母;分母本身的口径见 `shoulder_width` 那一行(Task 7 建)。② 时间分母取**窗内真实秒数**(t_last − t_first),**不取 30 ÷ fps** —— 后者等于假设帧率恒定,而帧率正是被污染的那个量。窗长 30 帧是现行代码常量(config.py:92/105/119)、文档里没有出处 ⟹ 本行把它**定为** L0 口径(与 `au10_upper_lip_raise` 对「开头 10 帧」的处置同一理由,那次同样判 B)。够 B 的判据:缺的只是一个现在就能定的参数(两个分母的口径),不需要标定数据。"
+      "basis": "两处分母的口径由**本行定**(§4.2 只写「÷ 肩宽、÷ 时间」,没给口径):① 肩宽取**窗内中位数** —— 窗统计量用窗级标尺,避免瞬时肩宽噪声进分母;分母本身的口径见 `shoulder_width` 那一行(Task 7 建)。② 时间分母取**窗内真实秒数**(t_last − t_first),**不取 30 ÷ fps** —— 后者等于假设帧率恒定,而帧率正是被污染的那个量。窗长 30 帧是现行代码常量(gesture_analysis/config.py:92/105/119)、文档里没有出处 ⟹ 本行把它**定为** L0 口径(与 `au10_upper_lip_raise` 对「开头 10 帧」的处置同一理由,那次同样判 B)。够 B 的判据:缺的只是一个现在就能定的参数(两个分母的口径),不需要标定数据。"
     },
     {
       "column": "left_elbow_angle",
@@ -1451,7 +1452,7 @@
       "status": "pending",
       "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(report_frontend/evidence_gate.py:63);unblock: M3 归一化(除肩宽除时间)",
       "acceptance": "重构好 = ① 该列不再随帧率变(同一段动作在 1 fps 与 30 fps 下抽,值差 < 20%);② 不再随人离镜头远近变(平移/缩放裁剪框该列不变);③ 与同名 `*_world`(米制)列的会话内相关 > 0.9 —— 两份量的是同一个动作,相关低就说明还有一路的归一化没做对;④ evidence_gate.py:63 的 `jitter` 封停可解。",
-      "basis": "两处分母的口径由**本行定**(§4.2 只写「÷ 肩宽、÷ 时间」,没给口径):① 肩宽取**窗内中位数** —— 窗统计量用窗级标尺,避免瞬时肩宽噪声进分母;分母本身的口径见 `shoulder_width` 那一行(Task 7 建)。② 时间分母取**窗内真实秒数**(t_last − t_first),**不取 30 ÷ fps** —— 后者等于假设帧率恒定,而帧率正是被污染的那个量。窗长 30 帧是现行代码常量(config.py:92/105/119)、文档里没有出处 ⟹ 本行把它**定为** L0 口径(与 `au10_upper_lip_raise` 对「开头 10 帧」的处置同一理由,那次同样判 B)。够 B 的判据:缺的只是一个现在就能定的参数(两个分母的口径),不需要标定数据。"
+      "basis": "两处分母的口径由**本行定**(§4.2 只写「÷ 肩宽、÷ 时间」,没给口径):① 肩宽取**窗内中位数** —— 窗统计量用窗级标尺,避免瞬时肩宽噪声进分母;分母本身的口径见 `shoulder_width` 那一行(Task 7 建)。② 时间分母取**窗内真实秒数**(t_last − t_first),**不取 30 ÷ fps** —— 后者等于假设帧率恒定,而帧率正是被污染的那个量。窗长 30 帧是现行代码常量(gesture_analysis/config.py:92/105/119)、文档里没有出处 ⟹ 本行把它**定为** L0 口径(与 `au10_upper_lip_raise` 对「开头 10 帧」的处置同一理由,那次同样判 B)。够 B 的判据:缺的只是一个现在就能定的参数(两个分母的口径),不需要标定数据。"
     },
     {
       "column": "torso_jitter",
@@ -1465,7 +1466,7 @@
       "status": "pending",
       "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(report_frontend/evidence_gate.py:63);unblock: M3 归一化(除肩宽除时间)",
       "acceptance": "重构好 = ① 该列不再随帧率变(同一段动作在 1 fps 与 30 fps 下抽,值差 < 20%);② 不再随人离镜头远近变(平移/缩放裁剪框该列不变);③ 与同名 `*_world`(米制)列的会话内相关 > 0.9 —— 两份量的是同一个动作,相关低就说明还有一路的归一化没做对;④ evidence_gate.py:63 的 `jitter` 封停可解。",
-      "basis": "两处分母的口径由**本行定**(§4.2 只写「÷ 肩宽、÷ 时间」,没给口径):① 肩宽取**窗内中位数** —— 窗统计量用窗级标尺,避免瞬时肩宽噪声进分母;分母本身的口径见 `shoulder_width` 那一行(Task 7 建)。② 时间分母取**窗内真实秒数**(t_last − t_first),**不取 30 ÷ fps** —— 后者等于假设帧率恒定,而帧率正是被污染的那个量。窗长 30 帧是现行代码常量(config.py:92/105/119)、文档里没有出处 ⟹ 本行把它**定为** L0 口径(与 `au10_upper_lip_raise` 对「开头 10 帧」的处置同一理由,那次同样判 B)。够 B 的判据:缺的只是一个现在就能定的参数(两个分母的口径),不需要标定数据。"
+      "basis": "两处分母的口径由**本行定**(§4.2 只写「÷ 肩宽、÷ 时间」,没给口径):① 肩宽取**窗内中位数** —— 窗统计量用窗级标尺,避免瞬时肩宽噪声进分母;分母本身的口径见 `shoulder_width` 那一行(Task 7 建)。② 时间分母取**窗内真实秒数**(t_last − t_first),**不取 30 ÷ fps** —— 后者等于假设帧率恒定,而帧率正是被污染的那个量。窗长 30 帧是现行代码常量(gesture_analysis/config.py:92/105/119)、文档里没有出处 ⟹ 本行把它**定为** L0 口径(与 `au10_upper_lip_raise` 对「开头 10 帧」的处置同一理由,那次同样判 B)。够 B 的判据:缺的只是一个现在就能定的参数(两个分母的口径),不需要标定数据。"
     },
     {
       "column": "head_tilt_angle",
@@ -1509,8 +1510,8 @@
     {
       "column": "left_wrist_jitter_world",
       "modality": "gesture",
-      "definition": "左腕的**米制 3D 坐标**(`pose_world_landmarks`,单位米、原点在髋中心)在 30 帧历史窗内逐轴标准差的均值,÷ 窗内真实秒数。公式与画面坐标那批**同一套**(`_calculate_jitter`),只换输入空间,出处 ArmAnalyzer(world 集) 的 wrist_jitter,api/app.py:390-402;窗长 30(config.py:105/119)。⚠️ 现行产出**不除时间** ⟹ 仍编码帧率(窗跨 30 帧);但**不**再需要除肩宽 —— 米制坐标本身就是解剖尺度,与取景无关(§4.5 规矩 1 说的是画面坐标那几个量)。日志里这 8 列保留 4 位小数(utils/logger.py:197-209 `_world_cells`)。",
-      "source": "mediapipe pose landmarker 的 `pose_world_landmarks`(米制 3D);由 ArmAnalyzer(world 集) 的 wrist_jitter,api/app.py:390-402 算出",
+      "definition": "左腕的**米制 3D 坐标**(`pose_world_landmarks`,单位米、原点在髋中心)在 30 帧历史窗内逐轴标准差的均值,÷ 窗内真实秒数。公式与画面坐标那批**同一套**(`_calculate_jitter`),只换输入空间,出处 ArmAnalyzer(world 集) 的 wrist_jitter,gesture_analysis/api/app.py:390-402;窗长 30(gesture_analysis/config.py:105/119)。⚠️ 现行产出**不除时间** ⟹ 仍编码帧率(窗跨 30 帧);但**不**再需要除肩宽 —— 米制坐标本身就是解剖尺度,与取景无关(§4.5 规矩 1 说的是画面坐标那几个量)。日志里这 8 列保留 4 位小数(gesture_analysis/utils/logger.py:197-209 `_world_cells`)。",
+      "source": "mediapipe pose landmarker 的 `pose_world_landmarks`(米制 3D);由 ArmAnalyzer(world 集) 的 wrist_jitter,gesture_analysis/api/app.py:390-402 算出",
       "normalization": "÷ 窗内真实秒数(会话相对秒);**不**除肩宽 —— 米制已是解剖尺度,取景无关",
       "unit": "米/秒",
       "maturity": "B",
@@ -1518,13 +1519,13 @@
       "status": "pending",
       "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(evidence_gate.py:63)。⚠️ 这条封停的**理由**量的是画面坐标那批(「x5 归一化恒饱和」),米制这批是被**子串匹配顺带**封的(`is_quarantined` 按最长子串匹配,evidence_gate.py:202-208;实测 `is_quarantined('left_wrist_jitter_world')` 命中 `jitter`);unblock: M3。",
       "acceptance": "重构好 = ① 该列不再随帧率变;② 与画面坐标那批(除以肩宽后)会话内相关 > 0.9;③ 保持与画面的**裁剪框无关**(米制坐标由模型按人体尺度估出,裁剪框不变性是这一点的可测形式)。",
-      "basis": "时间分母的口径由**本行定**(与 16 个画面坐标 jitter 同一口径:窗内真实秒数,不取 30 ÷ fps);窗长 30 由本行定为现行常量(config.py:105/119)。**不除肩宽**是 §4.5 规矩 1 的直接推论:米制坐标不在画面尺度里,再除一个画面尺度反而把它弄脏。"
+      "basis": "时间分母的口径由**本行定**(与 16 个画面坐标 jitter 同一口径:窗内真实秒数,不取 30 ÷ fps);窗长 30 由本行定为现行常量(gesture_analysis/config.py:105/119)。**不除肩宽**是 §4.5 规矩 1 的直接推论:米制坐标不在画面尺度里,再除一个画面尺度反而把它弄脏。"
     },
     {
       "column": "left_elbow_jitter_world",
       "modality": "gesture",
-      "definition": "左肘的**米制 3D 坐标**(`pose_world_landmarks`,单位米、原点在髋中心)在 30 帧历史窗内逐轴标准差的均值,÷ 窗内真实秒数。公式与画面坐标那批**同一套**(`_calculate_jitter`),只换输入空间,出处 ArmAnalyzer(world 集) 的 elbow_jitter,api/app.py:390-402;窗长 30(config.py:105/119)。⚠️ 现行产出**不除时间** ⟹ 仍编码帧率(窗跨 30 帧);但**不**再需要除肩宽 —— 米制坐标本身就是解剖尺度,与取景无关(§4.5 规矩 1 说的是画面坐标那几个量)。日志里这 8 列保留 4 位小数(utils/logger.py:197-209 `_world_cells`)。",
-      "source": "mediapipe pose landmarker 的 `pose_world_landmarks`(米制 3D);由 ArmAnalyzer(world 集) 的 elbow_jitter,api/app.py:390-402 算出",
+      "definition": "左肘的**米制 3D 坐标**(`pose_world_landmarks`,单位米、原点在髋中心)在 30 帧历史窗内逐轴标准差的均值,÷ 窗内真实秒数。公式与画面坐标那批**同一套**(`_calculate_jitter`),只换输入空间,出处 ArmAnalyzer(world 集) 的 elbow_jitter,gesture_analysis/api/app.py:390-402;窗长 30(gesture_analysis/config.py:105/119)。⚠️ 现行产出**不除时间** ⟹ 仍编码帧率(窗跨 30 帧);但**不**再需要除肩宽 —— 米制坐标本身就是解剖尺度,与取景无关(§4.5 规矩 1 说的是画面坐标那几个量)。日志里这 8 列保留 4 位小数(gesture_analysis/utils/logger.py:197-209 `_world_cells`)。",
+      "source": "mediapipe pose landmarker 的 `pose_world_landmarks`(米制 3D);由 ArmAnalyzer(world 集) 的 elbow_jitter,gesture_analysis/api/app.py:390-402 算出",
       "normalization": "÷ 窗内真实秒数(会话相对秒);**不**除肩宽 —— 米制已是解剖尺度,取景无关",
       "unit": "米/秒",
       "maturity": "B",
@@ -1532,13 +1533,13 @@
       "status": "pending",
       "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(evidence_gate.py:63)。⚠️ 这条封停的**理由**量的是画面坐标那批(「x5 归一化恒饱和」),米制这批是被**子串匹配顺带**封的(`is_quarantined` 按最长子串匹配,evidence_gate.py:202-208;实测 `is_quarantined('left_wrist_jitter_world')` 命中 `jitter`);unblock: M3。",
       "acceptance": "重构好 = ① 该列不再随帧率变;② 与画面坐标那批(除以肩宽后)会话内相关 > 0.9;③ 保持与画面的**裁剪框无关**(米制坐标由模型按人体尺度估出,裁剪框不变性是这一点的可测形式)。",
-      "basis": "时间分母的口径由**本行定**(与 16 个画面坐标 jitter 同一口径:窗内真实秒数,不取 30 ÷ fps);窗长 30 由本行定为现行常量(config.py:105/119)。**不除肩宽**是 §4.5 规矩 1 的直接推论:米制坐标不在画面尺度里,再除一个画面尺度反而把它弄脏。"
+      "basis": "时间分母的口径由**本行定**(与 16 个画面坐标 jitter 同一口径:窗内真实秒数,不取 30 ÷ fps);窗长 30 由本行定为现行常量(gesture_analysis/config.py:105/119)。**不除肩宽**是 §4.5 规矩 1 的直接推论:米制坐标不在画面尺度里,再除一个画面尺度反而把它弄脏。"
     },
     {
       "column": "right_wrist_jitter_world",
       "modality": "gesture",
-      "definition": "右腕的**米制 3D 坐标**(`pose_world_landmarks`,单位米、原点在髋中心)在 30 帧历史窗内逐轴标准差的均值,÷ 窗内真实秒数。公式与画面坐标那批**同一套**(`_calculate_jitter`),只换输入空间,出处 ArmAnalyzer(world 集) 的 wrist_jitter,api/app.py:390-402;窗长 30(config.py:105/119)。⚠️ 现行产出**不除时间** ⟹ 仍编码帧率(窗跨 30 帧);但**不**再需要除肩宽 —— 米制坐标本身就是解剖尺度,与取景无关(§4.5 规矩 1 说的是画面坐标那几个量)。日志里这 8 列保留 4 位小数(utils/logger.py:197-209 `_world_cells`)。",
-      "source": "mediapipe pose landmarker 的 `pose_world_landmarks`(米制 3D);由 ArmAnalyzer(world 集) 的 wrist_jitter,api/app.py:390-402 算出",
+      "definition": "右腕的**米制 3D 坐标**(`pose_world_landmarks`,单位米、原点在髋中心)在 30 帧历史窗内逐轴标准差的均值,÷ 窗内真实秒数。公式与画面坐标那批**同一套**(`_calculate_jitter`),只换输入空间,出处 ArmAnalyzer(world 集) 的 wrist_jitter,gesture_analysis/api/app.py:390-402;窗长 30(gesture_analysis/config.py:105/119)。⚠️ 现行产出**不除时间** ⟹ 仍编码帧率(窗跨 30 帧);但**不**再需要除肩宽 —— 米制坐标本身就是解剖尺度,与取景无关(§4.5 规矩 1 说的是画面坐标那几个量)。日志里这 8 列保留 4 位小数(gesture_analysis/utils/logger.py:197-209 `_world_cells`)。",
+      "source": "mediapipe pose landmarker 的 `pose_world_landmarks`(米制 3D);由 ArmAnalyzer(world 集) 的 wrist_jitter,gesture_analysis/api/app.py:390-402 算出",
       "normalization": "÷ 窗内真实秒数(会话相对秒);**不**除肩宽 —— 米制已是解剖尺度,取景无关",
       "unit": "米/秒",
       "maturity": "B",
@@ -1546,13 +1547,13 @@
       "status": "pending",
       "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(evidence_gate.py:63)。⚠️ 这条封停的**理由**量的是画面坐标那批(「x5 归一化恒饱和」),米制这批是被**子串匹配顺带**封的(`is_quarantined` 按最长子串匹配,evidence_gate.py:202-208;实测 `is_quarantined('left_wrist_jitter_world')` 命中 `jitter`);unblock: M3。",
       "acceptance": "重构好 = ① 该列不再随帧率变;② 与画面坐标那批(除以肩宽后)会话内相关 > 0.9;③ 保持与画面的**裁剪框无关**(米制坐标由模型按人体尺度估出,裁剪框不变性是这一点的可测形式)。",
-      "basis": "时间分母的口径由**本行定**(与 16 个画面坐标 jitter 同一口径:窗内真实秒数,不取 30 ÷ fps);窗长 30 由本行定为现行常量(config.py:105/119)。**不除肩宽**是 §4.5 规矩 1 的直接推论:米制坐标不在画面尺度里,再除一个画面尺度反而把它弄脏。"
+      "basis": "时间分母的口径由**本行定**(与 16 个画面坐标 jitter 同一口径:窗内真实秒数,不取 30 ÷ fps);窗长 30 由本行定为现行常量(gesture_analysis/config.py:105/119)。**不除肩宽**是 §4.5 规矩 1 的直接推论:米制坐标不在画面尺度里,再除一个画面尺度反而把它弄脏。"
     },
     {
       "column": "right_elbow_jitter_world",
       "modality": "gesture",
-      "definition": "右肘的**米制 3D 坐标**(`pose_world_landmarks`,单位米、原点在髋中心)在 30 帧历史窗内逐轴标准差的均值,÷ 窗内真实秒数。公式与画面坐标那批**同一套**(`_calculate_jitter`),只换输入空间,出处 ArmAnalyzer(world 集) 的 elbow_jitter,api/app.py:390-402;窗长 30(config.py:105/119)。⚠️ 现行产出**不除时间** ⟹ 仍编码帧率(窗跨 30 帧);但**不**再需要除肩宽 —— 米制坐标本身就是解剖尺度,与取景无关(§4.5 规矩 1 说的是画面坐标那几个量)。日志里这 8 列保留 4 位小数(utils/logger.py:197-209 `_world_cells`)。",
-      "source": "mediapipe pose landmarker 的 `pose_world_landmarks`(米制 3D);由 ArmAnalyzer(world 集) 的 elbow_jitter,api/app.py:390-402 算出",
+      "definition": "右肘的**米制 3D 坐标**(`pose_world_landmarks`,单位米、原点在髋中心)在 30 帧历史窗内逐轴标准差的均值,÷ 窗内真实秒数。公式与画面坐标那批**同一套**(`_calculate_jitter`),只换输入空间,出处 ArmAnalyzer(world 集) 的 elbow_jitter,gesture_analysis/api/app.py:390-402;窗长 30(gesture_analysis/config.py:105/119)。⚠️ 现行产出**不除时间** ⟹ 仍编码帧率(窗跨 30 帧);但**不**再需要除肩宽 —— 米制坐标本身就是解剖尺度,与取景无关(§4.5 规矩 1 说的是画面坐标那几个量)。日志里这 8 列保留 4 位小数(gesture_analysis/utils/logger.py:197-209 `_world_cells`)。",
+      "source": "mediapipe pose landmarker 的 `pose_world_landmarks`(米制 3D);由 ArmAnalyzer(world 集) 的 elbow_jitter,gesture_analysis/api/app.py:390-402 算出",
       "normalization": "÷ 窗内真实秒数(会话相对秒);**不**除肩宽 —— 米制已是解剖尺度,取景无关",
       "unit": "米/秒",
       "maturity": "B",
@@ -1560,12 +1561,12 @@
       "status": "pending",
       "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(evidence_gate.py:63)。⚠️ 这条封停的**理由**量的是画面坐标那批(「x5 归一化恒饱和」),米制这批是被**子串匹配顺带**封的(`is_quarantined` 按最长子串匹配,evidence_gate.py:202-208;实测 `is_quarantined('left_wrist_jitter_world')` 命中 `jitter`);unblock: M3。",
       "acceptance": "重构好 = ① 该列不再随帧率变;② 与画面坐标那批(除以肩宽后)会话内相关 > 0.9;③ 保持与画面的**裁剪框无关**(米制坐标由模型按人体尺度估出,裁剪框不变性是这一点的可测形式)。",
-      "basis": "时间分母的口径由**本行定**(与 16 个画面坐标 jitter 同一口径:窗内真实秒数,不取 30 ÷ fps);窗长 30 由本行定为现行常量(config.py:105/119)。**不除肩宽**是 §4.5 规矩 1 的直接推论:米制坐标不在画面尺度里,再除一个画面尺度反而把它弄脏。"
+      "basis": "时间分母的口径由**本行定**(与 16 个画面坐标 jitter 同一口径:窗内真实秒数,不取 30 ÷ fps);窗长 30 由本行定为现行常量(gesture_analysis/config.py:105/119)。**不除肩宽**是 §4.5 规矩 1 的直接推论:米制坐标不在画面尺度里,再除一个画面尺度反而把它弄脏。"
     },
     {
       "column": "left_arm_angle_world",
       "modality": "gesture",
-      "definition": "肘关节角 ∠(肩, 肘, 腕),顶点 = 肘(米制 3D 点 lm[11/13/15],取 `pose_world_landmarks`)。公式 = `arccos((肩−肘)·(腕−肘) ÷ (|肩−肘|·|腕−肘|))`,单位度;出处 gesture_analysis/core/analysis/arm_analyzer.py:138-171(`_calculate_arm_angle`),喂 world 坐标那一路在 api/app.py:390-402。日志里保留 4 位小数(logger.py:197-209)。⚠️ 与本列**同名不同空间**的画面坐标版 `left_arm_angle` 是同一个几何量的 2D 投影,那一列与 `left_elbow_angle` 逐帧等价(见那两条白名单的实测),已判删。",
+      "definition": "肘关节角 ∠(肩, 肘, 腕),顶点 = 肘(米制 3D 点 lm[11/13/15],取 `pose_world_landmarks`)。公式 = `arccos((肩−肘)·(腕−肘) ÷ (|肩−肘|·|腕−肘|))`,单位度;出处 gesture_analysis/core/analysis/arm_analyzer.py:138-171(`_calculate_arm_angle`),喂 world 坐标那一路在 gesture_analysis/api/app.py:390-402。日志里保留 4 位小数(gesture_analysis/utils/logger.py:197-209)。⚠️ 与本列**同名不同空间**的画面坐标版 `left_arm_angle` 是同一个几何量的 2D 投影,那一列与 `left_elbow_angle` 逐帧等价(见那两条白名单的实测),已判删。",
       "source": "mediapipe pose landmarker 的 `pose_world_landmarks`(米制 3D);点取 lm[11/13/15]",
       "normalization": "none —— ∠ 的 cos 已除以 |ba|·|bc|(角度与尺度无关);米制坐标另使它取景无关",
       "unit": "度",
@@ -1578,7 +1579,7 @@
     {
       "column": "right_arm_angle_world",
       "modality": "gesture",
-      "definition": "肘关节角 ∠(肩, 肘, 腕),顶点 = 肘(米制 3D 点 lm[12/14/16],取 `pose_world_landmarks`)。公式 = `arccos((肩−肘)·(腕−肘) ÷ (|肩−肘|·|腕−肘|))`,单位度;出处 gesture_analysis/core/analysis/arm_analyzer.py:138-171(`_calculate_arm_angle`),喂 world 坐标那一路在 api/app.py:390-402。日志里保留 4 位小数(logger.py:197-209)。⚠️ 与本列**同名不同空间**的画面坐标版 `right_arm_angle` 是同一个几何量的 2D 投影,那一列与 `right_elbow_angle` 逐帧等价(见那两条白名单的实测),已判删。",
+      "definition": "肘关节角 ∠(肩, 肘, 腕),顶点 = 肘(米制 3D 点 lm[12/14/16],取 `pose_world_landmarks`)。公式 = `arccos((肩−肘)·(腕−肘) ÷ (|肩−肘|·|腕−肘|))`,单位度;出处 gesture_analysis/core/analysis/arm_analyzer.py:138-171(`_calculate_arm_angle`),喂 world 坐标那一路在 gesture_analysis/api/app.py:390-402。日志里保留 4 位小数(gesture_analysis/utils/logger.py:197-209)。⚠️ 与本列**同名不同空间**的画面坐标版 `right_arm_angle` 是同一个几何量的 2D 投影,那一列与 `right_elbow_angle` 逐帧等价(见那两条白名单的实测),已判删。",
       "source": "mediapipe pose landmarker 的 `pose_world_landmarks`(米制 3D);点取 lm[12/14/16]",
       "normalization": "none —— ∠ 的 cos 已除以 |ba|·|bc|(角度与尺度无关);米制坐标另使它取景无关",
       "unit": "度",
@@ -1591,8 +1592,8 @@
     {
       "column": "left_shoulder_jitter_world",
       "modality": "gesture",
-      "definition": "左肩的**米制 3D 坐标**(`pose_world_landmarks`,单位米、原点在髋中心)在 30 帧历史窗内逐轴标准差的均值,÷ 窗内真实秒数。公式与画面坐标那批**同一套**(`_calculate_jitter`),只换输入空间,出处 ShoulderAnalyzer(world 集) 的 left_jitter,api/app.py:390-402;窗长 30(config.py:105/119)。⚠️ 现行产出**不除时间** ⟹ 仍编码帧率(窗跨 30 帧);但**不**再需要除肩宽 —— 米制坐标本身就是解剖尺度,与取景无关(§4.5 规矩 1 说的是画面坐标那几个量)。日志里这 8 列保留 4 位小数(utils/logger.py:197-209 `_world_cells`)。",
-      "source": "mediapipe pose landmarker 的 `pose_world_landmarks`(米制 3D);由 ShoulderAnalyzer(world 集) 的 left_jitter,api/app.py:390-402 算出",
+      "definition": "左肩的**米制 3D 坐标**(`pose_world_landmarks`,单位米、原点在髋中心)在 30 帧历史窗内逐轴标准差的均值,÷ 窗内真实秒数。公式与画面坐标那批**同一套**(`_calculate_jitter`),只换输入空间,出处 ShoulderAnalyzer(world 集) 的 left_jitter,gesture_analysis/api/app.py:390-402;窗长 30(gesture_analysis/config.py:105/119)。⚠️ 现行产出**不除时间** ⟹ 仍编码帧率(窗跨 30 帧);但**不**再需要除肩宽 —— 米制坐标本身就是解剖尺度,与取景无关(§4.5 规矩 1 说的是画面坐标那几个量)。日志里这 8 列保留 4 位小数(gesture_analysis/utils/logger.py:197-209 `_world_cells`)。",
+      "source": "mediapipe pose landmarker 的 `pose_world_landmarks`(米制 3D);由 ShoulderAnalyzer(world 集) 的 left_jitter,gesture_analysis/api/app.py:390-402 算出",
       "normalization": "÷ 窗内真实秒数(会话相对秒);**不**除肩宽 —— 米制已是解剖尺度,取景无关",
       "unit": "米/秒",
       "maturity": "B",
@@ -1600,13 +1601,13 @@
       "status": "pending",
       "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(evidence_gate.py:63)。⚠️ 这条封停的**理由**量的是画面坐标那批(「x5 归一化恒饱和」),米制这批是被**子串匹配顺带**封的(`is_quarantined` 按最长子串匹配,evidence_gate.py:202-208;实测 `is_quarantined('left_wrist_jitter_world')` 命中 `jitter`);unblock: M3。",
       "acceptance": "重构好 = ① 该列不再随帧率变;② 与画面坐标那批(除以肩宽后)会话内相关 > 0.9;③ 保持与画面的**裁剪框无关**(米制坐标由模型按人体尺度估出,裁剪框不变性是这一点的可测形式)。",
-      "basis": "时间分母的口径由**本行定**(与 16 个画面坐标 jitter 同一口径:窗内真实秒数,不取 30 ÷ fps);窗长 30 由本行定为现行常量(config.py:105/119)。**不除肩宽**是 §4.5 规矩 1 的直接推论:米制坐标不在画面尺度里,再除一个画面尺度反而把它弄脏。"
+      "basis": "时间分母的口径由**本行定**(与 16 个画面坐标 jitter 同一口径:窗内真实秒数,不取 30 ÷ fps);窗长 30 由本行定为现行常量(gesture_analysis/config.py:105/119)。**不除肩宽**是 §4.5 规矩 1 的直接推论:米制坐标不在画面尺度里,再除一个画面尺度反而把它弄脏。"
     },
     {
       "column": "right_shoulder_jitter_world",
       "modality": "gesture",
-      "definition": "右肩的**米制 3D 坐标**(`pose_world_landmarks`,单位米、原点在髋中心)在 30 帧历史窗内逐轴标准差的均值,÷ 窗内真实秒数。公式与画面坐标那批**同一套**(`_calculate_jitter`),只换输入空间,出处 ShoulderAnalyzer(world 集) 的 right_jitter,api/app.py:390-402;窗长 30(config.py:105/119)。⚠️ 现行产出**不除时间** ⟹ 仍编码帧率(窗跨 30 帧);但**不**再需要除肩宽 —— 米制坐标本身就是解剖尺度,与取景无关(§4.5 规矩 1 说的是画面坐标那几个量)。日志里这 8 列保留 4 位小数(utils/logger.py:197-209 `_world_cells`)。",
-      "source": "mediapipe pose landmarker 的 `pose_world_landmarks`(米制 3D);由 ShoulderAnalyzer(world 集) 的 right_jitter,api/app.py:390-402 算出",
+      "definition": "右肩的**米制 3D 坐标**(`pose_world_landmarks`,单位米、原点在髋中心)在 30 帧历史窗内逐轴标准差的均值,÷ 窗内真实秒数。公式与画面坐标那批**同一套**(`_calculate_jitter`),只换输入空间,出处 ShoulderAnalyzer(world 集) 的 right_jitter,gesture_analysis/api/app.py:390-402;窗长 30(gesture_analysis/config.py:105/119)。⚠️ 现行产出**不除时间** ⟹ 仍编码帧率(窗跨 30 帧);但**不**再需要除肩宽 —— 米制坐标本身就是解剖尺度,与取景无关(§4.5 规矩 1 说的是画面坐标那几个量)。日志里这 8 列保留 4 位小数(gesture_analysis/utils/logger.py:197-209 `_world_cells`)。",
+      "source": "mediapipe pose landmarker 的 `pose_world_landmarks`(米制 3D);由 ShoulderAnalyzer(world 集) 的 right_jitter,gesture_analysis/api/app.py:390-402 算出",
       "normalization": "÷ 窗内真实秒数(会话相对秒);**不**除肩宽 —— 米制已是解剖尺度,取景无关",
       "unit": "米/秒",
       "maturity": "B",
@@ -1614,13 +1615,13 @@
       "status": "pending",
       "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(evidence_gate.py:63)。⚠️ 这条封停的**理由**量的是画面坐标那批(「x5 归一化恒饱和」),米制这批是被**子串匹配顺带**封的(`is_quarantined` 按最长子串匹配,evidence_gate.py:202-208;实测 `is_quarantined('left_wrist_jitter_world')` 命中 `jitter`);unblock: M3。",
       "acceptance": "重构好 = ① 该列不再随帧率变;② 与画面坐标那批(除以肩宽后)会话内相关 > 0.9;③ 保持与画面的**裁剪框无关**(米制坐标由模型按人体尺度估出,裁剪框不变性是这一点的可测形式)。",
-      "basis": "时间分母的口径由**本行定**(与 16 个画面坐标 jitter 同一口径:窗内真实秒数,不取 30 ÷ fps);窗长 30 由本行定为现行常量(config.py:105/119)。**不除肩宽**是 §4.5 规矩 1 的直接推论:米制坐标不在画面尺度里,再除一个画面尺度反而把它弄脏。"
+      "basis": "时间分母的口径由**本行定**(与 16 个画面坐标 jitter 同一口径:窗内真实秒数,不取 30 ÷ fps);窗长 30 由本行定为现行常量(gesture_analysis/config.py:105/119)。**不除肩宽**是 §4.5 规矩 1 的直接推论:米制坐标不在画面尺度里,再除一个画面尺度反而把它弄脏。"
     },
     {
       "column": "hand_visible_left",
       "modality": "gesture",
-      "definition": "**本帧**该侧是否有**已署名**的手(逐帧标志,不是整场比例):`1` = 该侧槽有手**且**模型给了 handedness(`handedness_info[槽] is not None`);**空白** = 无手,或槽里是一只**来路不明**的手。⚠️ 「有手」与「知道是哪只手」是两件事:api/app.py:343-350 的兜底支路会把一只**没有 handedness 依据**的手塞进空槽,并把 `handedness_info[槽]` 置 None —— 那时「有手」是真的、「那是左手」是假的,写 1 就是把不知道的事说成知道。⚠️ **不写 0**:`0` 的意思是「确定没有左手」,与「不知道是哪只手」不是一回事(本项目既有的空值约定:`_safe_get(None) → \"\"`)。⚠️ 归 slot 的左右按模型的 handedness **翻转**后定(模型按镜像输入判左右,api/app.py:320-328),不是按检出顺序。",
-      "source": "mediapipe hand landmarker 的 `detect_with_handedness` 返回的 (label, confidence),经 api/app.py:329-351 归槽 + 镜像翻转;「槽里有手」的事实 = 同一段里帧循环维护的 `used_slots`(api/app.py:330,351),由端点按 `hand_present=` 传进 `logger.log()`(api/app.py:468-469),再由 `_hand_visible_cells()`(gesture_analysis/utils/logger.py:227-279)与 handedness 依据**取合取** —— 不从那两槽的 `*_hand_result` 反推(那只是它的下游代理)",
+      "definition": "**本帧**该侧是否有**已署名**的手(逐帧标志,不是整场比例):`1` = 该侧槽有手**且**模型给了 handedness(`handedness_info[槽] is not None`);**空白** = 无手,或槽里是一只**来路不明**的手。⚠️ 「有手」与「知道是哪只手」是两件事:gesture_analysis/api/app.py:343-350 的兜底支路会把一只**没有 handedness 依据**的手塞进空槽,并把 `handedness_info[槽]` 置 None —— 那时「有手」是真的、「那是左手」是假的,写 1 就是把不知道的事说成知道。⚠️ **不写 0**:`0` 的意思是「确定没有左手」,与「不知道是哪只手」不是一回事(本项目既有的空值约定:`_safe_get(None) → \"\"`)。⚠️ 归 slot 的左右按模型的 handedness **翻转**后定(模型按镜像输入判左右,gesture_analysis/api/app.py:320-328),不是按检出顺序。",
+      "source": "mediapipe hand landmarker 的 `detect_with_handedness` 返回的 (label, confidence),经 gesture_analysis/api/app.py:329-351 归槽 + 镜像翻转;「槽里有手」的事实 = 同一段里帧循环维护的 `used_slots`(gesture_analysis/api/app.py:330,351),由端点按 `hand_present=` 传进 `logger.log()`(gesture_analysis/api/app.py:468-469),再由 `_hand_visible_cells()`(gesture_analysis/utils/logger.py:227-279)与 handedness 依据**取合取** —— 不从那两槽的 `*_hand_result` 反推(那只是它的下游代理)",
       "normalization": "none —— 布尔标志;分母(整场帧数)在 L1 那一层的比例里",
       "unit": "布尔(1 / 空)",
       "maturity": "A",
@@ -1633,8 +1634,8 @@
     {
       "column": "hand_visible_right",
       "modality": "gesture",
-      "definition": "**本帧**该侧是否有**已署名**的手(逐帧标志,不是整场比例):`1` = 该侧槽有手**且**模型给了 handedness(`handedness_info[槽] is not None`);**空白** = 无手,或槽里是一只**来路不明**的手。⚠️ 「有手」与「知道是哪只手」是两件事:api/app.py:343-350 的兜底支路会把一只**没有 handedness 依据**的手塞进空槽,并把 `handedness_info[槽]` 置 None —— 那时「有手」是真的、「那是右手」是假的,写 1 就是把不知道的事说成知道。⚠️ **不写 0**:`0` 的意思是「确定没有右手」,与「不知道是哪只手」不是一回事(本项目既有的空值约定:`_safe_get(None) → \"\"`)。⚠️ 归 slot 的左右按模型的 handedness **翻转**后定(模型按镜像输入判左右,api/app.py:320-328),不是按检出顺序。",
-      "source": "mediapipe hand landmarker 的 `detect_with_handedness` 返回的 (label, confidence),经 api/app.py:329-351 归槽 + 镜像翻转;「槽里有手」的事实 = 同一段里帧循环维护的 `used_slots`(api/app.py:330,351),由端点按 `hand_present=` 传进 `logger.log()`(api/app.py:468-469),再由 `_hand_visible_cells()`(gesture_analysis/utils/logger.py:227-279)与 handedness 依据**取合取** —— 不从那两槽的 `*_hand_result` 反推(那只是它的下游代理)",
+      "definition": "**本帧**该侧是否有**已署名**的手(逐帧标志,不是整场比例):`1` = 该侧槽有手**且**模型给了 handedness(`handedness_info[槽] is not None`);**空白** = 无手,或槽里是一只**来路不明**的手。⚠️ 「有手」与「知道是哪只手」是两件事:gesture_analysis/api/app.py:343-350 的兜底支路会把一只**没有 handedness 依据**的手塞进空槽,并把 `handedness_info[槽]` 置 None —— 那时「有手」是真的、「那是右手」是假的,写 1 就是把不知道的事说成知道。⚠️ **不写 0**:`0` 的意思是「确定没有右手」,与「不知道是哪只手」不是一回事(本项目既有的空值约定:`_safe_get(None) → \"\"`)。⚠️ 归 slot 的左右按模型的 handedness **翻转**后定(模型按镜像输入判左右,gesture_analysis/api/app.py:320-328),不是按检出顺序。",
+      "source": "mediapipe hand landmarker 的 `detect_with_handedness` 返回的 (label, confidence),经 gesture_analysis/api/app.py:329-351 归槽 + 镜像翻转;「槽里有手」的事实 = 同一段里帧循环维护的 `used_slots`(gesture_analysis/api/app.py:330,351),由端点按 `hand_present=` 传进 `logger.log()`(gesture_analysis/api/app.py:468-469),再由 `_hand_visible_cells()`(gesture_analysis/utils/logger.py:227-279)与 handedness 依据**取合取** —— 不从那两槽的 `*_hand_result` 反推(那只是它的下游代理)",
       "normalization": "none —— 布尔标志;分母(整场帧数)在 L1 那一层的比例里",
       "unit": "布尔(1 / 空)",
       "maturity": "A",
@@ -1655,14 +1656,14 @@
       "l0_output": "吐双肩的归一化图像距离(0~1 附近的小数);缺关键点写空,不写 0。",
       "status": "implemented",
       "quarantine_ref": "",
-      "acceptance": "① 实测值域落在 (0, 1) —— 2026-09-26 重放真素材(脚本 `.superpowers/sdd/2026-09-26-m3-0-l0-column-table/task-7-evidence-replay.py`,**随报告一起不提交** —— 原文写「复算脚本见报告 §5」,而报告也在同一个不提交的目录里,Task 8 复核时改掉了这个**看着像可复算**的指路):caf0 574 帧里 573 格有值(**0.017020 ~ 0.358624**、唯一空格=那一帧没有姿态)、2b11 300 帧 300 格有值(**0.208932 ~ 0.446073**);越界 (0,1) **0** 格、写 0 **0** 格。⚠️ **这两组值域是「当轮读数」,不是逐位可复算的常数**(Task 8 复核:同一脚本、同一批帧再跑两次,caf0 的 min 得到 0.012718 / 0.011667、max 得到 0.358388 / 0.358179;2b11 的 min / max 得到 0.211146 / 0.444457 —— 极值取自**单帧**,而 landmarker 推理本身不是逐位可复现的,尾部漂得比中位数大);三次重放**完全一致**的是:空格数(1 / 0)、越界 0 格、写 0 的 0 格 —— **这三件事才是这条验收要守的**,值域只证明量级对;② 肩不在画面里时该格是**空**(红法:把缺失写成 0);③ 该列是**追加**在日志列序上的(**追加而非插入**,口径同 `hand_visible_*` 那两行);④ 它是**10 个画面坐标 jitter 列**归一化的分母(枚举见 definition;另 6 个 `*_jitter_world` 的 `normalization` 明写「**不**除肩宽」,不计入)—— 那 10 行的 acceptance 里都写了「平移/缩放裁剪框该列不变」,而这条**依赖本列**;⑤ 报告层只许把它当尺度基准,不许当人体测量值(见 definition 的警告);⑥ 判据与 definition 逐条一致 —— **没有**可见度门限(红法:给实现加 `visibility <= 0.6 ⟹ None` 那一句,或往 definition 里加门限而实现不加)。",
+      "acceptance": "① 实测值域落在 (0, 1) —— 2026-09-26 **喂 `declared_ts` 重放**真素材(脚本 `.superpowers/sdd/2026-09-26-m3-0-l0-column-table/task-final-ts-replay.py`,**随报告一起不提交** —— 原文写「复算脚本见报告 §5」,而报告也在同一个不提交的目录里,Task 8 复核时改掉了这个**看着像可复算**的指路):caf0 574 帧里 573 格有值(**0.029268 ~ 0.357974**、唯一空格 = 那一帧没有姿态)、2b11 300 帧 300 格有值(**0.203267 ~ 0.445342**)、1592 544 帧 541 格有值(**0.095486 ~ 0.409290**);越界 (0,1) **0** 格、写 0 **0** 格。★ **这些数是可逐位复算的** —— 三条实测(2026-09-26 整支复核测得前两条、本任务复跑第三条,照抄当依据):(a) 同批真帧 + **同一时间戳序列** + 两次**新探测器** ⟹ `shoulder_width` 整列**逐位相同**;(b) 喂 `declared_ts` 重放,**两个独立进程** ⟹ 整列 sha256 相同(caf0 = `c0c43499238a6e3d1f6120eb3258c1aa20b10070ae593504b8deea3800f4354d`、2b11 = `105f710c5c8de081eccb99f5b4a073ceecc187077125bad8ef9bb8e333b5b9b1`、1592 = `f004abb3f14321046fa9c10029719b6657f75d030b89a87c92ad142cdde63899`);(c) 喂 `declared_ts` 重放 vs **当时的活跑 CSV**(`data/logs/gesture_emotion_log_20260926_155559_caf0.csv`)—— 67 个共有列里**只有 `timestamp` / `timestamp_iso` 两列不同**,其余 **37,310 个测量格逐位相同**。⚠️ **本行原先写「landmarker 推理本身不是逐位可复现的,尾部漂得比中位数大」—— 那句已被上面三条证伪,2026-09-26 整支复核更正**:漂的是**「用墙钟重放」这个工具行为**,**不是推理**。真因:`gesture_analysis/api/app.py:312` 的 `timestamp_ms = _clock_for(session_id).stamp_ms()` 取的是 `SessionClock`(墙钟 `time.monotonic`),而两个 landmarker 都是 `RunningMode.VIDEO` ⟹ **时间戳是模型输入的一部分** —— 墙钟每次不同 ⟹ 模型看到的输入序列不同 ⟹ 读数不同。实测用墙钟重放同一批帧,caf0 的 min 得到过 **4 个互不相同的值**(0.017020 / 0.012718 / 0.011667 / 0.015216 —— 前三个是 Task 8 复核的两次重跑所测,第四个是整支复核用 Task 7 那个临时脚本所测),而**喂同一份 `declared_ts` 只有 1 个值**。★ **给 M3.3 / M3.4 的后果**:别因为这条就放弃逐位比对 —— 只要重放工具喂 `declared_ts`,本列(以及**任何吃时间戳的列**)都能逐位比;墙钟重放下恒等的只有空格数(1 / 0)、越界 0 格、写 0 的 0 格这三件事 —— 值域现在有了强的保证;⚠️ **上面那三个值域是「喂 `declared_ts` 重放的读数」,可逐位复算 —— 不是「当轮读数」**(2026-09-26 整支复核更正:本句原文写「这两组值域是当轮读数,不是逐位可复算的常数」,并把 caf0 的 min 0.012718 / 0.011667、max 0.358388 / 0.358179、2b11 的 min / max 0.211146 / 0.444457 举成「重放不稳定」的证据 —— ⚠️ **那些数是用墙钟重放测的,不是 `declared_ts` 重放**:它们是**「用墙钟重放」这个工具行为**的读数,不是推理的性质,见上一段的实测 (a)(b)(c)。机制:`SessionClock` 是墙钟(`gesture_analysis/api/app.py:312`),而 landmarker 是 `RunningMode.VIDEO` ⟹ **时间戳是模型输入的一部分** ⟹ 墙钟每次不同,喂进去的序列就不同,读数就变(极值取自**单帧**,所以 min/max 最先漂)。**喂同一份 `declared_ts`** 时本列逐位可复算 —— 两个独立进程整列 sha256 相同,且与当时的活跑 CSV **37,310 个测量格逐位相同**(本任务 2026-09-26 用 `declared_ts` 复跑三场复现,见上一段);墙钟重放也守得住的还有:空格数(1 / 0)、越界 0 格、写 0 的 0 格 —— **值域本身则由 `declared_ts` 重放守住**;② 肩不在画面里时该格是**空**(红法:把缺失写成 0);③ 该列是**追加**在日志列序上的(**追加而非插入**,口径同 `hand_visible_*` 那两行);④ 它是**10 个画面坐标 jitter 列**归一化的分母(枚举见 definition;另 6 个 `*_jitter_world` 的 `normalization` 明写「**不**除肩宽」,不计入)—— 那 10 行的 acceptance 里都写了「平移/缩放裁剪框该列不变」,而这条**依赖本列**;⑤ 报告层只许把它当尺度基准,不许当人体测量值(见 definition 的警告);⑥ 判据与 definition 逐条一致 —— **没有**可见度门限(红法:给实现加 `visibility <= 0.6 ⟹ None` 那一句,或往 definition 里加门限而实现不加)。",
       "basis": "口径由计划 Task 7 定死(dist(lm[11], lm[12])、归一化图像单位、缺则空);本行只登记,不改它的实现口径。「不给米制」不是选择而是约束:内参不可得,编一个米制肩宽等于编内参(§10 风险 2)。"
     },
     {
       "column": "pitch_mean",
       "modality": "voice",
       "definition": "该段回答里 **pyin 判为浊音**那批帧的 f0 均值(Hz)= `mean(f0[voiced_flag])`(prosody_extractor.py:47,50,80)。⚠️ §4.3:235 判「**修**」,依据栏给的缺陷是「`pyin` 无能量门限且丢 `voiced_prob`」:现在**没有任何能量门限**,纯噪声帧只要 pyin 判浊音就进均值。实测症状(2026-09-26):3 场正式素材 24 行的 `pitch_mean` 最大 **398.20 Hz**,而同一批行的 `pitch_p90` 最大 **1729.76 Hz**(两者都在 `data/logs/interview_emotion_log_20260926_155559_caf0.csv` 第 0 题那行)—— 后一个数就是噪声帧的直接证据。修法 = 用 pyin 的第 3 个返回值 `voiced_prob`(现被 `_` 丢弃)当门控。",
-      "source": "该段回答的 16 kHz/16 bit/单声道 PCM(端点在 app.py:566-569 校验过格式)→ `librosa.pyin(audio, fmin=C2, fmax=C7, sr=16000)`(prosody_extractor.py:47-50)",
+      "source": "该段回答的 16 kHz/16 bit/单声道 PCM(端点在 voice_interaction/api/app.py:566-569 校验过格式)→ `librosa.pyin(audio, fmin=C2, fmax=C7, sr=16000)`(prosody_extractor.py:47-50)",
       "normalization": "none —— Hz 是绝对量,没有解剖尺度可除;跨会话可比性由 `pitch_p10`/`pitch_p90` 两列承担(会话内归一的原料)",
       "unit": "Hz",
       "maturity": "C",
@@ -1674,14 +1675,14 @@
     {
       "column": "pitch_variation",
       "modality": "voice",
-      "definition": "与 `pitch_mean` **同一批帧**(`voiced_flag` 为真)的 f0 标准差(Hz)= `std(f0[voiced_flag])`(prosody_extractor.py:50,81)。它**就是 §4.3:235 那一行里的 `pitch_std`** —— 上游产出名与下游列名不同,靠 `app.py:97-107` 的 `_EXTRACTOR_TO_LOG_COLUMNS`(`pitch_std → pitch_variation`)接上;少了那张表本列会**静默留 0**(app.py:94-96 的注释记的就是这条教训)。与 `pitch_mean` 同一条缺陷(无能量门限、同一批帧)⟹ 同一档。",
+      "definition": "与 `pitch_mean` **同一批帧**(`voiced_flag` 为真)的 f0 标准差(Hz)= `std(f0[voiced_flag])`(prosody_extractor.py:50,81)。它**就是 §4.3:235 那一行里的 `pitch_std`** —— 上游产出名与下游列名不同,靠 `voice_interaction/api/app.py:97-107` 的 `_EXTRACTOR_TO_LOG_COLUMNS`(`pitch_std → pitch_variation`)接上;少了那张表本列会**静默留 0**(voice_interaction/api/app.py:94-96 的注释记的就是这条教训)。与 `pitch_mean` 同一条缺陷(无能量门限、同一批帧)⟹ 同一档。",
       "source": "同 `pitch_mean`(`librosa.pyin` 的 f0 在 `voiced_flag` 上的标准差)",
       "normalization": "none(同 `pitch_mean`:它是 Hz 的离散度,没有可除的解剖尺度)",
       "unit": "Hz",
       "maturity": "C",
       "l0_output": "吐**未加能量门限**的 voiced f0 标准差(现状);门控同 `pitch_mean`,留给 L1/标定。⚠️ **零浊音帧(全静音)时本列留空、不再写 0**(2026-09-26 Task 5 按 `docs/superpowers/plans/2026-09-26-m3-0-l0-column-table.md:38` 改:`f0` 全 `nan`,该量无定义 —— 2026-09-26 使用者裁定 `f0_voiced` 上的**五个统计量一起改**,只修均值、留四个不修会让读的人无法判断这一支可不可信)。",
       "status": "pending",
-      "quarantine_ref": "pitch_variation —— 名单原文:「实际取的是 pitch_mean,名字与计算不符」(report_frontend/evidence_gate.py:80);unblock:「改名后」。⚠️ **这条封停理由现在已过期**:接线后 `app.py:97-107` 把上游 `pitch_std` 映射进本列,实测全仓 interview 语音日志 45 条有真值的行里 `pitch_variation == pitch_mean` 的**一行都没有**(0/45,2026-09-26 复算)⟹ 它现在装的是 f0 标准差。是否解封归 M3.4。",
+      "quarantine_ref": "pitch_variation —— 名单原文:「实际取的是 pitch_mean,名字与计算不符」(report_frontend/evidence_gate.py:80);unblock:「改名后」。⚠️ **这条封停理由现在已过期**:接线后 `voice_interaction/api/app.py:97-107` 把上游 `pitch_std` 映射进本列,实测全仓 interview 语音日志 45 条有真值的行里 `pitch_variation == pitch_mean` 的**一行都没有**(0/45,2026-09-26 复算)⟹ 它现在装的是 f0 标准差。是否解封归 M3.4。",
       "acceptance": "① 与 `pitch_mean` 同批过门控;② 在真素材上复算本列与 `pitch_mean` 的相关,确认不是同一个量;③ 报告层对 `evidence_gate.py:80` 那条封停重新裁定(理由已过期);④ M3.4。"
     },
     {
@@ -1715,7 +1716,7 @@
     {
       "column": "energy_variation",
       "modality": "voice",
-      "definition": "同一批 rms 帧的标准差 = `std(librosa.feature.rms(y=audio)[0])`(prosody_extractor.py:151,四舍五入 4 位)。它**就是 §4.3:237 那一行的 `energy_std`**:上游 `energy_std` → 列 `energy_variation` 的映射在 `app.py:97-107`。§4.3:237 判「**保**」。",
+      "definition": "同一批 rms 帧的标准差 = `std(librosa.feature.rms(y=audio)[0])`(prosody_extractor.py:151,四舍五入 4 位)。它**就是 §4.3:237 那一行的 `energy_std`**:上游 `energy_std` → 列 `energy_variation` 的映射在 `voice_interaction/api/app.py:97-107`。§4.3:237 判「**保**」。",
       "source": "同 `energy_mean`(同一批 rms 帧)",
       "normalization": "none(同 `energy_mean`:幅值的离散度)",
       "unit": "无量纲(rms 幅值)",
@@ -1734,7 +1735,7 @@
       "normalization": "none(秒;跨会话可比性由 L1 的 `pause_ratio` / `pause_rate_per_min`(§5.4:357-359)负责)",
       "unit": "秒",
       "maturity": "C",
-      "l0_output": "吐按**现行能量门限**切出的停顿区间均值;门限值(`mean(rms) × 0.3`,:163)是写死且**无出处**的常数(§5.1:291 禁止 (a)),它只能来自标定集 ⟹ 本行判 C:先吐原始区间统计,门限留给标定。",
+      "l0_output": "吐按**现行能量门限**切出的停顿区间均值;门限值(`mean(rms) × 0.3`,:204)是写死且**无出处**的常数(§5.1:291 禁止 (a)),它只能来自标定集 ⟹ 本行判 C:先吐原始区间统计,门限留给标定。",
       "status": "pending",
       "quarantine_ref": "pause_duration —— 「尾部静默被丢弃」(report_frontend/evidence_gate.py:81);unblock:「M3 修停顿检测」",
       "acceptance": "① 循环加收尾(音频以静音结尾时那段停顿进 `pause_intervals`);② 合成信号单测:造「语音 + 尾部 4 秒静音」的输入,断言 `pause_duration_max ≥ 4`(§1.2:55 的实测症状原文:「尾部 4s 静音报 0 次停顿」);③ 门限改由标定集给出;**④ 记一条缺口:L1 要的是停顿的**分布**(`pause_duration_p50/p90`,§5.4:358),而本列只出均值/最大值 —— 分布要不要在 L0 单独成列,归 M3.4**;⑤ M3.4。"
@@ -1776,7 +1777,7 @@
       "l0_output": "吐该段**全部帧**的 `voiced_prob` 均值;全静音段 0.0 是**真值**(不特殊处理),且它不影响 `pitch_mean`(后者仍基于 `f0[voiced_flag]`)。**实测(2026-09-26,`caf0` 的 17 段留存音频,经活路径 `prosody_features_from_pcm`):0.0102 ~ 0.0514,全部 ∈ [0,1],无 0.0** —— ⚠️ 真素材的值**远低于**合成正弦段(0.6245):pyin 给未浊音帧的概率是一个 ~0.01 的底,而真回答里未浊音帧占多数(该段 445 帧只有 121 帧判浊音)。当门控原料用之前先看这条。",
       "status": "implemented",
       "quarantine_ref": "",
-      "acceptance": "按 Task 5 的判据:① `voiced_prob_mean` 进 `fieldnames` **末列**(插中间会让老 CSV 的列序对不上);② 重放输出里逐行有值或为空、**不为 0**(全静音时的 0.0 除外);③ `api/app.py` 的 `_EXTRACTOR_TO_LOG_COLUMNS` 显式登记这条映射(上游名与列名同名也要登记 —— 少了映射表会静默留 0,app.py:94-96 的教训);④ 方向 2 会在 `status` 翻 `implemented` 之后验它真的在产出里。",
+      "acceptance": "按 Task 5 的判据:① `voiced_prob_mean` 是**追加**进 `fieldnames` 的(**追加而非插入** —— 它必须**紧跟**加进来时的前一列 `reaction_time`,口径与 `hand_visible_*` 那两行相同;⚠️ **不是**「永远是末列」—— 2026-09-26 整支复核 Important 3:把「最后」写死会在下一批语音列(M3.4)追加时**误红**,而追加本身是安全的);② 重放输出里逐行有值或为空、**不为 0**(全静音时的 0.0 除外);③ `voice_interaction/api/app.py` 的 `_EXTRACTOR_TO_LOG_COLUMNS` 显式登记这条映射(上游名与列名同名也要登记 —— 少了映射表会静默留 0,voice_interaction/api/app.py:94-96 的教训);④ 方向 2 会在 `status` 翻 `implemented` 之后验它真的在产出里。",
       "basis": "① **「全部帧的均值」而不是「浊音帧的均值」由本行定**:若只在 `voiced_flag` 为真的帧上取均值,它与 `voiced_flag` 的含义重合,而且全静音段会变成「无值」;取全部帧的均值才同时表达「这声音有多像语音」与「有多少帧像语音」,全静音时它是 0.0 —— 一个有意义的真值(Task 5 明文「全静音不特殊处理(0.0 是真值)」)。② **归一化栏写 none 的理由**:它是概率,任何外部基准都会破坏 [0,1] 的口径。③ **为什么它是 B 不是 A**:A 的第②条要求归一化分母,概率均值没有,本行把「分母 = 无」这个决定写在这里。"
     },
     {
@@ -1796,8 +1797,8 @@
     {
       "column": "n_chars",
       "modality": "voice",
-      "definition": "该段回答的 ASR 文本里**中日韩字符**的个数 = `count_cjk_chars(text)` = `len(_CJK.findall(text))`,去标点与空白(funasr_engine.py:31-33);`text` 是同一次识别的 `utt.text.strip()`(app.py:572 → :591)。它与连接词密度用的是**同一个计数器**。",
-      "source": "FunASR 识别文本 → `count_cjk_chars`(app.py:590-591 的注释:两处「字数」必须同口径)",
+      "definition": "该段回答的 ASR 文本里**中日韩字符**的个数 = `count_cjk_chars(text)` = `len(_CJK.findall(text))`,去标点与空白(funasr_engine.py:31-33);`text` 是同一次识别的 `utt.text.strip()`(voice_interaction/api/app.py:572 → :591)。它与连接词密度用的是**同一个计数器**。",
+      "source": "FunASR 识别文本 → `count_cjk_chars`(voice_interaction/api/app.py:590-591 的注释:两处「字数」必须同口径)",
       "normalization": "none(计数)",
       "unit": "个(字符数)",
       "maturity": "B",
@@ -1805,21 +1806,21 @@
       "status": "implemented",
       "quarantine_ref": "",
       "acceptance": "① 报告「回答详尽度」槽由它**唯一**产出(§8.2:384;report_frontend/research_mapper.py:156),那个槽不再渲染成「尚无产出方」;② 与 `connective_density` 的分母逐行一致(同一个 `count_cjk_chars`);③ M3.4。",
-      "basis": "① **归一化 none 的理由**:它是计数,没有可除的解剖/会话尺度。② **与 §4.5:273「不出总量」的关系(由本行定)**:本条确实是总量,但它是 L1 的 `speech_rate = 字数 ÷ 语音秒数`(§5.4:354)的**分子**,不是直接进模型的量 —— 设计禁的是「把总量当特征」,不是「不许量出总量」;③ **为什么用 `count_cjk_chars` 而不是 `len(text)`**:同一个「字数」不能在两处口径不同(app.py:590-591),而连接词密度的分母用的就是它。"
+      "basis": "① **归一化 none 的理由**:它是计数,没有可除的解剖/会话尺度。② **与 §4.5:273「不出总量」的关系(由本行定)**:本条确实是总量,但它是 L1 的 `speech_rate = 字数 ÷ 语音秒数`(§5.4:354)的**分子**,不是直接进模型的量 —— 设计禁的是「把总量当特征」,不是「不许量出总量」;③ **为什么用 `count_cjk_chars` 而不是 `len(text)`**:同一个「字数」不能在两处口径不同(voice_interaction/api/app.py:590-591),而连接词密度的分母用的就是它。"
     },
     {
       "column": "chars_per_sec",
       "modality": "voice",
-      "definition": "语速 = `n_chars ÷ speech_duration_sec`,四舍五入 2 位;**有声秒为 0 时留空,不写 0**(app.py:595-597)。它**就是** §5.4:354 的 L1 指标 `speech_rate` 的原料。",
-      "source": "同 `n_chars` 与 `speech_duration_sec`(两个 L0 列相除,app.py:595-597)",
+      "definition": "语速 = `n_chars ÷ speech_duration_sec`,四舍五入 2 位;**有声秒为 0 时留空,不写 0**(voice_interaction/api/app.py:595-597)。它**就是** §5.4:354 的 L1 指标 `speech_rate` 的原料。",
+      "source": "同 `n_chars` 与 `speech_duration_sec`(两个 L0 列相除,voice_interaction/api/app.py:595-597)",
       "normalization": "÷ 语音时长(秒)—— 分母是**有声**秒,不是整段时长",
       "unit": "字/秒",
       "maturity": "B",
       "l0_output": "吐字/秒这个率;「说得快/慢」的门限留给 L1。",
       "status": "implemented",
       "quarantine_ref": "",
-      "acceptance": "① 分母是 `speech_duration_sec`(有声秒),不是 `duration_sec`(app.py:595 的注释:「用整段会把静音算成说得慢」);② 3 场正式素材实测 2.25~7.25 字/秒(24 行);③ 有声秒为 0 的行留空而不是 0;④ M3.4。",
-      "basis": "① **分母必须是有声秒**:依据 app.py:595 的注释,与 §4.3:239 对 `pause_frequency` 分母的同一取向(时长类分母要去掉静音)。② **它与 `n_chars`/`speech_duration_sec` 是精确可重构关系**(前者 = 后两者相除,只差一个四舍五入)—— 按 §4.5:273 与 Task 3 对 `*_arm_angle = 180 − *_elbow_angle` 的处置(能精确重构即判删),这一族本该只留一侧。**本行两侧都留,由本行定并写明理由**:率与总量在报告层各有消费方(§5.4:354 的 `speech_rate` 吃率;§8.2:382 的「回答详尽度」吃字数),是否合并(判据 `|r| ≥ 0.99`)推给 **M3.4** —— 与裁定 E2(「`spread`/`fist` 可能同一个量,各留一行、合并条件推给 M3.3」)同一处置。"
+      "acceptance": "① 分母是 `speech_duration_sec`(有声秒),不是 `duration_sec`(voice_interaction/api/app.py:595 的注释:「用整段会把静音算成说得慢」);② 3 场正式素材实测 2.25~7.25 字/秒(24 行);③ 有声秒为 0 的行留空而不是 0;④ M3.4。",
+      "basis": "① **分母必须是有声秒**:依据 voice_interaction/api/app.py:595 的注释,与 §4.3:239 对 `pause_frequency` 分母的同一取向(时长类分母要去掉静音)。② **它与 `n_chars`/`speech_duration_sec` 是精确可重构关系**(前者 = 后两者相除,只差一个四舍五入)—— 按 §4.5:273 与 Task 3 对 `*_arm_angle = 180 − *_elbow_angle` 的处置(能精确重构即判删),这一族本该只留一侧。**本行两侧都留,由本行定并写明理由**:率与总量在报告层各有消费方(§5.4:354 的 `speech_rate` 吃率;§8.2:382 的「回答详尽度」吃字数),是否合并(判据 `|r| ≥ 0.99`)推给 **M3.4** —— 与裁定 E2(「`spread`/`fist` 可能同一个量,各留一行、合并条件推给 M3.3」)同一处置。"
     },
     {
       "column": "energy_p10",
@@ -1892,7 +1893,7 @@
     {
       "column": "answer_onset_wall",
       "modality": "voice",
-      "definition": "推定的**首次开口墙钟** = (该段音频到达本服务的时刻 `received_at_wall`) − 音频时长 + `speech_onset_sec`,四舍五入 3 位(app.py:193-199)。",
+      "definition": "推定的**首次开口墙钟** = (该段音频到达本服务的时刻 `received_at_wall`) − 音频时长 + `speech_onset_sec`,四舍五入 3 位(voice_interaction/api/app.py:193-199)。",
       "source": "`media_retention` 记的 `received_at_wall`(= `time.time()`,media_retention.py:234/359)+ `duration_sec` + `speech_onset_sec`",
       "normalization": "none(Unix 墙钟秒,绝对时间戳)",
       "unit": "秒(Unix 墙钟)",
@@ -1900,14 +1901,14 @@
       "l0_output": "吐推定首次开口的绝对墙钟;它是 `reaction_time` 的中间量,单独看没有意义(但**必须落盘**,否则那个数不可复核)。",
       "status": "implemented",
       "quarantine_ref": "",
-      "acceptance": "① 到达时刻取 `received_at_wall`、**不用** `time.time()`(app.py:176-178:后者比真正到达晚好几秒);② 3 场正式素材实测落在 1790407973.795 ~ 1790409923.312(= 2026-09-26 当天);③ 与 `questions.jsonl` 的 `ask_end` **同一时间基**;④ 缺任一成分(到达时刻/时长/题目窗口)时**整组留空**,不写半个数(app.py:190-191);⑤ M3.4。",
+      "acceptance": "① 到达时刻取 `received_at_wall`、**不用** `time.time()`(voice_interaction/api/app.py:176-178:后者比真正到达晚好几秒);② 3 场正式素材实测落在 1790407973.795 ~ 1790409923.312(= 2026-09-26 当天);③ 与 `questions.jsonl` 的 `ask_end` **同一时间基**;④ 缺任一成分(到达时刻/时长/题目窗口)时**整组留空**,不写半个数(voice_interaction/api/app.py:190-191);⑤ M3.4。",
       "basis": "**为什么保留绝对墙钟、不像面部那样改成会话相对时间**(面部的 `timestamp` 已由 M2.5 改成会话相对):它要与 `questions.jsonl` 的 `ask_end` 相减,而那份台账写的就是客户端上报的 `float(ask_end)`(session_meta.py:145-157,同一条记录里还有 `reported_at_wall: time.time()`),两侧必须同一时间基。**由本行定**,并登记为「L1/报告层读本列时的时基约定」。⚠️ 因此本列**不是**会话相对秒,跨会话直接比较无意义(报出的是绝对时刻)。"
     },
     {
       "column": "reaction_time",
       "modality": "voice",
-      "definition": "**反应延迟** = `answer_onset_wall` − 该题 `ask_end`(秒,2 位小数,app.py:200)。**允许为负**(抢答),**不做截断**(app.py:183-184)。它**就是** §5.4:360 的 L1 指标 `response_latency_sec` 的原料;§8.2:384-386 把它记为「报告层「反应延迟」槽」的产出方。",
-      "source": "`answer_onset_wall`(本表另一行)+ `questions.jsonl` 台账的 `ask_end`(按 `question_index` 对上,app.py:600-601)",
+      "definition": "**反应延迟** = `answer_onset_wall` − 该题 `ask_end`(秒,2 位小数,voice_interaction/api/app.py:200)。**允许为负**(抢答),**不做截断**(voice_interaction/api/app.py:183-184)。它**就是** §5.4:360 的 L1 指标 `response_latency_sec` 的原料;§8.2:384-386 把它记为「报告层「反应延迟」槽」的产出方。",
+      "source": "`answer_onset_wall`(本表另一行)+ `questions.jsonl` 台账的 `ask_end`(按 `question_index` 对上,voice_interaction/api/app.py:600-601)",
       "normalization": "none —— 它已经是一个**差**(减掉了该题播完时刻),没有可除基准",
       "unit": "秒",
       "maturity": "B",
@@ -1915,7 +1916,7 @@
       "status": "implemented",
       "quarantine_ref": "",
       "acceptance": "① 全仓 interview 语音日志实测 31 条有值,范围 **−1.42 ~ 205.98** 秒,**含 1 条负值** —— 负值是真实现象(候选人抢答),不许为了「好看」截断;② 三个成分逐行落盘 ⟹ 任一行都能用 `answer_onset_wall − ask_end` 复算;③ 按题号对窗口(并发/补推时不串题);④ M3.4。",
-      "basis": "① **为什么按 `question_index` 对题目窗口、不用「最近一条」**:并发或补推时会串题(app.py:599 的注释);② **为什么不截断负值**:截成 0 会让「抢答」与「0 秒反应」分不开(app.py:183-184;`下一步.md` §8.2:388 的原话「允许为负(抢答)—— **不截断**,截了……就分不开(实测出现过 −1.42)」—— 本行的实测(31 条里 1 条 −1.42)与那条记录逐字吻合);③ **归一化 none 的理由**:它本身已经是一个差,减掉了题目播完这个基准。"
+      "basis": "① **为什么按 `question_index` 对题目窗口、不用「最近一条」**:并发或补推时会串题(voice_interaction/api/app.py:599 的注释);② **为什么不截断负值**:截成 0 会让「抢答」与「0 秒反应」分不开(voice_interaction/api/app.py:183-184;`下一步.md` §8.2:388 的原话「允许为负(抢答)—— **不截断**,截了……就分不开(实测出现过 −1.42)」—— 本行的实测(31 条里 1 条 −1.42)与那条记录逐字吻合);③ **归一化 none 的理由**:它本身已经是一个差,减掉了题目播完这个基准。"
     },
     {
       "column": "transcript_raw",

@@ -228,18 +228,31 @@ def test_endpoint_writes_reaction_time_from_the_question_ledger(tmp_path, monkey
 
 
 def test_voiced_prob_reaches_the_log(tmp_path, monkeypatch):
-    """★ 红法:去掉 `fieldnames` 里那一列(或把它插到中间而不是末尾)。
+    """★ 红法:去掉 `fieldnames` 里那一列(或把它挪到别处 —— 插到中间、或挪到别的列后面)。
 
-    ⚠️ **位置也是契约**:必须是**末列**。插中间会让历史 CSV 的列序对不上 ——
-    报告层按列名读,错位后会**静默读到别的列的值**。实测历史语音日志的末列是
-    `reaction_time`(`data/logs/interview_emotion_log_20260926_155559_caf0.csv` 表头)。
-    (将来若在它后面再追加新列,这条要**跟着改**,而不是删 —— 它保证的是
-    "新列只往末尾加"。)
+    ⚠️ **位置也是契约**:新列**只许追加**。插中间会让历史 CSV 的列序对不上 ——
+    报告层按列名读,错位后会**静默读到别的列的值**。
+
+    ★ **断言的是「追加而非插入」,不是「永远是最后一列」**(2026-09-26 整支复核 Important 3):
+    原文是 `log.fieldnames[-1] == "voiced_prob_mean"`,那个形态**字面 = "永远是末列"**,
+    **只在它恰好是末列时才过** —— 下一次往末尾追加语音列(或改动 `fieldnames` 的结构)就会
+    **误红**,而红的原因不是要防的东西(追加是安全的;"插进中间"才危险)。
+    同一条毛病在 gesture 那边实测踩过(`tests/test_l0_column_table.py` 的
+    `hand_visible_*` 与 `shoulder_width` 两处有完整说明:Task 6 的 `fieldnames[-2:]` 形态
+    在 Task 7 追加 `shoulder_width` 时当场误红)。**M3.4 就是语音的下一批,不改这里必踩。**
+    ⟹ 改成钉**相邻**:本列必须**紧跟**它被加进来时的前一列 `reaction_time`
+    (实测历史语音日志的末列就是它,`data/logs/interview_emotion_log_20260926_155559_caf0.csv` 表头)。
+    这样"往中间插一列"仍然会红,而"往末尾追加"不会误伤。
     """
     monkeypatch.setattr(vl, "LOGS_DIR", str(tmp_path))
     log = vl.VoiceLogger(log_type="interview", session_id="20260926_120000_vvp1")
     assert "voiced_prob_mean" in log.fieldnames, "voiced_prob_mean 没进表头"
-    assert log.fieldnames[-1] == "voiced_prob_mean", "新列必须在列序末尾"
+    anchor = "reaction_time"
+    assert anchor in log.fieldnames, f"锚点列 {anchor} 不见了 —— 列序被大改过"
+    k = log.fieldnames.index(anchor)
+    assert log.fieldnames[k + 1] == "voiced_prob_mean", (
+        "voiced_prob_mean 不是**追加**在 `reaction_time` 之后的 —— 新列只许加在列序末尾,"
+        f"插在中间会让历史 CSV 的列与表头错位:{anchor} 之后实为 {log.fieldnames[k + 1:k + 3]}")
 
 
 def test_voiced_prob_is_registered_in_the_extractor_map():
@@ -452,3 +465,49 @@ def test_voiced_prob_missing_stays_empty_not_zero(tmp_path, monkeypatch):
                     question_index=0, emotion="", feedback="")
     r = list(csv.DictReader(open(log.csv_file, encoding="utf-8")))[-1]
     assert r["voiced_prob_mean"] == "", f"缺值写成了 {r['voiced_prob_mean']!r}"
+
+
+# ── 空音频的早退分支(2026-09-26 M3.0 整支复核 Minor 8)──────────────────────
+def test_empty_audio_branches_are_empty_and_carry_every_key():
+    """★ 三个公开方法的**空音频**早退分支:① **全键** ② **留空**(`None`)③ **不写 0.0**。
+
+    为什么要有这条(Minor 8):`extract_pitch_features` 的空音频支此前写
+    `pitch_mean/std/trend = 0.0`(假 0)且**缺 `pitch_p10/p90/voiced_prob_mean` 三个键**
+    —— 正是同一个函数里刚修掉的**两个形态**(假 0 + 缺键),它们也散落在
+    `extract_energy_features` / `extract_pause_features` 里(同文件、同形态,一并收口)。
+    为什么"缺键"与"显式空值"不是一回事:按列名读的代码**拿到 KeyError**,
+    而 `.get(k)` / `if k in d` 会给出**两种不同结论**;两边必须一致。
+
+    红法(逐条):
+      · 把任一支里的 `None` 改回 `0.0` ⟹ 第二组断言红("没测到"被写成了"量到 0");
+      · 从任一支的 return 里**删掉任一个键** ⟹ 第一组断言红;
+      · 让某个支的键集与正常路径不一致 ⟹ 同上。
+
+    ⚠️ 边界(如实说):这三支**活路径进不去** —— `extract_all_features` 自己先用
+    `len(audio) == 0` 早退成 `{}`,而端点只走 `extract_all_features`/`prosody_features_from_pcm`。
+    所以它守的是**公开方法的直接调用者**,不是活路径(这也是它被记为 Minor 的原因)。
+    空音频 ≠ 零浊音帧:后者**有帧**、`voiced_prob_mean = 0.0` 是**真值**(见上一条测试);
+    前者一帧都没有 ⟹ 连均值都没定义。
+    """
+    from voice_interaction.core.feature_extraction.prosody_extractor import (
+        ProsodyFeatureExtractor)
+
+    ext = ProsodyFeatureExtractor()
+    empty = np.zeros(0, dtype=np.float32)
+
+    pitch = ext.extract_pitch_features(empty)
+    assert set(pitch) == {"pitch_mean", "pitch_std", "pitch_trend", "pitch_direction",
+                          "pitch_p10", "pitch_p90", "voiced_prob_mean"}, sorted(pitch)
+    assert pitch["pitch_direction"] == "无法判断", pitch["pitch_direction"]
+    for key in ("pitch_mean", "pitch_std", "pitch_trend", "pitch_p10", "pitch_p90",
+                "voiced_prob_mean"):
+        assert pitch[key] is None, f"空音频的 {key} 是 {pitch[key]!r},该留空"
+
+    energy = ext.extract_energy_features(empty)
+    assert set(energy) == {"energy_mean", "energy_std", "energy_p10", "energy_p90"}, sorted(energy)
+    assert all(v is None for v in energy.values()), energy
+
+    pause = ext.extract_pause_features(empty)
+    assert set(pause) == {"pause_duration_mean", "pause_duration_max", "pause_frequency",
+                          "speech_duration_sec", "speech_onset_sec"}, sorted(pause)
+    assert all(v is None for v in pause.values()), pause

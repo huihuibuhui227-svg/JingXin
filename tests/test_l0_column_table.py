@@ -488,3 +488,153 @@ def test_shoulder_width_row_matches_the_implementation():
             f"{name} 的 {field} 里那个「几个 jitter 列」的数与表里数出来的"
             f"({len(uses)} 条:{[c['column'] for c in uses]})对不上 —— "
             f"加/删一行 jitter 就要同步这句:{row[field][:80]!r}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# `count_reconciliation.deltas` 散文里的数(2026-09-26 整支复核 Important 2 + Minor 11)
+# ══════════════════════════════════════════════════════════════════════════════
+
+# gesture:被 §4.2 **处置表**逐项点到名的 28 条活列。
+# ⚠️ **这 28 条是人工读 markdown 表点出来的** —— §4.2 没有机器可读形态,所以
+#    「它们真的都被点到名」这件事**机器核不了**(要核只能人再读一遍 §4.2)。
+#    本测试核得到的是另外三件:① 这 28 个名字**全部真的在活列里**;
+#    ② 它们把 70 条活列**切成 28 + 42**;③ 那 42 条按下面的分族枚举**逐条对得上**。
+#    ⟹ 名单本身不能悄悄漂(改一个名字,②或③当场红),这正是「数不再手抄」要的效果。
+_NAMED_IN_SECTION_4_2 = frozenset("""
+    left_hand_score right_hand_score left_hand_fist_status right_hand_fist_status
+    left_hand_spread right_hand_spread left_hand_jitter right_hand_jitter
+    shoulder_score head_score torso_score left_arm_score right_arm_score
+    left_shoulder_jitter right_shoulder_jitter left_wrist_jitter right_wrist_jitter
+    left_elbow_jitter right_elbow_jitter head_jitter torso_jitter
+    left_arm_stability right_arm_stability torso_stability
+    shrug_level is_calibrated head_tilt is_valid
+""".split())
+
+# gesture:§4.2 处置表**覆盖不到的** 42 条活列,按 `deltas[1].reasons[1]` 的散文分族逐条枚举。
+# 这条枚举是那句散文的**机器可读副本** —— 散文说「42 = 3 + 4 + 10 + 8 + 2 + 8 + 4 + 3」,
+# 这里就把每一族的名字写出来;名字与族对不上、或少了/多了一条,下面逐条比。
+_UNCOVERED_FAMILIES = {
+    "3 非测量列": ("session_id", "timestamp", "timestamp_iso"),
+    "4 个 handedness 标签": ("left_hand_model_label", "left_hand_model_label_conf",
+                            "right_hand_model_label", "right_hand_model_label_conf"),
+    "10 个手指角度": tuple(f"{side}_{finger}_angle" for side in ("left", "right")
+                        for finger in ("thumb", "index", "middle", "ring", "pinky")),
+    "8 个姿态角度": ("left_shoulder_angle", "right_shoulder_angle", "torso_angle",
+                  "head_tilt_angle", "head_pitch_angle", "shoulder_angle",
+                  "left_elbow_angle", "right_elbow_angle"),
+    "2 个 *_arm_angle": ("left_arm_angle", "right_arm_angle"),
+    "8 个 world 列": ("left_wrist_jitter_world", "left_elbow_jitter_world",
+                    "right_wrist_jitter_world", "right_elbow_jitter_world",
+                    "left_arm_angle_world", "right_arm_angle_world",
+                    "left_shoulder_jitter_world", "right_shoulder_jitter_world"),
+    "4 个情绪块": ("overall_score", "emotion_state", "feedback", "used_features"),
+    "3 个 2026-09-26 新增列": ("hand_visible_left", "hand_visible_right", "shoulder_width"),
+}
+
+
+def test_delta_reason_numbers_match_the_table():
+    """★ `count_reconciliation.deltas` 那三段散文里的数,**从表里算出来再比散文**。
+
+    为什么要它(2026-09-26 整支复核 Important 2 + Minor 11):`deltas[1].reasons[1]` 原先写
+    「`live_contract.gesture` 那 **67** 条活列…剩下 **39** 条…其余 **23** 条进 columns」——
+    **而 `live_contract.gesture` 早已是 70**:那句话自己点名引用了那个被实测的字段,却差 3。
+    同族的还有 `deltas[0].reasons[4]` 的 16 / 6 与 voice `reasons[3]` 的 13。
+    ⟹ 处置照本文件 ⑨ 的形态:**把数从表里算出来,再去比散文**;散文改了数、表改了行,两边都有一次机会红。
+
+    红法(逐条,都是生产改动):
+      · 把 `live_contract.gesture` 改掉(或往 `GestureLogger.fieldnames` 加/删一列而不动表)⟹ 70 那一组红;
+      · 把 `deltas[1].reasons[1]` 里那个「70 / 42 / 9 / 7 / 26」改回 67 / 39 / 23 之类的旧数 ⟹ 红;
+      · 把 `columns` 里某条 gesture 行搬进 `legacy_allowlist`(或不搬而行数对不上)⟹ 9/7/26 的二分红;
+      · 往 `_UNCOVERED_FAMILIES` 覆盖的某族里加一列(例如再加一个手指角度)⟹ 42 这个数、
+        以及「9 + 7 + 26 = 42」当场红;
+      · 把 `deltas[0].reasons[4]` 的 16 / 6 或 voice `reasons[3]` 的 13 改错 ⟹ 各自红。
+
+    ⚠️ **边界(如实说)**:`legacy_allowlist` 是按**模态**分组的,没有「判删 / 元数据」这个字段,
+    所以 9 与 7 的切法是「这 42 条里,在 `_UNCOVERED_FAMILIES` 中被点名是元数据的那 3 + 4 条」
+    —— 换句话说,**7 那一半靠上面那份族的枚举,不靠白名单自己声明**。白名单若给每条加一个
+    `disposition` 字段,这条就该改成直接读它(那才是结构性的)。
+    """
+    doc = l0.load()
+    cr = doc["count_reconciliation"]
+    live = list(_live_columns()["gesture"])
+    claimed_live = cr["live_contract"]["gesture"]
+
+    # ── ① 70:活列契约的结构化字段 vs 真的 logger ────────────────────────────
+    assert claimed_live == len(live), (
+        f"live_contract.gesture={claimed_live},而 GestureLogger 实测 {len(live)} 列")
+
+    # ── ② 70 必须 == 表里 gesture 的活列行 + 白名单条目 ──────────────────────
+    gesture_cols = {c["column"] for c in doc["columns"] if c["modality"] == "gesture"}
+    gesture_allow = {a["column"] for a in doc["legacy_allowlist"] if a["modality"] == "gesture"}
+    assert set(live) == gesture_cols | gesture_allow, (
+        f"gesture 活列(70)与「表内行 ∪ 白名单」对不上:"
+        f"只在日志里={sorted(set(live) - gesture_cols - gesture_allow)},"
+        f"只在表里={sorted((gesture_cols | gesture_allow) - set(live))}")
+    assert not (gesture_cols & gesture_allow), (
+        f"同一列同时进 `columns` 与 `legacy_allowlist`:{sorted(gesture_cols & gesture_allow)}")
+
+    # ── ③ 28 + 42 = 70,而且那 42 条按族枚举逐条对得上 ───────────────────────
+    named = _NAMED_IN_SECTION_4_2
+    assert named <= set(live), (
+        f"`_NAMED_IN_SECTION_4_2` 里有名字不在活列里(名单过期了):{sorted(named - set(live))}")
+    uncovered = set(live) - named
+    enumerated = [c for names in _UNCOVERED_FAMILIES.values() for c in names]
+    assert len(enumerated) == len(set(enumerated)), (
+        f"分族枚举里有重复名字——同一列被数进两族:{sorted({c for c in enumerated if enumerated.count(c) > 1})}")
+    assert uncovered == set(enumerated), (
+        f"「§4.2 覆盖不到的」那 {len(uncovered)} 条与分族枚举的 {len(set(enumerated))} 条对不上:"
+        f"没被枚举的={sorted(uncovered - set(enumerated))},"
+        f"枚举了却不在活列里的={sorted(set(enumerated) - uncovered)}")
+
+    # ── ④ 9 / 7 / 26:那 42 条按「元数据进白名单 / 判删进白名单 / 进 columns」三分 ──
+    meta = set(_UNCOVERED_FAMILIES["3 非测量列"]) | set(_UNCOVERED_FAMILIES["4 个 handedness 标签"])
+    assert meta <= gesture_allow, (
+        f"非测量列与 handedness 标签应当**进白名单**:漏的={sorted(meta - gesture_allow)}")
+    n_meta = len(meta)                                     # 7
+    n_allow_42 = len(uncovered & gesture_allow)            # 16 = 9 + 7
+    n_del = n_allow_42 - n_meta                            # 9(白名单里去掉元数据那 7 条)
+    n_cols_42 = len(uncovered & gesture_cols)              # 26
+    assert n_meta + n_del + n_cols_42 == len(uncovered), (
+        f"「{n_meta} 元数据 + {n_del} 判删 + {n_cols_42} 进 columns」= "
+        f"{n_meta + n_del + n_cols_42},与那 {len(uncovered)} 条对不上")
+
+    # ── ⑤ 散文必须写着**算出来的**那一组数(这一句才是钉子)────────────────────
+    reason = cr["deltas"][1]["reasons"][1]
+    computed = f"{claimed_live} / {len(uncovered)} / {n_del} / {n_meta} / {n_cols_42}"
+    assert computed in reason, (
+        f"`deltas[1].reasons[1]` 里写的数与表里数出来的对不上:表算出「{computed}」,"
+        f"而那句散文里找不到这个串(它此前写的是 67 / 39 / 23)—— 散文:{reason[:120]!r}")
+    assert f"只有 {len(named)} 条" in reason, (
+        f"`deltas[1].reasons[1]` 里「被 §4.2 处置表点到名的只有 N 条」的 N 与"
+        f"`_NAMED_IN_SECTION_4_2` 的 {len(named)} 条对不上")
+    assert f"剩下 {len(uncovered)} 条" in reason, (
+        f"`deltas[1].reasons[1]` 里「剩下 N 条」与表里数出来的 {len(uncovered)} 对不上")
+
+    # ── ⑥ face:16 / 6(deltas[0].reasons[4])──────────────────────────────────
+    face_live = _live_columns()["face"]
+    face_allow = [a["column"] for a in doc["legacy_allowlist"] if a["modality"] == "face"]
+    face_in = [c for c in face_allow if c in face_live]
+    face_out = [c for c in face_allow if c not in face_live]
+    n_bs = len([c for c in face_live if c.startswith("bs_")])
+    non_measure = ("session_id", "timestamp")              # 散文点名的 2 条非测量列
+    n_in = len(face_in) - n_bs - len(non_measure) - 1      # −1 = micro_exp_duration_frames
+    face_reason = cr["deltas"][0]["reasons"][4]
+    assert f"共 {n_in} 条" in face_reason, (
+        f"face 那条散文里的「判删的活列共 N 条」与从白名单数出来的 {n_in} 条对不上"
+        f"(白名单在日志契约里 {len(face_in)} 条 − {n_bs} 个 bs_* − {len(non_measure)} 个非测量列"
+        f" − micro_exp_duration_frames 1 条);散文:{face_reason[:120]!r}")
+    assert f"另有 {len(face_out)} 条" in face_reason, (
+        f"face 那条散文里的「另有 N 条族级/非活列」与数出来的 {len(face_out)} 条对不上;"
+        f"散文:{face_reason[:120]!r}")
+
+    # ── ⑦ voice:13(deltas[2].reasons[3])─────────────────────────────────────
+    voice_cols = {c["column"] for c in doc["columns"] if c["modality"] == "voice"}
+    voice_allow = {a["column"] for a in doc["legacy_allowlist"] if a["modality"] == "voice"}
+    n_voice = cr["live_contract"]["voice"] - len(voice_cols)
+    assert n_voice == len(voice_allow), (
+        f"voice 活列 {cr['live_contract']['voice']} − 表内 voice 行 {len(voice_cols)} "
+        f"= {n_voice},而白名单里 voice 条目是 {len(voice_allow)} 条 —— 两者应当相等")
+    voice_reason = cr["deltas"][2]["reasons"][3]
+    assert f"{n_voice} 条活列进" in voice_reason, (
+        f"voice 那条散文里的「N 条活列进 legacy_allowlist」与数出来的 {n_voice} 条对不上;"
+        f"散文:{voice_reason[:120]!r}")

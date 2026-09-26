@@ -33,13 +33,13 @@ class ProsodyFeatureExtractor:
         返回:
             包含音高特征的字典
         """
+        # 空音频 = **一帧都没有** ⟹ 七个键一律留空(None → 落盘空串),**不写 0.0**。
+        # 判据与下面「零浊音帧」那一支完全相同(那里有完整说明):「没测到」与「量到了 0」不是一回事。
         if len(audio) == 0:
-            return {
-                "pitch_mean": 0.0,
-                "pitch_std": 0.0,
-                "pitch_trend": 0.0,
-                "pitch_direction": "无法判断"
-            }
+            return {"pitch_mean": None, "pitch_std": None,
+                    "pitch_trend": None, "pitch_direction": "无法判断",
+                    "pitch_p10": None, "pitch_p90": None,
+                    "voiced_prob_mean": None}
 
         # 计算基频。★ 第 3 个返回值 `voiced_prob`(逐帧「是浊音」的概率)**此前被 `_` 丢掉** ——
         # `docs/superpowers/specs/2026-09-21-jingxin-feature-redesign-design.md:235` 的依据栏点名的就是它(«pyin 无能量门限且丢 `voiced_prob`»):
@@ -140,11 +140,11 @@ class ProsodyFeatureExtractor:
         返回:
             包含能量特征的字典
         """
+        # 空音频 = 一帧都没有 ⟹ 四个键**一律留空**,不写 0.0 —— 判据与
+        # `extract_pitch_features` 的空音频支完全相同(那里有完整说明;2026-09-26 整支复核 Minor 8 同批收)。
         if len(audio) == 0:
-            return {
-                "energy_mean": 0.0,
-                "energy_std": 0.0
-            }
+            return {"energy_mean": None, "energy_std": None,
+                    "energy_p10": None, "energy_p90": None}
 
         rms = librosa.feature.rms(y=audio)[0]
         energy_mean = float(np.mean(rms))
@@ -188,14 +188,14 @@ class ProsodyFeatureExtractor:
         返回:
             包含停顿特征的字典
         """
+        # 空音频 = 一帧都没有 ⟹ 五个键**一律留空**(`speech_onset_sec` 本来就是 `None`),
+        # **不写 0.0** —— 那四个 0.0 正是「没测到写成了 0」这个形态。
+        # 判据与 `extract_pitch_features` 的空音频支完全相同(那里有完整说明);
+        # 2026-09-26 M3.0 整支复核 Minor 8 把三处同形态一并收口。
         if len(audio) == 0:
-            return {
-                "pause_duration_mean": 0.0,
-                "pause_duration_max": 0.0,
-                "pause_frequency": 0.0,
-                "speech_duration_sec": 0.0,
-                "speech_onset_sec": None
-            }
+            return {"pause_duration_mean": None, "pause_duration_max": None,
+                    "pause_frequency": None, "speech_duration_sec": None,
+                    "speech_onset_sec": None}
 
         rms = librosa.feature.rms(y=audio)[0]
         duration = len(audio) / self.sample_rate

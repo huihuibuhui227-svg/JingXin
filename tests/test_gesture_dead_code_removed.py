@@ -25,10 +25,18 @@
    `from gesture_analysis import *` 本来就会 `AttributeError`。
    此时 ①的 import 不会炸,但第 3 条断言(`gone not in gesture_analysis.__all__`)红。
 
-**没进本文件的**:`gesture_analysis.__all__` 里**其余 17 个**悬空名字
-(`HandEmotionAnalyzer` / `HandFeatures` / `GestureEmotionPipeline` …)**不在本任务范围**,
-本任务只清与那 4 个被删文件对应的名字(逐条见下)。那 17 个是**先前就存在**的,
-本文件不替它们背书,也不假装 `from gesture_analysis import *` 现在可用。
+**★ 2026-09-26 M3.0 整支复核(Important 5)把「悬空名字」从登记升级成断言**:那时
+`gesture_analysis.__all__` 里还有 **17 个没有对应 import 的名字**,`from gesture_analysis import *`
+**实测直接炸**。其中:
+
+- **5 个是真类**(`HandFeatures` / `ShoulderFeatures` / `ArmFeatures` / `UpperBodyFeatures` /
+  `EmotionResult`)—— 由 `gesture_analysis/models/__init__.py:__all__` 导出(单一真源),
+  缺的只是本文件那行 import ⟹ **补 import 收进来**(处置是"收",不是"删");
+- **12 个全仓不存在**(`HandEmotionAnalyzer` / `GestureEmotionPipeline` …)⟹ **删名字**。
+
+原文只在 docstring 里写「本文件不替它们背书」—— **那句话没有任何约束力**,拦不住第 18 个
+悬空名字被加进去。现在由下面两条断言守着(其中一条**不依赖名单**:它问的是"`__all__` 里
+每个名字是不是真的在模块上")。
 """
 from pathlib import Path
 
@@ -112,3 +120,61 @@ def test_gesture_pipeline_is_gone():
     assert "GesturePipeline" not in pipeline.__all__, (
         "GesturePipeline 还挂在 gesture_analysis.pipeline.__all__ 上(悬空名字)"
     )
+
+
+# ── 悬空名字(2026-09-26 M3.0 整支复核 Important 5)────────────────────────
+# 12 个**全仓不存在**的名字:既没有任何定义,也没有对应 import ⟹ 已从 `__all__` 删掉。
+DANGLING_NAMES_REMOVED = (
+    "HandEmotionAnalyzer", "ShoulderEmotionAnalyzer", "ArmEmotionAnalyzer",
+    "UpperBodyEmotionAnalyzer", "EmotionFusionAnalyzer", "GestureFeatures",
+    "HandEmotionResult", "ShoulderEmotionResult", "ArmEmotionResult",
+    "UpperBodyEmotionResult", "GestureEmotionResult", "GestureEmotionPipeline",
+)
+
+# 5 个**真类**:由 `gesture_analysis/models/__init__.py:__all__` 导出 ⟹ 补 import 收进来后
+# 必须仍然留在 `__all__` 里(它们曾经也是悬空名字 —— 缺的是 import,不是名字)。
+REAL_MODELS_EXPORTED = (
+    "HandFeatures", "ShoulderFeatures", "ArmFeatures", "UpperBodyFeatures", "EmotionResult",
+)
+
+
+def test_gesture_all_has_no_dangling_names():
+    """★ 红法(两条,都是生产改动):
+      · 往 `gesture_analysis/__init__.py` 的 `__all__` 里写回 `"HandEmotionAnalyzer"`
+        (或其馀 11 个全仓不存在的名字)⟹ 第 1 条断言红;
+      · 往 `__all__` 里加**任何一个没有对应 import 的名字**(例如 `"Foo"`)⟹ 第 2 条断言红。
+        ★ **这一条才是拦住"第 18 个悬空名字"的那道闸 —— 它不依赖上面那张名单。**
+
+    为什么必须问 `hasattr` 而不是只查名单:`__all__` 与 `import` 是**分开写的两处**,
+    名字挂在 `__all__` 里而 import 没了(或从来没有)时 `hasattr` 是 False,
+    只有 `from ... import *` 会炸 —— 所以判据要直接问"这个名字真的在模块上吗"。
+    """
+    import gesture_analysis as pkg
+
+    for gone in DANGLING_NAMES_REMOVED:
+        assert gone not in pkg.__all__, (
+            f"{gone} 又回到了 gesture_analysis.__all__ 上 —— 它**全仓没有定义**"
+            f"(没有 import、也没有任何类/函数叫这个名字),`from gesture_analysis import *` 会 AttributeError")
+    dangling = sorted(n for n in pkg.__all__ if not hasattr(pkg, n))
+    assert dangling == [], (
+        f"gesture_analysis.__all__ 里有**悬空名字**(挂了名字却没有对应对象):{dangling} —— "
+        f"`__all__` 与 import 是分开写的两处,加名字时忘了加 import 就是这个形态;"
+        f"要么补 import,要么把名字删掉")
+    for real in REAL_MODELS_EXPORTED:
+        assert real in pkg.__all__ and hasattr(pkg, real), (
+            f"{real} 应当留在 gesture_analysis.__all__ 里(它是 `gesture_analysis.models` 导出的真类,"
+            f"而且顶层再导出一次是这次修复的一部分)")
+
+
+def test_star_import_from_gesture_analysis_works():
+    """★ 红法:往 `__all__` 里加一个没有 import 的名字 ⟹ 下面那句 `exec` 当场 `AttributeError`。
+
+    这是**端到端**的那一条:它不解析 `__all__`,而是真的执行 `from gesture_analysis import *` ——
+    2026-09-26 整支复核实测:改前这一句直接炸(17 个悬空名字),改后可用。
+    """
+    ns = {}
+    exec("from gesture_analysis import *", ns)          # noqa: S102 —— 要的就是执行这一句
+    for n in ("HandFeatures", "ShoulderFeatures", "ArmFeatures", "UpperBodyFeatures",
+              "EmotionResult", "HandAnalyzer", "ShoulderAnalyzer", "ArmAnalyzer",
+              "UpperBodyAnalyzer", "EmotionInferencer"):
+        assert n in ns, f"`from gesture_analysis import *` 没带出 {n}"

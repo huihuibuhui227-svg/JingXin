@@ -176,14 +176,29 @@ def test_logger_writes_the_52_columns(tmp_path, monkeypatch):
 
     红法:logger 那行 `+ list(BLENDSHAPE_COLUMNS)` 去掉 —— 模型给了数,CSV 里没有列,
     下次读日志的人只会看到"文件里没这个东西"。
+
+    ★ **位置断言:钉「追加而非插入」,不钉「永远是末尾」**(2026-09-26 整支复核 Important 3)。
+    原文是 `log.fieldnames[-1] == BLENDSHAPE_COLUMNS[-1]`,那个形态**字面 = "永远是最后那一列"**,
+    只在 52 列恰好贴在最末尾时才过 —— 下一次往末尾追加别的面部列就会**误红**,
+    而它红的**不是**要防的东西(追加是安全的;"插进中间"才危险:那会让历史 CSV 的列与表头错位,
+    而报告层按列名读 ⟹ **静默读到别的列的值**)。
+    同一条毛病在 gesture 上实测踩过(`tests/test_l0_column_table.py` 里 `hand_visible_*` 那两条
+    有完整说明:Task 6 写的 `fieldnames[-2:]` 在 Task 7 追加 `shoulder_width` 时当场误红)。
+    **M3.2 就是面部的下一批,不改这里必踩。**
+    ⟹ 改成钉**整块相邻**:52 列必须**紧跟**它们被加进来时的前一列 `micro_exp_onset_frame`,
+    而且作为**一整块**连续出现(往中间插一列、或把这 52 列打散,都会红)。
     """
     import face_expression.utils.logger as lg
     monkeypatch.setattr(lg, "LOGS_DIR", str(tmp_path))
     log = lg.DataLogger("video", session_id="20260926_120000_bbbb")
 
     assert set(BLENDSHAPE_COLUMNS) <= set(log.fieldnames), "日志表里没有 blendshape 列"
-    assert log.fieldnames[-1] == BLENDSHAPE_COLUMNS[-1], \
-        "52 列该加在**末尾**:加在中间会让老文件的列序对不上"
+    anchor = "micro_exp_onset_frame"
+    assert anchor in log.fieldnames, f"锚点列 {anchor} 不见了 —— 列序被大改过"
+    k = log.fieldnames.index(anchor)
+    assert log.fieldnames[k + 1:k + 1 + len(BLENDSHAPE_COLUMNS)] == list(BLENDSHAPE_COLUMNS), (
+        "52 列不是**追加**在 `micro_exp_onset_frame` 之后的一整块 —— 新列只许加在列序末尾,"
+        f"插在中间会让老文件的列与表头错位:紧随其后的是 {log.fieldnames[k + 1:k + 4]}")
 
     log.log(_row(blendshapes={"eyeBlinkLeft": 0.42, "jawOpen": 0.07}))
     import csv as _csv
