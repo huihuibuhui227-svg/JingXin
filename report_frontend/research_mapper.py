@@ -7,9 +7,22 @@ from typing import Dict, Any, List, Optional
 import warnings
 import json
 
-from .evidence_gate import confidence_from, gate, normalize_value, user_message
+from .evidence_gate import (check_g4_not_proxy, confidence_from, gate,
+                            normalize_value, user_message)
 
 warnings.filterwarnings('ignore')
+
+# 全系统**没有任何产出方**的指标(spec §5.3:不许为了填满槽位编一个值出来)。
+# 它与「未采集到对应数据」是两件不同的事,报告必须说得出来是哪一种:
+#   · 未采集到对应数据 = 这次没采到(该去查采集端)
+#   · 尚无产出方       = 这个量**没有代码在算**(查采集端查不出东西来)
+# 2026-09-26 实测:这两个槽原先都写「未采集到对应数据」,把"缺一个生产者"说成了
+# "缺数据"——读者会去调摄像头,而调了也没用。槽位本身的去留要动分母与置信度,
+# 是评分语义、等使用者裁定;在裁定之前,至少不许说假话。
+NO_PRODUCER: Dict[str, str] = {
+    "text_avg_length": "回答长度无产出方(原句只在仓库外,报告层拿不到)",
+    "reaction_time": "尚未接线(需提问窗口 + 首次开口时刻,二者现已落盘但未接)",
+}
 
 # 置信度从低到高的顺序。取值域由 evidence_gate.Confidence 定义(高在本轮不可达)。
 # 取"置信度上限"时用 max(..., key=CONF_ORDER.get);上限由本模块算进 coverage,
@@ -192,7 +205,20 @@ class ResearchCapabilityMapper:
             for keyword, weight, is_positive, human_name, importance in indicators:
                 found_key, found_val = self._fuzzy_match(keyword, all_features)
                 if found_key is None:
-                    dim_gaps.append(f"{human_name}: 未采集到对应数据")
+                    # 找不到数据时,**别说那句万能的「未采集到对应数据」** —— 它可能
+                    # 是假话,而且会盖住真正的拦截原因(2026-09-26 实测:困惑微表情/
+                    # 眼部挤压/语音流畅度 三个槽就是被封停,却被说成"没采到",
+                    # 读者会去查采集端,而查了也没用)。
+                    # ⚠️ 只在这一支里改口径。有数据时照旧走 gate(),让
+                    # G2/G3 的**会话自身**信息(无变化 / 样本不足)留在报告里 ——
+                    # 那是使用者能据以行动的东西,不该被封停语盖掉。
+                    _q = check_g4_not_proxy(keyword)
+                    if not _q.ok:
+                        dim_gaps.append(f"{human_name}: {user_message(_q)}")
+                    elif keyword in NO_PRODUCER:
+                        dim_gaps.append(f"{human_name}: 尚无产出方 —— {NO_PRODUCER[keyword]}")
+                    else:
+                        dim_gaps.append(f"{human_name}: 未采集到对应数据")
                     continue
 
                 # 伴随的 _std 用于 G2(常量判定);模态行数用于 G3(样本量)。

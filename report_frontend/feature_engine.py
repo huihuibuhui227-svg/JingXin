@@ -11,6 +11,16 @@ warnings.filterwarnings('ignore')
 # 数值列跳过规则：这些列是行号/主键/时间戳，不是行为协变量。
 _SKIP_COLS = ('id', 'unnamed', 'timestamp')
 
+# 面部分析日志里的**数值** AU 列形如 `au4_frown`(au 后面没有下划线),而关键词表里
+# 写的是 `au_` —— `'au_' in 'au4_frown'` 是 False,26 个 AU 列因此被整批跳过。
+# 2026-09-26 实测(场 20260926_124439_0f5b):报告因此对「眨眼频率」「困惑微表情」
+# 说"未采集到对应数据",而那两列在日志里各有 229/275 行真值。
+_AU_NUMERIC_RE = re.compile(r'^au\d+_')
+
+# 除关键词表之外、**确实采到了**的面部数值列。加列请连理由一起加:
+# 这里的每一项都会进特征集,而进特征集的每一个键都可能被证据门看见。
+_FACE_EXTRA_NUMERIC = ('blink',)          # blink_rate_per_min / is_blink
+
 
 class PsychologicalFeatureEngine:
     """
@@ -175,7 +185,9 @@ class PsychologicalFeatureEngine:
                 continue
 
             if pd.api.types.is_numeric_dtype(df[col]):
-                if any(k in col_lower for k in target_keywords):
+                if (any(k in col_lower for k in target_keywords)
+                        or _AU_NUMERIC_RE.match(col_lower)          # au4_frown 这类
+                        or any(x in col_lower for x in _FACE_EXTRA_NUMERIC)):
                     feats = self._extract_numeric_stats(df[[col]], prefix=f"face_{col}_")
                     features.update(feats)
 
