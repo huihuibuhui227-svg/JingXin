@@ -88,7 +88,18 @@ class VoiceLogger:
             # `answer_onset_wall` 是**推定的墙钟**(音频到达时刻 − 时长 + 前导静音偏移)。
             "speech_onset_sec",
             "answer_onset_wall",
-            "reaction_time"
+            "reaction_time",
+
+            # ── 浊音概率(2026-09-26,Task 5)───────────────────────────────
+            # `pyin` 的第 3 个返回值(`voiced_prob`,逐帧「是浊音」的概率)此前被 `_` 丢掉
+            # (`prosody_extractor.py` 的 `f0, voiced_flag, _ = librosa.pyin(...)`)。
+            # 它取**全部帧**的均值:全静音时 0.0 是**真值**(不是"缺值"),所以它同时表达
+            # 「有多像语音」与「多少帧像语音」。⚠️ 真素材实测**很低**:caf0 的 17 段留存音频
+            # 落在 0.0102~0.0514(合成正弦段才有 0.62) —— 因为 pyin 给未浊音帧的概率是
+            # 一个 ~0.01 的底,而真回答里未浊音帧占多数。用它当门控原料时先看这条。
+            # ⚠️ **必须留在列序末尾**:插在中间会让历史 CSV 的列序对不上,而报告层
+            # 按列名读,错位后会**静默读到别的列的值**。
+            "voiced_prob_mean"
         ]
 
         # 写入 CSV 文件头
@@ -174,7 +185,11 @@ class VoiceLogger:
                 # 补 0 会把"算不出来"写成"反应极快"。
                 "speech_onset_sec": prosody_data.get("speech_onset_sec"),
                 "answer_onset_wall": prosody_data.get("answer_onset_wall"),
-                "reaction_time": prosody_data.get("reaction_time")
+                "reaction_time": prosody_data.get("reaction_time"),
+
+                # 概率同样**不给默认值**:0.0 是**全静音时的真值** ⟹ 它不能兼任"缺值"的
+                # 占位 —— 补 0 会把"没算出来"写成"这段没人声",那是两个不同的结论。
+                "voiced_prob_mean": prosody_data.get("voiced_prob_mean")
             }
 
             # 写入 CSV

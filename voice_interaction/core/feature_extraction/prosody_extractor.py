@@ -41,18 +41,30 @@ class ProsodyFeatureExtractor:
                 "pitch_direction": "无法判断"
             }
 
-        # 计算基频
-        f0, voiced_flag, _ = librosa.pyin(
+        # 计算基频。★ 第 3 个返回值 `voiced_prob`(逐帧「是浊音」的概率)**此前被 `_` 丢掉** ——
+        # `docs/superpowers/specs/2026-09-21-jingxin-feature-redesign-design.md:235` 的依据栏点名的就是它(«pyin 无能量门限且丢 `voiced_prob`»):
+        # 它是给 pitch 族加门控的原料,也是日志列 `voiced_prob_mean` 的产出方(Task 5)。
+        f0, voiced_flag, voiced_prob = librosa.pyin(
             audio, fmin=self.fmin, fmax=self.fmax, sr=self.sample_rate
         )
         f0_voiced = f0[voiced_flag]
 
+        # ★ 零浊音帧(全静音):`voiced_flag` 全 `False` ⟹ `f0_voiced` 是空的、`f0` 全 `nan`。
+        # 这一支里**两个量必须分开处置**(plan `docs/superpowers/plans/2026-09-26-m3-0-l0-column-table.md:38`):
+        #   · `voiced_prob_mean` = **0.0 是真值**(确实一个浊音帧都没有,pyin 的概率恒 0)⟹
+        #     **不做特殊处理**。把它写成空等于把「量到了 0」降级成「没测到」,而 0 在这里
+        #     是最强的断言(「这不是语音」)。
+        #   · `pitch_mean` = **`None`(落盘成空串)** —— `f0` 全 `nan`,均值**无定义**。
+        #     写 0 就是本项目一路在杀的「把没测到写成 0」:0 Hz 是个会被下游当成真值的数。
+        #     ⚠️ 同分支的 `pitch_std` / `pitch_trend` / `pitch_p10` / `pitch_p90` 是**同类缺陷**
+        #     (同样是 `f0_voiced` 上的统计量),本任务未改(plan:38 只点了 `pitch_mean`)。
         if len(f0_voiced) == 0:
             return {
-                "pitch_mean": 0.0,
+                "pitch_mean": None,
                 "pitch_std": 0.0,
                 "pitch_trend": 0.0,
-                "pitch_direction": "无法判断"
+                "pitch_direction": "无法判断",
+                "voiced_prob_mean": float(np.mean(voiced_prob)),
             }
 
         pitch_mean = float(np.mean(f0_voiced))
@@ -80,13 +92,21 @@ class ProsodyFeatureExtractor:
         # (报告的 energy/pitch 封停理由之一就是"跨会话不可比,需会话内归一")。
         p10 = float(np.percentile(f0_voiced, 10)) if len(f0_voiced) else 0.0
         p90 = float(np.percentile(f0_voiced, 90)) if len(f0_voiced) else 0.0
+
+        # ★ 浊音概率的均值:取**全部帧**(不是"浊音帧的均值")。只在 `voiced_flag` 为真的帧上
+        # 取均值会与 `voiced_flag` 的含义重合,而且全静音段会变成"无值";取全部帧的均值才同时
+        # 表达「这声音有多像语音」与「有多少帧像语音」,全静音时它是 0.0 —— 一个真值。
+        # 不四舍五入:概率的低端正是门控要用的地方(实测:真素材 17 段 0.0102~0.0514,
+        # 合成正弦段 0.6245,白噪声 0.0100 —— 四位小数才分得开噪声底与真回答)。
+        voiced_prob_mean = float(np.mean(voiced_prob))
         return {
             "pitch_mean": round(pitch_mean, 2),
             "pitch_std": round(pitch_std, 2),
             "pitch_trend": round(pitch_trend, 2),
             "pitch_direction": pitch_direction,
             "pitch_p10": round(p10, 2),
-            "pitch_p90": round(p90, 2)
+            "pitch_p90": round(p90, 2),
+            "voiced_prob_mean": voiced_prob_mean
         }
 
     def extract_energy_features(self, audio: np.ndarray) -> Dict[str, Any]:

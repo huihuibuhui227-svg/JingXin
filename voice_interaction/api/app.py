@@ -97,6 +97,13 @@ prosody_extractor = ProsodyFeatureExtractor(SAMPLE_RATE)
 _EXTRACTOR_TO_LOG_COLUMNS = {
     "pitch_std": "pitch_variation",
     "energy_std": "energy_variation",
+    # ★ **同名也显式登记**(2026-09-26,Task 5)。单看今天这条是恒等映射:去掉它,
+    # 值照样落得进 CSV(下面那行是 `{表}.get(k, k)`,同名时原样透传)⟹ **没有任何
+    # "值"断言会红**。它防的是**上游改名**那一刻 —— 名字不再相同之后,少了这一条,
+    # 只有这一列静默留空/留 0,而其余每一列都对,正是上面那段注释记的 N1 形态。
+    # 所以守它的测试是**声明式**的(抓不到行为差异,理由写在它的 docstring 里):
+    # `tests/test_voice_first_order_columns.py::test_voiced_prob_is_registered_in_the_extractor_map`。
+    "voiced_prob_mean": "voiced_prob_mean",
 }
 
 
