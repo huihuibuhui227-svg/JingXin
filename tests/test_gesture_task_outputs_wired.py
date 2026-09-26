@@ -253,3 +253,102 @@ def test_no_pose_means_empty_not_stale(monkeypatch, tmp_path):
     rows = list(csv.DictReader(open(loggers2[SID][0].log_file, encoding="utf-8")))
     assert rows[-1]["shoulder_score"] == "", \
         f"没有姿态的帧写了旧值:{rows[-1]['shoulder_score']!r}"
+
+
+# ── 手势新列 hand_visible_*(2026-09-26 Task 6)────────────────────────
+def test_hand_visible_is_one_when_an_attributed_hand_is_there(monkeypatch, tmp_path):
+    """两只手、模型都给了 handedness ⟹ 两格都是 `1`。
+
+    `("Left", …)` 翻过来是人的**右手**(模型按镜像输入判左右,见 test_hand_handedness_routing),
+    所以第一只进 `right_hand` 槽、第二只进 `left_hand` 槽 —— 两槽都有**已署名**的手。
+
+    红法:把端点里的 `hand_present=...` 去掉(或把 `_hand_visible_cells` 的
+    `attributed` 判据反过来)⟹ 这一格变空。
+    """
+    loggers = _wired(monkeypatch, tmp_path, pose=_pose33(),
+                     hands=[_hand21(), _hand21()],
+                     handedness=[("Left", 0.9), ("Right", 0.95)])
+    _post()
+    row = _row(loggers)
+    assert row["hand_visible_right"] == "1", row["hand_visible_right"]
+    assert row["hand_visible_left"] == "1", row["hand_visible_left"]
+    # 两列只能吐这两个值之一 —— `0` 不在字母表里(见 test_hand_visible_is_never_zero)
+    for col in ("hand_visible_left", "hand_visible_right"):
+        assert row[col] in ("1", ""), f"{col} 吐了字母表外的值:{row[col]!r}"
+
+
+def test_hand_visible_does_not_count_an_unattributed_hand_as_left(monkeypatch, tmp_path):
+    """★ 兜底分槽:槽非空但 `handedness_info` 为 `None` ⟹ 有手,但**不知道是哪只**。
+
+    模型这一帧**没给** handedness ⟹ `api/app.py` 的兜底支路把这只手塞进空着的
+    `left_hand` 槽,并把 `handedness_info['left_hand']` 置 `None`。此时:
+      · 「这一槽**有手**」是真的 —— `left_hand_score` 有值(不是空);
+      · 「那是**左手**」是**假**的 —— 没有依据。
+    ⟹ `hand_visible_left` 必须是**空**,不是 `1`。
+
+    红法:把判据写成「槽非空即为真」(丢掉 `attributed` 那一半)⟹ 本测试变红。
+    """
+    loggers = _wired(monkeypatch, tmp_path, pose=_pose33(),
+                     hands=[_hand21()], handedness=[None])       # 一只手,无 handedness
+    _post()
+    row = _row(loggers)
+    # 先证明这一帧**确实收到了手** —— 否则下面那条断言测的是"我没给手"
+    assert row["left_hand_score"] != "", \
+        f"这一帧左手槽没收到手,测试没有区分力:{row['left_hand_score']!r}"
+    assert row["left_hand_model_label"] == "", "兜底那一槽不该有标签"
+    assert row["hand_visible_left"] == "", \
+        f"一只来路不明的手被写成了「左手可见」:{row['hand_visible_left']!r}"
+    assert row["hand_visible_right"] == "", row["hand_visible_right"]
+
+
+def test_hand_visible_is_empty_when_no_hand_is_seen(monkeypatch, tmp_path):
+    """一帧没有手 ⟹ 两格都**空**。**不写 `0`** —— `0` 是「确定没有这只手」,与「没测到」两回事。"""
+    loggers = _wired(monkeypatch, tmp_path, pose=_pose33())   # hands=() / handedness=()
+    _post()
+    row = _row(loggers)
+    assert row["left_hand_score"] == "", "前提:这一帧没收到手"
+    assert row["hand_visible_left"] == "", \
+        f"没测到被写成了「确定没有」:{row['hand_visible_left']!r}"
+    assert row["hand_visible_right"] == "", row["hand_visible_right"]
+
+
+def test_hand_visible_is_never_zero(monkeypatch, tmp_path):
+    """★ 字母表只有 `{1, 空}` —— **`0` 不是本列的合法值**(表里 `unit` 栏:布尔(1 / 空))。
+
+    红法:把 `_hand_visible_cells` 的 `else ""` 改成 `else "0"`。
+    """
+    for hands, handedness in (((), ()), ([_hand21()], [None])):
+        loggers = _wired(monkeypatch, tmp_path, pose=_pose33(),
+                         hands=hands, handedness=handedness)
+        _post()
+        row = _row(loggers)
+        for col in ("hand_visible_left", "hand_visible_right"):
+            assert row[col] != "0", f"{col} 写了 0 —— 「没测到」被说成「测到了没有」"
+
+
+def test_hand_visible_needs_the_hand_to_be_there_at_all(tmp_path, monkeypatch):
+    """★ 「知道是哪只手」**且**「这只手在」—— 两个条件缺一不可,都缺就**空**。
+
+    这一条走的是 `GestureLogger.log()` 的公开入参(端点那条路构造不出这个组合:
+    `api/app.py` 只在**填槽的同时**写 `handedness_info`,所以「有署名、槽却空」在活路径
+    不可达)。但表里 `definition` 白纸黑字写的是**两个条件的合取** —— 这条钉子守的就是
+    那个合取,免得后来人把 `and present.get(slot)` 当成多余的一半删掉。
+
+    红法:删掉 `and present.get(slot)` ⟹ 本测试第一格变 `1`。
+    """
+    monkeypatch.setattr(gl, "LOGS_DIR", str(tmp_path / "logs"))
+    log = gl.GestureLogger(session_id="20260926_120000_vvvv")
+    log.log(left_hand_result=None, right_hand_result=None, shoulder_result=None,
+            handedness_info={"left_hand": ("Right", 0.9)},        # 有署名…
+            hand_present={"left_hand": False, "right_hand": True})  # …但槽里没有手
+    rows = list(csv.DictReader(open(log.log_file, encoding="utf-8")))
+    assert rows, "一行都没写"
+    assert rows[-1]["hand_visible_left"] == "", \
+        f"手不在,却被写成可见:{rows[-1]['hand_visible_left']!r}"
+    # 反向的一半:有署名 + 手在 ⟹ 1(否则上面那条可以靠"永远写空"骗过去)
+    log.log(left_hand_result={"resilience_score": 1.0}, right_hand_result=None,
+            shoulder_result=None,
+            handedness_info={"left_hand": ("Right", 0.9)},
+            hand_present={"left_hand": True, "right_hand": False})
+    rows = list(csv.DictReader(open(log.log_file, encoding="utf-8")))
+    assert rows[-1]["hand_visible_left"] == "1", rows[-1]["hand_visible_left"]

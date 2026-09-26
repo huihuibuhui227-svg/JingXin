@@ -91,3 +91,61 @@ def test_load_hands_back_a_copy():
     a = l0.load()
     a["_schema"]["version"] = "TAMPERED"
     assert l0.load()["_schema"]["version"] != "TAMPERED", "load() 交出了本体,调用方能改坏它"
+
+
+def test_hand_visible_rows_match_the_logger_contract(tmp_path, monkeypatch):
+    """★ 裁定 F3 的钉子:表里**登记的东西**与**实现**逐条对得上。
+
+    为什么需要它:Task 3 登记 `hand_visible_left` / `hand_visible_right` 时这两行只是
+    `pending` —— 而 `schema_errors()` 不校验 pending 行的语义、钉子方向 2 也**只查
+    implemented 行**。⟹ 在翻状态之前,这两行**没有任何钉子**证明「表里写的」与
+    「代码做的」是同一件事;翻状态之后,方向 2 也只证明**列名存在**,证不了
+    `definition` 里那句「`1` ⟺ 有依据 **且** 手在」和「**永不写 `0`**」。
+
+    本测试把表里**可机检**的部分全部钉住:
+      ① 表里的列名 == 日志 `fieldnames` 里真有的列名(且在最末尾 —— acceptance ③);
+      ② `status` 已翻 `implemented`;
+      ③ `unit` 说的字母表 `{1, 空}`:实现只吐这两个值,**没有 `0`**;
+      ④ `definition` 说的合取:只有「知道是哪只手」**且**「手在」才写 `1`。
+
+    红法(逐条,都是生产改动):往 `fieldnames` 中间插一列(①)、把某行的 `status`
+    改回 `pending`(②)、把 `_hand_visible_cells` 的 `else ""` 改成 `else "0"`(③)、
+    或把它的 `known and present.get(slot)` 删掉一半(④)。
+    """
+    import gesture_analysis.utils.logger as glog
+
+    monkeypatch.setattr(glog, "LOGS_DIR", str(tmp_path / "logs"))
+
+    rows = {c["column"]: c for c in l0.columns()}
+    names = ["hand_visible_left", "hand_visible_right"]
+    for name in names:
+        assert name in rows, f"表里没有 {name} 这一行"
+        row = rows[name]
+        assert row["modality"] == "gesture", row["modality"]
+        assert row["status"] == "implemented", (
+            f"{name} 的 status 还是 {row['status']!r} —— 实现已落地,表里没跟着翻")
+        assert row["unit"] == "布尔(1 / 空)", row["unit"]
+
+    fieldnames = list(glog.GestureLogger(session_id="x").fieldnames)
+    for name in names:
+        assert name in fieldnames, f"表里登记了 {name},日志的 fieldnames 里却没有"
+    assert fieldnames[-len(names):] == names, (
+        f"新列不在列序末尾(acceptance ③)—— 末尾实为 {fieldnames[-4:]}")
+
+    # ④/③ —— 判据的合取关系与字母表(穷举 handedness_info × hand_present 的四种组合)
+    alphabet = set()
+    for entry in (None, ("Right", 0.9)):
+        for present in (True, False):
+            cells = glog.GestureLogger._hand_visible_cells(
+                {"left_hand": entry, "right_hand": entry},
+                {"left_hand": present, "right_hand": present})
+            assert set(cells) == set(names), sorted(cells)
+            alphabet |= set(cells.values())
+            expected = "1" if (entry is not None and present) else ""
+            assert cells["hand_visible_left"] == expected, (
+                f"有依据={entry is not None}、手在={present} 时写的是 "
+                f"{cells['hand_visible_left']!r},表里 definition 要求 {expected!r}")
+    assert alphabet <= {"1", ""}, (
+        f"表里 unit 写的是「布尔(1 / 空)」,实现却吐了 {sorted(alphabet)} "
+        f"—— `0` 的意思是「确定没有这只手」,与「没测到」不是一回事")
+

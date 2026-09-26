@@ -453,7 +453,15 @@ async def analyze_image(
                     emotion_result=emotion_result,
                     angles_data=angles_data,
                     handedness_info=handedness_info,
-                    world_results=world_results
+                    world_results=world_results,
+                    # 「本帧这一槽收到了手」的事实 —— 直接来自上面那个帧循环的
+                    # `used_slots`,不从 `*_hand_results` 反推:反推出来的只是它的
+                    # 代理,代理一旦被改坏,`hand_visible_*` 会**静默**开始把
+                    # 「不知道是哪只手」写成「这只手可见」。
+                    # `handedness_info` 只回答"知不知道是哪只手",两者是两个事实
+                    # (logger 侧按**合取**写:`1` 只在两者都成立时)。
+                    hand_present={slot: slot in used_slots
+                                  for slot in ("left_hand", "right_hand")}
                 )
             except Exception as log_err:
                 logger.warning("CSV日志写入失败: %s", log_err)

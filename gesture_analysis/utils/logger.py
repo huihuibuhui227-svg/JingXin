@@ -157,7 +157,17 @@ class GestureLogger:
             "left_arm_angle_world",
             "right_arm_angle_world",
             "left_shoulder_jitter_world",
-            "right_shoulder_jitter_world"
+            "right_shoulder_jitter_world",
+
+            # ── 本帧该侧有没有**已署名**的手(2026-09-26 加,Task 6)────────────
+            # `1` = 该侧槽**有手**且模型**给了 handedness**;**空** = 不知道。
+            # ⚠️ 「有手」与「知道是哪只手」是两件事:端点在没有 handedness 依据时会把一只
+            # **来路不明**的手塞进空槽(api/app.py 的兜底支路)—— 那时"有手"是真的、
+            # "那是左手"是假的。写 1 就是把不知道的事说成知道。
+            # ⚠️ **不写 0**:`0` 的意思是"确定没有这只手",与"没测到"不是一回事。
+            # 判据与 `_handedness_cells()` **同一套**(有无依据),不另起一套。
+            "hand_visible_left",
+            "hand_visible_right"
         ]
 
         # 写入文件头（仅一次）
@@ -202,6 +212,34 @@ class GestureLogger:
             cells[f"{slot}_model_label_conf"] = round(float(conf), 3) if conf != "" else ""
         return cells
 
+    @staticmethod
+    def _hand_visible_cells(handedness_info: Optional[Dict[str, Any]],
+                            hand_present: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """本帧该侧是不是有**已署名**的手 —— 交两个单元格(`hand_visible_left/right`)。
+
+        判据 = **两个条件的合取**,缺一就留空:
+          · `handedness_info[槽] is not None` —— **知道**这一槽是哪只手(依据);
+          · `hand_present[槽]` —— 这一槽**真的收到了手**(事实)。
+
+        ⚠️ 判据必须是 `handedness_info` 而不是"槽非空":端点的兜底分槽支路
+        (`api/app.py` 收到没带 handedness 的手时)会把那只手塞进空槽、并把
+        `handedness_info[槽]` 置 `None`。那时"有手"是真的、"那是左手"是假的 ——
+        只看"槽非空"就写 1,等于把不知道的事说成知道。
+
+        ⚠️ 没有依据时写 **空串**,**永不写 `0`**:`0` 的意思是"确定没有这只手",
+        与"不知道"是两回事(与 `_handedness_cells()` 同一套约定,不另起一套)。
+
+        `hand_present` 缺省(None)= **不知道**,⟹ 两格留空 —— 不拿"没传"当"没有",
+        也不拿它当"有"(见 `log()` 的入参说明)。
+        """
+        info = handedness_info or {}
+        present = hand_present or {}
+        cells: Dict[str, Any] = {}
+        for slot, side in (("left_hand", "left"), ("right_hand", "right")):
+            known = info.get(slot) is not None
+            cells[f"hand_visible_{side}"] = "1" if (known and present.get(slot)) else ""
+        return cells
+
     def _write_header(self) -> None:
         """写入 CSV 文件头（幂等操作）"""
         if not self.log_file.exists():
@@ -220,7 +258,8 @@ class GestureLogger:
         emotion_result: Optional[Dict[str, Any]] = None,
         angles_data: Optional[Dict[str, Any]] = None,
         handedness_info: Optional[Dict[str, Any]] = None,
-        world_results: Optional[Dict[str, Any]] = None
+        world_results: Optional[Dict[str, Any]] = None,
+        hand_present: Optional[Dict[str, Any]] = None
     ) -> bool:
         """
         记录分析结果到日志文件
@@ -234,6 +273,12 @@ class GestureLogger:
             upper_body_result: 上半身分析结果
             emotion_result: 情绪评估结果
             angles_data: 屏幕显示的所有角度数据
+            handedness_info: 每一槽的 `(模型原始标签, 置信度)`;`None`/缺 = 该槽**没有依据**
+            hand_present: 每一槽**是否真的收到了手**(键 `left_hand`/`right_hand`)。
+                ⚠️ 它由**端点**给出而不是从 `left_hand_result` 推 —— "槽里有手"是端点
+                帧循环里的事实(`used_slots`),而 `left_hand_result` 只是它的一个下游代理。
+                缺省 `None` = **不知道** ⟹ `hand_visible_*` 两格留空:
+                既不当成"没有手"(那是编一个 0),也不当成"有手"(那会把不知道说成知道)。
 
         返回:
             是否成功写入
@@ -265,6 +310,10 @@ class GestureLogger:
                 # world 米制版的抖动/角度:没算出来就**留空**(不补 0 —— 0 是个合法
                 # 抖动值,补 0 会把"没测到"说成"测到完全静止")。
                 **self._world_cells(world_results),
+
+                # 本帧该侧有没有**已署名**的手(见字段说明与 `_hand_visible_cells`)。
+                # 与 `_handedness_cells` 同一判据:没有依据 ⟹ 空,不写 0。
+                **self._hand_visible_cells(handedness_info, hand_present),
 
                 # 手指角度（屏幕显示）
                 "left_thumb_angle": self._safe_get_angle(angles_data, 'left_finger_angles', 'thumb'),
