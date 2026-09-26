@@ -58,7 +58,9 @@ def wired(tmp_path, monkeypatch):
     analyzers["emotion"] = _FakeEmotionAnalyzer()
     monkeypatch.setattr(gesture_app, "get_or_create_analyzers", lambda sid: analyzers)
     monkeypatch.setattr(gesture_app, "get_or_create_detectors", lambda sid: {
-        "hands": types.SimpleNamespace(detect=lambda img, ts: []),
+        # 手部按 handedness 分左右(2026-09-26):这个替身交"没有手",两个返回都为空
+        "hands": types.SimpleNamespace(detect_with_handedness=lambda img, ts: ([], []),
+                                       detect=lambda img, ts: []),
         "pose": types.SimpleNamespace(detect=lambda img, ts: []),
     })
     monkeypatch.setattr(gesture_app, "session_loggers", {})

@@ -300,13 +300,40 @@ async def analyze_image(
         media_retention.retain_frame(session_id, "gesture", contents,
                                      declared_ts=timestamp_ms, source="/analyze")
 
-        hand_groups = dets['hands'].detect(image_rgb, timestamp_ms)
+        hand_groups, handedness = dets['hands'].detect_with_handedness(image_rgb, timestamp_ms)
         detected_hands = 0
         hand_scores = []
+        # 左右手**按模型给的 handedness 定,不按检出顺序**。
+        # 2026-09-26 实测:在此之前是 `'left_hand' if hand_id == 0 else 'right_hand'`
+        # —— hand_id 是"第几个被检出",换个姿势左右就互换,而日志里那两列看着像
+        # 左右手。模型本来就算得出,只是没人读。
+        #
+        # ⚠️ 模型按**镜像(自拍)输入**判左右(官方文档原话:handedness 是
+        #    "determined assuming the input image is mirrored"),而本项目的帧是画布
+        #    原样绘制的**非镜像**图 ⟹ 标签要**翻过来**。原始标签与置信度都进日志
+        #    (见 utils/logger.py 的四列),所以这个翻法是可审计的。
+        handedness_info = {}
+        used_slots = set()
 
         for hand_id, landmarks in enumerate(hand_groups):
             if hand_id >= 2: break
-            analyzer_key = 'left_hand' if hand_id == 0 else 'right_hand'
+            entry = handedness[hand_id] if hand_id < len(handedness) else None
+            analyzer_key = None
+            if entry is not None:
+                label, conf = entry
+                side = 'right' if label == 'Left' else 'left'      # ← 翻转,理由见上
+                if f'{side}_hand' not in used_slots:
+                    analyzer_key = f'{side}_hand'
+                    handedness_info[analyzer_key] = (label, conf)
+            if analyzer_key is None:
+                # 模型没给 handedness(或它指的那一侧已被占):填还空着的槽,
+                # 并**如实标记这一槽没有依据** —— 不假装知道它是左手还是右手。
+                analyzer_key = next((c for c in ('left_hand', 'right_hand')
+                                     if c not in used_slots), None)
+                if analyzer_key is None:
+                    break
+                handedness_info[analyzer_key] = None
+            used_slots.add(analyzer_key)
             analyzers[analyzer_key].update(landmarks)
             hand_scores.append(analyzers[analyzer_key].get_results()['resilience_score'])
             detected_hands += 1
@@ -367,7 +394,8 @@ async def analyze_image(
                     shoulder_result=shoulder_results,
                     left_arm_result=left_arm_results,
                     right_arm_result=right_arm_results,
-                    emotion_result=emotion_result
+                    emotion_result=emotion_result,
+                    handedness_info=handedness_info
                 )
             except Exception as log_err:
                 logger.warning("CSV日志写入失败: %s", log_err)

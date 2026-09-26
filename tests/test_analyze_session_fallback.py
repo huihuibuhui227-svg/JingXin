@@ -168,8 +168,16 @@ class _FakeGestureDetector:
         type(self).frames.append(timestamp_ms)
         return [], {}
 
+    def detect_with_handedness(self, _image_rgb, timestamp_ms):
+        # 替身同时当手部探测器用:这一帧没有手,所以 handedness 也是空表
+        type(self).frames.append(timestamp_ms)
+        return [], []
+
     def detect(self, _image_rgb, timestamp_ms):
-        return self.detect_with_blendshapes(_image_rgb, timestamp_ms)[0]
+        # 姿态那一路走的是本方法(手部走 detect_with_handedness)——
+        # 两个探测器都必须收到同一个时间戳,所以两处都要记。
+        type(self).frames.append(timestamp_ms)
+        return []          # ⚠️ 只交 landmarks —— 交元组会让姿态分析器把它当成 2 个点
 
     def reset(self):
         pass

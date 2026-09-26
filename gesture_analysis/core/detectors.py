@@ -115,8 +115,11 @@ class _Base:
         """
         return getattr(result, self._result_attr) or []
 
-    def detect(self, image_rgb: np.ndarray, timestamp_ms: int):
-        """时间戳由调用方给。`_timestamp_ms()` 已删除(它按 `fps` 推算,错得和 face 一样)。"""
+    def _run(self, image_rgb: np.ndarray, timestamp_ms: int):
+        """跑一帧,把**原始结果对象**交出去(给需要额外输出头的子类用)。
+
+        时间戳由调用方给。`_timestamp_ms()` 已删除(它按 `fps` 推算,错得和 face 一样)。
+        """
         import mediapipe as mp
 
         if self._last_ts is not None and timestamp_ms < self._last_ts:
@@ -129,7 +132,10 @@ class _Base:
                          data=np.ascontiguousarray(image_rgb))
         result = self._landmarker.detect_for_video(image, int(timestamp_ms))
         self._frame_index += 1
-        return self._groups(result)
+        return result
+
+    def detect(self, image_rgb: np.ndarray, timestamp_ms: int):
+        return self._groups(self._run(image_rgb, timestamp_ms))
 
     def reset(self) -> None:
         """`/reset` 要调:帧计数与时间戳基线都归零(spec §6.4)。"""
@@ -159,6 +165,30 @@ class HandDetector(_Base):
         super().__init__(model_path, factory=factory, num_hands=num_hands,
                          min_detection_confidence=min_detection_confidence,
                          min_tracking_confidence=min_tracking_confidence)
+
+    def detect_with_handedness(self, image_rgb: np.ndarray, timestamp_ms: int):
+        """交出 `(分组, [(原始标签, 置信度), …])` —— 两个列表**下标一一对应**。
+
+        ⚠️ 模型给的左右手是**按镜像(自拍)输入**判的(官方文档原话:handedness 是
+        "determined assuming the input image is mirrored");本项目的帧是画布原样
+        绘制的**非镜像**图 ⟹ **调用方要把标签翻过来**。这里**不替调用方翻** ——
+        翻是应用层的事,封装交原始值,免得两处各翻一次等于没翻。
+        原始标签与置信度都记进日志(见 api/app.py),所以翻得对不对是可审计的。
+
+        置信度恒 ≥ 0.5(模型的自约):对侧就是 1 − 它。它对**遮挡/手背朝镜头**这类
+        歧义姿态会掉下来 —— 所以它值得落盘,好让 M3 丢掉左右手本来就不可信的那些帧。
+        """
+        result = self._run(image_rgb, timestamp_ms)
+        groups = self._groups(result)
+        per_hand = []
+        for entry in (getattr(result, "handedness", None) or []):
+            if entry:
+                per_hand.append((entry[0].category_name, float(entry[0].score)))
+            else:
+                per_hand.append(None)
+        while len(per_hand) < len(groups):
+            per_hand.append(None)
+        return groups, per_hand
 
 
 class PoseDetector(_Base):

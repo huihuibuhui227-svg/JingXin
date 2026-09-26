@@ -122,11 +122,38 @@ class GestureLogger:
             "emotion_state",
             "feedback",
             "used_features",
-            "is_valid"
+            "is_valid",
+
+            # ── 左右手**标签的来源**(2026-09-26 加)────────────────────────────
+            # 在此之前 `left_hand_*` / `right_hand_*` 是按**检出顺序**分的(第一只/
+            # 第二只),而模型明明给了 handedness。现在按 handedness 分,并把模型
+            # 的**原始标签与置信度**落盘 —— 好让"翻没翻对"是可审计的,而不是只能信代码。
+            # 空 = 那一槽的左右手**没有依据**(模型没给 handedness 时的兜底),
+            # 不是"标签是空字符串"。
+            "left_hand_model_label",
+            "left_hand_model_label_conf",
+            "right_hand_model_label",
+            "right_hand_model_label_conf"
         ]
 
         # 写入文件头（仅一次）
         self._write_header()
+
+    @staticmethod
+    def _handedness_cells(handedness_info: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """把 `handedness_info` 摊成四个单元格。
+
+        空字符串是**有意的**:它表示"这一槽的左右手没有依据",与"标签是空串"不是
+        一回事;补 0 或补 "Left" 都会把一个未知说成一个已知。
+        """
+        info = handedness_info or {}
+        cells: Dict[str, Any] = {}
+        for slot in ("left_hand", "right_hand"):
+            entry = info.get(slot)
+            label, conf = (entry if entry else ("", ""))
+            cells[f"{slot}_model_label"] = label or ""
+            cells[f"{slot}_model_label_conf"] = round(float(conf), 3) if conf != "" else ""
+        return cells
 
     def _write_header(self) -> None:
         """写入 CSV 文件头（幂等操作）"""
@@ -144,7 +171,8 @@ class GestureLogger:
         right_arm_result: Optional[Dict[str, Any]] = None,
         upper_body_result: Optional[Dict[str, Any]] = None,
         emotion_result: Optional[Dict[str, Any]] = None,
-        angles_data: Optional[Dict[str, Any]] = None
+        angles_data: Optional[Dict[str, Any]] = None,
+        handedness_info: Optional[Dict[str, Any]] = None
     ) -> bool:
         """
         记录分析结果到日志文件
@@ -181,6 +209,10 @@ class GestureLogger:
                 "right_hand_jitter": self._safe_get(right_hand_result, 'jitter', 0.0),
                 "right_hand_fist_status": int(self._safe_get(right_hand_result, 'fist_status', False)),
                 "right_hand_spread": self._safe_get(right_hand_result, 'spread', 0.0),
+
+                # 左右手标签的来源(见字段说明)。`handedness_info[槽]` 是
+                # `(模型原始标签, 置信度)`;None/缺 = 那一槽没有依据 ⟹ 留**空**。
+                **self._handedness_cells(handedness_info),
 
                 # 手指角度（屏幕显示）
                 "left_thumb_angle": self._safe_get_angle(angles_data, 'left_finger_angles', 'thumb'),
