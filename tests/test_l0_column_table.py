@@ -109,6 +109,41 @@ def test_blocked_rows_state_their_unblock_condition():
             f"读表的人无从知道它等的是什么(缺什么、怎么拿到):{c['acceptance'][:80]!r}")
 
 
+def test_count_prose_may_not_inline_the_numbers():
+    """★ 红法(两条,都是往 `count_reconciliation.note` 里写回一个数字):
+      ① 把逐模态的数内联回去(`"<模态名> <它的数>"` 这种形状);
+      ② 把派生合计内联回去(`实际为 N` / `合计 N` 这种措辞)。
+      实测:两条都红;把 `schema_errors()` 里那段散文检查删掉 ⟹ 两条都绿(即本测试红)。
+
+    为什么需要它(2026-09-26 Task 8 复核 Important 1):`note` 里内联着逐模态的四个数与
+    **一个派生合计**,而本任务把 face 那一项加一之后,那个合计**当场过期** ——
+    **是这次提交自己引入的**,而且**机器一条都不查它**(`schema_errors()` 只逐模态比
+    `actual` vs 行数)。这正是本任务与 Task 7 反复在收的「散文里的数静默过期」。
+    处置照 Task 5 对 `live_contract` 的处置:**数字只说一次**(放在结构化字段 `actual` 里),
+    散文只引用字段名 —— 并且**给这句规矩一颗钉子**(就是本测试)。
+
+    ⚠️ 边界(如实说):它钉的是**这两种形状**不许出现,不是"散文里绝不许有数字" ——
+    换一种写法(把数写成中文数字、或把语序倒过来)本测试抓不到。它拦的是**实际发生过的那一次**
+    与最容易复发的形状;真正结构性的保证是"数只在 `actual` 里说一次"。
+    """
+    doc = l0.load()
+    cr = doc["count_reconciliation"]
+    total = sum(cr["actual"].values())
+    modality, n = next(iter(cr["actual"].items()))
+    probes = [
+        (f"逐模态的数见上;{modality} {n} 行", "把逐模态的数内联回去了"),
+        (f"四个模态的 actual 见上。实际为 {total}", "把派生合计内联回去了"),
+    ]
+    for text, why in probes:
+        bad = l0.load()          # `load()` 交的是深拷贝 ⟹ 改坏它不会污染本体
+        bad["count_reconciliation"]["note"] = text
+        errs = l0.schema_errors(bad)
+        assert any("内联" in e for e in errs), (
+            f"{why},而 `schema_errors()` 没报 —— 这句散文就又能静默过期了:{errs}")
+    # 出厂表自己必须是干净的(否则上面两条"红"没有对照)
+    assert l0.schema_errors(l0.load()) == []
+
+
 def test_load_hands_back_a_copy():
     """★ 红法:把 `load()` 改成 `return _CACHE`(去掉 deepcopy)⟹ 本测试必须红。
 
@@ -239,17 +274,19 @@ def test_shoulder_width_row_matches_the_implementation():
       ⑦-3 删掉实现里那个 `except (TypeError, ValueError)`(坐标取不出来时不再交 `None`);
       ⑧ 给实现加一个 `visibility <= 0.6` 的门限(表里写着没有);
       ⑧-反向 把表里那句从「**没有可见度门限**」改成「**有可见度门限**」,或改成
-             「**没有**可见度门限」→「**有**可见度门限」(两种加粗写法都要红);
+             「**没有**可见度门限」→「**有**可见度门限」(两种加粗写法都要红),或
+             **在它之前插一段正确的**「⚠️ 本列没有可见度门限(见下)」**再改反真正那句**;
       ⑨ 把表里那个「**10** 个画面坐标 jitter 列」的数改错(改回 16 / 改成别的);
 
     ⚠️ ⑧ 的边界(如实说):它钉的是「表里写着没有门限、代码也不许有」。**加门限本身不是错**,
     错的是**偷偷加**(表里那句还写着"没有")。反过来,若有人把 definition 里那句删掉再加门限
     —— ⑤⑧ 里"可见度门限"那条子串断言会红,提醒两处要一起改。
 
-    ⚠️ ⑧-反向 的边界(如实说):它钉的是**判据那句**是否定式(= 含「可见度门限」那个 ⚠️ 段里、
+    ⚠️ ⑧-反向 的边界(如实说):它钉的是**判据那句**是否定式(= 含「可见度门限」的 ⚠️ 段里、
     破折号之前那一段),而**不**管破折号之后的对照句 —— 所以
     「本列没有可见度门限;同模块 `pose_angles` 那 5 个角度**有可见度门限**」这种**合法的对照句
     不会误红**。它是同一条判据的**极性**那一半,与 ⑤⑧ 合起来才是"表与代码逐条对上"。
+    ⚠️ **每一段**含「可见度门限」的 ⚠️ 段都要满足(只看第一段会被"前面插一段正确的话"绕过,实测过)。
 
     ⚠️ ⑨ 的边界(如实说):它钉的是「散文里的数 == 表里数出来的数」与「每个 jitter 行都有个
     明确归属」,**不**保证"10 这个集合语义上就该是这 10 条" —— 若有人把某条改错、又顺手把散文
@@ -398,17 +435,21 @@ def test_shoulder_width_row_matches_the_implementation():
     #         是一句真话,却会被判成"写反了"(2026-09-26 实测过这个形态)。
     #         ⟹ 判定**限定在判据那句本身**(= 含「可见度门限」那个 ⚠️ 段里、破折号
     #         之前那一段;破折号之后是对照与说明)。这与 ③ 的「判据区」是同一个手法。
+    #    ⚠️ 第四坑(2026-09-26 Task 8 复核实测):只看**第一段**会有洞 —— 在真正那句
+    #       **之前**插一段「⚠️ 本列没有可见度门限(见下) —— 重申一次。」并把真正那句改成
+    #       「**有**可见度门限」⟹ 只看 `gate_sections[0]` 时**绿**。所以**每一段**都要满足。
     gate_sections = [s for s in definition.split("⚠️") if "可见度门限" in s]
     assert gate_sections, (
         f"{name} 的 definition 里「可见度门限」不再出现在任何 ⚠️ 说明段里 —— "
         f"判据与禁令的写法被大改过,请人工读一遍:{definition[:80]!r}")
-    gate_claim = gate_sections[0].replace("*", "").split("——")[0]
-    assert "没有可见度门限" in gate_claim, (
-        f"{name} 的 definition 不再写「没有可见度门限」—— 本列**没有**门限这件事"
-        f"必须被正面写着:{gate_claim[:80]!r}")
-    assert "有可见度门限" not in gate_claim.replace("没有可见度门限", ""), (
-        f"{name} 的 definition 把那句判据**写反了**(出现了肯定式的「有可见度门限」)"
-        f"—— 而实现里没有门限:{gate_claim[:80]!r}")
+    for _i, _sec in enumerate(gate_sections):
+        gate_claim = _sec.replace("*", "").split("——")[0]
+        assert "没有可见度门限" in gate_claim, (
+            f"{name} 的 definition 第 {_i + 1} 段提到「可见度门限」,但它那句**不是否定式**"
+            f"(或那句「没有可见度门限」被写反/删掉了):{gate_claim[:80]!r}")
+        assert "有可见度门限" not in gate_claim.replace("没有可见度门限", ""), (
+            f"{name} 的 definition 第 {_i + 1} 段把那句判据**写反了**"
+            f"(出现了肯定式的「有可见度门限」)—— 而实现里没有门限:{gate_claim[:80]!r}")
     got2 = angles.shoulder_width(invisible)
     assert got2 is not None and abs(got2 - expected) < 1e-9, (
         f"两个 visibility=0.0 的肩就交不出距离了({got2!r})—— 而表里 definition 写着本列"

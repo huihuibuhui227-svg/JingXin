@@ -9,6 +9,7 @@
 """
 import copy
 import json
+import re
 from pathlib import Path
 
 TABLE_PATH = Path(__file__).resolve().parent / "l0_columns.json"
@@ -81,7 +82,8 @@ def schema_errors(doc: dict) -> list[str]:
     #   口径:按**行**数,不按活列数(裁定 F2 已把协变量列按产出它的服务计入,见 count_reconciliation.scope)。
     #   ⚠️ **两个方向都要查**:只遍历 `actual` 里已有的键时,「把整个模态键删掉 / 清空 actual」
     #   不报错(2026-09-26 复核实测)—— 那正是"忘了同步"的另一种形态,所以遍历两边的并集。
-    actual = (doc.get("count_reconciliation") or {}).get("actual") or {}
+    cr = doc.get("count_reconciliation") or {}
+    actual = cr.get("actual") or {}
     per_modality: dict = {}
     for row in doc.get("columns", []):
         key = row.get("modality")
@@ -95,4 +97,21 @@ def schema_errors(doc: dict) -> list[str]:
         if counted != actual[modality]:
             errs.append(f"count_reconciliation.actual.{modality}={actual[modality]} 与 columns 里该模态的行数 "
                         f"{counted} 不等 —— 加/删一行就要同步这四个数")
+    # ★ Task 8 复核 Important 1(2026-09-26):`count_reconciliation` 的**散文**里不许内联
+    #   逐模态的数、也不许内联它们的合计 —— 那些数**已经**在 `actual` 里,再写一遍就是
+    #   第二份要手工同步的副本。`note` 此前写着「face 22 / … ,实际为 85」,而 Task 8 把
+    #   face 那一项加一之后,那个合计**当场过期**(21+41+19+4=85 是对的,22+…=86 才对)。
+    #   处置照 Task 5 对 `live_contract` 的处置:数字**只说一次**(放在结构化字段里),
+    #   散文只引用字段名。
+    prose = {k: str(cr.get(k, "")) for k in ("note", "scope")}
+    for modality, n in actual.items():
+        for where, text in prose.items():
+            if f"{modality} {n}" in text:
+                errs.append(f"count_reconciliation.{where}: 内联了逐模态的数「{modality} {n}」"
+                            f"—— 它已经在 actual 里,散文再写一遍就是第二份要手工同步的副本")
+    for where, text in prose.items():
+        if re.search(r"(实际|合计|总数)\s*[为是]?\s*\d+", text):
+            errs.append(f"count_reconciliation.{where}: 内联了派生合计(「实际 / 合计 / 总数 … 数字」"
+                        f"这种措辞)—— 合计 = sum(actual.values()) = {sum(actual.values())},"
+                        f"不是一个要写在散文里的常数")
     return errs
