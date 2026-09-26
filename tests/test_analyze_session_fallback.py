@@ -173,6 +173,11 @@ class _FakeGestureDetector:
         type(self).frames.append(timestamp_ms)
         return [], []
 
+    def detect_with_world(self, _image_rgb, timestamp_ms):
+        # 姿态那条路现在要 world(米制)那一份;替身交"没有姿态"
+        type(self).frames.append(timestamp_ms)
+        return None, None
+
     def detect(self, _image_rgb, timestamp_ms):
         # 姿态那一路走的是本方法(手部走 detect_with_handedness)——
         # 两个探测器都必须收到同一个时间戳,所以两处都要记。

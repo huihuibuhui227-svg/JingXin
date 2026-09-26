@@ -65,14 +65,18 @@ def _wired(monkeypatch, tmp_path, groups, handedness):
     monkeypatch.setattr(gesture_app, "np", types.SimpleNamespace(
         frombuffer=lambda b, t: b, uint8="u8"))
     analyzers = {k: _RecordingAnalyzer() for k in
-                 ("left_hand", "right_hand", "shoulder", "left_arm", "right_arm")}
+                 ("left_hand", "right_hand", "shoulder", "left_arm", "right_arm",
+                  "upper_body")}
+    analyzers["world"] = {k: _RecordingAnalyzer() for k in
+                          ("shoulder", "left_arm", "right_arm")}
     analyzers["emotion"] = _FakeEmotionAnalyzer()
     monkeypatch.setattr(gesture_app, "get_or_create_analyzers", lambda sid: analyzers)
     monkeypatch.setattr(gesture_app, "get_or_create_detectors", lambda sid: {
         "hands": types.SimpleNamespace(
             detect_with_handedness=lambda img, ts: (groups, handedness),
             detect=lambda img, ts: groups),
-        "pose": types.SimpleNamespace(detect=lambda img, ts: []),
+        "pose": types.SimpleNamespace(detect=lambda img, ts: [],
+                                      detect_with_world=lambda img, ts: (None, None)),
     })
     loggers = {}
     monkeypatch.setattr(gesture_app, "session_loggers", loggers)

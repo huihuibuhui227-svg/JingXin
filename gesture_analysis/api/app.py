@@ -19,6 +19,8 @@ from gesture_analysis.core.analysis.hand_analyzer import HandAnalyzer
 from gesture_analysis.core.analysis.shoulder_analyzer import ShoulderAnalyzer
 from gesture_analysis.core.analysis.arm_analyzer import ArmAnalyzer
 from gesture_analysis.core.analysis.emotion_inferencer import EmotionInferencer
+from gesture_analysis.core.analysis.upper_body_analyzer import UpperBodyAnalyzer
+from gesture_analysis.core.feature_extraction.angles import finger_angles, pose_angles
 from gesture_analysis.utils.logger import GestureLogger, NONE_SESSION
 from gesture_analysis.config import API_CONFIG, MEDIAPIPE_CONFIG, LOGS_DIR
 # close() 实测恒 5.0s,所以回收/重置路径一律走这个后台 helper(I1)。**只 import 这一个
@@ -179,7 +181,18 @@ def get_or_create_analyzers(session_id: str):
             'shoulder': ShoulderAnalyzer(),
             'left_arm': ArmAnalyzer(arm_id='left'),
             'right_arm': ArmAnalyzer(arm_id='right'),
-            'emotion': EmotionInferencer()
+            # 2026-09-26:上半身分析器此前**只活在 examples/ 里**,活服务从没建过它
+            # ⟹ head_*/torso_* 六列结构性恒 0(实测该场 275 帧全是 0)。
+            'upper_body': UpperBodyAnalyzer(),
+            'emotion': EmotionInferencer(),
+            # 同一套分析器再喂一份 **world(米制 3D)** 坐标:公式不变、输入空间变。
+            # 那批量的"取景代理/未除尺度"来自画面坐标,这份与取景无关,且能与上面
+            # 直接对照(M3 决定用哪一份时有据可依)。
+            'world': {
+                'shoulder': ShoulderAnalyzer(),
+                'left_arm': ArmAnalyzer(arm_id='left'),
+                'right_arm': ArmAnalyzer(arm_id='right'),
+            },
         }
         session_analyzers[session_id] = (analyzers, current_time)
         # 同一会话的所有帧写入同一个文件，文件名带会话 id（报告侧按它归堆、NONE 单独一桶）
@@ -314,6 +327,7 @@ async def analyze_image(
         #    (见 utils/logger.py 的四列),所以这个翻法是可审计的。
         handedness_info = {}
         used_slots = set()
+        hand_lm_by_slot = {}          # 本帧每一槽收到的 hand landmarks
 
         for hand_id, landmarks in enumerate(hand_groups):
             if hand_id >= 2: break
@@ -334,26 +348,60 @@ async def analyze_image(
                     break
                 handedness_info[analyzer_key] = None
             used_slots.add(analyzer_key)
+            hand_lm_by_slot[analyzer_key] = landmarks     # 手指角度要用(下面)
             analyzers[analyzer_key].update(landmarks)
             hand_scores.append(analyzers[analyzer_key].get_results()['resilience_score'])
             detected_hands += 1
 
-        pose_landmarks = dets['pose'].detect(image_rgb, timestamp_ms)
+        # 一并取回 **world(米制 3D)** 那份:PoseLandmarker 本来就输出,
+        # 本仓此前只读归一化那份(`grep world_landmarks` 零命中)。
+        pose_landmarks, pose_world = dets['pose'].detect_with_world(image_rgb, timestamp_ms)
+        # 这两个 50.0 只喂**情绪推断**的输入(下面 hand_results/shoulder_results/…),
+        # **不进日志**:日志那几列按"本帧有没有数据"写空(见 _fresh 与 _safe_get)。
         shoulder_score = 50.0
+        left_arm_score = 50.0
+        right_arm_score = 50.0
+        angles_data = {}
+        world_results = {}
 
         if pose_landmarks:
             analyzers['shoulder'].update(pose_landmarks)
-            shoulder_score = analyzers['shoulder'].get_results()['shoulder_score']
-
-        left_arm_score = 50.0
-        right_arm_score = 50.0
-        if pose_landmarks:
             analyzers['left_arm'].update(pose_landmarks)
             analyzers['right_arm'].update(pose_landmarks)
+            analyzers['upper_body'].update(pose_landmarks)      # ← 此前活服务从没喂过它
+            shoulder_score = analyzers['shoulder'].get_results()['shoulder_score']
             left_arm_result = analyzers['left_arm'].get_results()
             right_arm_result = analyzers['right_arm'].get_results()
             left_arm_score = left_arm_result.get('arm_score', 50.0) if left_arm_result.get('is_valid') else 50.0
             right_arm_score = right_arm_result.get('arm_score', 50.0) if right_arm_result.get('is_valid') else 50.0
+            # 姿态角度(肘/肩/头倾/头俯仰/肩线/躯干) —— 定义照 examples 移植,见 angles.py
+            angles_data.update(pose_angles(pose_landmarks))
+
+        if pose_world:
+            # 同一套公式喂米制坐标。**两个分析器集各自独立**,不然状态会串。
+            w = analyzers['world']
+            w['shoulder'].update(pose_world)
+            w['left_arm'].update(pose_world)
+            w['right_arm'].update(pose_world)
+            wl, wr = w['left_arm'].get_results(), w['right_arm'].get_results()
+            ws = w['shoulder'].get_results()
+            # 名字与 logger._WORLD_COLUMNS **逐字一致**(两处不同名 = 静默的零值)
+            world_results = {
+                'left_wrist_jitter_world': wl.get('wrist_jitter'),
+                'left_elbow_jitter_world': wl.get('elbow_jitter'),
+                'right_wrist_jitter_world': wr.get('wrist_jitter'),
+                'right_elbow_jitter_world': wr.get('elbow_jitter'),
+                'left_arm_angle_world': wl.get('arm_angle'),
+                'right_arm_angle_world': wr.get('arm_angle'),
+                'left_shoulder_jitter_world': ws.get('left_jitter'),
+                'right_shoulder_jitter_world': ws.get('right_jitter'),
+            }
+
+        # 手指角度:每指取三个关节(定义与 examples 一致)
+        for _slot, _lms in hand_lm_by_slot.items():
+            _fa = finger_angles(_lms)
+            if _fa:
+                angles_data[f"{_slot.replace('_hand', '')}_finger_angles"] = _fa
 
         # 计算手部平均分
         if detected_hands == 1:
@@ -377,12 +425,19 @@ async def analyze_image(
 
         logger.info(f"分析完成: {emotion_result['emotion_state']} (评分: {emotion_result['overall_score']:.1f})")
 
-        # 获取详细的分析器结果
-        left_hand_results = analyzers['left_hand'].get_results()
-        right_hand_results = analyzers['right_hand'].get_results()
-        shoulder_results = analyzers['shoulder'].get_results()
-        left_arm_results = analyzers['left_arm'].get_results()
-        right_arm_results = analyzers['right_arm'].get_results()
+        # 获取详细的分析器结果。
+        # ⚠️ **本帧没喂过的槽交 None** —— 交对象等于把**上一帧的旧值**写进这一行
+        #    (分析器保留上次结果),而"上一帧的度量"顶替"这一帧的度量"是不留痕迹的错;
+        #    交 0/50 则是把"没测到"写成"测到一个值"。两种都不要,空就是空。
+        def _fresh(key: str, fed: bool):
+            return analyzers[key].get_results() if fed else None
+
+        left_hand_results = _fresh('left_hand', 'left_hand' in used_slots)
+        right_hand_results = _fresh('right_hand', 'right_hand' in used_slots)
+        shoulder_results = _fresh('shoulder', bool(pose_landmarks))
+        left_arm_results = _fresh('left_arm', bool(pose_landmarks))
+        right_arm_results = _fresh('right_arm', bool(pose_landmarks))
+        upper_body_results = _fresh('upper_body', bool(pose_landmarks))
 
         # 将帧数据写入 CSV 日志（供 report_frontend 批量读取）
         if session_id in session_loggers:
@@ -394,11 +449,23 @@ async def analyze_image(
                     shoulder_result=shoulder_results,
                     left_arm_result=left_arm_results,
                     right_arm_result=right_arm_results,
+                    upper_body_result=upper_body_results,
                     emotion_result=emotion_result,
-                    handedness_info=handedness_info
+                    angles_data=angles_data,
+                    handedness_info=handedness_info,
+                    world_results=world_results
                 )
             except Exception as log_err:
                 logger.warning("CSV日志写入失败: %s", log_err)
+
+        # 响应里取值:**本帧没有数据(None)就交 null**,不补默认值。
+        # 补 default(50.0/0.0)等于把"没测到"在响应层就变成一个看着合法的数,
+        # 下游再也分不出真假;而面板是按 `is_valid` 判有没有数据的,null 不会被动用。
+        def _g(res, key, default=None):
+            return None if res is None else res.get(key, default)
+        def _v(res, key, default=False):
+            # 标志位例外:没数据就是 False(不是 null)—— 下游 `if x["is_valid"]` 要能直接判
+            return default if res is None else res.get(key, default)
 
         # 返回完整结果
         return {
@@ -411,47 +478,47 @@ async def analyze_image(
                 # 手部详细分析
                 "hand": {
                     "left": {
-                        "resilience_score": left_hand_results.get('resilience_score', 50.0),
-                        "jitter": left_hand_results.get('jitter', 0.0),
-                        "fist_status": left_hand_results.get('fist_status', False),
-                        "spread": left_hand_results.get('spread', 0.0),
-                        "is_valid": left_hand_results.get('is_valid', False)
+                        "resilience_score": _g(left_hand_results, 'resilience_score', 50.0),
+                        "jitter": _g(left_hand_results, 'jitter', 0.0),
+                        "fist_status": _g(left_hand_results, 'fist_status', False),
+                        "spread": _g(left_hand_results, 'spread', 0.0),
+                        "is_valid": _v(left_hand_results, 'is_valid', False)
                     },
                     "right": {
-                        "resilience_score": right_hand_results.get('resilience_score', 50.0),
-                        "jitter": right_hand_results.get('jitter', 0.0),
-                        "fist_status": right_hand_results.get('fist_status', False),
-                        "spread": right_hand_results.get('spread', 0.0),
-                        "is_valid": right_hand_results.get('is_valid', False)
+                        "resilience_score": _g(right_hand_results, 'resilience_score', 50.0),
+                        "jitter": _g(right_hand_results, 'jitter', 0.0),
+                        "fist_status": _g(right_hand_results, 'fist_status', False),
+                        "spread": _g(right_hand_results, 'spread', 0.0),
+                        "is_valid": _v(right_hand_results, 'is_valid', False)
                     },
                     "average_score": hand_score
                 },
 
                 # 肩部详细分析
                 "shoulder": {
-                    "shoulder_score": shoulder_results.get('shoulder_score', 50.0),
-                    "left_jitter": shoulder_results.get('left_jitter', 0.0),
-                    "right_jitter": shoulder_results.get('right_jitter', 0.0),
-                    "shrug_level": shoulder_results.get('shrug_level', 0.0),
-                    "is_calibrated": shoulder_results.get('is_calibrated', False),
-                    "is_valid": shoulder_results.get('is_valid', False)
+                    "shoulder_score": _g(shoulder_results, 'shoulder_score', 50.0),
+                    "left_jitter": _g(shoulder_results, 'left_jitter', 0.0),
+                    "right_jitter": _g(shoulder_results, 'right_jitter', 0.0),
+                    "shrug_level": _g(shoulder_results, 'shrug_level', 0.0),
+                    "is_calibrated": _g(shoulder_results, 'is_calibrated', False),
+                    "is_valid": _v(shoulder_results, 'is_valid', False)
                 },
 
                 # 手臂详细分析
                 "arm": {
                     "left": {
-                        "arm_score": left_arm_results.get('arm_score', 50.0),
-                        "wrist_jitter": left_arm_results.get('wrist_jitter', 0.0),
-                        "elbow_jitter": left_arm_results.get('elbow_jitter', 0.0),
-                        "arm_angle": left_arm_results.get('arm_angle', 0.0),
-                        "is_valid": left_arm_results.get('is_valid', False)
+                        "arm_score": _g(left_arm_results, 'arm_score', 50.0),
+                        "wrist_jitter": _g(left_arm_results, 'wrist_jitter', 0.0),
+                        "elbow_jitter": _g(left_arm_results, 'elbow_jitter', 0.0),
+                        "arm_angle": _g(left_arm_results, 'arm_angle', 0.0),
+                        "is_valid": _v(left_arm_results, 'is_valid', False)
                     },
                     "right": {
-                        "arm_score": right_arm_results.get('arm_score', 50.0),
-                        "wrist_jitter": right_arm_results.get('wrist_jitter', 0.0),
-                        "elbow_jitter": right_arm_results.get('elbow_jitter', 0.0),
-                        "arm_angle": right_arm_results.get('arm_angle', 0.0),
-                        "is_valid": right_arm_results.get('is_valid', False)
+                        "arm_score": _g(right_arm_results, 'arm_score', 50.0),
+                        "wrist_jitter": _g(right_arm_results, 'wrist_jitter', 0.0),
+                        "elbow_jitter": _g(right_arm_results, 'elbow_jitter', 0.0),
+                        "arm_angle": _g(right_arm_results, 'arm_angle', 0.0),
+                        "is_valid": _v(right_arm_results, 'is_valid', False)
                     }
                 },
 

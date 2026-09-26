@@ -6,6 +6,7 @@
 """
 
 import csv
+import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,6 +14,15 @@ from typing import Optional, Dict, Any
 from ..config import LOGS_DIR, LOG_CONFIG
 
 NONE_SESSION = "NONE"          # 无 id 时的显式占位,与另两个 logger 及 asr/session.py 同值(测试守住)
+
+
+def _is_num(v) -> bool:
+    """能不能当有限浮点数用(用于 world 列:能就统一保留 4 位小数)。"""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return False
+    return f == f and abs(f) != float("inf")
 
 
 class GestureLogger:
@@ -133,11 +143,48 @@ class GestureLogger:
             "left_hand_model_label",
             "left_hand_model_label_conf",
             "right_hand_model_label",
-            "right_hand_model_label_conf"
+            "right_hand_model_label_conf",
+
+            # ── world 米制坐标算出来的抖动/角度(2026-09-26 加)────────────────
+            # "取景代理""未除尺度"这些封停理由的根,是上面那些量都在**归一化画面
+            # 坐标**上算。这八列用模型的 `pose_world_landmarks`(米制 3D)算**同一套
+            # 公式**,所以能与上面那些直接对照,而且与取景无关。
+            # 旧列一个不动 —— 换定义会静默改掉报告里所有阈值的含义。
+            "left_wrist_jitter_world",
+            "left_elbow_jitter_world",
+            "right_wrist_jitter_world",
+            "right_elbow_jitter_world",
+            "left_arm_angle_world",
+            "right_arm_angle_world",
+            "left_shoulder_jitter_world",
+            "right_shoulder_jitter_world"
         ]
 
         # 写入文件头（仅一次）
         self._write_header()
+
+    # 与 fieldnames 里那八列**同名**:一处声明、一处取值,调用方按列名给
+    # (2026-09-26 实测过的坑:上游产出名与下游列名不一致 = 静默的零值)。
+    _WORLD_COLUMNS = (
+        "left_wrist_jitter_world", "left_elbow_jitter_world",
+        "right_wrist_jitter_world", "right_elbow_jitter_world",
+        "left_arm_angle_world", "right_arm_angle_world",
+        "left_shoulder_jitter_world", "right_shoulder_jitter_world",
+    )
+
+    @classmethod
+    def _world_cells(cls, world_results: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        src = world_results or {}
+        unknown = sorted(set(src) - set(cls._WORLD_COLUMNS))
+        if unknown:
+            # 静默丢列正是本项目反复栽的坑 —— 名对不上就先喊出来
+            logging.getLogger(__name__).warning(
+                "world_results 里有 %d 个名字不在列里,它们不会进日志:%s", len(unknown), unknown)
+        out: Dict[str, Any] = {}
+        for col in cls._WORLD_COLUMNS:
+            v = src.get(col)
+            out[col] = "" if v is None else (round(float(v), 4) if _is_num(v) else v)
+        return out
 
     @staticmethod
     def _handedness_cells(handedness_info: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -172,7 +219,8 @@ class GestureLogger:
         upper_body_result: Optional[Dict[str, Any]] = None,
         emotion_result: Optional[Dict[str, Any]] = None,
         angles_data: Optional[Dict[str, Any]] = None,
-        handedness_info: Optional[Dict[str, Any]] = None
+        handedness_info: Optional[Dict[str, Any]] = None,
+        world_results: Optional[Dict[str, Any]] = None
     ) -> bool:
         """
         记录分析结果到日志文件
@@ -203,16 +251,20 @@ class GestureLogger:
                 # 手部特征
                 "left_hand_score": self._safe_get(left_hand_result, 'resilience_score', 0.0),
                 "left_hand_jitter": self._safe_get(left_hand_result, 'jitter', 0.0),
-                "left_hand_fist_status": int(self._safe_get(left_hand_result, 'fist_status', False)),
+                "left_hand_fist_status": self._safe_int(left_hand_result, 'fist_status', False),
                 "left_hand_spread": self._safe_get(left_hand_result, 'spread', 0.0),
                 "right_hand_score": self._safe_get(right_hand_result, 'resilience_score', 0.0),
                 "right_hand_jitter": self._safe_get(right_hand_result, 'jitter', 0.0),
-                "right_hand_fist_status": int(self._safe_get(right_hand_result, 'fist_status', False)),
+                "right_hand_fist_status": self._safe_int(right_hand_result, 'fist_status', False),
                 "right_hand_spread": self._safe_get(right_hand_result, 'spread', 0.0),
 
                 # 左右手标签的来源(见字段说明)。`handedness_info[槽]` 是
                 # `(模型原始标签, 置信度)`;None/缺 = 那一槽没有依据 ⟹ 留**空**。
                 **self._handedness_cells(handedness_info),
+
+                # world 米制版的抖动/角度:没算出来就**留空**(不补 0 —— 0 是个合法
+                # 抖动值,补 0 会把"没测到"说成"测到完全静止")。
+                **self._world_cells(world_results),
 
                 # 手指角度（屏幕显示）
                 "left_thumb_angle": self._safe_get_angle(angles_data, 'left_finger_angles', 'thumb'),
@@ -231,7 +283,7 @@ class GestureLogger:
                 "left_shoulder_jitter": self._safe_get(shoulder_result, 'left_jitter', 0.0),
                 "right_shoulder_jitter": self._safe_get(shoulder_result, 'right_jitter', 0.0),
                 "shrug_level": self._safe_get(shoulder_result, 'shrug_level', 0.0),
-                "is_calibrated": int(self._safe_get(shoulder_result, 'is_calibrated', False)),
+                "is_calibrated": self._safe_int(shoulder_result, 'is_calibrated', False),
 
                 # 手臂特征
                 "left_arm_score": self._safe_get(left_arm_result, 'arm_score', 0.0),
@@ -286,11 +338,32 @@ class GestureLogger:
             print(f"❌ 日志记录失败: {str(e)}")
             return False
 
-    def _safe_get(self, obj: Optional[Dict], key: str, default):
-        """安全获取字典值，避免 KeyError 或 AttributeError"""
+    @staticmethod
+    def _safe_get(obj: Optional[Dict], key: str, default):
+        """安全获取字典值。
+
+        ⚠️ **`obj is None` ⟹ 返回空字符串,不是 default**(2026-09-26 改)。
+        `None` 在这里的意思是"本帧这一路没有数据"(端点对没喂过的分析器交 None):
+        补 `default`(0.0/50.0)会把"没测到"写成一个看着合法的测量值;
+        交 `default` 之前的老行为还有第二层错 —— 交的是**上一帧的旧值**
+        (分析器保留上次结果),而"上一帧的度量"顶替"这一帧的度量"不留痕迹。
+        """
+        if obj is None:
+            return ""
         if not isinstance(obj, dict):
             return default
         return obj.get(key, default)
+
+    @staticmethod
+    def _safe_int(obj: Optional[Dict], key: str, default):
+        """`_safe_get` 的整数版:空 ⟹ 空(端点是 None 时不能 `int("")`)。"""
+        v = GestureLogger._safe_get(obj, key, default)
+        if v == "":
+            return ""
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return int(default)
 
     def _safe_get_angle(self, angles_data: Optional[Dict], finger_angles_key: str, finger_name: str):
         """安全获取手指角度数据"""

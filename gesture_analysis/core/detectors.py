@@ -211,6 +211,22 @@ class PoseDetector(_Base):
         groups = super().detect(image_rgb, timestamp_ms)
         return groups[0] if groups else None
 
+    def detect_with_world(self, image_rgb: np.ndarray, timestamp_ms: int):
+        """交出 `(landmarks, world_landmarks)` —— 两个都是 33 点的列表或 None。
+
+        `world_landmarks` 是**米制、以髋为原点**的 3D 坐标(模型本来就输出,
+        而本仓此前只取归一化的那一份 —— `grep world_landmarks` 零命中)。
+
+        为什么要它:本项目所有角度与抖动都是在**归一化画面坐标**上算的
+        (`landmarks[i].x/.y`),于是"坐得离镜头远近、身体偏向画面哪一侧"都会进到
+        数值里 —— 报告层封停那几条时写的"取景代理""未除尺度"就是这个根。
+        用 world 算出的角度与抖动**与取景无关**,是那批量的无尺度版本。
+        """
+        result = self._run(image_rgb, timestamp_ms)
+        groups = self._groups(result)
+        world = getattr(result, "pose_world_landmarks", None) or []
+        return (groups[0] if groups else None), (world[0] if world else None)
+
 
 def verify_models(hand_path: Path | None = None, pose_path: Path | None = None,
                   factory: Callable | None = None) -> None:
