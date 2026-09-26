@@ -212,7 +212,9 @@ _SCALE_CASES = [
     ("connective_density", ("scale_factors", "density", "full_scale"), 1.0, 0.05, 0.05),
     ("jitter", ("scale_factors", "jitter", "full_scale"), 0.4, 0.1, 0.25),
     ("gaze_deviation", ("scale_factors", "deviation", "full_scale"), 0.4, 0.1, 0.25),
-    ("text_avg_length", ("scale_factors", "length", "full_scale"), 60.0, 30.0, 0.5),
+    # 2026-09-26:关键词随语音日志的列名改成 `n_chars`(先前是 text_avg_length),
+    # 量程表的键跟着改 —— 键与关键词必须同名,否则这条登记静默失效。
+    ("n_chars", ("scale_factors", "n_chars", "full_scale"), 60.0, 30.0, 0.5),
     ("energy", ("scale_factors", "energy", "full_scale"), 0.002, 0.001, 0.5),
     ("pitch_variation", ("scale_factors", "pitch_variation", "full_scale"), 40.0, 20.0, 0.5),
     ("fluency_score", ("scale_factors", "score", "percent_divisor"), 50.0, 20.0, 0.4),

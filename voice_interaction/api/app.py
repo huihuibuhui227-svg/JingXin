@@ -32,7 +32,7 @@ from voice_interaction.config import API_CONFIG, FFMPEG_PATH
 from voice_interaction.utils.logger import VoiceLogger
 from voice_interaction.asr import session as session_mod, transcript_store
 from voice_interaction.asr.connective_density import connective_density
-from voice_interaction.asr.funasr_engine import load_config
+from voice_interaction.asr.funasr_engine import count_cjk_chars, load_config
 from voice_interaction.asr.transcript_store import (normalize_session_id,
                                                     validate_session_id)
 # 转写缝:引擎只由 asr/transcribe.py 持有,这里按名字取那一层转发(不直接摸引擎)。
@@ -543,6 +543,16 @@ async def submit_answer_audio(request: Request, audio: UploadFile = File(...),
         # 语调特征:拿**这段 PCM 的真值**,不再传空字典(§0.1 第 1 件)。
         # 放在文本闸**之后** —— 识别不出文字的请求上面已经 400 了,不必白算一次 pyin。
         prosody = await _prosody_async(audio_data)
+        # ★ 回答长度与语速(2026-09-26)。字数用**与连接词密度同一个**计数器
+        #   (`count_cjk_chars`),免得同一个"字数"在两处口径不同(§4.10)。
+        #   `n_chars` 是报告里「回答详尽度」的产出方 —— 那个槽此前**全系统没有生产者**。
+        _n_chars = count_cjk_chars(text)
+        _speech_sec = prosody.get("speech_duration_sec") or 0.0
+        prosody["n_chars"] = _n_chars
+        # 语速 = 字数 ÷ **有声**秒(不是整段时长):用整段会把静音算成说得慢。
+        # 有声秒为 0(整段没检测到语音)⟹ 空,不编一个 0。
+        prosody["chars_per_sec"] = (round(_n_chars / _speech_sec, 2)
+                                    if _speech_sec > 0 else None)
         voice_logger.log_prosody(
             prosody, question_index=question_index, emotion="", feedback="",
             # 整句算一次:一个样本参与,n_rows=1;单个值的标准差按定义为 0.0
@@ -799,6 +809,13 @@ async def submit_research_answer_audio(request: Request, audio: UploadFile = Fil
         research_logger.session_id = sid     # 首列随会话(文件名在 /research/start 里定)
         # 与面试侧同一条:真值替掉空字典(§0.1 第 1 件,两处都接)。
         prosody = await _prosody_async(audio_data)
+        # 回答长度与语速 —— 与面试侧**逐字同一条算法**(两个端点是对称的,只改一边
+        # 会让科研会话的「回答详尽度」永远没有产出方,第 19 条的教训)。
+        _n_chars = count_cjk_chars(text)
+        _speech_sec = prosody.get("speech_duration_sec") or 0.0
+        prosody["n_chars"] = _n_chars
+        prosody["chars_per_sec"] = (round(_n_chars / _speech_sec, 2)
+                                    if _speech_sec > 0 else None)
         research_logger.log_prosody(
             prosody, question_index=question_index, emotion="", feedback="",
             connective_density=density, connective_density_std=0.0, n_rows=1)

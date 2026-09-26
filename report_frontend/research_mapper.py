@@ -20,7 +20,8 @@ warnings.filterwarnings('ignore')
 # "缺数据"——读者会去调摄像头,而调了也没用。槽位本身的去留要动分母与置信度,
 # 是评分语义、等使用者裁定;在裁定之前,至少不许说假话。
 NO_PRODUCER: Dict[str, str] = {
-    "text_avg_length": "回答长度无产出方(原句只在仓库外,报告层拿不到)",
+    # 2026-09-26:「回答详尽度」**已不在此列** —— 语音端点现在真的在写 `n_chars`
+    # (字数,与连接词密度同一个计数器)。它的关键词也跟着改成了那个列名。
     "reaction_time": "尚未接线(需提问窗口 + 首次开口时刻,二者现已落盘但未接)",
 }
 
@@ -145,7 +146,11 @@ class ResearchCapabilityMapper:
                 "indicators": [
                     ("au7_freq", 0.3, False, "眼部挤压 (费力)", "core"),
                     ("blink_rate", 0.2, True, "眨眼频率", "support"),
-                    ("text_avg_length", 0.2, True, "回答详尽度", "support"),
+                    # 关键词 = **语音日志的列名**(2026-09-26 接线:那个列是新加的,
+                    # 在此之前这个槽全系统没有产出方,报告只能写"尚无产出方")。
+                    # 名字必须与 `voice_interaction/utils/logger.py` 的列逐字一致 ——
+                    # 上游产出名与下游消费名对不上就是静默的空值(§4.10)。
+                    ("n_chars", 0.2, True, "回答详尽度", "support"),
                     ("reaction_time", 0.3, False, "反应延迟", "core"),
                 ]
             }

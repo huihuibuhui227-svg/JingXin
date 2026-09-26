@@ -61,11 +61,41 @@ def test_indicator_without_a_producer_says_so():
     (`_fuzzy_match` 空手而归)⟹ 原先只会得到那句「未采集到对应数据」。
     """
     gaps = _gaps("cognitive_efficiency", _empty_face_feats())
-    for name in ("回答详尽度", "反应延迟"):
-        mine = [g for g in gaps if g.startswith(name)]
-        assert mine, f"{name} 不在缺口里:{gaps}"
-        assert "尚无产出方" in mine[0], f"{name} 没点名缺产出方:{mine[0]}"
-        assert "未采集到对应数据" not in mine[0], f"{name} 仍是那句假话:{mine[0]}"
+    mine = [g for g in gaps if g.startswith("反应延迟")]
+    assert mine, f"反应延迟 不在缺口里:{gaps}"
+    assert "尚无产出方" in mine[0], f"反应延迟 没点名缺产出方:{mine[0]}"
+    assert "未采集到对应数据" not in mine[0], f"反应延迟 仍是那句假话:{mine[0]}"
+
+    # ⚠️ 「回答详尽度」**已不在此列**(2026-09-26):语音端点现在真的写 `n_chars`。
+    #    它没有数据时该说的是"这次没采到"(真话),不再是"没有产出方"。
+    mine = [g for g in gaps if g.startswith("回答详尽度")]
+    assert mine and "尚无产出方" not in mine[0], \
+        f"回答详尽度 已经有产出方了,不该再说缺产出方:{mine}"
+
+
+def test_answer_length_slot_is_reachable_now():
+    """★ 接线之后,「回答详尽度」要能**真的过门** —— 不是只改了个说法。
+
+    红法:把映射关键词改回 `text_avg_length`(而日志列叫 `n_chars`)⟹ 查不到,
+    这个槽退回到"没有产出方"。这正是 §4.10 那条:上游产出名与下游消费名必须同名。
+    """
+    feats = {"voice_interview": {"n_chars_mean": 24.0, "n_chars_std": 6.0,
+                                 "n_chars_sample_size": 12.0, "_n_rows": 12.0}}
+    dim = ResearchCapabilityMapper().map_features_to_scores(feats)["dimensions"]["cognitive_efficiency"]
+    names = [ev.get("human_name") for ev in dim["evidence_chain"]]
+    assert "回答详尽度" in names, f"该槽仍进不了证据链:{dim['evidence_gaps']}"
+    ev = next(e for e in dim["evidence_chain"] if e["human_name"] == "回答详尽度")
+    assert ev["raw_value"] == 24.0 and ev["n_valid"] == 12
+
+
+def test_length_scale_entry_follows_the_column_name():
+    """量程表的键必须跟着列名走 —— 否则 30 字满量程那条登记**静默失效**、回落到默认 10。
+
+    红法:把 `scale_factors` 里的键改回 `length` ⟹ 下面取到的是 `_default_scale_factor`。
+    """
+    from report_frontend.evidence_gate import scale_factor_for
+    sf = scale_factor_for("voice_interview_n_chars_mean")
+    assert sf["full_scale"] == 30.0, f"没命中原登记,取到的是兜底:{sf}"
 
 
 def _face_df(**extra) -> pd.DataFrame:

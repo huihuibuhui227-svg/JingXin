@@ -76,11 +76,17 @@ class ProsodyFeatureExtractor:
             pitch_trend = 0.0
             pitch_direction = "无法判断"
 
+        # 分位数:与 mean/std 不同,它们**不受极端帧拖拽**,而且是"会话内归一"的原料
+        # (报告的 energy/pitch 封停理由之一就是"跨会话不可比,需会话内归一")。
+        p10 = float(np.percentile(f0_voiced, 10)) if len(f0_voiced) else 0.0
+        p90 = float(np.percentile(f0_voiced, 90)) if len(f0_voiced) else 0.0
         return {
             "pitch_mean": round(pitch_mean, 2),
             "pitch_std": round(pitch_std, 2),
             "pitch_trend": round(pitch_trend, 2),
-            "pitch_direction": pitch_direction
+            "pitch_direction": pitch_direction,
+            "pitch_p10": round(p10, 2),
+            "pitch_p90": round(p90, 2)
         }
 
     def extract_energy_features(self, audio: np.ndarray) -> Dict[str, Any]:
@@ -103,9 +109,13 @@ class ProsodyFeatureExtractor:
         energy_mean = float(np.mean(rms))
         energy_std = float(np.std(rms))
 
+        e10 = float(np.percentile(rms, 10))
+        e90 = float(np.percentile(rms, 90))
         return {
             "energy_mean": round(energy_mean, 4),
-            "energy_std": round(energy_std, 4)
+            "energy_std": round(energy_std, 4),
+            "energy_p10": round(e10, 4),
+            "energy_p90": round(e90, 4)
         }
 
     def extract_speech_ratio(self, audio: np.ndarray) -> float:
@@ -141,7 +151,8 @@ class ProsodyFeatureExtractor:
             return {
                 "pause_duration_mean": 0.0,
                 "pause_duration_max": 0.0,
-                "pause_frequency": 0.0
+                "pause_frequency": 0.0,
+                "speech_duration_sec": 0.0
             }
 
         rms = librosa.feature.rms(y=audio)[0]
@@ -176,10 +187,17 @@ class ProsodyFeatureExtractor:
             pause_duration_max = 0.0
             pause_frequency = 0.0
 
+        # ★ **有声时长**(秒):同一个能量门算出来的,此前只在函数内部用过就丢了。
+        # 它是 `speech_ratio` 的绝对量版本 —— 而 `speech_ratio` 是**自指阈值**
+        # (它的封停理由:87.9% 恰为 1.0),绝对秒数没有这个问题。
+        # 也是"语速"的分母(字数 ÷ 有声秒)。
+        frame_sec = duration / len(rms) if len(rms) else 0.0
+        speech_seconds = round(float(np.count_nonzero(is_speech)) * frame_sec, 2)
         return {
             "pause_duration_mean": pause_duration_mean,
             "pause_duration_max": pause_duration_max,
-            "pause_frequency": pause_frequency
+            "pause_frequency": pause_frequency,
+            "speech_duration_sec": speech_seconds
         }
 
     def extract_all_features(self, audio: np.ndarray) -> Dict[str, Any]:

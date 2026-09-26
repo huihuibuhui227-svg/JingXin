@@ -66,7 +66,21 @@ class VoiceLogger:
             "is_valid",  # 是否有效
             "connective_density",  # 连接词密度（每百字，过短不出值 → 空）
             "connective_density_std",  # 该回答分句密度的标准差
-            "n_rows"  # 参与密度计算的句数
+            "n_rows",  # 参与密度计算的句数
+
+            # ── 回答长度与一阶声学量(2026-09-26 加)──────────────────────────
+            # `n_chars` 是报告里「回答详尽度」的**唯一产出方** —— 那个槽此前
+            # 全系统没有任何地方在算(报告只能写「尚无产出方」)。
+            # `speech_duration_sec` 是 `speech_ratio` 的**绝对量版本**:后者是自指阈值
+            # (实测 87.9% 恰为 1.0,已封停),绝对秒数没有这个问题。
+            # 分位数是「会话内归一」的原料(energy/pitch 两条封停理由都写着要会话内归一)。
+            "n_chars",
+            "speech_duration_sec",
+            "chars_per_sec",
+            "energy_p10",
+            "energy_p90",
+            "pitch_p10",
+            "pitch_p90"
         ]
 
         # 写入 CSV 文件头
@@ -136,7 +150,17 @@ class VoiceLogger:
                 "is_valid": is_valid,
                 "connective_density": connective_density,
                 "connective_density_std": connective_density_std,
-                "n_rows": n_rows
+                "n_rows": n_rows,
+
+                # 下面这些**不给默认值**:取不到就留空 —— 0 是个合法的字数/秒数,
+                # 补 0 会把"没算出来"写成"算出来是 0"(本项目一路在杀的那个形态)。
+                "n_chars": prosody_data.get("n_chars"),
+                "speech_duration_sec": prosody_data.get("speech_duration_sec"),
+                "chars_per_sec": prosody_data.get("chars_per_sec"),
+                "energy_p10": prosody_data.get("energy_p10"),
+                "energy_p90": prosody_data.get("energy_p90"),
+                "pitch_p10": prosody_data.get("pitch_p10"),
+                "pitch_p90": prosody_data.get("pitch_p90")
             }
 
             # 写入 CSV
