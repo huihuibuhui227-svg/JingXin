@@ -164,9 +164,12 @@ class _FakeGestureDetector:
     def __init__(self, *args, **kwargs):
         self.closed = False
 
-    def detect(self, _image_rgb, timestamp_ms):
+    def detect_with_blendshapes(self, _image_rgb, timestamp_ms):
         type(self).frames.append(timestamp_ms)
-        return []
+        return [], {}
+
+    def detect(self, _image_rgb, timestamp_ms):
+        return self.detect_with_blendshapes(_image_rgb, timestamp_ms)[0]
 
     def reset(self):
         pass

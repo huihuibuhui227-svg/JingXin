@@ -1,6 +1,7 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, List
 from .features import AUFeatures, TemporalStats, MicroExpressionResult
+from .blendshapes import blend_column
 
 
 @dataclass
@@ -29,6 +30,10 @@ class AnalysisFrameResult:
     micro_expressions: MicroExpressionResult
     emotion_result: EmotionResult
     tension_result: TensionResult
+    # 模型自带的 blendshape(名字 → 分数,见 models/blendshapes.py)。
+    # **缺省空字典**:没检出脸 / 旧调用方不传,都不会凭空多出 52 个 0 ——
+    # 编 0 会让"没测到"看起来像"测到了 0"。
+    blendshapes: Dict[str, float] = field(default_factory=dict)
 
     def to_dict(self):
         """
@@ -90,6 +95,14 @@ class AnalysisFrameResult:
             "au25_mouth_open": round(float(au.au25_mouth_open), 3),
             "au26_jaw_drop": round(float(au.au26_jaw_drop), 3),
             "avg_ear": round(float(au.avg_ear), 3),
+
+            # 模型自带的 blendshape(bs_* 列)。与上面那些手写比率的 au* 列**并存**:
+            # 这一份是模型训练出来的输出,那一份是拿 landmark 硬算的几何比值
+            # (实测 au7_eye_squeeze 229/229 帧恰好 = 1 - avg_ear)。
+            # 只写**本次真拿到的**名字:表里没有的、这次没给的,一律不写 ⟹ 单元格留空,
+            # 而不是补一个 0(0 是个合法分数,补 0 等于伪造一个测量值)。
+            **{blend_column(name): round(float(score), 3)
+               for name, score in self.blendshapes.items()},
 
             # 头部姿态
             "head_yaw": round(float(au.head_yaw), 3),

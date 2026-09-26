@@ -20,9 +20,13 @@ class _FakeDetector:
         self.resets = 0
         self.closed = False
 
-    def detect(self, image_rgb, timestamp_ms):
+    def detect_with_blendshapes(self, image_rgb, timestamp_ms):
         self.seen.append(timestamp_ms)
-        return None                    # 没检出脸 —— 走 no_face 分支
+        return None, {}                # 没检出脸 —— 走 no_face 分支
+
+    def detect(self, image_rgb, timestamp_ms):
+        landmarks, _ = self.detect_with_blendshapes(image_rgb, timestamp_ms)
+        return landmarks
 
     def reset(self):
         self.resets += 1
@@ -114,8 +118,10 @@ def test_is_blink_reaches_the_serialized_row(monkeypatch):
     from face_expression.pipeline import video_pipeline as vp
 
     class _FaceDetector:
+        def detect_with_blendshapes(self, image_rgb, timestamp_ms):
+            return [(0.5, 0.5)] * 500, {}      # 一帧"有脸"(几何退化由管线自己兜住)
         def detect(self, image_rgb, timestamp_ms):
-            return [(0.5, 0.5)] * 500          # 一帧"有脸"(几何退化由管线自己兜住)
+            return self.detect_with_blendshapes(image_rgb, timestamp_ms)[0]
         def reset(self):
             pass
         def close(self):

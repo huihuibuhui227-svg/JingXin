@@ -10,6 +10,7 @@ import logging
 from datetime import datetime
 from typing import Dict, Any, Optional
 from ..config import LOGS_DIR, LOG_CONFIG
+from ..models.blendshapes import BLENDSHAPE_COLUMNS
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,10 @@ class DataLogger:
                 "tension_score", "tension_level",
                 "micro_exp_au_name", "micro_exp_intensity",
                 "micro_exp_duration_frames", "micro_exp_onset_frame"
-            ]
+            ] + list(BLENDSHAPE_COLUMNS)
+            # ↑ 模型自带的 52 个 blendshape(bs_* 列,2026-09-26 接上)。
+            #   **加在末尾、旧列一个不动** ⟹ 老场次的文件照旧读得动(读侧按列名取),
+            #   新场次多这 52 列。列名只在 models/blendshapes.py 生成,别处不拼字符串。
         else:
             self.fieldnames = [
                 "session_id",

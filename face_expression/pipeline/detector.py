@@ -19,6 +19,8 @@ from typing import Callable
 
 import numpy as np
 
+from ..models.blendshapes import unknown_names
+
 logger = logging.getLogger(__name__)
 
 # close() 的后台执行器。**一个模块一份**(与 `_default_factory` 同理:这两个封装本来是
@@ -67,7 +69,13 @@ def _default_factory(model_path: Path, *, num_faces: int,
         running_mode=vision.RunningMode.VIDEO,
         num_faces=num_faces,
         min_face_detection_confidence=min_detection_confidence,
-        min_tracking_confidence=min_tracking_confidence))
+        min_tracking_confidence=min_tracking_confidence,
+        # ★ 2026-09-26:模型本来就有 blendshape 头(52 个训练出来的 AU 近似),
+        #   而这里以前**没开**它 ⟹ 那 52 个数从来没进过日志(grep 零命中)。
+        #   `au_calculator` 那些 `au*` 列是手写几何比率(实测 au7 ≡ 1-avg_ear),
+        #   这一开,日志里就有了**有依据**的那一份。开它只多出输出,不动 landmark,
+        #   所以 M1.5 的 landmark 等价性基线不受影响。
+        output_face_blendshapes=True))
 
 
 class FaceDetector:
@@ -85,18 +93,23 @@ class FaceDetector:
         self.model_path = Path(model_path)
         self._frame_index = 0
         self._last_ts: int | None = None
+        # "模型给了表外的 blendshape"这件事只喊一次,不是每帧喊一遍(每帧喊会淹掉日志)
+        self._warned_unknown_blendshapes = False
         self._factory = factory or _default_factory
         self._landmarker = self._factory(
             self.model_path, num_faces=num_faces,
             min_detection_confidence=min_detection_confidence,
             min_tracking_confidence=min_tracking_confidence)
 
-    def detect(self, image_rgb: np.ndarray, timestamp_ms: int):
-        """VIDEO 模式:时间戳由**调用方**给(M2.5 spec §5.1)。
+    def detect_with_blendshapes(self, image_rgb: np.ndarray, timestamp_ms: int):
+        """交出 `(landmarks | None, blendshapes: dict[str, float])`。
 
-        `fps` 参数已删除 —— 探测器不再自己推算时间。实测它推错 30 倍:
-        客户端 `?fps=30` 而实发 1 帧/秒,`frame_index * 1000 / 30` 于是把
-        1 秒当成 33 ms(spec §3.1)。
+        `landmarks` 与 `detect()` 逐字同形(`[(x, y)]`);`blendshapes` 是模型那 52 个
+        分数按**名字**存的字典(没检出脸时是**空字典**,不是 52 个 0 —— 编 0 会让
+        "没测到"看起来像"测到了 0",正是本项目在杀的形态)。
+
+        名字不在 `BLENDSHAPE_NAMES` 里的,这里**报出来**(换模型版本时先响),
+        但仍然收进字典 —— 丢不丢是调用方的事,不是探测器悄悄决定的。
         """
         import mediapipe as mp
 
@@ -111,8 +124,37 @@ class FaceDetector:
         result = self._landmarker.detect_for_video(image, int(timestamp_ms))
         self._frame_index += 1
         if not result.face_landmarks:
-            return None
-        return [(p.x, p.y) for p in result.face_landmarks[0]]
+            return None, {}
+
+        # `getattr` 而不是 `result.face_blendshapes`:真 mediapipe 的结果对象在没开
+        # 那个开关时也有这个属性(值为 None),但**替身与将来的结果对象不一定有** ——
+        # 属性不存在与"模型这次没给"是同一件事,都该退成"没有",不该抛。
+        blendshapes: dict[str, float] = {}
+        for group in (getattr(result, "face_blendshapes", None) or []):
+            for category in group:
+                blendshapes[category.category_name] = float(category.score)
+        extra = unknown_names(blendshapes)
+        if extra and not self._warned_unknown_blendshapes:
+            self._warned_unknown_blendshapes = True
+            logger.warning(
+                "模型给出的 blendshape 有 %d 个不在名字表里,它们不会进日志列:%s "
+                "(换模型版本了?改 face_expression/models/blendshapes.py)",
+                len(extra), extra)
+
+        return [(p.x, p.y) for p in result.face_landmarks[0]], blendshapes
+
+    def detect(self, image_rgb: np.ndarray, timestamp_ms: int):
+        """VIDEO 模式:时间戳由**调用方**给(M2.5 spec §5.1)。
+
+        `fps` 参数已删除 —— 探测器不再自己推算时间。实测它推错 30 倍:
+        客户端 `?fps=30` 而实发 1 帧/秒,`frame_index * 1000 / 30` 于是把
+        1 秒当成 33 ms(spec §3.1)。
+
+        ⚠️ 契约与迁移前**逐字一致**(`[(x, y)]` 或 None,tests/test_detector_contract.py
+        钉着)。要 blendshape 的调用方走 `detect_with_blendshapes()`。
+        """
+        landmarks, _ = self.detect_with_blendshapes(image_rgb, timestamp_ms)
+        return landmarks
 
     def reset(self) -> None:
         """`/session/{sid}/reset` 要调:帧计数与时间戳基线都归零。

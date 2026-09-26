@@ -53,7 +53,10 @@ class VideoPipeline:
         self.n_submitted += 1
 
         h, w = image_rgb.shape[:2]
-        landmarks_norm = self.detector.detect(image_rgb, timestamp_ms)
+        # 一并取回模型那 52 个 blendshape(2026-09-26 才接上;在此之前模型的这一半输出
+        # 从来没进过日志)。没检出脸时 landmarks 为 None、blendshapes 为**空字典**。
+        landmarks_norm, blendshapes = self.detector.detect_with_blendshapes(
+            image_rgb, timestamp_ms)
 
         if not landmarks_norm:
             # ★ 审查 F2:没脸的帧也要推进「上一帧时刻」。否则 `_update_blink_state` 里那个
@@ -197,6 +200,7 @@ class VideoPipeline:
             timestamp=timestamp_ms / 1000.0,
             focus_score=round(float(focus_score), 2),
             au_features=current_au,
+            blendshapes=blendshapes,
             temporal_stats=temporal_stats,
             micro_expressions=micro_exps,
             emotion_result=emotion_result,

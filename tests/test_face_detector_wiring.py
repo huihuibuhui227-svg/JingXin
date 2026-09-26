@@ -16,10 +16,15 @@ class _FakeDetector:
         self.resets = 0
         self.closed = False
 
-    def detect(self, image_rgb, timestamp_ms):
+    def detect_with_blendshapes(self, image_rgb, timestamp_ms):
         self.calls += 1
         self.last_ts = timestamp_ms
-        return None            # "没检出" —— 走 process_frame 的 no_face 分支,不碰几何层
+        # "没检出" —— 走 process_frame 的 no_face 分支,不碰几何层。
+        # 没检出脸时 blendshape 是**空字典**,不是 52 个 0(编 0 = 伪造测量值)。
+        return None, {}
+
+    def detect(self, image_rgb, timestamp_ms):
+        return self.detect_with_blendshapes(image_rgb, timestamp_ms)[0]
 
     def reset(self):
         self.resets += 1
