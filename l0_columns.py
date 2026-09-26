@@ -30,6 +30,9 @@ def load() -> dict:
     global _CACHE
     if _CACHE is None:
         _CACHE = json.loads(TABLE_PATH.read_text(encoding="utf-8"))
+    # 收窄给类型检查器看(`_CACHE` 的标注必须是 `dict | None` 才能表达"还没读")。
+    # 上一行刚赋过值 ⟹ 这里恒真,不是业务断言。
+    assert _CACHE is not None
     return copy.deepcopy(_CACHE)
 
 

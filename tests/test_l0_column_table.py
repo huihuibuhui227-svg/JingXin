@@ -5,10 +5,7 @@
 方向 2(表 ⊆ 产出):表里标 status=implemented 的每一列,必须真的在日志里。
 两条都是**双向**的:任一边多一列、少一列都要红。
 """
-import csv
 import importlib
-
-import pytest
 
 l0 = importlib.import_module("l0_columns")
 
@@ -62,7 +59,12 @@ def test_schema_errors_is_empty_on_the_shipped_file():
 
 
 def test_load_hands_back_a_copy():
-    """红法:让 load() 返回模块级缓存本体。"""
+    """★ 红法:把 `load()` 改成 `return _CACHE`(去掉 deepcopy)⟹ 本测试必须红。
+
+    ⚠️ 探针**不许用 `columns`**:出厂表里它是空列表(`"columns": []`),
+    `a["columns"].clear()` 在两种实现下都留空 ⟹ **零区分力**(2026-09-26 实测踩过)。
+    用 `_schema.version` —— 出厂表里就有值,与填表进度无关。
+    """
     a = l0.load()
-    a["columns"].clear()
-    assert l0.load()["columns"], "load() 交出了本体,调用方能改坏它"
+    a["_schema"]["version"] = "TAMPERED"
+    assert l0.load()["_schema"]["version"] != "TAMPERED", "load() 交出了本体,调用方能改坏它"
