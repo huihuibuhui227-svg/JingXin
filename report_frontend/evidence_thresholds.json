@@ -101,6 +101,12 @@
       "full_scale": 30.0,
       "basis_kind": "legacy_arbitrary",
       "basis": "30 字记为满量程(旧实现 val/30)。无物理依据 —— 回答详尽度没有天然的满量程。2026-09-26 键名随日志列改:length → n_chars(列名与映射关键词必须同名,§4.10)。"
+    },
+    "reaction_time": {
+      "kind": "full_scale",
+      "full_scale": 10.0,
+      "basis_kind": "legacy_arbitrary",
+      "basis": "2026-09-26 新接的量,没有历史标尺:登记值就是 `_default_scale_factor` 的 10 秒,把它显式写出来只为让它**可被审查与替换**(而不是悄悄继承默认值)。10 秒无物理或文献依据;按 M5 的规矩,阈值/量程只能来自物理下限或**自采数据** —— 等录够场次后用本系统自己的反应延迟分布重登记。"
     }
   }
 }

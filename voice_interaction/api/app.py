@@ -20,6 +20,7 @@ import numpy as np
 from logging_config import setup_logging
 import media_retention
 import session_meta
+import session_meta
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -157,6 +158,40 @@ def prosody_features_from_pcm(audio_data: bytes) -> dict:
     audio = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
     raw = prosody_extractor.extract_all_features(audio)
     return {_EXTRACTOR_TO_LOG_COLUMNS.get(k, k): v for k, v in raw.items()}
+
+
+def reaction_time_features(prosody: dict, arrived_wall, question_window) -> dict:
+    """反应延迟(spec §3.9:这个量**只此一途**)。
+
+    = **首次开口墙钟 − 该题的 `ask_end`**
+
+    首次开口墙钟 = (音频**到达时刻** − 音频时长) + 音频内首次开口偏移
+      · 到达时刻用 `media_retention` 记的 `received_at_wall`,**不能用 time.time()** ——
+        那已经是转写 + 韵律都算完之后,比真正到达晚好几秒,误差直接进结果;
+      · 减音频时长是为了回到"按下录音那一刻":录音里的前导静音不算反应时间;
+      · `ask_end` 来自 M2.6 的题目时刻台账(`questions.jsonl`),按题号对上。
+    三个成分都落盘(`speech_onset_sec` / `answer_onset_wall` / `reaction_time`),
+    所以这个数是**可复核**的,而不是一个孤零零的结论。
+
+    ⚠️ 允许为**负**:候选人可以在题还没念完时开口(打断),那时首次开口早于 ask_end。
+    负值是真实现象,**不做截断** —— 截成 0 会让"抢答"与"0 秒反应"分不开。
+
+    任一成分缺失 ⟹ 交 `{}`(整组不写):不猜、不补 0。
+    """
+    onset = prosody.get("speech_onset_sec")
+    duration = prosody.get("duration_sec")
+    if onset is None or not duration or arrived_wall is None or not question_window:
+        return {}
+    try:
+        ask_end = float(question_window["ask_end"])
+        answer_onset_wall = float(arrived_wall) - float(duration) + float(onset)
+    except (KeyError, TypeError, ValueError):
+        return {}
+    return {
+        "speech_onset_sec": float(onset),
+        "answer_onset_wall": round(answer_onset_wall, 3),
+        "reaction_time": round(answer_onset_wall - ask_end, 2),
+    }
 
 
 async def _prosody_async(pcm: bytes) -> dict:
@@ -553,6 +588,12 @@ async def submit_answer_audio(request: Request, audio: UploadFile = File(...),
         # 有声秒为 0(整段没检测到语音)⟹ 空,不编一个 0。
         prosody["chars_per_sec"] = (round(_n_chars / _speech_sec, 2)
                                     if _speech_sec > 0 else None)
+        # 反应延迟:首次开口墙钟 − 该题 ask_end(见 reaction_time_features 的说明)。
+        # 按**题号**对上题目窗口 —— 不用"最近一条",并发/补推时那会串题。
+        _q = next((w for w in session_meta.read_questions(sid)
+                   if w.get("index") == question_index), None)
+        prosody.update(reaction_time_features(
+            prosody, (_raw or {}).get("received_at_wall"), _q))
         voice_logger.log_prosody(
             prosody, question_index=question_index, emotion="", feedback="",
             # 整句算一次:一个样本参与,n_rows=1;单个值的标准差按定义为 0.0
@@ -816,6 +857,12 @@ async def submit_research_answer_audio(request: Request, audio: UploadFile = Fil
         prosody["n_chars"] = _n_chars
         prosody["chars_per_sec"] = (round(_n_chars / _speech_sec, 2)
                                     if _speech_sec > 0 else None)
+        # 反应延迟:首次开口墙钟 − 该题 ask_end(见 reaction_time_features 的说明)。
+        # 按**题号**对上题目窗口 —— 不用"最近一条",并发/补推时那会串题。
+        _q = next((w for w in session_meta.read_questions(sid)
+                   if w.get("index") == question_index), None)
+        prosody.update(reaction_time_features(
+            prosody, (_raw or {}).get("received_at_wall"), _q))
         research_logger.log_prosody(
             prosody, question_index=question_index, emotion="", feedback="",
             connective_density=density, connective_density_std=0.0, n_rows=1)

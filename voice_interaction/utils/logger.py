@@ -80,7 +80,15 @@ class VoiceLogger:
             "energy_p10",
             "energy_p90",
             "pitch_p10",
-            "pitch_p90"
+            "pitch_p90",
+
+            # ── 反应延迟(2026-09-26)───────────────────────────────────────
+            # `reaction_time` = 首次开口墙钟 − 该题 ask_end。三个成分都落盘,
+            # 所以这个数是可复核的(只给结论的数,复核不了就只能信)。
+            # `answer_onset_wall` 是**推定的墙钟**(音频到达时刻 − 时长 + 前导静音偏移)。
+            "speech_onset_sec",
+            "answer_onset_wall",
+            "reaction_time"
         ]
 
         # 写入 CSV 文件头
@@ -160,7 +168,13 @@ class VoiceLogger:
                 "energy_p10": prosody_data.get("energy_p10"),
                 "energy_p90": prosody_data.get("energy_p90"),
                 "pitch_p10": prosody_data.get("pitch_p10"),
-                "pitch_p90": prosody_data.get("pitch_p90")
+                "pitch_p90": prosody_data.get("pitch_p90"),
+
+                # 反应延迟那一组同样**不给默认值**:0 秒是个合法的反应时间,
+                # 补 0 会把"算不出来"写成"反应极快"。
+                "speech_onset_sec": prosody_data.get("speech_onset_sec"),
+                "answer_onset_wall": prosody_data.get("answer_onset_wall"),
+                "reaction_time": prosody_data.get("reaction_time")
             }
 
             # 写入 CSV

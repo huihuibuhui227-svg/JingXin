@@ -152,7 +152,8 @@ class ProsodyFeatureExtractor:
                 "pause_duration_mean": 0.0,
                 "pause_duration_max": 0.0,
                 "pause_frequency": 0.0,
-                "speech_duration_sec": 0.0
+                "speech_duration_sec": 0.0,
+                "speech_onset_sec": None
             }
 
         rms = librosa.feature.rms(y=audio)[0]
@@ -193,11 +194,17 @@ class ProsodyFeatureExtractor:
         # 也是"语速"的分母(字数 ÷ 有声秒)。
         frame_sec = duration / len(rms) if len(rms) else 0.0
         speech_seconds = round(float(np.count_nonzero(is_speech)) * frame_sec, 2)
+        # ★ **首次开口在音频里的位置**(秒):反应延迟要用它。
+        #   "录音开始"到"真的开口"之间那段前导静音,不是反应时间 —— 但推首次开口
+        #   的**墙钟**必须把它算进去,否则整段前导静音都会被算成反应时间。
+        first_voiced = next((i for i, v in enumerate(is_speech) if v), None)
+        speech_onset = round(first_voiced * frame_sec, 2) if first_voiced is not None else None
         return {
             "pause_duration_mean": pause_duration_mean,
             "pause_duration_max": pause_duration_max,
             "pause_frequency": pause_frequency,
-            "speech_duration_sec": speech_seconds
+            "speech_duration_sec": speech_seconds,
+            "speech_onset_sec": speech_onset
         }
 
     def extract_all_features(self, audio: np.ndarray) -> Dict[str, Any]:
