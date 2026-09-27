@@ -88,6 +88,13 @@ Environment=CORS_ORIGINS=$CORS
 #   SSH 隧道也打 127.0.0.1 ✓,两条路都成立。
 Environment=JX_BIND=127.0.0.1
 Environment=PANEL_HOST=127.0.0.1
+# ⚠️ **两个名字都要设,而且不能只设一个**:
+#   · `JINGXIN_RECORDINGS_DIR` —— **服务代码真正读的那个**(media_retention.py:48
+#     与 transcript_store 共用;不设就退回默认 ~/shared/jingxin_recordings)
+#   · `JX_RECORDINGS` —— 本仓 tools/ 里那些脚本用的名字
+#   2026-09-27 实测踩到:只设了后者 ⟹ 服务**静默**写进了默认目录,
+#   而 `~/JingXin/recordings/` 一直空着(看起来像"没存进去")。
+Environment=JINGXIN_RECORDINGS_DIR=$REC
 Environment=JX_RECORDINGS=$REC
 Environment=PATH=$NODE_DIR:/usr/local/bin:/usr/bin:/bin
 ExecStart=$*
