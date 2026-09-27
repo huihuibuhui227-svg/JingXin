@@ -46,9 +46,16 @@ def test_quarantined_indicator_reports_the_quarantine_not_missing_data():
 
     红在:改成先查封停之前,mapper 是先 `_fuzzy_match`,找不到就写
     「未采集到对应数据」—— 把真正的拦截原因(封停)盖住了。
+
+    ⚠️ 2026-09-27 换过取样槽:原样本是「困惑微表情」(关键词 `au4_freq`),而那条封停
+    于本日**已解封**(原文「从 micro_exp 字符串解析出的垃圾匹配」被实测推翻:该槽的输入列
+    `micro_exp_au_name` 在三场正式素材里 non-null = 0)⟹ 它现在说的是「未采集到对应数据」,
+    而这**正是真话**(微表情确实一帧都没采到),再拿它当"封停被说成缺数据"的样本就反了。
+    改用同一维度里**仍在封停**的「面部专注度」(`focus_score`,理由「3 个硬编码取值
+    {0.3,0.5,0.8}」仍成立)—— 被钉的性质一字未改,只是换了一个仍然成立的样本。
     """
     gaps = _gaps("logical_thinking", _empty_face_feats())
-    mine = [g for g in gaps if g.startswith("困惑微表情")]
+    mine = [g for g in gaps if g.startswith("面部专注度")]
     assert mine, f"该槽不在缺口里,测不到:{gaps}"
     assert "该指标本轮停用" in mine[0], f"封停被说成了别的原因:{mine[0]}"
     assert "未采集到对应数据" not in mine[0], f"仍是那句假话:{mine[0]}"
@@ -65,7 +72,15 @@ def test_indicator_without_a_producer_says_so():
     gaps = _gaps("cognitive_efficiency", _empty_face_feats())
     #    所以它们没数据时该说的是"这次没采到"(真话),不再是"没有产出方"。
     from report_frontend.research_mapper import NO_PRODUCER
-    assert NO_PRODUCER == {}, f"名单该空了,还剩:{NO_PRODUCER}"
+    # ⚠️ 2026-09-27:此处的 `NO_PRODUCER == {}` 已换成**逐槽点名**。那条断言是
+    #    「此刻没有任何槽缺产出方」的代理,而封停名单对账那一轮往名单里补了三个
+    #    **真的**缺产出方的槽(`fluency_score` / `hand_score` / `shoulder_score`,
+    #    见 `tests/test_report_layer.py` 的两条 NO_PRODUCER 钉子)—— 名单不该再是空的,
+    #    但本测试要守的性质一字未改:这两个**有**产出方的槽不许出现在名单里。
+    for slot in ("n_chars", "reaction_time"):
+        assert slot not in NO_PRODUCER, (
+            f"{slot} 已有产出方,却被登记成「没有产出方」—— 那会把"
+            f"「这次没采到」说成「缺一个生产者」,读者会去改错的地方")
     for name in ("回答详尽度", "反应延迟"):
         mine = [g for g in gaps if g.startswith(name)]
         assert mine, f"{name} 不在缺口里:{gaps}"

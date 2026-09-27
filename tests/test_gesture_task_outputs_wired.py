@@ -241,18 +241,22 @@ def test_world_columns_carry_the_metric_versions(monkeypatch, tmp_path):
 
 
 def test_unfed_slot_is_empty_not_fifty(monkeypatch, tmp_path):
-    """★ 本帧没收到手的槽 ⟹ **空格子**,不是 50.0(分析器默认值)。
+    """★ 本帧没收到手的槽 ⟹ **空格子**,不是分析器默认值。
 
     红法:把端点的 `_fresh(...)` 换回 `analyzers[key].get_results()` ——
-    "没测到"立刻变回一个看着合法的 50。实测该场:只有一只手却两槽都写 50.0。
+    "没测到"立刻变回一个看着合法的默认值。实测该场:只有一只手却两槽都写 50.0。
+
+    ⚠️ 2026-09-27(M3.3 删列):本测试原来看 `left/right_hand_score`(默认 50.0)。
+    那两列已从日志契约里删掉,改用同一槽的 `*_hand_spread`(默认 0.0)——
+    **判据一模一样**(那格是空,还是分析器留着的那份默认值),只是换了一列读数。
     """
     loggers = _wired(monkeypatch, tmp_path, pose=_pose33(),
                      hands=[_hand21()], handedness=[("Left", 0.9)])   # 只有一只手
     _post()
     row = _row(loggers)
     assert row["right_hand_model_label"] == "Left"        # 翻转后进了右手槽
-    assert row["left_hand_score"] == "", f"没收到手的槽写了值:{row['left_hand_score']!r}"
-    assert row["right_hand_score"] == "77.0"
+    assert row["left_hand_spread"] == "", f"没收到手的槽写了值:{row['left_hand_spread']!r}"
+    assert row["right_hand_spread"] == "0.2"
 
 
 def test_no_pose_means_empty_not_stale(monkeypatch, tmp_path):
@@ -260,19 +264,22 @@ def test_no_pose_means_empty_not_stale(monkeypatch, tmp_path):
 
     红法:去掉 `_fresh` 的 fed 判断 —— 拿到的会是分析器**保留的上一帧结果**,
     于是"上一帧的度量"顶替"这一帧的度量",不留任何痕迹。
+
+    ⚠️ 2026-09-27(M3.3 删列):读数从 `shoulder_score` 换成 `shrug_level`(同一路
+    `shoulder_result`、同样走 `_safe_get`);判据不变 —— 那格该是**空**而不是上一帧的值。
     """
     loggers = _wired(monkeypatch, tmp_path, pose=_pose33())
     _post()                                   # 第一帧有姿态
     first = _row(loggers)
-    assert first["shoulder_score"] == "61.0"
+    assert first["shrug_level"] == "0.1"
 
     # 第二帧没有姿态(同一批分析器对象,状态还在)
     loggers2 = _wired(monkeypatch, tmp_path, pose=None)
     gesture_app.session_loggers[SID] = loggers2[SID]
     _post()
     rows = list(csv.DictReader(open(loggers2[SID][0].log_file, encoding="utf-8")))
-    assert rows[-1]["shoulder_score"] == "", \
-        f"没有姿态的帧写了旧值:{rows[-1]['shoulder_score']!r}"
+    assert rows[-1]["shrug_level"] == "", \
+        f"没有姿态的帧写了旧值:{rows[-1]['shrug_level']!r}"
 
 
 # ── 手势新列 hand_visible_*(2026-09-26 Task 6)────────────────────────
@@ -302,7 +309,7 @@ def test_hand_visible_does_not_count_an_unattributed_hand_as_left(monkeypatch, t
 
     模型这一帧**没给** handedness ⟹ `api/app.py` 的兜底支路把这只手塞进空着的
     `left_hand` 槽,并把 `handedness_info['left_hand']` 置 `None`。此时:
-      · 「这一槽**有手**」是真的 —— `left_hand_score` 有值(不是空);
+      · 「这一槽**有手**」是真的 —— `left_hand_spread` 有值(不是空);
       · 「那是**左手**」是**假**的 —— 没有依据。
     ⟹ `hand_visible_left` 必须是**空**,不是 `1`。
 
@@ -313,8 +320,8 @@ def test_hand_visible_does_not_count_an_unattributed_hand_as_left(monkeypatch, t
     _post()
     row = _row(loggers)
     # 先证明这一帧**确实收到了手** —— 否则下面那条断言测的是"我没给手"
-    assert row["left_hand_score"] != "", \
-        f"这一帧左手槽没收到手,测试没有区分力:{row['left_hand_score']!r}"
+    assert row["left_hand_spread"] != "", \
+        f"这一帧左手槽没收到手,测试没有区分力:{row['left_hand_spread']!r}"
     assert row["left_hand_model_label"] == "", "兜底那一槽不该有标签"
     assert row["hand_visible_left"] == "", \
         f"一只来路不明的手被写成了「左手可见」:{row['hand_visible_left']!r}"
@@ -326,7 +333,7 @@ def test_hand_visible_is_empty_when_no_hand_is_seen(monkeypatch, tmp_path):
     loggers = _wired(monkeypatch, tmp_path, pose=_pose33())   # hands=() / handedness=()
     _post()
     row = _row(loggers)
-    assert row["left_hand_score"] == "", "前提:这一帧没收到手"
+    assert row["left_hand_spread"] == "", "前提:这一帧没收到手"
     assert row["hand_visible_left"] == "", \
         f"没测到被写成了「确定没有」:{row['hand_visible_left']!r}"
     assert row["hand_visible_right"] == "", row["hand_visible_right"]
@@ -431,7 +438,9 @@ def test_shoulder_width_is_empty_when_one_shoulder_is_missing_in_the_live_path(m
                      pose=_pose_with_shoulders((0.30, 0.40), None))    # 右肩缺
     _post()
     row = _row(loggers)
-    assert row["shoulder_score"] != "", "前提:这一帧是有姿态的(否则测的是「没姿态」那条)"
+    # 前提读数:M3.3 删列后 `shoulder_score` 不在契约里了,`head_jitter` 同样来自
+    # `upper_body_result`(本帧有姿态才有值、没姿态时 `_fresh` 交 None ⟹ 空)
+    assert row["head_jitter"] != "", "前提:这一帧是有姿态的(否则测的是「没姿态」那条)"
     assert row["shoulder_width"] == "", f"缺一只肩却写了值:{row['shoulder_width']!r}"
 
 
@@ -443,7 +452,7 @@ def test_shoulder_width_is_empty_not_zero_when_there_is_no_pose(monkeypatch, tmp
     loggers = _wired(monkeypatch, tmp_path, pose=None)
     _post()
     row = _row(loggers)
-    assert row["shoulder_score"] == "", "前提:这一帧确实没有姿态"
+    assert row["head_jitter"] == "", "前提:这一帧确实没有姿态"
     assert row["shoulder_width"] == "", f"没有姿态却写了值:{row['shoulder_width']!r}"
 
 

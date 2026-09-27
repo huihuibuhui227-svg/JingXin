@@ -130,25 +130,36 @@ def plot_and_save_gesture_features(
         def _(en, cn):
             return cn if use_chinese else en
 
-        # 1. 左右手评分
-        axes[0, 0].plot(df['timestamp'], df['left_hand_score'], color='blue', label=_('Left Hand', '左手评分'))
-        axes[0, 0].plot(df['timestamp'], df['right_hand_score'], color='green', label=_('Right Hand', '右手评分'))
-        axes[0, 0].set_title(_('Hand Scores', '手部抗压能力评分'))
-        axes[0, 0].set_ylabel('Score (0-100)')
+        # ⚠️ 2026-09-27(M3.3 删列):本脚本原先画的 4 个面板读的是 `left/right_hand_score`、
+        # `shoulder_score`、`overall_score`、`left/right_arm_stability` —— 那 6 列已按 M3.3
+        # **从日志契约里删掉**(理由:可由同 block 的 jitter 精确重构,零额外信息;
+        # `overall_score` 恒 50.0)。所以这里换成同一部位的**原始量**(抖动/张开度/米制抖动),
+        # 不再画那些派生分数。判据与出处见 `l0_columns.json` 的 `deltas[1].reasons` 末条。
+
+        # 1. 左右手抖动
+        axes[0, 0].plot(df['timestamp'], df['left_hand_jitter'], color='blue', label=_('Left Hand', '左手抖动'))
+        axes[0, 0].plot(df['timestamp'], df['right_hand_jitter'], color='green', label=_('Right Hand', '右手抖动'))
+        axes[0, 0].set_title(_('Hand Jitter', '手部抖动幅度'))
+        axes[0, 0].set_ylabel('Jitter (shoulder-width/s)')
         axes[0, 0].legend()
         axes[0, 0].grid(True)
 
-        # 2. 肩部评分
-        axes[0, 1].plot(df['timestamp'], df['shoulder_score'], color='orange', label=_('Shoulder', '肩部评分'))
-        axes[0, 1].set_title(_('Shoulder Score', '肩部紧张度评分'))
-        axes[0, 1].set_ylabel('Score (0-100)')
+        # 2. 左右肩抖动
+        axes[0, 1].plot(df['timestamp'], df['left_shoulder_jitter'], color='orange',
+                        label=_('Left Shoulder', '左肩抖动'))
+        axes[0, 1].plot(df['timestamp'], df['right_shoulder_jitter'], color='sienna',
+                        label=_('Right Shoulder', '右肩抖动'))
+        axes[0, 1].set_title(_('Shoulder Jitter', '肩部抖动幅度'))
+        axes[0, 1].set_ylabel('Jitter (shoulder-width/s)')
         axes[0, 1].legend()
         axes[0, 1].grid(True)
 
-        # 3. 综合情绪评分
-        axes[0, 2].plot(df['timestamp'], df['overall_score'], color='purple', label=_('Overall', '综合情绪'))
-        axes[0, 2].set_title(_('Overall Emotion Score', '综合情绪评分'))
-        axes[0, 2].set_ylabel('Score (0-100)')
+        # 3. 手部张开度
+        axes[0, 2].plot(df['timestamp'], df['left_hand_spread'], color='purple', label=_('Left Hand', '左手'))
+        axes[0, 2].plot(df['timestamp'], df['right_hand_spread'], color='darkviolet',
+                        label=_('Right Hand', '右手'))
+        axes[0, 2].set_title(_('Hand Spread', '手部张开度(÷ 掌长)'))
+        axes[0, 2].set_ylabel('Spread (palm-length)')
         axes[0, 2].legend()
         axes[0, 2].grid(True)
 
@@ -168,12 +179,13 @@ def plot_and_save_gesture_features(
         axes[1, 1].legend()
         axes[1, 1].grid(True)
 
-        # 6. 手臂稳定性
-        axes[1, 2].plot(df['timestamp'], df['left_arm_stability'], color='magenta', label=_('Left Arm', '左手臂稳定性'))
-        axes[1, 2].plot(df['timestamp'], df['right_arm_stability'], color='purple',
-                        label=_('Right Arm', '右手臂稳定性'))
-        axes[1, 2].set_title(_('Arm Stability', '手臂稳定性'))
-        axes[1, 2].set_ylabel('Stability (0-1)')
+        # 6. 米制腕部抖动(与取景无关的那一份;画面坐标那份在上面第 4 格)
+        axes[1, 2].plot(df['timestamp'], df['left_wrist_jitter_world'], color='magenta',
+                        label=_('Left Wrist', '左腕'))
+        axes[1, 2].plot(df['timestamp'], df['right_wrist_jitter_world'], color='purple',
+                        label=_('Right Wrist', '右腕'))
+        axes[1, 2].set_title(_('Wrist Jitter (metric)', '腕部抖动(米制)'))
+        axes[1, 2].set_ylabel('Jitter (m/s)')
         axes[1, 2].legend()
         axes[1, 2].grid(True)
 

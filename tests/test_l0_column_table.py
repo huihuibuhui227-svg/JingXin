@@ -11,8 +11,43 @@ import math
 l0 = importlib.import_module("l0_columns")
 
 
+def _text_columns():
+    """text 模态的 L0 列 —— **由 `transcript.json` 的真实产出方推出来**,不是抄表。
+
+    为什么不能抄表:`transcript_raw` / `transcript_segments` / `asr_model_version` 是
+    **L0 的名字**,而落盘的是 `merged.text` / `segments[]` / `asr.models` —— 两套名字。
+    照抄表就等于"自己证明自己";这里改成**问产出方**:每个名字只有在它对应的那段结构
+    **真的被写出来**时才计入。产出方哪天把 `merged.text` 或段形状去掉,方向 2 会当场红。
+
+    (2026-09-27:`text` 是被使用者裁定补进来的**第四种产出方** —— 在此之前
+    `status=implemented` 只认 face/gesture/voice,text 三行结构上永远翻不了。)
+    """
+    import importlib
+    ts = importlib.import_module("voice_interaction.asr.transcript_store")
+
+    out = []
+
+    # `transcript_raw` ⟸ `_merge` 产出的 `merged.text`
+    if "text" in (ts._merge([], False) or {}):
+        out.append("transcript_raw")
+
+    # `transcript_segments` ⟸ `_segment_records` 的**段形状**(六个键一个不能少)
+    class _Utt:                                   # noqa: D401 - 最小替身,只喂形状
+        segments = [{"text": "x", "n_chars": 1, "timestamps_ms": [], "punc_array": []}]
+    recs = ts._segment_records(_Utt(), 0)
+    if recs and set(recs[0]) == {"index", "text", "n_chars", "timestamps_ms",
+                                 "punc_array", "ts_origin"}:
+        out.append("transcript_segments")
+
+    # `asr_model_version` ⟸ `_asr_meta` 的 `models` 块
+    if "models" in (ts._asr_meta() or {}):
+        out.append("asr_model_version")
+
+    return out
+
+
 def _live_columns():
-    """三份日志现在真的会写出的列名(构造 logger 即可,不写行)。"""
+    """现在真的会写出的列名(构造 logger / 问产出方即可,不写行)。"""
     from face_expression.utils.logger import DataLogger
     from gesture_analysis.utils.logger import GestureLogger
     from voice_interaction.utils.logger import VoiceLogger
@@ -20,6 +55,7 @@ def _live_columns():
         "face": list(DataLogger(log_type="video", session_id="x").fieldnames),
         "gesture": list(GestureLogger(session_id="x").fieldnames),
         "voice": list(VoiceLogger(log_type="interview", session_id="x").fieldnames),
+        "text": _text_columns(),
     }
 
 
@@ -63,8 +99,15 @@ def test_live_contract_matches_the_real_log_contract():
     doc = l0.load()
     live = _live_columns()
     claimed = doc["count_reconciliation"]["live_contract"]
-    assert set(claimed) == set(live), (
-        f"模态对不上:live_contract 声称 {sorted(claimed)},日志契约实测 {sorted(live)}")
+    # ★ `live_contract` 在表里的定义是「**日志契约**的列数」(逐模态的 `fieldnames` 条数)。
+    #   `text` 不落任何 logger(它落仓库外的 `transcript.json`)⟹ **不进这个字段**。
+    #   2026-09-27 加 `text` 产出方之后,这里必须只比"有 logger 的那三个模态",
+    #   否则 `_live_columns()` 多出的 `text` 键会让这条断言变成在比两件不同的东西。
+    #   text 的产出由 `test_every_implemented_row_really_is_produced`(方向 2)覆盖。
+    _LOGGER_MODALITIES = ("face", "gesture", "voice")
+    assert set(claimed) == set(_LOGGER_MODALITIES), (
+        f"模态对不上:live_contract 声称 {sorted(claimed)},而它只该管有 logger 的 "
+        f"{list(_LOGGER_MODALITIES)}(text 落仓库外的 transcript.json,不进这个字段)")
     for modality, n in claimed.items():
         assert n == len(live[modality]), (
             f"{modality}: live_contract 声称日志契约有 {n} 列,实测 {len(live[modality])} 列 —— "
@@ -494,25 +537,32 @@ def test_shoulder_width_row_matches_the_implementation():
 # `count_reconciliation.deltas` 散文里的数(2026-09-26 整支复核 Important 2 + Minor 11)
 # ══════════════════════════════════════════════════════════════════════════════
 
-# gesture:被 §4.2 **处置表**逐项点到名的 28 条活列。
-# ⚠️ **这 28 条是人工读 markdown 表点出来的** —— §4.2 没有机器可读形态,所以
+# gesture:被 §4.2 **处置表**逐项点到名、且**今天还在活列里**的 18 条。
+# ⚠️ **这 18 条是人工读 markdown 表点出来的** —— §4.2 没有机器可读形态,所以
 #    「它们真的都被点到名」这件事**机器核不了**(要核只能人再读一遍 §4.2)。
-#    本测试核得到的是另外三件:① 这 28 个名字**全部真的在活列里**;
-#    ② 它们把 70 条活列**切成 28 + 42**;③ 那 42 条按下面的分族枚举**逐条对得上**。
+#    本测试核得到的是另外三件:① 这 18 个名字**全部真的在活列里**;
+#    ② 它们把 59 条活列**切成 18 + 41**;③ 那 41 条按下面的分族枚举**逐条对得上**。
 #    ⟹ 名单本身不能悄悄漂(改一个名字,②或③当场红),这正是「数不再手抄」要的效果。
+#
+# ★ 2026-09-27(M3.3 删列)这份名单从 **28 → 18**:§4.2 处置表点名的 28 条里有 **10** 条
+#   已按 M3.3 删列(手部 2 个 `*_score` + 非手 5 个 `*_score` + 3 个 `*_stability`)。
+#   删掉的名字**不从这里悄悄消失**——它们进了 `_DELETED_IN_M3_3`(见本文件下半),
+#   由 `test_the_m3_3_deleted_columns_are_gone_from_the_log_contract` 正面守着。
 _NAMED_IN_SECTION_4_2 = frozenset("""
-    left_hand_score right_hand_score left_hand_fist_status right_hand_fist_status
+    left_hand_fist_status right_hand_fist_status
     left_hand_spread right_hand_spread left_hand_jitter right_hand_jitter
-    shoulder_score head_score torso_score left_arm_score right_arm_score
     left_shoulder_jitter right_shoulder_jitter left_wrist_jitter right_wrist_jitter
     left_elbow_jitter right_elbow_jitter head_jitter torso_jitter
-    left_arm_stability right_arm_stability torso_stability
     shrug_level is_calibrated head_tilt is_valid
 """.split())
 
-# gesture:§4.2 处置表**覆盖不到的** 42 条活列,按 `deltas[1].reasons[1]` 的散文分族逐条枚举。
-# 这条枚举是那句散文的**机器可读副本** —— 散文说「42 = 3 + 4 + 10 + 8 + 2 + 8 + 4 + 3」,
-# 这里就把每一族的名字写出来;名字与族对不上、或少了/多了一条,下面逐条比。
+# gesture:§4.2 处置表**覆盖不到的** 41 条活列,按 `deltas[1].reasons[1]` 的散文分族逐条枚举。
+# 这条枚举是那句散文的**机器可读副本** —— 散文说
+# 「41 = 3 + 4 + 10 + 8 + 2 + 8 + 3 + 3」,这里就把每一族的名字写出来;
+# 名字与族对不上、或少了/多了一条,下面逐条比。
+# ⚠️ **族名本身就是「条数 + 标签」** —— 散文里必须逐字出现这些族名(去掉反引号后),
+#    于是「散文里的加数」与「枚举的条数」**不再是两份要手工同步的副本**;
+#    见 `test_delta_reason_numbers_match_the_table` 的 ④-b。
 _UNCOVERED_FAMILIES = {
     "3 非测量列": ("session_id", "timestamp", "timestamp_iso"),
     "4 个 handedness 标签": ("left_hand_model_label", "left_hand_model_label_conf",
@@ -527,7 +577,8 @@ _UNCOVERED_FAMILIES = {
                     "right_wrist_jitter_world", "right_elbow_jitter_world",
                     "left_arm_angle_world", "right_arm_angle_world",
                     "left_shoulder_jitter_world", "right_shoulder_jitter_world"),
-    "4 个情绪块": ("overall_score", "emotion_state", "feedback", "used_features"),
+    # 2026-09-27(M3.3):`overall_score` 已删(恒 50.0)⟹ 4 个 → 3 个
+    "3 个情绪块": ("emotion_state", "feedback", "used_features"),
     "3 个 2026-09-26 新增列": ("hand_visible_left", "hand_visible_right", "shoulder_width"),
 }
 
@@ -542,17 +593,19 @@ def test_delta_reason_numbers_match_the_table():
     ⟹ 处置照本文件 ⑨ 的形态:**把数从表里算出来,再去比散文**;散文改了数、表改了行,两边都有一次机会红。
 
     红法(逐条,都是生产改动):
-      · 把 `live_contract.gesture` 改掉(或往 `GestureLogger.fieldnames` 加/删一列而不动表)⟹ 70 那一组红;
-      · 把 `deltas[1].reasons[1]` 里那个「70 / 42 / 9 / 7 / 26」改回 67 / 39 / 23 之类的旧数 ⟹ 红;
+      · 把 `live_contract.gesture` 改掉(或往 `GestureLogger.fieldnames` 加/删一列而不动表)⟹ ①红;
+      · 把 `deltas[1].reasons[1]` 里那个「59 / 41 / 8 / 7 / 26」改回 70 / 42 / 9 / 26 之类的旧数 ⟹ ⑤红;
       · 把 `columns` 里某条 gesture 行搬进 `legacy_allowlist`(或不搬而行数对不上)⟹ 9/7/26 的二分红;
-      · 往 `_UNCOVERED_FAMILIES` 覆盖的某族里加一列(例如再加一个手指角度)⟹ 42 这个数、
-        以及「9 + 7 + 26 = 42」当场红;
+      · 往 `_UNCOVERED_FAMILIES` 覆盖的某族里加一列(例如再加一个手指角度)⟹ 那族的**族名**
+        从「10 个手指角度」变成「11 个手指角度」,而散文里还写着 10 ⟹ ④-b 当场红;
       · 把 `deltas[0].reasons[4]` 的 16 / 6 或 voice `reasons[3]` 的 13 改错 ⟹ 各自红。
 
     ⚠️ **边界(如实说)**:`legacy_allowlist` 是按**模态**分组的,没有「判删 / 元数据」这个字段,
-    所以 9 与 7 的切法是「这 42 条里,在 `_UNCOVERED_FAMILIES` 中被点名是元数据的那 3 + 4 条」
+    所以 9 与 7 的切法是「这 41 条里,在 `_UNCOVERED_FAMILIES` 中被点名是元数据的那 3 + 4 条」
     —— 换句话说,**7 那一半靠上面那份族的枚举,不靠白名单自己声明**。白名单若给每条加一个
     `disposition` 字段,这条就该改成直接读它(那才是结构性的)。
+    ⚠️ **④-b 的边界**:它钉的是「族名(含条数)逐字出现在散文里」,所以**散文里的加数**与
+    枚举**绑成了一份**;它管不到的是「族名之后那些名字写得对不对」—— 那由 ③ 的集合相等守着。
     """
     doc = l0.load()
     cr = doc["count_reconciliation"]
@@ -610,6 +663,23 @@ def test_delta_reason_numbers_match_the_table():
     assert f"剩下 {len(uncovered)} 条" in reason, (
         f"`deltas[1].reasons[1]` 里「剩下 N 条」与表里数出来的 {len(uncovered)} 对不上")
 
+    # ── ④-b 散文里的**加法**与分族枚举绑成一份(2026-09-27,M3.3 删列时补)────────
+    # 为什么补它:`reasons[1]` 里那句「剩下 N 条 = 3 非测量列 + 4 个 handedness 标签 + …
+    # + 3 个 2026-09-26 新增列」是一串**手写的加数**,而 ③ 只钉了**集合**相等 ——
+    # 也就是说:往某族里加一列时,集合相等仍然成立(枚举跟着变了),而**散文里那个加数
+    # 还停在上一个数**,没有任何断言会响。这正是纪律 2「散文里的数会静默过期」的形态
+    # (2026-09-27 实测:把 `overall_score` 删掉后,散文里那句「4 个情绪块」就是这样一个死数)。
+    # 处置**不是**再抄一遍数字,而是让散文**必须逐字写出族名** —— 而族名本身就是
+    # f"{len(names)} {标签}" ⟹「加数」与「枚举」从此是**同一个数**,没有第二份可漂。
+    # 红法(实测过):把散文里那个族名改回旧数(`3 个情绪块` → `4 个情绪块`)⟹ 本条当场红;
+    # 把 `_UNCOVERED_FAMILIES` 某族的元组增删一条 ⟹ 族名跟着变、散文没变 ⟹ 同样红。
+    prose_families = reason.replace("`", "")
+    missing_families = [k for k in _UNCOVERED_FAMILIES if k not in prose_families]
+    assert not missing_families, (
+        f"`deltas[1].reasons[1]` 里没逐字写出这些族名(族名 = 「条数 标签」,"
+        f"少了它散文里的加法就与分族枚举脱钩了 —— 那串加数会**静默过期**):"
+        f"{missing_families} —— 散文:{reason[:160]!r}")
+
     # ── ⑥ face:16 / 6(deltas[0].reasons[4])──────────────────────────────────
     face_live = _live_columns()["face"]
     face_allow = [a["column"] for a in doc["legacy_allowlist"] if a["modality"] == "face"]
@@ -638,6 +708,96 @@ def test_delta_reason_numbers_match_the_table():
     assert f"{n_voice} 条活列进" in voice_reason, (
         f"voice 那条散文里的「N 条活列进 legacy_allowlist」与数出来的 {n_voice} 条对不上;"
         f"散文:{voice_reason[:120]!r}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# M3.3 删列:11 个手势日志列(2026-09-27)
+# ══════════════════════════════════════════════════════════════════════════════
+
+# `legacy_allowlist` 里 `planned` 写着「M3.3 删列」的那 11 条。共同理由是**同一句**:
+# 「可由同 block jitter 精确重构(`max|diff| = 0`)」⟹ 同 block 其余列的确定性函数,
+# 零额外信息(§4.5 规矩 2)。
+_DELETED_IN_M3_3 = frozenset("""
+    left_hand_score right_hand_score shoulder_score left_arm_score right_arm_score
+    head_score torso_score overall_score
+    left_arm_stability right_arm_stability torso_stability
+""".split())
+
+# ★ 删的是**日志列**,不是**内部计算**。这 11 个名字同时是分析器结果字典里的键:
+#   · `EmotionInferencer._is_valid_result(..., required_key='shoulder_score'/'arm_score')`
+#     —— 键没了 ⟹ 有效性判 False ⟹ 情绪推断**静默**退回 50.0,不报错、不留痕;
+#   · `ArmAnalyzer._compute_arm_score(..., arm_stability)` —— 吃 `arm_stability`;
+#   · `UpperBodyAnalyzer._compute_torso_score(..., torso_stability)` —— 吃 `torso_stability`。
+# 下面这份名单是「这些键必须还在**产出方**手里」的正面断言(不是从表里读的)。
+_INTERNAL_KEYS_KEPT = (
+    ("HandAnalyzer", "resilience_score"),
+    ("ShoulderAnalyzer", "shoulder_score"),
+    ("ArmAnalyzer", "arm_score"),
+    ("ArmAnalyzer", "arm_stability"),
+    ("UpperBodyAnalyzer", "head_score"),
+    ("UpperBodyAnalyzer", "torso_score"),
+    ("UpperBodyAnalyzer", "torso_stability"),
+)
+
+
+def test_the_m3_3_deleted_columns_are_gone_from_the_log_contract():
+    """★ 红法(两条,都是生产改动):① 把任一列加回 `GestureLogger.fieldnames`;
+    ② 把它们从 `legacy_allowlist` 删掉却忘了从 `columns` 那侧核对(或反过来:
+    留在表里不改)⟹ 本条第二段红。
+
+    为什么需要它(别的钉子为什么抓不到):方向 1(`活列 ⊆ 表 ∪ 白名单`)与方向 2
+    (`implemented 行 ⊆ 活列`)问的都是「**活列**有没有着落」—— 而**已删的列不在活列里**,
+    两句话对它们**零区分力**:删一半、或者哪天顺手把一列加回去,那一套照样全绿。
+    本条正面钉「这 11 个名字既不在日志契约里,也不在表里任何一处」。
+    """
+    import gesture_analysis.utils.logger as glog
+
+    fieldnames = list(glog.GestureLogger(session_id="x").fieldnames)
+    still_logged = sorted(n for n in _DELETED_IN_M3_3 if n in fieldnames)
+    assert not still_logged, (
+        f"这 {len(still_logged)} 列按 M3.3 应当**已删**,却还在 `GestureLogger.fieldnames` 里:"
+        f"{still_logged} —— 它们的理由是「可由同 block jitter 精确重构(max|diff| = 0)」,"
+        f"零额外信息")
+
+    doc = l0.load()
+    tabled = {c["column"] for c in doc["columns"] if c["modality"] == "gesture"}
+    allowed = {a["column"] for a in doc["legacy_allowlist"] if a["modality"] == "gesture"}
+    still_tabled = sorted(_DELETED_IN_M3_3 & (tabled | allowed))
+    assert not still_tabled, (
+        f"这 {len(still_tabled)} 列已从日志里删掉,表里却还登记着(columns ∪ legacy_allowlist):"
+        f"{still_tabled} —— 表会说它们「有产出」,而日志里一格都没有")
+
+
+def test_the_internal_values_behind_the_deleted_columns_are_still_produced():
+    """★ 红法:把任一内部键从对应分析器的结果字典里删掉(例如 `arm_analyzer` 的
+    `self.results` 里那行 `"arm_stability": 0.0`)⟹ 本条红。
+
+    为什么需要它(本任务最容易做错的那一步):这 11 个名字**同时是两种东西** ——
+    既是要删的**日志列**,又是分析器结果字典里喂给**别的计算**的**键**。
+    「顺着名字一起删干净」看起来更利落,代价却是:情绪推断的有效性判据
+    (`required_key=`)当场判 False,`_compute_arm_score` 的 `stability_bonus` 归零 ——
+    两处都**不抛异常**,只是数值悄悄变回默认。没有这条断言,那次删除**没有任何东西会响**。
+
+    ⚠️ 边界(如实说):它钉的是「键还在默认结果字典里」,不是「这些键在真输入下算得对」——
+    后者由 `tests/test_gesture_l0_columns.py` 用合成 landmark 逐列钉住。
+    """
+    from gesture_analysis.core.analysis.arm_analyzer import ArmAnalyzer
+    from gesture_analysis.core.analysis.hand_analyzer import HandAnalyzer
+    from gesture_analysis.core.analysis.shoulder_analyzer import ShoulderAnalyzer
+    from gesture_analysis.core.analysis.upper_body_analyzer import UpperBodyAnalyzer
+
+    instances = {
+        "HandAnalyzer": lambda: HandAnalyzer(hand_id=0),
+        "ShoulderAnalyzer": ShoulderAnalyzer,
+        "ArmAnalyzer": lambda: ArmAnalyzer(arm_id="left"),
+        "UpperBodyAnalyzer": UpperBodyAnalyzer,
+    }
+    missing = [f"{cls}.{key}" for cls, key in _INTERNAL_KEYS_KEPT
+               if key not in instances[cls]().get_results()]
+    assert not missing, (
+        f"这些内部键**不见了**:{missing} —— 它们对应的**日志列**确实该删,但键必须留下:"
+        f"情绪推断靠 `required_key=` 判有效性、`_compute_arm_score` 靠 `arm_stability` "
+        f"算奖励项;键没了这两处都**静默**退回默认值,不抛异常")
 
 
 def test_quarantine_refs_point_at_real_keys():
@@ -693,3 +853,91 @@ def test_the_table_carries_no_line_number_references():
     assert not hits, (
         f"表里又出现了行号引用:{sorted(set(hits))[:8]} —— "
         f"行号随任何一次编辑静默失效(本支已踩两次),请改写成文件名 + 符号名")
+
+
+def test_l0_done_rows_must_say_what_unblocks_them():
+    """`l0_done` = 「L0 已落地并实测,还差一条只能来自标定集的判据」。
+
+    与 `blocked` 同一条理由要写「解封条件」:不写的话,「卡在外部条件上」与
+    「我做完 L0 就不管了」在表上长得一模一样,读的人无从知道它等的是什么。
+    红法:把任一条 `l0_done` 行的 acceptance 里的「解封条件」删掉 ⟹ 立刻红。
+    """
+    doc = l0.load()
+    bad = [c["column"] for c in doc["columns"]
+           if c["status"] == "l0_done" and "解封条件" not in str(c.get("acceptance", ""))]
+    assert not bad, f"这些 l0_done 行没写「解封条件」:{bad}"
+
+
+def test_l0_done_rows_are_actually_produced(monkeypatch):
+    """`l0_done` 说的是「L0 做完**且真在产出**」—— 所以它必须同时过方向 2。
+
+    红法:把某条 `l0_done` 行的 column 名改成日志里没有的名字 ⟹ 红。
+    """
+    live = _live_columns()
+    tabled = {c["column"] for c in l0.columns()}
+    bad = [c["column"] for c in l0.columns()
+           if c["status"] == "l0_done" and c["column"] not in tabled]
+    assert not bad, f"l0_done 行不在表里(不该发生):{bad}"
+    # 真正的那条断言交给 `test_every_implemented_row_really_is_produced` 的同款检查,
+    # 这里只钉住「l0_done 的行名必须是**活列名**」这一半(它们全都真在产出)。
+    produced = set()
+    for cols in live.values():
+        produced |= set(cols)
+    missing = [c["column"] for c in l0.columns()
+               if c["status"] == "l0_done" and c["column"] not in produced]
+    assert not missing, f"这些 l0_done 行在任何产出方里都不存在:{missing}"
+
+
+def test_text_columns_are_derived_from_the_producers_not_copied(monkeypatch):
+    """★ text 三列必须**由产出方推出来** —— 抄表就是自己证明自己。
+
+    这条钉子的意义:把 `_live_columns()['text']` 写死成那三个名字,方向 2 就永远绿,
+    哪怕 `transcript.json` 早就不写 `merged.text` 了。这里改成**真去问产出方**,
+    并证明「产出方不吐了 ⟹ 名字跟着消失」。
+
+    红法:把 `_merge` 换成不返回 `text` 的实现 ⟹ 第一句红(抄表的实现不会红)。
+    """
+    import importlib
+    ts = importlib.import_module("voice_interaction.asr.transcript_store")
+
+    assert _text_columns() == ["transcript_raw", "transcript_segments", "asr_model_version"]
+
+    # 产出方不再吐 `merged.text` ⟹ `transcript_raw` 必须跟着消失
+    monkeypatch.setattr(ts, "_merge", lambda segments, vad_split: {"n_chars": 0})
+    assert "transcript_raw" not in _text_columns(), (
+        "`_merge` 已经不吐 `text` 了,而 `transcript_raw` 还在 —— 说明这份名单是**抄表**的,"
+        "不是从产出方推出来的")
+
+
+def test_the_iris_rows_do_not_claim_eye_contact_can_be_released():
+    """★ 本表原先写着「eye_contact 封停可解(它的 unblock 就是这 4 列)」—— 那句话是**错的**。
+
+    错在**只核了生产方**:这 4 列确实按 unblock 改成了眼内相对坐标(平移不变),
+    但 `eye_contact` 这个**槽**还依赖消费方 —— `report_frontend/feature_engine.py` 的
+    eye_contact 口径仍是「到画面中心 (0.5,0.5) 的距离」。实测:iris 的平均距离 ≈ 0.83–0.86
+    ⟹ `max(0, 1 − 2d)` **恒 0.0**,而且没有 `_std` 伴随列(G2 退回 fail-open)⟹
+    解封等于把「没测到」当成「测到 0」按权重 0.3 写进 confidence_level。
+
+    这正是本仓已定性 5 次的「验证跑错了对象」:验收对象选在了**自己能改的那一半**上。
+
+    ⚠️ 判据全部取**正向**(该说的话在不在),不取"某句话不在"的黑名单 ——
+    黑名单会被自己引用的更正句误伤(本测试第一版就是这么红的):更正必须能**引述**旧说法。
+
+    红法(三条各自独立):把「封停仍在」改成「封停可解」/ 删掉「更正」这个标记 /
+    删掉消费方那半句 ⟹ 立刻红;把封停条目放行(生产方明明没修完消费方)⟹ 第四条红。
+    """
+    from report_frontend.evidence_gate import is_quarantined
+
+    rows = {r["column"]: r for r in l0.columns()}
+    for col in ("left_iris_x", "left_iris_y", "right_iris_x", "right_iris_y"):
+        acc = rows[col]["acceptance"].replace("*", "")
+        assert "更正" in acc, (
+            f"{col} 的 acceptance 没有把「原来那句封停可解」标记为更正 —— "
+            f"不标的话,下一个人读到的是一句**已经错过一次**的话")
+        assert "封停仍在" in acc, (
+            f"{col} 的 acceptance 没有明说封停**仍在** —— 生产方修好不等于这个槽能进分")
+        assert ("消费" in acc or "feature_engine" in acc), (
+            f"{col} 的 acceptance 必须点名**消费方**这一侧,否则读的人会以为改完这 4 列就完事:{acc[:120]}")
+
+    assert is_quarantined("face_eye_contact_ratio") is not None, (
+        "eye_contact 被封停条目放行了 —— 但消费方的口径没改,特征恒 0.0")

@@ -20,7 +20,12 @@ _REQUIRED_FIELDS = ("column", "modality", "definition", "source", "normalization
 # 否则它和"编一个值"没有区别(spec §10 风险 1)。
 _BASIS_REQUIRED_FOR = ("B",)
 MATURITIES = ("A", "B", "C")
-STATUSES = ("implemented", "pending", "blocked")
+# ★ `l0_done`(2026-09-27 使用者裁定):**L0 侧已按本表落地并在三场正式素材上实测**,
+#   但验收里还有子项只能来自标定集 / 后续里程碑 ⟹ 不标 `implemented`(那是"整条做完")。
+#   与 `blocked` 的区别:`blocked` 是"什么都不产出也算合格"(L0 还没做),`l0_done` 是
+#   "L0 做完且真在产出,只是还差一条兑现不了的判据"。目前 11 条 C 档全是这个状态。
+#   与 `pending` 的区别:`pending` 读表的人会以为**一行代码都没做** —— 那对这批是假话。
+STATUSES = ("implemented", "pending", "blocked", "l0_done")
 MODALITIES = ("face", "gesture", "voice", "text", "covariate")
 
 _CACHE: dict | None = None
@@ -62,11 +67,17 @@ def schema_errors(doc: dict) -> list[str]:
             errs.append(f"{name}: maturity={row['maturity']} 必须写 basis(这个值是我们定的,凭据在哪)")
         # ★ 预检裁定 F2(2026-09-26):标了 implemented 的行,modality 必须是**产出它的服务**。
         #   理由:钉子方向 2 拿 (column, modality) 去比 `_live_columns()` 的 key,
-        #   而那个 dict 只有 face/gesture/voice 三个键 —— 填 `covariate` 的行永远匹配不上,
+        #   而那个 dict 只有那三个键 —— 填 `covariate` 的行永远匹配不上,
         #   一旦标 implemented 就会**假红**。"协变量用途"是用途,写在 definition 里。
-        if row.get("status") == "implemented" and row.get("modality") not in ("face", "gesture", "voice"):
+        # ★ 2026-09-27 使用者裁定:把 **`text` 加成第四种产出方**。
+        #   原来这里只有 face/gesture/voice ⟹ text 三行**结构上永远不可能**标 implemented,
+        #   哪怕它们的验收全部达成(实测:翻一下就各报一条错)。那是**表的表达力缺口**,
+        #   不是"text 没做"(它真在产出:仓库外的 `transcript.json`)。
+        #   配套:钉子方向 2 的 `_live_columns()` 补一个 `text` 键,**由 transcript 的真实
+        #   产出方推出来**(不是抄表)—— 这样"产出方没了"照样会红。
+        if row.get("status") == "implemented" and row.get("modality") not in ("face", "gesture", "voice", "text"):
             errs.append(f"{name}: status=implemented 但 modality={row.get('modality')!r} "
-                        f"—— 已实现的列必须标产出它的服务(face/gesture/voice)")
+                        f"—— 已实现的列必须标产出它的服务(face/gesture/voice/text)")
         # ★ Task 8(2026-09-26):`blocked` 的行必须在 `acceptance` 里写下**解封条件**。
         #   理由:`blocked` 是唯一一个"什么都不产出也算合格"的状态 —— 不写解封条件,
         #   「卡在某个外部条件上」与「只是不打算做」在表上长得一模一样,读表的人无从
@@ -74,6 +85,11 @@ def schema_errors(doc: dict) -> list[str]:
         if row.get("status") == "blocked" and "解封条件" not in str(row.get("acceptance", "")):
             errs.append(f"{name}: status=blocked 但 acceptance 里没写「解封条件」"
                         f"—— 卡住的行必须写清它等的是什么(缺什么、怎么拿到)")
+        # ★ 同一条理由适用于 `l0_done`:它是"L0 做完、还差一条兑现不了的判据"。
+        #   不写「解封条件」的话,它与"我做完 L0 就不管了"在表上长得一模一样。
+        if row.get("status") == "l0_done" and "解封条件" not in str(row.get("acceptance", "")):
+            errs.append(f"{name}: status=l0_done 但 acceptance 里没写「解封条件」"
+                        f"—— 这一档的含义就是「L0 已落地、还差一条判据」,必须写清那条判据等的是什么")
     if not doc.get("count_reconciliation"):
         errs.append("缺 count_reconciliation —— 「54」这个数必须登记来源与差异")
     # ★ 计数收口(2026-09-26,预检裁定 C5 + Task 2 复核 §5 C10):`actual` 的每个模态数

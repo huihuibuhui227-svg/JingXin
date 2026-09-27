@@ -63,11 +63,13 @@ class GestureLogger:
             "timestamp_iso",            # ISO 8601 格式时间（便于阅读）
 
             # 手部特征
-            "left_hand_score",
+            # ⚠️ 2026-09-27(M3.3 删列):`left_hand_score` / `right_hand_score` 两列已删 ——
+            # 理由是「可由同 block 的 jitter 精确重构(`max|diff| = 0`,三场正式素材
+            # 1418 行实测)」,零额外信息。**删的是落盘,不是计算**:`resilience_score`
+            # 仍是 `HandAnalyzer` 结果字典里的键(情绪推断拿它判有效性)。
             "left_hand_jitter",
             "left_hand_fist_status",
             "left_hand_spread",
-            "right_hand_score",
             "right_hand_jitter",
             "right_hand_fist_status",
             "right_hand_spread",
@@ -85,23 +87,23 @@ class GestureLogger:
             "right_pinky_angle",
 
             # 肩部特征
-            "shoulder_score",
+            # (2026-09-27 M3.3 删列:`shoulder_score` 已删 —— jitter + shrug_level 的确定性
+            #  函数;`shoulder_score` 仍是 `ShoulderAnalyzer` 的结果键,情绪推断吃它。)
             "left_shoulder_jitter",
             "right_shoulder_jitter",
             "shrug_level",
             "is_calibrated",
 
             # 手臂特征
-            "left_arm_score",
+            # (2026-09-27 M3.3 删列:`left/right_arm_score` 与 `left/right_arm_stability` 已删;
+            #  `arm_stability` 仍是 `ArmAnalyzer` 的结果键 —— `_compute_arm_score` 的
+            #  `stability_bonus` 项吃它,删键会让奖励项**静默**归零。)
             "left_wrist_jitter",
             "left_elbow_jitter",
             "left_arm_angle",
-            "left_arm_stability",
-            "right_arm_score",
             "right_wrist_jitter",
             "right_elbow_jitter",
             "right_arm_angle",
-            "right_arm_stability",
 
             # 手臂角度（屏幕显示）
             "left_elbow_angle",
@@ -110,12 +112,12 @@ class GestureLogger:
             "right_shoulder_angle",
 
             # 上半身特征
-            "head_score",
+            # (2026-09-27 M3.3 删列:`head_score` / `torso_score` / `torso_stability` 三列已删;
+            #  `torso_stability` 仍是 `UpperBodyAnalyzer` 的结果键 —— `_compute_torso_score`
+            #  吃它。`head_score`/`torso_score` 是分析器自己的输出,留着不占落盘。)
             "head_jitter",
             "head_tilt",
-            "torso_score",
             "torso_jitter",
-            "torso_stability",
 
             # 头部角度（屏幕显示）
             "head_tilt_angle",
@@ -128,7 +130,10 @@ class GestureLogger:
             "torso_angle",
 
             # 情绪特征
-            "overall_score",
+            # ⚠️ 2026-09-27(M3.3 删列):`overall_score` 已删 —— 它在三场正式素材上
+            # 1418/1418 行**恒 50.0**(情绪推断在活服务里整块没有产出,实测见
+            # `l0_columns.json` 的 `deltas[1].reasons[8]`)。下面四列是同一块的其余四列,
+            # 在本轮**不动**(判删依据只对 `overall_score` 逐行核过)。
             "emotion_state",
             "feedback",
             "used_features",
@@ -348,14 +353,16 @@ class GestureLogger:
                 "timestamp": now.timestamp(),
                 "timestamp_iso": now.isoformat(),
 
-                # 手部特征
-                "left_hand_score": self._safe_get(left_hand_result, 'resilience_score', 0.0),
+                # 手部特征(2026-09-27 M3.3:`*_hand_score` 两列已删 —— 见 `fieldnames`)
                 "left_hand_jitter": self._safe_get(left_hand_result, 'jitter', 0.0),
-                "left_hand_fist_status": self._safe_int(left_hand_result, 'fist_status', False),
+                # ★ 2026-09-27(C 档):这一格装的是**无量纲屈曲比**(`HandAnalyzer._flexion_ratio`),
+                # 不再是 0/1 判决 —— 表里 `l0_output` 明写「L0 只吐那个比值,门限推给标定集」。
+                # 缺省是 `None`(不是 0.0):掌心/掌长取不出来 ⟹ 落**空**,
+                # 「没有分母」不许伪装成「屈曲度 = 0」。
+                "left_hand_fist_status": self._safe_get(left_hand_result, 'fist_status', None),
                 "left_hand_spread": self._safe_get(left_hand_result, 'spread', 0.0),
-                "right_hand_score": self._safe_get(right_hand_result, 'resilience_score', 0.0),
                 "right_hand_jitter": self._safe_get(right_hand_result, 'jitter', 0.0),
-                "right_hand_fist_status": self._safe_int(right_hand_result, 'fist_status', False),
+                "right_hand_fist_status": self._safe_get(right_hand_result, 'fist_status', None),
                 "right_hand_spread": self._safe_get(right_hand_result, 'spread', 0.0),
 
                 # 左右手标签的来源(见字段说明)。`handedness_info[槽]` 是
@@ -382,24 +389,19 @@ class GestureLogger:
                 "right_ring_angle": self._safe_get_angle(angles_data, 'right_finger_angles', 'ring'),
                 "right_pinky_angle": self._safe_get_angle(angles_data, 'right_finger_angles', 'pinky'),
 
-                # 肩部特征
-                "shoulder_score": self._safe_get(shoulder_result, 'shoulder_score', 0.0),
+                # 肩部特征(2026-09-27 M3.3:`shoulder_score` 已删)
                 "left_shoulder_jitter": self._safe_get(shoulder_result, 'left_jitter', 0.0),
                 "right_shoulder_jitter": self._safe_get(shoulder_result, 'right_jitter', 0.0),
                 "shrug_level": self._safe_get(shoulder_result, 'shrug_level', 0.0),
                 "is_calibrated": self._safe_int(shoulder_result, 'is_calibrated', False),
 
-                # 手臂特征
-                "left_arm_score": self._safe_get(left_arm_result, 'arm_score', 0.0),
+                # 手臂特征(2026-09-27 M3.3:`*_arm_score` / `*_arm_stability` 四列已删)
                 "left_wrist_jitter": self._safe_get(left_arm_result, 'wrist_jitter', 0.0),
                 "left_elbow_jitter": self._safe_get(left_arm_result, 'elbow_jitter', 0.0),
                 "left_arm_angle": self._safe_get(left_arm_result, 'arm_angle', 0.0),
-                "left_arm_stability": self._safe_get(left_arm_result, 'arm_stability', 0.0),
-                "right_arm_score": self._safe_get(right_arm_result, 'arm_score', 0.0),
                 "right_wrist_jitter": self._safe_get(right_arm_result, 'wrist_jitter', 0.0),
                 "right_elbow_jitter": self._safe_get(right_arm_result, 'elbow_jitter', 0.0),
                 "right_arm_angle": self._safe_get(right_arm_result, 'arm_angle', 0.0),
-                "right_arm_stability": self._safe_get(right_arm_result, 'arm_stability', 0.0),
 
                 # 手臂角度（屏幕显示）
                 "left_elbow_angle": self._safe_get(angles_data, 'left_elbow_angle', None),
@@ -407,13 +409,10 @@ class GestureLogger:
                 "left_shoulder_angle": self._safe_get(angles_data, 'left_shoulder_angle', None),
                 "right_shoulder_angle": self._safe_get(angles_data, 'right_shoulder_angle', None),
 
-                # 上半身特征
-                "head_score": self._safe_get(upper_body_result, 'head_score', 0.0),
+                # 上半身特征(2026-09-27 M3.3:`head_score` / `torso_score` / `torso_stability` 已删)
                 "head_jitter": self._safe_get(upper_body_result, 'head_jitter', 0.0),
                 "head_tilt": self._safe_get(upper_body_result, 'head_tilt', 0.0),
-                "torso_score": self._safe_get(upper_body_result, 'torso_score', 0.0),
                 "torso_jitter": self._safe_get(upper_body_result, 'torso_jitter', 0.0),
-                "torso_stability": self._safe_get(upper_body_result, 'torso_stability', 0.0),
 
                 # 头部角度（屏幕显示）
                 "head_tilt_angle": self._safe_get(angles_data, 'head_tilt_angle', None),
@@ -431,8 +430,7 @@ class GestureLogger:
                 # 而 `left_thumb_angle == ""` 已被 tests/test_gesture_task_outputs_wired.py 钉住)。
                 "shoulder_width": self._safe_get(angles_data, 'shoulder_width', None),
 
-                # 情绪特征
-                "overall_score": self._safe_get(emotion_result, 'overall_score', 0.0),
+                # 情绪特征(2026-09-27 M3.3:`overall_score` 已删 —— 恒 50.0,零信息)
                 "emotion_state": self._safe_get(emotion_result, 'emotion_state', ''),
                 "feedback": self._safe_get(emotion_result, 'feedback', ''),
                 "used_features": self._safe_get(emotion_result, 'used_features', 'none'),

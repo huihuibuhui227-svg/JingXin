@@ -46,31 +46,76 @@ class Quarantine:
 
 # 封停名单(spec §5.2)。key 为**子串**,按最长匹配生效。
 # 解封条件写在 unblock 里,便于 M3 修好后逐条解封。
+#
+# ★ 2026-09-27 对账(本名单对三场正式素材的**当前**产出一一量过,三类处置):
+#
+#   ① **解封 5 条** —— 它们**自己写的那个理由**已不成立(判据是 G4 自己的口径,
+#      不是"我们觉得这个量挺有用")。逐条证据写在 `tests/test_report_layer.py`
+#      的 `_RELEASED` 上方:`symmetry_score` / `jitter` / `fist_status` /
+#      `au4_freq` / `pitch_variation`。
+#   ② **改准 5 条**(**不是**删)—— `hand_score` / `shoulder_score` / `arm_score` /
+#      `head_score` / `torso_score`:产出它们的列已从 `GestureLogger` 的**落盘契约**里
+#      删掉(B3 删列)。⚠️ 2026-09-27 一度按"已无对象可封"把这 5 条**删了**,实测**删不得**,
+#      它们有两个**当前就存在**的对象:
+#        · **活路径**:`data_loader.get_live_data` 从手势服务的 `/summary` 端点拼出的那一行
+#          仍写着 `hand_score` / `left_hand_score` / `right_hand_score` / `shoulder_score` /
+#          `left_arm_score` / `right_arm_score`(实测:经 `feature_engine` 变成
+#          `gesture_hand_score_mean` 等 30 个键,全部由这几条封停拦下;删掉条目它们当场进分);
+#        · **历史日志**:三场正式素材(2026-09-26)的 CSV 里那 7 个 `*_score` 列**还在**。
+#      教训:**封停对象是"列",不是"某个产出方"**。删掉一个产出方不等于这条封停没有对象;
+#      判「有没有对象」要**逐个产出方数**(落盘 logger、活路径 HTTP、历史文件),
+#      只数一个就会把仍在生效的封停当成死条目删掉。
+#      ⟹ 保留条目,只把措辞改准(说清它现在管的是活路径与历史日志)。
+#   ③ **改写 6 条的措辞**(理由仍成立,但原文描述的是**现在的代码里不存在的机制**,
+#      或量错了对象):`tension_score` / `gaze_deviation` / `eye_contact` /
+#      `blink_rate` / `eye_closed_sec` / `pause_duration`。
+#      ⚠️ 其中 `eye_contact` 是**改了理由但仍须封停**的那一条:它的 unblock
+#      (「M3 改眼内相对坐标」)在生产方**已达成**,而**消费方**(`feature_engine` 的
+#      `_extract_face_features`)没跟着改 ⟹ 实测 `face_eye_contact_ratio` 恒 0.0。
+#      生产方修好不等于这个量能进分 —— 见下面那条理由。
 QUARANTINE: dict[str, Quarantine] = {
     # ---- 等 M3 ----
-    "focus_score": Quarantine("3 个硬编码取值,99.7% 恒 0.3", "M3"),
-    "symmetry_score": Quarantine("未除人脸尺度,近常量,取景代理", "M3"),
-    "tension_score": Quarantine("伪合成,5 项里 2 项恒定", "M3"),
+    "focus_score": Quarantine("3 个硬编码取值 {0.3,0.5,0.8},2b11 会话内恒 0.3", "M3"),
+    "tension_score": Quarantine(
+        "伪合成:硬编码权重(.25/.25/.2/.15/.15)与硬编码情绪加成;5 个分量里 "
+        "eye_closure 近乎恒 0(eye_closed_sec 恒 0,2b11/1592 std=0)", "M3"),
     "tension_level": Quarantine("字符串分箱", "M3"),
     "tension_sources_": Quarantine("au4/au23 副本或恒定量", "M3"),
     "gaze_direction_y": Quarantine("恒负,解剖常量", "M3"),
-    "gaze_deviation": Quarantine("与 gaze_direction_y 组内 r=-0.994", "M3"),
-    "hand_score": Quarantine("可由同 block jitter 精确重构", "M3"),
-    "shoulder_score": Quarantine("可由同 block jitter 精确重构", "M3"),
-    "arm_score": Quarantine("可由同 block jitter 精确重构", "M3"),
-    "head_score": Quarantine("可由同 block jitter 精确重构", "M3"),
-    "torso_score": Quarantine("可由同 block jitter 精确重构", "M3"),
-    "fist_status": Quarantine("fist_threshold=0.08 -> 有效帧 100% 判握拳", "M3"),
-    # ↓ 这 7 条来自 spec §5.3 的**槽位级**处置,§5.2 的列级表没覆盖它们。
-    #   仅靠 §5.2 会让这 7 个指标绕过 G4 直接进打分(实测其中 3 个真的出了分)。
+    "gaze_deviation": Quarantine(
+        "与 gaze_direction_y 同族冗余(y 分量主导:两列会话均值相对差 "
+        "4.5%/8.5%/30.4%,2026-09-27 三场重放实测)", "M3"),
+    # ↓ 这 5 条**不是**"无对象可封":`GestureLogger` 的落盘契约里删了这些列(B3),
+    #   但活路径(`data_loader.get_live_data` 读手势 `/summary`)与历史日志里都还在产
+    #   ⟹ 封停照旧生效,只把措辞改准。理由全文见文件上方 ②。
+    "hand_score": Quarantine(
+        "可由同 block jitter 精确重构(零额外信息);手势 logger 的落盘契约已删列(B3),"
+        "但活路径 `/summary` 与历史日志仍在产 ⟹ 本条仍有效", "改由 jitter 直接测同一构念"),
+    "shoulder_score": Quarantine(
+        "可由同 block jitter 精确重构(零额外信息);同 hand_score,落盘已删列而活路径仍在产",
+        "改由 shrug_level 直接测同一构念"),
+    "arm_score": Quarantine(
+        "可由同 block jitter 精确重构(零额外信息);同 hand_score,落盘已删列而活路径仍在产",
+        "改由 jitter 直接测同一构念"),
+    "head_score": Quarantine(
+        "可由同 block jitter 精确重构(零额外信息);同 hand_score,落盘已删列而活路径仍在产",
+        "改由 jitter 直接测同一构念"),
+    "torso_score": Quarantine(
+        "可由同 block jitter 精确重构(零额外信息);同 hand_score,落盘已删列而活路径仍在产",
+        "改由 jitter 直接测同一构念"),
+    # ↓ 这 6 条来自 spec §5.3 的**槽位级**处置,§5.2 的列级表没覆盖它们。
+    #   仅靠 §5.2 会让这些指标绕过 G4 直接进打分(实测其中 3 个真的出了分)。
     #   已由 Task 3 的修复轮补入(Task 2 完成时遗漏)。
+    #   2026-09-27 对账后 `au4_freq`(解封)与 `fluency_score`(改挂 NO_PRODUCER)
+    #   退出本组,余 6 条。
     "gaze_stability": Quarantine("由被封停的 gaze_deviation 派生", "M3 修 gaze_direction_x"),
-    "au4_freq": Quarantine("从 micro_exp 字符串解析出的垃圾匹配", "M3 修 au4 landmark"),
     "au7_freq": Quarantine("au7 + avg_ear 恒等 1.0,与 au4 互补", "M3"),
-    "jitter": Quarantine("经 x5 归一化恒饱和", "M3 归一化(除肩宽除时间)"),
     "speech_ratio": Quarantine("自指阈值,87.9% 恰为 1.0", "M3 真 VAD"),
-    "eye_contact": Quarantine("iris 图像坐标到画面中心距离,是取景代理", "M3 改眼内相对坐标"),
-    "fluency_score": Quarantine("生产分支为死代码,实测走 BASELINE_FILL", "M3 真 VAD"),
+    "eye_contact": Quarantine(
+        "**消费方**未随生产方改:iris 四列已改为眼内相对坐标,而 "
+        "feature_engine 的 eye_contact 口径仍是「到画面中心 (0.5,0.5) 的距离」"
+        "⟹ 实测 face_eye_contact_ratio 恒 0.0(三场),且无 _std 伴随列 "
+        "(G2 在此退回 fail-open,挡不住)", "M3 改 feature_engine 的 eye_contact 口径"),
     # 永久封停:unblock 是给人看的显示文本,逻辑判断一律用 permanent 字段。
     # 不要用 unblock == "永不" 反推 —— 字符串是显示层,不是逻辑层。
     # ★ 这两条此前写成 `upper_body_head_tilt` / `shoulder_is_calibrated` —— 那是
@@ -89,10 +134,17 @@ QUARANTINE: dict[str, Quarantine] = {
     "micro_exp_onset_frame": Quarantine("环形缓冲下标,恒在 5~13", "永不", permanent=True),
     "fluency_proxy": Quarantine("与 fluency_score 同自由度,数了两遍", "永不", permanent=True),
     # ---- 等对应里程碑 ----
-    "blink_rate": Quarantine("恒 0(值写进深拷贝)", "M2 修序列化"),
-    "eye_closed_sec": Quarantine("恒 0;+=1/30 在 10fps 下低估 3 倍", "M2 修序列化"),
-    "pitch_variation": Quarantine("实际取的是 pitch_mean,名字与计算不符", "改名后"),
-    "pause_duration": Quarantine("尾部静默被丢弃", "M3 修停顿检测"),
+    "blink_rate": Quarantine(
+        "60 秒滚动窗,量的不是 per-sec 眨眼率:三场帧间隔 1.06–1.07 s,"
+        "is_blink 只命中 1/271·3/477·11/479 帧 ⟹ 计数由采样格决定,不是被试的眨眼频率",
+        "随列处置(删列)或改成按真实帧间隔算的 per-sec 率"),
+    "eye_closed_sec": Quarantine(
+        "与 is_blink 冗余:判定门 avg_ear < 0.18,而 avg_ear 均值 0.42 ⟹ "
+        "2b11/1592 整个会话恒 0、caf0 只有 3 个取值", "随列处置(删列)或并入眨眼时长"),
+    "pause_duration": Quarantine(
+        "自指能量门限:停顿 = 连续 rms ≤ mean(rms)×0.3 的帧段,门限值无出处 "
+        "⟹ 只能来自标定集(M3.1 已裁定跳过)。尾部收尾已由 M3.0 补上",
+        "标定集给出能量门限后登记进 evidence_thresholds.json"),
     "energy_mean": Quarantine("设备增益/距离代理,跨会话不可比", "M3 会话内归一"),
     "energy_level": Quarantine("同上", "M3 会话内归一"),
     "is_valid": Quarantine("恒 1 且下游从未使用", "M3 改真掩码"),

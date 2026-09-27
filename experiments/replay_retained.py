@@ -1,4 +1,4 @@
-"""把留存下来的帧按**当时的时间戳**重放一遍 —— M2.6 的验收工具。
+"""把留存下来的帧/音频按**当时的时间戳**重放一遍 —— M2.6 的验收工具。
 
 为什么需要一个专门的脚本(spec §7.1):留存的意义是"事后能重算"。要证明这一点,
 就得拿盘上的帧重新跑一遍提取器,看结果是不是与**当场活跑**写下的 CSV 逐格相等。
@@ -9,6 +9,8 @@
     $PY experiments/replay_retained.py --session-id 20260925_120000_aaaa \
         --out ~/shared/jingxin_recordings/20260925_120000_aaaa/replay_face.csv
 然后把 replay_face.csv 与 data/logs/face_au_log_<sid>.csv 逐格比。
+
+三路重放腿(2026-09-27 起):`--modality face|gesture|voice`。
 """
 from __future__ import annotations
 
@@ -194,13 +196,152 @@ def replay_gesture(session_dir: Path, out_csv: Path) -> int:
     return n
 
 
+def load_audio_segments(session_dir: Path | str, kind: str = "converted"
+                        ) -> tuple[list[tuple[Path, dict]], dict]:
+    """读出本会话留存的音频段(账本为准)。返回 `(段列表, 缺口报告)`。
+
+    与 `load_frames` **同一判据**:以盘上的文件为准,账本只用来取元数据(这里取的是
+    `source_endpoint` / `seq` / `sha256`,好让调用方认出「同一次回答被留了两份」)。
+
+    为什么只取 `kind="converted"`:`raw` 是浏览器给的原始容器(webm/opus),而活路径
+    `voice_interaction/api/app.py` 的 `prosody_features_from_pcm` 只吃
+    **16 kHz/16 bit/单声道 PCM**(端点的 `wave` 闸保证过这一点)。
+    `converted` 就是过了那道闸、被 `wave` 读出来的那段字节的来源 ⟹ 重放必须用它,
+    用 `raw` 得先自己转码一次,那就在重放里插了一层当时没有的处理。
+
+    ★ **时间戳(纪律 3)在音频这一路是空的,而且是如实空的**:
+    账本里音频行的 `declared_ts` **恒为 `null`**(`retain_audio` 传的就是 `None` ——
+    那是逐帧模态的字段),而活路径用的那个函数 `prosody_features_from_pcm(pcm)`
+    **只吃字节、不吃时间戳**。所以本腿没有可以喂的时间戳,**也不许另编一个**:
+    音频的时间基准就在这份 16 kHz 字节的采样率里,是当时那批字节自带的。
+    报告里把 `declared_ts_present` 数出来(预期 0),免得后来人以为这里有东西被漏掉。
+    """
+    session_dir = Path(session_dir)
+    ledger = session_dir / f"{LEDGER_PREFIX}.audio{LEDGER_SUFFIX}"
+
+    records: list[dict] = []
+    torn = 0
+    if ledger.exists():
+        for line in ledger.read_text(encoding="utf-8", errors="replace").splitlines():
+            if not line.strip():
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                torn += 1                       # 碎行/半行 → 计数,不崩
+                continue
+            if rec.get("kind") != kind:
+                continue
+            records.append(rec)
+
+    segments: list[tuple[Path, dict]] = []
+    missing: list[str] = []
+    for rec in records:
+        rel = str(rec.get("file") or "")
+        p = session_dir / rel
+        if rel and p.exists():
+            segments.append((p, rec))
+        else:
+            missing.append(rel or "<无 file 字段>")
+
+    report = {
+        "ledger_records": len(records),
+        "files_on_disk": len(segments),
+        "missing_files": missing,
+        "torn_lines": torn,
+        "declared_ts_present": sum(1 for r in records if r.get("declared_ts") is not None),
+    }
+    return segments, report
+
+
+def replay_voice(session_dir: Path, out_csv: Path, answers_only: bool = False,
+                 dedupe: bool = True) -> int:
+    """按留存音频重跑**语音服务的那一条路**,把每段的**特征字典**写成 CSV。返回段数。
+
+    ★ 与手势腿同一条理由(见 `replay_gesture` 的说明):「重放」的全部意义是**走真产出方**。
+    所以这里调的是端点调的那个函数 `voice_interaction.api.app.prosody_features_from_pcm`
+    —— 端点里 `await _prosody_async(audio_data)`(它内部 `asyncio.to_thread` 包的就是
+    这个函数)拿到的正是同一份字节。若本脚本自己写一遍"读 wav → 调提取器 → 改名",
+    它证的就是它自己抄的那份接线:端点里漏接一个键、改名表漏一行,这条腿照样绿。
+    ⚠️ 走的是 `prosody_features_from_pcm`,因此**不经过** `reaction_time_features`
+    (那要用墙钟与题目台账,重放里没有,也不许编)—— 本腿只对"提取器产出"负责。
+    """
+    import importlib
+    import wave
+
+    voice_app = importlib.import_module("voice_interaction.api.app")
+
+    segments, report = load_audio_segments(session_dir)
+    print(f"[素材] 账本 {report['ledger_records']} 段(converted),盘上找得到 {report['files_on_disk']} 段;"
+          f"账本碎行 {report['torn_lines']} 行;"
+          f"带 declared_ts 的音频行 {report['declared_ts_present']} 段(音频这一路应为 0)")
+    if report["missing_files"]:
+        print(f"⚠️  {len(report['missing_files'])} 段**账本有、盘上没有**,本次不重放;"
+              f"前几个:{report['missing_files'][:5]}", file=sys.stderr)
+
+    if answers_only:
+        segments = [(p, r) for p, r in segments
+                    if r.get("source_endpoint") == "/interview/answer_audio"]
+
+    if dedupe:
+        seen: set[str] = set()
+        kept = []
+        for p, r in segments:
+            # 账本里的 sha256 就是当时那份字节的哈希(media_retention._record 算的);
+            # 缺了它才退回文件名 —— 不在这里另算一次哈希。
+            key = str(r.get("sha256") or p.name)
+            if key in seen:
+                continue
+            seen.add(key)
+            kept.append((p, r))
+        dropped = len(segments) - len(kept)
+        if dropped:
+            print(f"[去重] 按 sha256 去掉 {dropped} 段逐字节相同的重复留存"
+                  f"(同一段回答常被留两份:预览 `/asr` 一次 + `/interview/answer_audio` 一次)")
+        segments = kept
+
+    rows: list[dict] = []
+    for path, rec in segments:
+        with wave.open(str(path), "rb") as wf:
+            ch, sw, fr, n = (wf.getnchannels(), wf.getsampwidth(),
+                             wf.getframerate(), wf.getnframes())
+            # 与端点同一道闸(voice_interaction/api/app.py 的 `wave` 校验):
+            # 不满足就**报出来**,不静默跳过 —— 跳过的段在 CSV 里就是"没有这一行",
+            # 而看的人会以为那一段本来就没有。
+            if (ch, sw, fr) != (1, 2, 16000):
+                print(f"[跳过] {path.name}:格式 {ch}ch/{sw*8}bit/{fr}Hz,"
+                      f"端点会 400 —— 不是{1}ch/16bit/16000Hz", file=sys.stderr)
+                continue
+            pcm = wf.readframes(n)
+        feats = voice_app.prosody_features_from_pcm(pcm)
+        row = {"file": path.name, "seq": rec.get("seq"),
+               "source_endpoint": rec.get("source_endpoint"),
+               "seconds": round(len(pcm) / 2 / 16000, 2)}
+        row.update(feats)
+        rows.append(row)
+
+    if rows:
+        keys = list(rows[0])
+        keys += sorted({k for r in rows for k in r} - set(keys))
+        out_csv.parent.mkdir(parents=True, exist_ok=True)
+        with out_csv.open("w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=keys)
+            w.writeheader()
+            w.writerows(rows)
+    return len(rows)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="重放留存帧(M2.6 验收)")
     ap.add_argument("--session-id", required=True)
     ap.add_argument("--root", default=None, help="默认取 JINGXIN_RECORDINGS_DIR")
     ap.add_argument("--out", required=True)
-    ap.add_argument("--modality", default="face", choices=("face", "gesture"),
-                    help="重放哪一路(M3 B3 起手势也有腿)")
+    ap.add_argument("--modality", default="face", choices=("face", "gesture", "voice"),
+                    help="重放哪一路(M3 B3 起手势也有腿、M3.4 起语音也有腿)")
+    ap.add_argument("--answers-only", action="store_true",
+                    help="语音腿专用:只要 `/interview/answer_audio` 那批(去掉 `/asr` 预览)")
+    ap.add_argument("--no-dedupe", action="store_true",
+                    help="语音腿专用:不按 sha256 去掉逐字节相同的重复留存")
     args = ap.parse_args(argv)
 
     d = Path(args.root) / args.session_id if args.root else recording_dir(args.session_id)
@@ -208,16 +349,27 @@ def main(argv=None) -> int:
         n = replay_gesture(d, Path(args.out))
         print(f"[完成] 重放手势 {n} 帧 -> {args.out}")
         print("下一步:与 data/logs/gesture_emotion_log_<sid>.csv 逐格比对(spec §7.1)")
+        _frames, report = load_frames(d, args.modality)
+        missing, torn = len(report["missing_ts"]), report["torn_lines"]
+    elif args.modality == "voice":
+        n = replay_voice(d, Path(args.out), answers_only=args.answers_only,
+                         dedupe=not args.no_dedupe)
+        print(f"[完成] 重放语音 {n} 段 -> {args.out}")
+        print("下一步:与 data/logs/interview_emotion_log_<sid>.csv 的对应行逐格比对"
+              "(注意:活路径那几行还多出 `reaction_time` 一组,它们要墙钟与题目台账,重放里没有)")
+        _segs, report = load_audio_segments(d)
+        missing, torn = len(report["missing_files"]), report["torn_lines"]
     else:
         n = replay_face(d, Path(args.out))
         print(f"[完成] 重放 {n} 帧 -> {args.out}")
         print("下一步:与 data/logs/face_au_log_<sid>.csv 逐格比对(spec §7.1)")
-    # 退出码:只有**盘上每一帧都重放了**才算通过 —— 有缺口就是 2,
+        _frames, report = load_frames(d, args.modality)
+        missing, torn = len(report["missing_ts"]), report["torn_lines"]
+
+    # 退出码:只有**盘上每一份素材都重放了**才算通过 —— 有缺口就是 2,
     # 免得调用方把"重放了 105/187"当成成功。
-    _frames, report = load_frames(d, args.modality)
-    if report["missing_ts"] or report["torn_lines"]:
-        print(f"[不完整] 缺口 {len(report['missing_ts'])} 帧 / 碎行 {report['torn_lines']} 行",
-              file=sys.stderr)
+    if missing or torn:
+        print(f"[不完整] 缺口 {missing} 份 / 碎行 {torn} 行", file=sys.stderr)
         return 2
     return 0 if n else 1
 

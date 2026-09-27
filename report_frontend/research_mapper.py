@@ -20,12 +20,28 @@ warnings.filterwarnings('ignore')
 # "缺数据"——读者会去调摄像头,而调了也没用。槽位本身的去留要动分母与置信度,
 # 是评分语义、等使用者裁定;在裁定之前,至少不许说假话。
 NO_PRODUCER: Dict[str, str] = {
-    # 2026-09-26:这一名单**已空**。
+    # 2026-09-26 曾清空过一次:
     #   · 「回答详尽度」→ 语音端点写 `n_chars`(字数,与连接词密度同一个计数器);
     #   · 「反应延迟」  → 语音端点写 `reaction_time`(首次开口墙钟 − 该题 ask_end),
     #     成分 `speech_onset_sec` / `answer_onset_wall` 一并落盘,可复核。
-    # 留着这个空字典是因为**它检查的是"有没有产出方"这件事本身**,而不是"现在谁缺"
+    # 留着这个字典是因为**它检查的是"有没有产出方"这件事本身**,而不是"现在谁缺"
     # —— 将来再出现"映射表里有、全系统没人算"的槽,往这里加一行即可。
+    #
+    # ★ 2026-09-27 封停名单对账,补进三个 —— 它们原先都靠 G4 的「本轮停用」说话,
+    #   而那个说法在这里是**假话**:关掉它们的开关并不存在,因为根本没有生产者在算。
+    "fluency_score": (
+        "`feature_engine` 里那个按列名拼 `fluency_score` 的生产分支已删(它要求列名同时含 "
+        "speech_ratio 与 mean,而真实列名是 speech_ratio,故从未触发),BASELINE_FILL 兜底"
+        "也一并删除 ⟹ 全系统没有任何代码在算这个量。真 VAD 落地前无法产出。"
+    ),
+    # ⚠️ `hand_score` / `shoulder_score` **不在**这里,尽管它们的列也已从当前落盘契约
+    #   删掉(B3)。判据是**有没有对象**,而它们有:那两列在历史日志(三场正式素材,
+    #   2026-09-26)里**还在**,实测若解掉封停,`confidence_level` 会当场出分
+    #   (29.38 / 21.83 / 18.34),且那分**全部**来自这两列 —— 正是本仓判为零信息、
+    #   决定删掉的那两列。列还在 ⟹ 该由 G4 拦着,不该说成"缺产出方"。
+    #   `fluency_score` 不同:它在**任何**日志里都没有产出方(生产分支与 BASELINE_FILL
+    #   都已删除,见 `tests/test_report_layer.py::test_dead_fluency_branch_removed`),
+    #   即"全系统没有代码在算它"—— 那才是本名单的定义。
 }
 
 # 置信度从低到高的顺序。取值域由 evidence_gate.Confidence 定义(高在本轮不可达)。
@@ -103,10 +119,24 @@ class ResearchCapabilityMapper:
                 "description": "观测文本结构与面部动作单元相关的可测量。",
                 "algorithm": "加权线性组合 + 认知负荷推断",
                 "indicators": [
+                    # 2026-09-27 列对账(逐槽,判据 = **同构念的更好测法**,不是"能过门"):
                     ("connective_density", 0.4, True, "连接词密度", "core"),
                     ("focus_score", 0.3, True, "面部专注度", "core"),
-                    ("gaze_stability", 0.2, True, "视线稳定性", "core"),
-                    ("au4_freq", 0.1, False, "困惑微表情 (皱眉)", "support"),
+                    # `gaze_stability` → `gaze_direction_x_std`(会话内标准差)。
+                    # 旧列是 1/(1+std(gaze_deviation)),而 gaze_deviation 的 y 分量
+                    # (gaze_direction_y)是解剖常量、自身也被封停 ⟹ 它量的是那个常量的
+                    # 抖动。稳定性 = 视线的**不变程度**,直接测法是真实视线列(§4.1:189
+                    # 判「保」的 gaze_direction_x)的会话内标准差。那条封停自己写的解封
+                    # 条件就是「M3 修 gaze_direction_x」。
+                    # ⚠️ 方向随之翻:std 越大 = 越不稳 = 越糟 ⟹ is_positive 由 True 改 False。
+                    ("gaze_direction_x_std", 0.2, False,
+                     "视线稳定性 (视线水平偏移的会话内标准差)", "core"),
+                    # `au4_freq` → `au4_frown`:同一个构念(**皱眉**)的真几何量。
+                    # 旧槽想量皱眉,而它匹配到的是「从 micro_exp 字符串解析出的垃圾」;
+                    # au4_frown = 双眉内侧点距 ÷ 眼距,是比值本身。
+                    # ⚠️ 方向随之翻:眉内距**越小**眉越皱(越糟)⟹ 旧槽的 False 会让
+                    # 「越皱得分越高」,故改 True(值越大=越不皱=越好)。
+                    ("au4_frown", 0.1, True, "皱眉 (双眉内侧点距 ÷ 眼距)", "support"),
                 ]
             },
             "stress_resilience": {
@@ -114,8 +144,17 @@ class ResearchCapabilityMapper:
                 "description": "观测会话中的可测行为量。",
                 "algorithm": "多模态生理信号融合 (面部 + 肢体 + 眼动)",
                 "indicators": [
-                    ("tension_score", 0.3, False, "眉间收缩与唇部压缩", "core"),
-                    ("jitter", 0.3, False, "肢体抖动", "core"),
+                    # `tension_score`(伪合成:硬编码权重 + 5 分量里 eye_closure 恒 0)
+                    # → `au23_lip_compression`:槽的构念原文就是「眉间收缩与**唇部压缩**」,
+                    # 而这是唇部压缩的真几何量(唇红厚 ÷ 面部轮廓高,§4.1:172 判「重构」)。
+                    # ⚠️ 方向:唇红**越薄** = 压得越紧 = 越糟 ⟹ 值越大越好,is_positive 改 True。
+                    ("au23_lip_compression", 0.3, True,
+                     "唇部压缩 (唇红厚 ÷ 面部轮廓高)", "core"),
+                    # `jitter` → `left_wrist_jitter_world`:换的不是"能过门的抖动",
+                    # 是**量得到的**抖动 —— 旧 keyword 首命中的 left_hand_jitter 在
+                    # 三场里 null=286/430/441(缺席 95%/79%/77%,会话内只有 6 个不同取值),
+                    # 而腕的世界坐标三场 null=0/3/1、且是米制(取景无关)。
+                    ("left_wrist_jitter_world", 0.3, False, "腕部抖动 (米/秒)", "core"),
                     ("gaze_deviation", 0.2, False, "视线偏差", "core"),
                     ("symmetry_score", 0.2, True, "面部对称性", "support"),
                 ]
@@ -136,8 +175,18 @@ class ResearchCapabilityMapper:
                 "description": "观测肢体与注视相关的可测量。",
                 "algorithm": "眼动 - 肢体多模态耦合模型",
                 "indicators": [
-                    ("hand_score", 0.3, True, "手势自信分", "core"),
-                    ("shoulder_score", 0.2, True, "肩部放松度", "support"),
+                    # `hand_score` → `left_hand_spread`:旧列已从 GestureLogger 的落盘
+                    # 契约里删掉(B3:可由同 block 的 jitter 精确重构)⟹ 这个槽本场没有
+                    # 产出方。那个合成的三个分量(jitter 罚 / fist 罚 / 张开奖)里,
+                    # 唯一未被封停、且 B3 已补上归一化(÷ 掌长)的就是张开度。
+                    # ⚠️ 它是**分量**不是原合成;列只在手可见的帧上有值(三场 14–133 帧),
+                    # 这一点由 G3 用该列自己的 sample_size 拦。
+                    ("left_hand_spread", 0.3, True, "手掌张开度 (÷ 掌长)", "core"),
+                    # `shoulder_score` → `shrug_level`:旧列同样已从落盘契约删掉。
+                    # 槽的构念是**肩部放松度**,耸肩程度是同一部位的反向量
+                    # (÷ 肩宽、基线=因果中位数,B3 重做)。
+                    # ⚠️ 方向:越耸 = 越不放松 = 越糟 ⟹ is_positive 改 False。
+                    ("shrug_level", 0.2, False, "肩部放松度 (耸肩程度 ÷ 肩宽)", "support"),
                     ("eye_contact", 0.3, True, "眼神接触比例", "core"),
                     ("energy", 0.2, True, "语音能量", "support"),
                 ]

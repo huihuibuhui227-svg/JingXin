@@ -57,7 +57,8 @@ class DataLogger:
                 "micro_exp_au_name", "micro_exp_intensity",
                 "micro_exp_duration_frames", "micro_exp_onset_frame"
             ] + list(BLENDSHAPE_COLUMNS) + [
-                # 协变量:该帧的面部尺度本身(= 各面部列当分母用的那个 `face_height`)。
+                # 协变量:该帧的面部尺度本身(= 各面部列当分母用的那个数;
+                # 2026-09-27 起是**面部轮廓高** `dist(lm[10], lm[152])`,不再是鼻尖→下巴)。
                 # ★ 必须放在 52 个 `bs_*` **之后**:那 52 列被钉子钉成
                 #   「紧随 `micro_exp_onset_frame` 的一整块」(test_face_blendshapes.py),
                 #   插在它们前面会把那一块切断。新列一律加在**列序最末**,

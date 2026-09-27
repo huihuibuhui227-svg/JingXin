@@ -63,6 +63,14 @@ class MicroExpressionDetector:
             current_val = series[-1]
 
             dynamic_threshold = baseline + 1.5 * std_dev
+            # ⚠️ `min_activation = 0.1` 是**绝对下限**,照旧口径写的 —— 本检测器只看
+            #    `au4_frown` / `au7_eye_squeeze` / `au15_mouth_down` 三列,而
+            #    `au15_mouth_down` 的分母在 2026-09-27 由 `dist(lm[1], lm[152])`(鼻尖→下巴)
+            #    换成**面部轮廓高** `dist(lm[10], lm[152])` ⟹ 该列值整体约减半,
+            #    于是这个 0.1 比从前**更严**(更容易把真事件挡掉)。
+            #    它**不在** `emotion_engine.STALE_THRESHOLDS` 的账里(那个账只覆盖
+            #    `EmotionEngine.infer()`);门限重登记一并归 **M3.5**,这里如实标出,
+            #    免得下一个读的人以为它没受影响。
             min_activation = 0.1
 
             if current_val > dynamic_threshold and current_val > min_activation:

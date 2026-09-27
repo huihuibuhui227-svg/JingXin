@@ -4,6 +4,7 @@ import numpy as np
 from scipy.spatial import distance as dist
 
 from ..core.feature_extraction.au_calculator import AUFeatureCalculator
+from ..core.feature_extraction.landmarks import CHIN, FOREHEAD_TOP
 from ..core.analysis.micro_expression import MicroExpressionDetector
 from ..core.analysis.tension_engine import TensionEngine
 from ..core.analysis.emotion_engine import EmotionEngine
@@ -70,16 +71,28 @@ class VideoPipeline:
             # 整列时间戳被混进了第二个时间源,正是 spec §5.1 要根除的东西。
             return None, None, {"emotion": "no_face", "timestamp": timestamp_ms / 1000.0}
 
-        nose_tip = np.array(landmarks_norm[1])
-        chin = np.array(landmarks_norm[152])
+        # ★ **面部尺度 = 面部轮廓高**(2026-09-27,源头就这一处):
+        #   前额顶(`FOREHEAD_TOP`)→ 下巴(`CHIN`),两端都在**面部中轴轮廓**上。
+        #   ⚠️ 改前的 `face_height = dist(lm[1], lm[152])`(鼻尖→下巴)有一端是
+        #   **突出在脸平面之外的鼻尖** —— yaw 下它的投影横向滑动,给一个本该竖直的尺度
+        #   塞进一个横向项(实测 `r(head_yaw, |Δx(鼻尖→下巴)|)` = −0.437/−0.266/−0.135,
+        #   换成前额顶只有 −0.040/−0.206/−0.142)。`au6_cheek_raise` 早已改用轮廓高,
+        #   本批把**源头**补齐 —— 于是所有以它为分母的列、以及协变量 `face_scale`
+        #   一起换尺度(逐列清单与改前→改后实测见 `docs/` 与各列 L0 行的 acceptance)。
+        #   它**只在这里算一次**,由 `calculate` 往下传(`AUFeatureCalculator.calculate`
+        #   不重算 —— 两处各算一遍就会静默分岔)。
+        chin = np.array(landmarks_norm[CHIN])
         cheek_left = np.array(landmarks_norm[234])
         cheek_right = np.array(landmarks_norm[455])
-        face_height = dist.euclidean(nose_tip, chin)
+        face_outline_height = dist.euclidean(np.array(landmarks_norm[FOREHEAD_TOP]), chin)
         face_width = dist.euclidean(cheek_left, cheek_right)
-        if face_height < 1e-5 or face_width < 1e-5:
-            face_height = face_width = 1.0
+        if face_outline_height < 1e-5 or face_width < 1e-5:
+            # 退化帧(landmarks 塌成一点/取景全黑)⟹ 交一个**不会让下游除零**的值。
+            # 这是守卫,不是门限:它不改任何口径,只在"没有尺度可测"时避免 inf。
+            face_outline_height = face_width = 1.0
 
-        current_au = self.feature_calculator.calculate(landmarks_norm, face_width, face_height)
+        current_au = self.feature_calculator.calculate(
+            landmarks_norm, face_width, face_outline_height)
 
         # === 眨眼检测(全部按真实时间,不再碰挂钟 —— M2.5 spec §3.3)===
         ear = current_au.avg_ear

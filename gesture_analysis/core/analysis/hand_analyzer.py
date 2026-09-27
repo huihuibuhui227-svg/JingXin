@@ -49,7 +49,10 @@ class HandAnalyzer:
         self.results: HandAnalysisResult = {
             "resilience_score": 50.0,
             "jitter": 0.0,
-            "fist_status": False,
+            # ★ 2026-09-27(C 档):这一格装的是**屈曲比**(0.4–2.9 那种量级),不是布尔。
+            # 默认值因此是 `None`(= 还没有这一帧的量),不是 `False` —— `False` 会被
+            # 读成"屈曲度 = 0"(= 指尖全贴在掌心),一个看着合法的测量值。
+            "fist_status": None,
             "spread": 0.0,
             "is_valid": False  # 新增：标识本次分析是否基于有效输入
         }
@@ -89,7 +92,14 @@ class HandAnalyzer:
 
             # 计算特征
             jitter = self._calculate_jitter()
+            # ⚠️ 两个**不同**的量,别合并(2026-09-27,C 档重构):
+            #   · `is_fist` —— 布尔判决,**只喂** `_compute_resilience_score` 的
+            #     `fist_penalty` 项。它不落盘:那个阈值没有出处(见 `_is_fist` 的说明)。
+            #   · `fist_status`(**键名没变**)—— 这一帧的**无量纲屈曲比**,落进
+            #     `*_hand_fist_status` 列。表里 `l0_output` 明写「L0 只吐那个比值;
+            #     算不算握拳的门限来自标定集,L0 不判」。
             is_fist = self._is_fist(landmarks)
+            fist_ratio = self._flexion_ratio(landmarks)
             spread = self._calculate_finger_spread(landmarks)
             score = self._compute_resilience_score(jitter, is_fist, spread)
 
@@ -97,7 +107,7 @@ class HandAnalyzer:
             self.results = {
                 "resilience_score": float(np.clip(score, 0.0, 100.0)),
                 "jitter": jitter,
-                "fist_status": bool(is_fist),
+                "fist_status": fist_ratio,
                 "spread": spread,
                 "is_valid": True
             }
@@ -125,7 +135,21 @@ class HandAnalyzer:
 
     def _is_fist(self, landmarks, threshold: Optional[float] = None) -> bool:
         """
-        判断是否握拳
+        判断是否握拳(**只作 `_compute_resilience_score` 的 `fist_penalty` 输入,不落盘**)
+
+        ⚠️ 2026-09-27(C 档重构)之后本方法的地位变了,三件事必须一起读:
+          ① 它算的是 `mean(dist(指尖_i, 近端指间关节_i))`(指尖 = lm[8]/[12]/[16]/[20],
+             关节 = lm[7]/[11]/[15]/[19])—— **指间关节到指尖就是远端指骨的长度**:
+             解剖常数,与握不握拳无关,只随**手的成像大小**变。所以它量的其实是
+             「手在画面里多大」,阈值 `fist_threshold = 0.08`(gesture_analysis/config.py)
+             也是**固定单位**的 ⟹ 同一个阈值在不同取景下判的不是同一件事
+             (`l0_columns.json` 的 `*_hand_fist_status` 两行逐条写了这件事)。
+          ② 因此它**不再产出任何日志列**:`*_hand_fist_status` 现在装的是
+             `_flexion_ratio` 那个无量纲比值,由 L0 行明写、门限推给标定集。
+          ③ 它**还留着**是因为 `_compute_resilience_score` 的 `fist_penalty` 项吃它 ——
+             这一项的值会顺着 `resilience_score` → 情绪推断影响**仍在落盘**的
+             `emotion_state` / `feedback` 两列。删它是一次数值口径改动(不在 C 档边界内),
+             留给 M3.5 裁定;在那之前这里**如实标注它是未标定的**。
 
         参数:
             landmarks: 手部关键点
@@ -182,6 +206,46 @@ class HandAnalyzer:
                 return None
             return float(spread / palm_length)
         except (AttributeError, IndexError):
+            return None
+
+    def _flexion_ratio(self, landmarks) -> Optional[float]:
+        """手部**屈曲度** = `mean(dist(指尖_i, 掌心)) ÷ 掌长` —— 无量纲比值。
+
+        采样几何**逐字**来自 `l0_columns.json` 的 `left/right_hand_fist_status` 两行:
+          · 指尖 = lm[8] / lm[12] / lm[16] / lm[20](食指/中指/无名/小指);
+          · 掌心 = lm[0](腕)与 lm[9](中指掌指关节)的**中点**;
+          · 掌长 = `dist(lm[0], lm[9])`。
+
+        为什么是它、而不是「与阈值比大小」(那是本方法要替掉的东西):指间关节到指尖的
+        距离是**远端指骨长度**,解剖常数,只随手的成像大小变 ⟹ 那个判决量的其实是
+        「手在画面里多大」。掌心到指尖的距离才随**屈曲**变;除以掌长(同一只手、同一
+        深度上的骨性长度)把「离镜头远近」消掉。**不用肩宽**:手前伸时与肩不在同一深度,
+        除肩宽会把深度差算成屈曲度变化(与 `_calculate_finger_spread` 同一条理由)。
+
+        ⚠️ **本方法不判「算不算握拳」** —— 门限要标定集(M3.1 仪器标定,已被裁定跳过),
+        没有标定集就不许在这里编一个常量(L0 行的 `l0_output` 明写「L0 不判」)。
+
+        参数:
+            landmarks: 手部关键点(21 点)
+
+        返回:
+            屈曲比;掌长取不出来或为 0(退化)⟹ `None`(没有分母就没有这个比值,
+            **不补 0** —— 0 的意思是"指尖全贴在掌心上",那是个测量结果)
+        """
+        try:
+            wrist = np.array([landmarks[0].x, landmarks[0].y])
+            mcp = np.array([landmarks[9].x, landmarks[9].y])
+            palm_length = float(np.linalg.norm(mcp - wrist))
+            if palm_length <= 0:
+                return None
+            palm_center = (wrist + mcp) / 2.0
+            tips = [8, 12, 16, 20]
+            flexion = np.mean([
+                np.linalg.norm(np.array([landmarks[i].x, landmarks[i].y]) - palm_center)
+                for i in tips
+            ])
+            return float(flexion / palm_length)
+        except (AttributeError, IndexError, TypeError):
             return None
 
     def _compute_resilience_score(self, jitter: Optional[float], is_fist: bool,

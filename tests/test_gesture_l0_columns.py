@@ -305,6 +305,138 @@ def test_hand_spread_molecule_is_still_the_five_tips_to_the_wrist(name, make):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# 手部屈曲比(2026-09-27,C 档):`*_hand_fist_status` 不再是个 0/1 判决
+# ══════════════════════════════════════════════════════════════════════════════
+# L0 行(`left/right_hand_fist_status`)的 `definition` 逐字要求:输出
+# `mean(dist(指尖_i, 掌心)) ÷ 掌长`,指尖 = {8,12,16,20}、掌心 = lm[0] 与 lm[9] 的**中点**、
+# 掌长 = `dist(lm[0], lm[9])`;`l0_output` 明写「L0 只吐那个**无量纲比值**;
+# 「算不算握拳」的门限来自标定集(M3.1/M5),**L0 不判**」。
+# 本节的期望值**由下面的 `_expected_flexion` 按那句定义自己算**,不从实现抄。
+FIST = [("left_hand_fist_status", lambda: HandAnalyzer(hand_id=0), "hand"),
+        ("right_hand_fist_status", lambda: HandAnalyzer(hand_id=1), "hand")]
+
+_TIPS = (8, 12, 16, 20)          # 食指/中指/无名指/小指指尖(定义里逐个点名)
+
+
+def _expected_flexion(geom: dict) -> float:
+    """按 L0 行的 `definition` 算期望比值(掌心取中点、分母取掌长)。"""
+    ox, oy = geom[0]
+    mx, my = geom[9]
+    px, py = (ox + mx) / 2.0, (oy + my) / 2.0
+    palm = ((ox - mx) ** 2 + (oy - my) ** 2) ** 0.5
+    tips = [((geom[i][0] - px) ** 2 + (geom[i][1] - py) ** 2) ** 0.5 for i in _TIPS]
+    return (sum(tips) / len(tips)) / palm
+
+
+# 握拳几何:四个指尖缩到掌心附近(`_HAND` 是**张开**的对照臂)。
+# ★ 旧口径在这两个几何上分别交 **0**(张开)与 **1**(握拳)—— 它比的是
+#   指尖到 lm[7]/[11]/[15]/[19] 的距离(那就是**远端指骨长度**,与握不握拳无关)。
+#   新口径在这两个几何上交 **2.8828** 与 **0.4** ⟹ 一个 0/1 判决**解释不了这两个数**,
+#   这就是本节的「新旧必然分岔」。
+_FIST_HAND = {0: (0.30, 0.50), 9: (0.40, 0.50),
+              7: (0.34, 0.50), 11: (0.37, 0.50), 15: (0.39, 0.50), 19: (0.41, 0.50),
+              8: (0.36, 0.50), 12: (0.38, 0.50), 16: (0.40, 0.50), 20: (0.42, 0.50)}
+
+# 「成像大小」那条不变性用的**边界几何**:指尖到 lm[7]/[11]/[15]/[19] 恰好 **0.05**。
+# 旧口径比的是那个距离与固定阈值 0.08 ⟹ k=1 时 0.05 < 0.08 判「**握拳**」、
+# k=2 时 0.10 > 0.08 判「**非握拳**」(实测,方向是"手越大越不像拳头")——
+# 同一只手、同一个动作,只因为画幅大一倍,判决就翻了。
+# 这是"那一列量的是手在画面里多大"的**实测形态**(见下面的不变性测试)。
+_FIST_EDGE = {0: (0.30, 0.50), 9: (0.40, 0.50),
+              7: (0.35, 0.50), 11: (0.36, 0.50), 15: (0.37, 0.50), 19: (0.38, 0.50),
+              8: (0.40, 0.50), 12: (0.41, 0.50), 16: (0.42, 0.50), 20: (0.43, 0.50)}
+
+
+@pytest.mark.parametrize("name,make,kind", FIST)
+def test_fist_status_column_is_the_dimensionless_flexion_ratio(name, make, kind):
+    """★ acceptance ①:代码不再把「远端指骨长度」与阈值比大小,改为输出那个比值。
+
+    两个几何都在本测试里现算期望值:
+      · `_HAND`(张开):掌长 0.10、指尖到掌心 0.15/0.25/0.40311289/0.35 ⟹ **2.8827822**;
+      · `_FIST_HAND`(握拳):四个指尖到掌心 0.01/0.03/0.05/0.07 ⟹ **0.4**。
+    旧口径交的是布尔(0 / 1)⟹ 第一节当场红(不是"值在合理范围内"那种新旧都能过的判据)。
+    """
+    open_v = _drive(make, kind)["fist_status"]
+    fist_v = _drive(make, kind, hand=_FIST_HAND)["fist_status"]
+    assert open_v == pytest.approx(_expected_flexion(_HAND), rel=1e-9), (
+        f"{name}:该是 mean(dist(指尖, 掌心)) ÷ 掌长 = {_expected_flexion(_HAND):.7f},"
+        f"实为 {open_v!r} —— 布尔值说明还是那个阈值判决")
+    assert fist_v == pytest.approx(_expected_flexion(_FIST_HAND), rel=1e-9), (
+        f"{name}:握拳几何该是 {_expected_flexion(_FIST_HAND):.7f},实为 {fist_v!r}")
+    # 「张开 > 握拳」这条**方向**也要成立 —— 否则一个恒定的比值也能过上面两条
+    assert open_v > fist_v, (
+        f"{name}:张开的屈曲比({open_v!r})该大于握拳的({fist_v!r})")
+
+
+@pytest.mark.parametrize("name,make,kind", FIST)
+def test_fist_status_column_is_free_of_the_imaging_size(name, make, kind):
+    """★ 该列**不再随手的成像大小变**(这正是旧口径的病,也是 §`normalization` 那栏的要求)。
+
+    用 `_FIST_EDGE`(指尖到 lm[7]/[11]/[15]/[19] 恰好 0.05):
+      · **旧口径**在 k=1 判「握拳」(0.05 < 0.08)、在 **k=2 判「非握拳」**(0.10 > 0.08;
+        实测方向是"手越大越不像拳头")—— 同一只手、同一个动作,只因为**画幅大一倍**,
+        判决就翻过来了;
+      · **新口径**分子(指尖到掌心)与分母(掌长)同乘 2 ⟹ 比值逐位相同。
+    ⟹ 本条的 `a == b` 在旧代码上**当场红**(False vs True),不是"新旧都能过"的判据。
+    """
+    a = _drive(make, kind, hand=_FIST_EDGE)["fist_status"]
+    b = _drive(make, kind, hand=_FIST_EDGE, k=2.0)["fist_status"]
+    assert a == pytest.approx(b, rel=1e-9), (
+        f"{name}:整只手 ×2 后该列该不变,实测 {a!r} → {b!r} —— 分母没消掉成像大小")
+
+
+@pytest.mark.parametrize("name,make,kind", FIST)
+def test_fist_status_column_keeps_the_sample_geometry_the_row_specifies(name, make, kind):
+    """钉子(改前改后都该绿):分子分母读的**就是**定义里点名的那几个点。
+
+    红法(逐条,都是生产改动):
+      · 把掌心从「lm[0] 与 lm[9] 的中点」换成 lm[0] ⟹ 第一段红(挪 lm[9] 会变);
+      · 把分母从 `dist(lm[0], lm[9])` 换成别的骨性长度(例如 `dist(lm[5], lm[17])`)⟹ 第二段红;
+      · 把某个不相干的点算进分子 ⟹ 第三段红。
+    """
+    base = _drive(make, kind)["fist_status"]
+    # ① 掌心取中点:把 lm[9] 挪远(掌长也一起变,所以比的是**比值**的变化方向)
+    moved = _drive(make, kind, hand={**_HAND, 9: (0.50, 0.50)})["fist_status"]
+    assert moved != pytest.approx(base, rel=1e-6), (
+        f"{name}:挪 lm[9] 却没改比值({base!r})—— 说明掌心/掌长没读 lm[9]")
+    # ② 分母是掌长:单独改一个**既非指尖、也非 lm[0]/lm[9]** 的点 ⟹ 比值不该动
+    other = _drive(make, kind, hand={**_HAND, 6: (0.10, 0.90)})["fist_status"]
+    assert other == pytest.approx(base, rel=1e-12), (
+        f"{name}:挪一个与分子分母都无关的点却改了比值({base!r} → {other!r})")
+    # ③ 退化(掌长为 0)⟹ **空**(`None`),不补 0 —— 没有分母就没有这个比值
+    degenerate = _drive(make, kind, hand={**_HAND, 9: (0.30, 0.50)})["fist_status"]
+    assert degenerate is None, (
+        f"{name}:掌长为 0 时交的是 {degenerate!r} —— 「没有分母」不许当成一个测量值")
+
+
+def test_fist_status_column_reaches_the_csv_and_is_empty_without_a_hand(monkeypatch, tmp_path):
+    """★ 接线(端点 → 真分析器 → 真 logger):`*_hand_fist_status` 那一格装的是**比值本身**。
+
+    红法:① 把 logger 里那两行改回 `_safe_int(..., 'fist_status', False)` ⟹ 值变成 0/1;
+    ② 把 `_safe_get` 的缺省从 `None` 换成 `0.0` ⟹ "没收到手"那一格写成一个看着合法的比值。
+    """
+    # 一只手、模型给 ("Right", 0.9) ⟹ 翻转后进 **left** 槽(见 `_wired` 的说明)
+    loggers = _wired(monkeypatch, tmp_path, [_hand(_HAND)], _pose(_POSE))
+    _post(SID_A)
+    row = _last_row(tmp_path, SID_A)
+    expected = _expected_flexion(_HAND)
+    assert float(row["left_hand_fist_status"]) == pytest.approx(expected, rel=1e-9), (
+        f"left_hand_fist_status 落盘的该是比值 {expected:.7f},实为 "
+        f"{row['left_hand_fist_status']!r}")
+    # 没收到手的那一槽 ⟹ 空(不是 0、不是 0.0 —— 「没有分母」不许伪装成一个比值)
+    assert row["right_hand_fist_status"] == "", (
+        f"right 槽这一帧没有手,该格却是 {row['right_hand_fist_status']!r}")
+
+    # 整帧没有手 ⟹ 两格都空
+    _wired(monkeypatch, tmp_path, [], _pose(_POSE))   # 同一场、真 logger 会往同一份 CSV 追加
+    _post(SID_A)
+    row2 = _last_row(tmp_path, SID_A)
+    for name, _make, _kind in FIST:
+        assert row2[name] == "", (
+            f"{name}:这一帧没有手,该格却是 {row2[name]!r} —— 「没测到」不许伪装成 0")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # shrug_level:基线 = 全程中位数(因果近似),分母 = 肩宽,不截顶
 # ══════════════════════════════════════════════════════════════════════════════
 # 图像坐标里 **y 越小 = 抬得越高**;数值取整数好手算:耸起 d 时 = d ÷ 肩宽。
@@ -505,8 +637,8 @@ def test_endpoint_leaves_the_screen_jitter_empty_when_there_is_no_pose(monkeypat
     for _ in range(12):
         _post(SID_A)
     row = _last_row(tmp_path, SID_A)
-    assert row["left_hand_score"] != "", (
-        f"前提不成立:这一帧左手槽该收到手:{row['left_hand_score']!r}")
+    assert row["left_hand_spread"] != "", (
+        f"前提不成立:这一帧左手槽该收到手:{row['left_hand_spread']!r}")
     assert row["shoulder_width"] == "", "前提不成立:没有姿态时肩宽该是空"
     assert row["left_hand_jitter"] == "", (
         f"缺肩宽那一帧写进了值:{row['left_hand_jitter']!r} —— 空才是对的")
@@ -515,7 +647,12 @@ def test_endpoint_leaves_the_screen_jitter_empty_when_there_is_no_pose(monkeypat
 def test_endpoint_keeps_the_columns_working_when_the_pose_is_there(monkeypatch, tmp_path):
     """★ 对照臂:有姿态时那几格**必须有值** —— 否则上面"空"的断言可以靠"永远写空"骗过去。
 
-    顺带钉住 `resilience_score` 仍在:jitter 交空或交率,都不该让分数字段消失或崩掉。
+    ⚠️ 2026-09-27(M3.3 删列):原来看的是 `left_hand_score`(判据写作「钉住
+    `resilience_score` 仍在」)。那一列已从日志契约里删掉 ⟹ 换成 `left_hand_spread`
+    (同一槽、同一判据:有手有姿态就该有值)。而「`resilience_score` 这个**内部键**
+    还在不在」是**另一件事**,已由 `tests/test_l0_column_table.py::
+    test_the_internal_values_behind_the_deleted_columns_are_still_produced` 正面钉住
+    (那是产出方那边的断言,不该靠一列 CSV 间接证)。
     """
     _wired(monkeypatch, tmp_path, [_hand(_HAND)], _pose(_POSE))
     for _ in range(12):
@@ -526,7 +663,7 @@ def test_endpoint_keeps_the_columns_working_when_the_pose_is_there(monkeypatch, 
                 "right_shoulder_jitter", "head_jitter", "torso_jitter", "shrug_level",
                 "left_wrist_jitter_world", "left_shoulder_jitter_world"):
         assert row[col] not in ("", "None"), f"{col} 这一格是空的:{row[col]!r}"
-    assert float(row["left_hand_score"]) >= 0.0
+    assert float(row["left_hand_spread"]) >= 0.0
 
 
 def test_world_columns_keep_enough_decimals_for_a_rate():

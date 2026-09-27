@@ -27,6 +27,7 @@ LIP_BOTTOM: int = 17
 
 # 脸部轮廓
 CHIN: int = 152
+FOREHEAD_TOP: int = 10
 EYE_CORNER_LEFT: int = 130
 EYE_CORNER_RIGHT: int = 359
 CHEEK_LEFT: int = 205

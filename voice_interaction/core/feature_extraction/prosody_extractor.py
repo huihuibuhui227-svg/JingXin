@@ -46,6 +46,19 @@ class ProsodyFeatureExtractor:
         # 计算基频。★ 第 3 个返回值 `voiced_prob`(逐帧「是浊音」的概率)**此前被 `_` 丢掉** ——
         # `docs/superpowers/specs/2026-09-21-jingxin-feature-redesign-design.md:235` 的依据栏点名的就是它(«pyin 无能量门限且丢 `voiced_prob`»):
         # 它是给 pitch 族加门控的原料,也是日志列 `voiced_prob_mean` 的产出方(Task 5)。
+        #
+        # ⚠️ **但"拿它当门控"这件事实测做不到 —— 别照着上面那句直接写出 `f0[voiced_prob > T]`。**
+        # 2026-09-27 在三场正式素材的 24 段回答上实测(`experiments/voice_pitch_gate_probe.py`):
+        #   · 门控**去掉**的那些帧里「噪声帧」(f0 > 400 Hz)的占比 = 0.016~0.019,
+        #     而全体浊音帧里的噪声帧占比 = 0.017~0.018 —— **两者相等** ⟹ 它没有挑出噪声,
+        #     只是在按比例删帧;
+        #   · 阈值 0.02/0.05/0.1 下,最坏那段的 `pitch_mean` 反而从 398.20 Hz **升到**
+        #     988.67 / 932.84 / 800.02 Hz(留下的帧比平均数更偏高频);
+        #   · 3/24 段被整段删空,而删空的偏偏是**最干净**的那几段(p90 ≈ 96 Hz);
+        #   · 阈值 0.2/0.4 才能把最大值压到 332/345 Hz,代价是只留 3~5% 的帧、4/24 段为空。
+        # 所以 pitch 那四行**仍是未门控的现状**,`pitch_mean` 实测最大仍是 398.20 Hz、
+        # `pitch_p90` 最大仍是 1729.76 Hz。门控要用什么量、阈值取多少,是**标定集**的事
+        # (M3.1 已被使用者裁定跳过)—— 那两行留在 `pending` 就是这个原因。
         f0, voiced_flag, voiced_prob = librosa.pyin(
             audio, fmin=self.fmin, fmax=self.fmax, sr=self.sample_rate
         )
@@ -227,6 +240,13 @@ class ProsodyFeatureExtractor:
         energy_threshold = np.mean(rms) * 0.3
         is_speech = rms > energy_threshold
 
+        # ★ **有声时长**(秒)与帧步长:下面 `pause_frequency` 的**分母**要用它。
+        # 此前这两个量算在停顿统计**之后** —— 顺序换过来不是风格问题:`pause_frequency`
+        # 的分母由「整段时长」改成「语音时长」之后,它必须在算频率之前就存在
+        # (spec §4.3:239「现用总时长(含静音)→ 改语音时长」;分母用本表的 `speech_duration_sec`)。
+        frame_sec = duration / len(rms) if len(rms) else 0.0
+        speech_seconds = round(float(np.count_nonzero(is_speech)) * frame_sec, 2)
+
         # 找到所有停顿区间
         pause_intervals = []
         in_pause = False
@@ -238,26 +258,34 @@ class ProsodyFeatureExtractor:
                 pause_start = i
             elif speech and in_pause:
                 in_pause = False
-                pause_duration = (i - pause_start) * (duration / len(rms))
+                pause_duration = (i - pause_start) * frame_sec
                 if pause_duration > 0.1:
                     pause_intervals.append(pause_duration)
+
+        # ★ **收尾**(2026-09-27,`pause_duration_mean`/`pause_duration_max` 验收①):
+        # 音频以静音结尾时,`in_pause` 在循环结束时仍为真,那段停顿此前**整个丢掉** ——
+        # 症状原文:「尾部 4s 静音报 0 次停顿」(spec §1.2:55)。循环里那一支只处理
+        # 「静音之后又出现语音」,末尾这一支没有「之后」,所以必须单独补。
+        # 长度算到 `len(rms)`:帧数 × 帧步长 = 该段停顿覆盖的秒数,与循环里同一把尺子。
+        if in_pause:
+            pause_duration = (len(rms) - pause_start) * frame_sec
+            if pause_duration > 0.1:
+                pause_intervals.append(pause_duration)
 
         # 计算停顿统计
         if len(pause_intervals) > 0:
             pause_duration_mean = round(float(np.mean(pause_intervals)), 2)
             pause_duration_max = round(float(np.max(pause_intervals)), 2)
-            pause_frequency = round(len(pause_intervals) / duration * 60, 2)
+            # ★ 分母 = **语音时长**(不是整段时长):静音不算说话时间,拿整段当分母等于
+            # 「说得越慢、停顿越少」。`speech_seconds == 0`(整段一个有声帧都没有)时
+            # 这个率**没有定义** ⟹ 留空,不写 0(0 是一个真实的率,「没测到」不是 0)。
+            pause_frequency = (round(len(pause_intervals) / speech_seconds * 60, 2)
+                               if speech_seconds > 0 else None)
         else:
             pause_duration_mean = 0.0
             pause_duration_max = 0.0
             pause_frequency = 0.0
 
-        # ★ **有声时长**(秒):同一个能量门算出来的,此前只在函数内部用过就丢了。
-        # 它是 `speech_ratio` 的绝对量版本 —— 而 `speech_ratio` 是**自指阈值**
-        # (它的封停理由:87.9% 恰为 1.0),绝对秒数没有这个问题。
-        # 也是"语速"的分母(字数 ÷ 有声秒)。
-        frame_sec = duration / len(rms) if len(rms) else 0.0
-        speech_seconds = round(float(np.count_nonzero(is_speech)) * frame_sec, 2)
         # ★ **首次开口在音频里的位置**(秒):反应延迟要用它。
         #   "录音开始"到"真的开口"之间那段前导静音,不是反应时间 —— 但推首次开口
         #   的**墙钟**必须把它算进去,否则整段前导静音都会被算成反应时间。

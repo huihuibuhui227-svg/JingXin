@@ -85,10 +85,15 @@ FACE_SKIP_COLS = {"session_id", "timestamp", "tension_level", "dominant_emotion"
 ROLLING_SUFFIXES = ("_trend", "_volatility", "_change_rate")
 
 # 真正的事件列(二值,有明确的「发生次数」语义)→ 额外产出 per_sec
+# ⚠️ 2026-09-27(M3.3):`left/right_hand_fist_status` 两列**不再是二值** —— 它们改成
+#    **无量纲屈曲比**(`mean(dist(指尖, 掌心)) ÷ 掌长`,见 `l0_columns.json` 那两行与
+#    `hand_analyzer.py` 的 `HandAnalyzer._flexion_ratio`)。留在这里的后果是**静默的**:
+#    `count_rising_edges()` 会把一个连续量的抖动数成"事件次数",产出一个看着合法、
+#    实际无意义的 `per_sec`。所以从事件列里去掉 ⟹ 它们落回 `level`(只出 `mean`)。
+#    ⚠️ 本目录里已签入的 `column_classification_*.csv` / `whitelist_C.json` 是**当时那次
+#    审计的快照**(它们不含这两列),不因这次改动而失效;要重跑审计才有新口径。
 EVENT_COLS = {
     ("face", "is_blink"),
-    ("gesture", "left_hand_fist_status"),
-    ("gesture", "right_hand_fist_status"),
 }
 
 # 帧单位列 → 先换算成秒再聚合
