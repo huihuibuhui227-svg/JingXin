@@ -41,7 +41,9 @@ class _RecordingAnalyzer:
     def __init__(self):
         self.seen = []
 
-    def update(self, landmarks):
+    def update(self, landmarks, **_kw):
+        # `**_kw`:真分析器的 `update` 还要 `timestamp_ms` / `shoulder_width`(M3 B3 起)。
+        # 本文件要验的是"谁收到了哪只手",那两个量不参与这个断言。
         self.seen.append(landmarks)
 
     def get_results(self):

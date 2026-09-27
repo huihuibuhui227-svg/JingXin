@@ -58,7 +58,9 @@ class _Analyzer:
         self.result = result
         self.updates = 0
 
-    def update(self, _lm):
+    def update(self, _lm, **_kw):
+        # `**_kw` = 一帧的 `timestamp_ms` / `shoulder_width`(M3 B3 起真分析器要它们)。
+        # 本替身只用一个计数来回答"端点喂没喂过它",那两个量在这里不参与。
         self.updates += 1
 
     def get_results(self):

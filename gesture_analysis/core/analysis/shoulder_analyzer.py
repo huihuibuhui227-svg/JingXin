@@ -52,12 +52,18 @@ class ShoulderAnalyzer:
         self.baseline_frames_collected = 0
         self._is_valid = False
 
-    def update(self, landmarks) -> None:
+    def update(self, landmarks, timestamp_ms: Optional[int] = None,
+               shoulder_width: Optional[float] = None) -> None:
         """
         更新肩部数据
 
         参数:
             landmarks: MediaPipe 姿态关键点列表（需至少包含 33 个点）
+            timestamp_ms: 本帧的**会话相对毫秒时间戳**（jitter 的「÷ 窗内真实秒数」那层
+                分母的原料；见 `l0_columns.json` 的 `left/right_shoulder_jitter` 行）。
+            shoulder_width: 本帧的双肩**归一化图像距离**。两处用得上：
+                jitter 的**窗内中位数**分母、`shrug_level` 的现帧分母。
+                缺 ⟹ 这一帧那两个量都交空（没有分母就没有那个比值）。
 
         异常:
             ValueError: 当 landmarks 无效或长度不足时

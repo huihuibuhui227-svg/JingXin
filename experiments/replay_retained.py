@@ -16,6 +16,7 @@ import argparse
 import csv
 import json
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -128,20 +129,92 @@ def replay_face(session_dir: Path, out_csv: Path) -> int:
     return len(rows)
 
 
+def replay_gesture(session_dir: Path, out_csv: Path) -> int:
+    """按留存帧重跑手势服务的那一条路,把每帧的**日志行**写成 CSV。返回帧数。
+
+    ★ 为什么调 `gesture_app.process_frame` 而不是在这里自己拼一条(2026-09-27,B3):
+    「重放」的全部意义是**走真产出方**。若本脚本自己写一遍"先喂谁、再喂谁、拿哪个键",
+    它证的就是它自己抄的那份接线 —— 端点里漏传一个 `shoulder_width`、或 `world_results`
+    的键名写错一个字母,这条腿照样绿,而活路径是空的(本项目已 5 次栽在"验证跑错了对象")。
+    所以这里调的是**端点调的那个函数**,落盘也走**真的 `GestureLogger`**(列名映射只此一份)。
+
+    ⚠️ 时间戳一律用账本里的 `declared_ts`(纪律 3):mediapipe 的 VIDEO 模式把时间戳当
+    模型输入,喂墙钟会得出"推理不可复现"的**假**结论。
+    """
+    import cv2
+    import importlib
+
+    # ⚠️ 必须 `importlib.import_module`,不能 `import gesture_analysis.api.app as ...`:
+    # 那个包 `__init__.py` 做了 `from .app import app` ⟹ 属性链上取到的是 **FastAPI 实例**,
+    # 而这里要的是**模块**(端点在模块的 globals 里找 `get_or_create_analyzers`)。
+    # `importlib.import_module` 走 `sys.modules`,交的是模块本体(既有测试同一手法)。
+    gesture_app = importlib.import_module("gesture_analysis.api.app")
+    glog = importlib.import_module("gesture_analysis.utils.logger")
+
+    frames, report = load_frames(session_dir, "gesture")
+    print(f"[素材] 盘上 {report['frames_on_disk']} 帧,其中 {report['frames_with_ts']} 帧有时间戳;"
+          f"账本碎行 {report['torn_lines']} 行")
+    if report["missing_ts"]:
+        # 不静默:这些帧的图还在,但当时的时间戳丢了 —— §7.1 不允许另编一个
+        print(f"⚠️  {len(report['missing_ts'])} 帧**没有可用时间戳**,本次不重放;"
+              f"前几个:{report['missing_ts'][:5]}", file=sys.stderr)
+
+    sid = session_dir.name
+    # `get_or_create_analyzers` 会顺手建一个 **GestureLogger**(写 data/logs/)——
+    # 重放自己往 `--out` 写一份,不需要它那一份。把落盘目录换到一个丢弃目录,
+    # 免得重放一遍就在 data/logs/ 里多出一个空 CSV(与本会话的真日志同名,更难分辨)。
+    with tempfile.TemporaryDirectory(prefix="replay_gesture_") as junk:
+        old_logs_dir = gesture_app.LOGS_DIR
+        gesture_app.LOGS_DIR = Path(junk)
+        try:
+            analyzers = gesture_app.get_or_create_analyzers(sid)
+            dets = gesture_app.get_or_create_detectors(sid)
+        finally:
+            gesture_app.LOGS_DIR = old_logs_dir
+        gesture_app.session_loggers.clear()
+
+        if out_csv.exists():
+            out_csv.unlink()          # GestureLogger 只在文件不存在时写表头 ⟹ 不删会追加
+        out_csv.parent.mkdir(parents=True, exist_ok=True)
+        logger = glog.GestureLogger(log_file_path=str(out_csv), session_id=sid)
+
+        n = 0
+        for path, ts in frames:
+            img = cv2.imread(str(path))
+            if img is None:
+                print(f"[跳过] 读不出:{path}", file=sys.stderr)
+                continue
+            rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            frame = gesture_app.process_frame(rgb, ts, analyzers, dets)
+            logger.log(**frame["log_kwargs"])
+            n += 1
+
+        for d in dets.values():
+            d.close()
+    return n
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="重放留存帧(M2.6 验收)")
     ap.add_argument("--session-id", required=True)
     ap.add_argument("--root", default=None, help="默认取 JINGXIN_RECORDINGS_DIR")
     ap.add_argument("--out", required=True)
+    ap.add_argument("--modality", default="face", choices=("face", "gesture"),
+                    help="重放哪一路(M3 B3 起手势也有腿)")
     args = ap.parse_args(argv)
 
     d = Path(args.root) / args.session_id if args.root else recording_dir(args.session_id)
-    n = replay_face(d, Path(args.out))
-    print(f"[完成] 重放 {n} 帧 -> {args.out}")
-    print("下一步:与 data/logs/face_au_log_<sid>.csv 逐格比对(spec §7.1)")
+    if args.modality == "gesture":
+        n = replay_gesture(d, Path(args.out))
+        print(f"[完成] 重放手势 {n} 帧 -> {args.out}")
+        print("下一步:与 data/logs/gesture_emotion_log_<sid>.csv 逐格比对(spec §7.1)")
+    else:
+        n = replay_face(d, Path(args.out))
+        print(f"[完成] 重放 {n} 帧 -> {args.out}")
+        print("下一步:与 data/logs/face_au_log_<sid>.csv 逐格比对(spec §7.1)")
     # 退出码:只有**盘上每一帧都重放了**才算通过 —— 有缺口就是 2,
     # 免得调用方把"重放了 105/187"当成成功。
-    _frames, report = load_frames(d, "face")
+    _frames, report = load_frames(d, args.modality)
     if report["missing_ts"] or report["torn_lines"]:
         print(f"[不完整] 缺口 {len(report['missing_ts'])} 帧 / 碎行 {report['torn_lines']} 行",
               file=sys.stderr)

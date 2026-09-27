@@ -48,12 +48,21 @@ class HandAnalyzer:
         }
         self._is_valid = False
 
-    def update(self, landmarks) -> None:
+    def update(self, landmarks, timestamp_ms: Optional[int] = None,
+               shoulder_width: Optional[float] = None) -> None:
         """
         更新手部数据
 
         参数:
             landmarks: MediaPipe 手部关键点列表（需至少包含 21 个点）
+            timestamp_ms: 本帧的**会话相对毫秒时间戳**（`session_clock.SessionClock.stamp_ms()`）。
+                jitter 的定义里有「÷ 窗内真实秒数」这一层，它的原料就是这个值 ——
+                窗口里必须存得下时间，否则那层分母只能靠"帧数 ÷ 假定帧率"编出来，
+                而帧率正是被污染的那个量（l0_columns.json 的 `*_jitter` 行）。
+            shoulder_width: 本帧的双肩**归一化图像距离**（`angles.shoulder_width(pose)`）。
+                **画面坐标**那批 jitter 的分母（同坐标系，米制那批不除）。缺（本帧没有
+                姿态 / 缺一只肩）⟹ `None` ⟹ 那一帧的 jitter 交**空**，不拿未归一化的
+                分子顶上 —— 那等于把单位从「肩宽/秒」静默换成「归一化图像单位」。
 
         异常:
             ValueError: 当 landmarks 无效或长度不足时

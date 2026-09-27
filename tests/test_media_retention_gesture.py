@@ -31,8 +31,13 @@ class _FakeImage:
 
 
 class _FakeAnalyzer:
-    """手套/肩/臂分析器的最小替身:端点只用到 `update` 与 `get_results`。"""
-    def update(self, _landmarks): pass
+    """手套/肩/臂分析器的最小替身:端点只用到 `update` 与 `get_results`。
+
+    ⚠️ `**_kw`:真分析器的 `update` 还要一帧的 `timestamp_ms` 与 `shoulder_width`
+    (M3 B3 起 —— 抖动是"÷ 窗内秒数"的率,还要拿肩宽做分母)。替身收下不认,
+    本文件测的是"会话 → 落盘",不是视觉。
+    """
+    def update(self, _landmarks, **_kw): pass
     def get_results(self): return {}
 
 

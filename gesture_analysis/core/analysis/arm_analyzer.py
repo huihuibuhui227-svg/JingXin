@@ -51,13 +51,18 @@ class ArmAnalyzer:
         }
         self._is_valid = False
 
-    def update(self, landmarks) -> None:
+    def update(self, landmarks, timestamp_ms: Optional[int] = None,
+               shoulder_width: Optional[float] = None) -> None:
         """
         更新手臂数据
 
         参数:
             landmarks: MediaPipe 姿态关键点列表（需至少包含 33 个点）
                       或包含手腕和手肘关键点的字典
+            timestamp_ms: 本帧的**会话相对毫秒时间戳**（jitter 的「÷ 窗内真实秒数」那层
+                分母的原料；见 `l0_columns.json` 的 `left/right_wrist_jitter` 行）。
+            shoulder_width: 本帧的双肩**归一化图像距离**。**画面坐标**那批 jitter 的
+                分母（米制那批不除 —— 米制已是解剖尺度）。缺 ⟹ 那一帧交空。
 
         异常:
             ValueError: 当 landmarks 无效或缺少必要关键点时

@@ -238,6 +238,187 @@ def get_or_create_detectors(session_id: str):
     return detectors[session_id]
 
 
+def process_frame(image_rgb, timestamp_ms: int, analyzers: dict, dets: dict) -> dict:
+    """一帧 → 这一帧的全部产出（分析器的内部状态就地推进）。
+
+    ★ 为什么从端点里抽出来（2026-09-27，B3）：`experiments/replay_retained.py` 的**手势腿**
+    必须走**同一条接线**。重放腿若在脚本里重写一遍「喂谁、喂什么、拿哪个键」，它证的就是
+    它自己抄的那份接线，而不是活路径那一份 —— 本项目已 5 次栽在「验证跑错了对象」上。
+    抽出来之后，端点与重放腿调的是**同一个函数**（差别只剩 FastAPI 的取参与落盘）。
+
+    返回两样东西，端点两样都要：
+      · 各 analyzer 的结果字典 —— 响应体用它；
+      · `log_kwargs` —— 直接 `**` 进 `GestureLogger.log()` 的那一组入参。重放腿用它写出
+        一份**与活路径同列**的 CSV（列名映射也只此一份）。
+
+    ⚠️ 姿态（以及它的 `shoulder_width`）**先算**：肩宽是画面坐标那批 jitter 的**分母**，
+    手部分析器在下面就要用到它。把它排在手部之后，这一帧的 jitter 会拿**别处**的尺度
+    做分母 —— 静默、且只在逐帧对照时才看得出来。
+    """
+    # 姿态那一路要 world(米制 3D)那一份:PoseLandmarker 本来就输出，
+    # 本仓此前只读归一化那份(`grep world_landmarks` 零命中)。
+    pose_landmarks, pose_world = dets['pose'].detect_with_world(image_rgb, timestamp_ms)
+    # 双肩的**归一化图像距离** —— 协变量(报告层拿它当尺度基准消取景影响)，
+    # 也是画面坐标那 10 个 jitter 的分母。单位**不是米**:本项目没有任何相机内参来源,
+    # 给不出米制(见 angles.shoulder_width 与 l0_columns.json 那一行)。
+    # 缺任一肩 / 本帧没有姿态 ⟹ `None` ⟹ 那批 jitter 这一帧交**空**:没有分母就没有
+    # 这个率,不拿未归一化的分子顶上(= 静默换单位)。
+    shoulder_scale = shoulder_width(pose_landmarks)
+
+    hand_groups, handedness = dets['hands'].detect_with_handedness(image_rgb, timestamp_ms)
+    detected_hands = 0
+    hand_scores = []
+    # 左右手**按模型给的 handedness 定,不按检出顺序**。
+    # 2026-09-26 实测:在此之前是 `'left_hand' if hand_id == 0 else 'right_hand'`
+    # —— hand_id 是"第几个被检出",换个姿势左右就互换,而日志里那两列看着像
+    # 左右手。模型本来就算得出,只是没人读。
+    #
+    # ⚠️ 模型按**镜像(自拍)输入**判左右(官方文档原话:handedness 是
+    #    "determined assuming the input image is mirrored"),而本项目的帧是画布
+    #    原样绘制的**非镜像**图 ⟹ 标签要**翻过来**。原始标签与置信度都进日志
+    #    (见 utils/logger.py 的四列),所以这个翻法是可审计的。
+    handedness_info = {}
+    used_slots = set()
+    hand_lm_by_slot = {}          # 本帧每一槽收到的 hand landmarks
+
+    for hand_id, landmarks in enumerate(hand_groups):
+        if hand_id >= 2: break
+        entry = handedness[hand_id] if hand_id < len(handedness) else None
+        analyzer_key = None
+        if entry is not None:
+            label, conf = entry
+            side = 'right' if label == 'Left' else 'left'      # ← 翻转,理由见上
+            if f'{side}_hand' not in used_slots:
+                analyzer_key = f'{side}_hand'
+                handedness_info[analyzer_key] = (label, conf)
+        if analyzer_key is None:
+            # 模型没给 handedness(或它指的那一侧已被占):填还空着的槽,
+            # 并**如实标记这一槽没有依据** —— 不假装知道它是左手还是右手。
+            analyzer_key = next((c for c in ('left_hand', 'right_hand')
+                                 if c not in used_slots), None)
+            if analyzer_key is None:
+                break
+            handedness_info[analyzer_key] = None
+        used_slots.add(analyzer_key)
+        hand_lm_by_slot[analyzer_key] = landmarks     # 手指角度要用(下面)
+        analyzers[analyzer_key].update(landmarks, timestamp_ms=timestamp_ms,
+                                       shoulder_width=shoulder_scale)
+        hand_scores.append(analyzers[analyzer_key].get_results()['resilience_score'])
+        detected_hands += 1
+
+    # 这两个 50.0 只喂**情绪推断**的输入(下面 hand_results/shoulder_results/…),
+    # **不进日志**:日志那几列按"本帧有没有数据"写空(见 _fresh 与 _safe_get)。
+    shoulder_score = 50.0
+    left_arm_score = 50.0
+    right_arm_score = 50.0
+    angles_data = {}
+    world_results = {}
+
+    if pose_landmarks:
+        analyzers['shoulder'].update(pose_landmarks, timestamp_ms=timestamp_ms,
+                                     shoulder_width=shoulder_scale)
+        analyzers['left_arm'].update(pose_landmarks, timestamp_ms=timestamp_ms,
+                                     shoulder_width=shoulder_scale)
+        analyzers['right_arm'].update(pose_landmarks, timestamp_ms=timestamp_ms,
+                                      shoulder_width=shoulder_scale)
+        analyzers['upper_body'].update(pose_landmarks, timestamp_ms=timestamp_ms,
+                                       shoulder_width=shoulder_scale)   # ← 此前活服务从没喂过它
+        shoulder_score = analyzers['shoulder'].get_results()['shoulder_score']
+        left_arm_result = analyzers['left_arm'].get_results()
+        right_arm_result = analyzers['right_arm'].get_results()
+        left_arm_score = left_arm_result.get('arm_score', 50.0) if left_arm_result.get('is_valid') else 50.0
+        right_arm_score = right_arm_result.get('arm_score', 50.0) if right_arm_result.get('is_valid') else 50.0
+        # 姿态角度(肘/肩/头倾/头俯仰/肩线/躯干) —— 定义照 examples 移植,见 angles.py
+        angles_data.update(pose_angles(pose_landmarks))
+        # 双肩的归一化图像距离(上面那个 `shoulder_scale` 的**同一个值** ——
+        # 两处各算一遍同一个 dist 就是两份口径,迟早漂)
+        angles_data["shoulder_width"] = shoulder_scale
+
+    if pose_world:
+        # 同一套公式喂米制坐标。**两个分析器集各自独立**,不然状态会串。
+        w = analyzers['world']
+        # 米制那批**不除肩宽**(米制已是解剖尺度),所以不传 shoulder_width ——
+        # 传了也不会用,但那个入参在四个 analyzer 里同名,传一个"看着有意义"的值
+        # 只会让下一个读代码的人以为米制那批也除了肩宽。
+        w['shoulder'].update(pose_world, timestamp_ms=timestamp_ms)
+        w['left_arm'].update(pose_world, timestamp_ms=timestamp_ms)
+        w['right_arm'].update(pose_world, timestamp_ms=timestamp_ms)
+        wl, wr = w['left_arm'].get_results(), w['right_arm'].get_results()
+        ws = w['shoulder'].get_results()
+        # 名字与 logger._WORLD_COLUMNS **逐字一致**(两处不同名 = 静默的零值)
+        world_results = {
+            'left_wrist_jitter_world': wl.get('wrist_jitter'),
+            'left_elbow_jitter_world': wl.get('elbow_jitter'),
+            'right_wrist_jitter_world': wr.get('wrist_jitter'),
+            'right_elbow_jitter_world': wr.get('elbow_jitter'),
+            'left_arm_angle_world': wl.get('arm_angle'),
+            'right_arm_angle_world': wr.get('arm_angle'),
+            'left_shoulder_jitter_world': ws.get('left_jitter'),
+            'right_shoulder_jitter_world': ws.get('right_jitter'),
+        }
+
+    # 手指角度:每指取三个关节(定义与 examples 一致)
+    for _slot, _lms in hand_lm_by_slot.items():
+        _fa = finger_angles(_lms)
+        if _fa:
+            angles_data[f"{_slot.replace('_hand', '')}_finger_angles"] = _fa
+
+    # 计算手部平均分
+    if detected_hands == 1:
+        hand_score = hand_scores[0]
+    elif detected_hands == 2:
+        hand_score = sum(hand_scores) / len(hand_scores)
+    else:
+        hand_score = 50.0
+
+    # 推断情绪
+    emotion_result = analyzers['emotion'].infer_emotion(
+        {"resilience_score": hand_score},
+        {"shoulder_score": shoulder_score},
+        {"arm_score": left_arm_score},
+        {"arm_score": right_arm_score}
+    )
+
+    # 获取详细的分析器结果。
+    # ⚠️ **本帧没喂过的槽交 None** —— 交对象等于把**上一帧的旧值**写进这一行
+    #    (分析器保留上次结果),而"上一帧的度量"顶替"这一帧的度量"是不留痕迹的错;
+    #    交 0/50 则是把"没测到"写成"测到一个值"。两种都不要,空就是空。
+    def _fresh(key: str, fed: bool):
+        return analyzers[key].get_results() if fed else None
+
+    return {
+        "detected_hands": detected_hands,
+        "hand_score": hand_score,
+        "emotion_result": emotion_result,
+        "left_hand_results": _fresh('left_hand', 'left_hand' in used_slots),
+        "right_hand_results": _fresh('right_hand', 'right_hand' in used_slots),
+        "shoulder_results": _fresh('shoulder', bool(pose_landmarks)),
+        "left_arm_results": _fresh('left_arm', bool(pose_landmarks)),
+        "right_arm_results": _fresh('right_arm', bool(pose_landmarks)),
+        "upper_body_results": _fresh('upper_body', bool(pose_landmarks)),
+        # ★ 落盘那一组入参 —— 端点与重放腿**各传一份同一个字典**,列名映射只此一份。
+        #   `hand_present` 直接来自上面那个帧循环的 `used_slots`,不从 `*_hand_results`
+        #   反推:反推出来的只是它的代理,代理一旦被改坏,`hand_visible_*` 会**静默**
+        #   开始把「不知道是哪只手」写成「这只手可见」。
+        #   `handedness_info` 只回答"知不知道是哪只手",两者是两个事实
+        #   (logger 侧按**合取**写:`1` 只在两者都成立时)。
+        "log_kwargs": {
+            "left_hand_result": _fresh('left_hand', 'left_hand' in used_slots),
+            "right_hand_result": _fresh('right_hand', 'right_hand' in used_slots),
+            "shoulder_result": _fresh('shoulder', bool(pose_landmarks)),
+            "left_arm_result": _fresh('left_arm', bool(pose_landmarks)),
+            "right_arm_result": _fresh('right_arm', bool(pose_landmarks)),
+            "upper_body_result": _fresh('upper_body', bool(pose_landmarks)),
+            "emotion_result": emotion_result,
+            "angles_data": angles_data,
+            "handedness_info": handedness_info,
+            "world_results": world_results,
+            "hand_present": {slot: slot in used_slots
+                             for slot in ("left_hand", "right_hand")},
+        },
+    }
+
+
 class ImageRequest(BaseModel):
     """图片请求模型（保留以兼容旧代码）"""
     image: str  # Base64编码的图片
@@ -314,160 +495,27 @@ async def analyze_image(
         media_retention.retain_frame(session_id, "gesture", contents,
                                      declared_ts=timestamp_ms, source="/analyze")
 
-        hand_groups, handedness = dets['hands'].detect_with_handedness(image_rgb, timestamp_ms)
-        detected_hands = 0
-        hand_scores = []
-        # 左右手**按模型给的 handedness 定,不按检出顺序**。
-        # 2026-09-26 实测:在此之前是 `'left_hand' if hand_id == 0 else 'right_hand'`
-        # —— hand_id 是"第几个被检出",换个姿势左右就互换,而日志里那两列看着像
-        # 左右手。模型本来就算得出,只是没人读。
-        #
-        # ⚠️ 模型按**镜像(自拍)输入**判左右(官方文档原话:handedness 是
-        #    "determined assuming the input image is mirrored"),而本项目的帧是画布
-        #    原样绘制的**非镜像**图 ⟹ 标签要**翻过来**。原始标签与置信度都进日志
-        #    (见 utils/logger.py 的四列),所以这个翻法是可审计的。
-        handedness_info = {}
-        used_slots = set()
-        hand_lm_by_slot = {}          # 本帧每一槽收到的 hand landmarks
-
-        for hand_id, landmarks in enumerate(hand_groups):
-            if hand_id >= 2: break
-            entry = handedness[hand_id] if hand_id < len(handedness) else None
-            analyzer_key = None
-            if entry is not None:
-                label, conf = entry
-                side = 'right' if label == 'Left' else 'left'      # ← 翻转,理由见上
-                if f'{side}_hand' not in used_slots:
-                    analyzer_key = f'{side}_hand'
-                    handedness_info[analyzer_key] = (label, conf)
-            if analyzer_key is None:
-                # 模型没给 handedness(或它指的那一侧已被占):填还空着的槽,
-                # 并**如实标记这一槽没有依据** —— 不假装知道它是左手还是右手。
-                analyzer_key = next((c for c in ('left_hand', 'right_hand')
-                                     if c not in used_slots), None)
-                if analyzer_key is None:
-                    break
-                handedness_info[analyzer_key] = None
-            used_slots.add(analyzer_key)
-            hand_lm_by_slot[analyzer_key] = landmarks     # 手指角度要用(下面)
-            analyzers[analyzer_key].update(landmarks)
-            hand_scores.append(analyzers[analyzer_key].get_results()['resilience_score'])
-            detected_hands += 1
-
-        # 一并取回 **world(米制 3D)** 那份:PoseLandmarker 本来就输出,
-        # 本仓此前只读归一化那份(`grep world_landmarks` 零命中)。
-        pose_landmarks, pose_world = dets['pose'].detect_with_world(image_rgb, timestamp_ms)
-        # 这两个 50.0 只喂**情绪推断**的输入(下面 hand_results/shoulder_results/…),
-        # **不进日志**:日志那几列按"本帧有没有数据"写空(见 _fresh 与 _safe_get)。
-        shoulder_score = 50.0
-        left_arm_score = 50.0
-        right_arm_score = 50.0
-        angles_data = {}
-        world_results = {}
-
-        if pose_landmarks:
-            analyzers['shoulder'].update(pose_landmarks)
-            analyzers['left_arm'].update(pose_landmarks)
-            analyzers['right_arm'].update(pose_landmarks)
-            analyzers['upper_body'].update(pose_landmarks)      # ← 此前活服务从没喂过它
-            shoulder_score = analyzers['shoulder'].get_results()['shoulder_score']
-            left_arm_result = analyzers['left_arm'].get_results()
-            right_arm_result = analyzers['right_arm'].get_results()
-            left_arm_score = left_arm_result.get('arm_score', 50.0) if left_arm_result.get('is_valid') else 50.0
-            right_arm_score = right_arm_result.get('arm_score', 50.0) if right_arm_result.get('is_valid') else 50.0
-            # 姿态角度(肘/肩/头倾/头俯仰/肩线/躯干) —— 定义照 examples 移植,见 angles.py
-            angles_data.update(pose_angles(pose_landmarks))
-            # 双肩的**归一化图像距离** —— 协变量(报告层拿它当尺度基准消取景影响),
-            # 单位**不是米**:本项目没有任何相机内参来源,给不出米制(见 angles.shoulder_width
-            # 与 l0_columns.json 那一行)。缺任一肩时这里是 None ⟹ 日志落**空**,不落 0。
-            angles_data["shoulder_width"] = shoulder_width(pose_landmarks)
-
-        if pose_world:
-            # 同一套公式喂米制坐标。**两个分析器集各自独立**,不然状态会串。
-            w = analyzers['world']
-            w['shoulder'].update(pose_world)
-            w['left_arm'].update(pose_world)
-            w['right_arm'].update(pose_world)
-            wl, wr = w['left_arm'].get_results(), w['right_arm'].get_results()
-            ws = w['shoulder'].get_results()
-            # 名字与 logger._WORLD_COLUMNS **逐字一致**(两处不同名 = 静默的零值)
-            world_results = {
-                'left_wrist_jitter_world': wl.get('wrist_jitter'),
-                'left_elbow_jitter_world': wl.get('elbow_jitter'),
-                'right_wrist_jitter_world': wr.get('wrist_jitter'),
-                'right_elbow_jitter_world': wr.get('elbow_jitter'),
-                'left_arm_angle_world': wl.get('arm_angle'),
-                'right_arm_angle_world': wr.get('arm_angle'),
-                'left_shoulder_jitter_world': ws.get('left_jitter'),
-                'right_shoulder_jitter_world': ws.get('right_jitter'),
-            }
-
-        # 手指角度:每指取三个关节(定义与 examples 一致)
-        for _slot, _lms in hand_lm_by_slot.items():
-            _fa = finger_angles(_lms)
-            if _fa:
-                angles_data[f"{_slot.replace('_hand', '')}_finger_angles"] = _fa
-
-        # 计算手部平均分
-        if detected_hands == 1:
-            hand_score = hand_scores[0]
-        elif detected_hands == 2:
-            hand_score = sum(hand_scores) / len(hand_scores)
-        else:
-            hand_score = 50.0
-
-        # 推断情绪
-        hand_results = {"resilience_score": hand_score}
-        shoulder_results = {"shoulder_score": shoulder_score}
-        left_arm_results = {"arm_score": left_arm_score}
-        right_arm_results = {"arm_score": right_arm_score}
-        emotion_result = analyzers['emotion'].infer_emotion(
-            hand_results,
-            shoulder_results,
-            left_arm_results,
-            right_arm_results
-        )
+        # 一帧的全部产出:与 `experiments/replay_retained.py` 的手势腿**共用同一份**
+        # —— 端点这边剩下的只有取图、取会话、落盘、拼响应(见 process_frame 的 docstring:
+        # 重放腿不许自抄一遍接线,否则它证的是它自己抄的那份)。
+        frame = process_frame(image_rgb, timestamp_ms, analyzers, dets)
+        detected_hands = frame["detected_hands"]
+        hand_score = frame["hand_score"]
+        emotion_result = frame["emotion_result"]
+        left_hand_results = frame["left_hand_results"]
+        right_hand_results = frame["right_hand_results"]
+        shoulder_results = frame["shoulder_results"]
+        left_arm_results = frame["left_arm_results"]
+        right_arm_results = frame["right_arm_results"]
 
         logger.info(f"分析完成: {emotion_result['emotion_state']} (评分: {emotion_result['overall_score']:.1f})")
 
-        # 获取详细的分析器结果。
-        # ⚠️ **本帧没喂过的槽交 None** —— 交对象等于把**上一帧的旧值**写进这一行
-        #    (分析器保留上次结果),而"上一帧的度量"顶替"这一帧的度量"是不留痕迹的错;
-        #    交 0/50 则是把"没测到"写成"测到一个值"。两种都不要,空就是空。
-        def _fresh(key: str, fed: bool):
-            return analyzers[key].get_results() if fed else None
-
-        left_hand_results = _fresh('left_hand', 'left_hand' in used_slots)
-        right_hand_results = _fresh('right_hand', 'right_hand' in used_slots)
-        shoulder_results = _fresh('shoulder', bool(pose_landmarks))
-        left_arm_results = _fresh('left_arm', bool(pose_landmarks))
-        right_arm_results = _fresh('right_arm', bool(pose_landmarks))
-        upper_body_results = _fresh('upper_body', bool(pose_landmarks))
-
-        # 将帧数据写入 CSV 日志（供 report_frontend 批量读取）
+        # 将帧数据写入 CSV 日志（供 report_frontend 批量读取）。
+        # 入参整份来自 `frame["log_kwargs"]` —— 与重放腿传的是**同一个字典**。
         if session_id in session_loggers:
             try:
                 gesture_logger = session_loggers[session_id][0]
-                gesture_logger.log(
-                    left_hand_result=left_hand_results,
-                    right_hand_result=right_hand_results,
-                    shoulder_result=shoulder_results,
-                    left_arm_result=left_arm_results,
-                    right_arm_result=right_arm_results,
-                    upper_body_result=upper_body_results,
-                    emotion_result=emotion_result,
-                    angles_data=angles_data,
-                    handedness_info=handedness_info,
-                    world_results=world_results,
-                    # 「本帧这一槽收到了手」的事实 —— 直接来自上面那个帧循环的
-                    # `used_slots`,不从 `*_hand_results` 反推:反推出来的只是它的
-                    # 代理,代理一旦被改坏,`hand_visible_*` 会**静默**开始把
-                    # 「不知道是哪只手」写成「这只手可见」。
-                    # `handedness_info` 只回答"知不知道是哪只手",两者是两个事实
-                    # (logger 侧按**合取**写:`1` 只在两者都成立时)。
-                    hand_present={slot: slot in used_slots
-                                  for slot in ("left_hand", "right_hand")}
-                )
+                gesture_logger.log(**frame["log_kwargs"])
             except Exception as log_err:
                 logger.warning("CSV日志写入失败: %s", log_err)
 
