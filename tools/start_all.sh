@@ -41,6 +41,12 @@ if [ "$JX_BIND" = "0.0.0.0" ]; then
     case "$ip" in *:*) continue;; esac
     LAN_IP="${LAN_IP:+$LAN_IP,}http://$ip:5173,http://$ip:5000"
   done
+  # Tailscale 域名(经 `tailscale serve` 访问时,页面的 Origin 是
+# `https://<主机>.<tailnet>.ts.net:<port>`)。自动探测,不写死 —— 换 tailnet、
+# 换主机名都不用改这个脚本。取不到就跳过(不影响本地/隧道那两种用法)。
+TS_DNS="$(tailscale status --json 2>/dev/null \
+  | python3 -c "import json,sys;print(((json.load(sys.stdin).get('Self') or {}).get('DNSName') or '').rstrip('.'))" 2>/dev/null || true)"
+  [ -n "$TS_DNS" ] && LAN_IP="${LAN_IP:+$LAN_IP,}https://$TS_DNS:5173,https://$TS_DNS:5000"
   if [ -n "$LAN_IP" ]; then
     export CORS_ORIGINS="${CORS_ORIGINS:-$CORS_DEFAULT},$LAN_IP"
     export PANEL_HOST=0.0.0.0

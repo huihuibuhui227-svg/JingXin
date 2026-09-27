@@ -36,6 +36,16 @@ for ip in $LAN_IPS; do
   CORS="$CORS,http://$ip:5173,http://$ip:5000"
 done
 
+# Tailscale 域名(经 `tailscale serve` 访问时,页面的 Origin 是
+# `https://<主机>.<tailnet>.ts.net:<port>`)。自动探测,不写死 —— 换 tailnet、
+# 换主机名都不用改这个脚本。取不到就跳过(不影响本地/隧道那两种用法)。
+TS_DNS="$(tailscale status --json 2>/dev/null \
+  | python3 -c "import json,sys;print(((json.load(sys.stdin).get('Self') or {}).get('DNSName') or '').rstrip('.'))" 2>/dev/null || true)"
+if [ -n "$TS_DNS" ]; then
+  CORS="$CORS,https://$TS_DNS:5173,https://$TS_DNS:5000"
+  echo "tailscale : $TS_DNS(已加进 CORS)"
+fi
+
 # 前端那个 unit 要 node。systemd 的 PATH 很干净,必须显式给。
 NODE_BIN="$(command -v node || true)"
 if [ -z "$NODE_BIN" ]; then
