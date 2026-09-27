@@ -34,3 +34,21 @@ _voice_logger_module.LOGS_DIR = str(_LOGS_TMP)
 # 某一个测试若自己设了,它的值优先(在会话级值之上覆盖)。
 _RECORDINGS_TMP = Path(tempfile.mkdtemp(prefix="jingxin-test-recordings-"))
 os.environ.setdefault("JINGXIN_RECORDINGS_DIR", str(_RECORDINGS_TMP))
+
+# ── 评估流水线的落点同样挪出仓库(第三次、同一理由) ─────────────────────────
+#
+# `assessment_pipeline.ASSESSMENT_LOG_ROOT` 默认是 `<repo>/data/logs`,而
+# `out_dir = ASSESSMENT_LOG_ROOT / kind` **在调用时**查模块全局 ⟹ 改模块属性即可生效。
+# 不拦的话:每跑一次全套件往仓库里留 `data/logs/{interview,research}/assessment_note_<ts>.csv`
+# (2026-09-26 实测:单跑 `test_media_retention_voice.py::test_research_answer_audio_is_retained`
+# 就多 1 个;盘上已积 498 个)。文件被 gitignore ⟹ 进不了提交面,但 `visualize.py`
+# **按同一词根扫它给面板列文件** ⟹ 测试噪声出现在报告面板的文件列表里。
+# 钉子:`tests/test_log_isolation.py::test_assessment_log_root_is_redirected_out_of_repo`。
+try:
+    from voice_interaction.pipeline import assessment_pipeline as _assessment_pipeline
+
+    _assessment_pipeline.ASSESSMENT_LOG_ROOT = Path(
+        tempfile.mkdtemp(prefix="jingxin-test-assessment-logs-")
+    )
+except Exception:  # noqa: BLE001 — 依赖缺失时不让 conftest 整个炸掉
+    pass
