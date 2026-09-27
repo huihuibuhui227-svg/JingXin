@@ -1,0 +1,14 @@
+# 开发/测试依赖 —— 在 requirements.txt 之上再加这些。
+#
+# 为什么单独一个文件:`requirements.txt` 是**跑系统**要的;`pytest` 是**改系统**要的。
+# 2026-09-27 实测踩到:照着开发者文档「装 requirements.txt → 跑 pytest」走,
+# 第二步会 `No module named pytest` —— 文档里的两步接不上。这个文件就是补那个缝。
+#
+#   pip install -r requirements-dev.txt        # 开发/测试
+#   pip install -r requirements.txt            # 只跑服务
+#
+-r requirements.txt
+
+# 测试框架。**没有插件依赖** —— pytest.ini 只有 `testpaths = tests`,
+# 测试里没有 `pytest.mark.asyncio` / `anyio` 之类需要额外插件的东西。
+pytest>=8.0
