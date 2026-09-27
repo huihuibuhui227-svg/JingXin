@@ -79,9 +79,112 @@ def validate_modality(modality: str) -> str:
 
 
 def recording_dir(session_id: str) -> Path:
-    d = root() / validate_session_id(session_id)
+    d = resolve_recording_dir(session_id)
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+# ── 目录名带本场标注:`<标签>__<sid>`(使用者 2026-09-27 裁定)──────────────────
+#
+# 为什么 sid 必须留在目录名**尾部**:`session_id` 同时是 `data/logs/` 里三份日志的
+# 文件名,而报告侧的 `data_loader` 就按那个正则找日志。目录名可以改,但必须**还能从
+# sid 推出来** —— 否则下面那些 `root()/<sid>` 的调用点(media_retention /
+# transcript_store / session_meta / 重放工具)会集体失效,而失效的形态是
+# **素材静默写不进去**,本仓最贵的那一类。
+
+LABEL_DIR_SEP = "__"
+
+# 目录名的字节上限。文件系统是 255 字节,而中文在 UTF-8 里 3 字节/字 ——
+# 留出余量取 240。超了**拒**(见 `label_dir_name`),不悄悄不改名。
+DIR_NAME_MAX_BYTES = 240
+
+_UNSAFE_IN_PATH_COMPONENT = ("/", "\\", "\x00")
+
+
+def _safe_path_component(value: str, what: str) -> str:
+    """守卫:一段值要被拼进**目录名**,就得保证它自己不是路径。
+
+    ⚠️ 与 `validate_session_id` 同一类风险、同一类守卫。标注是**客户端可控**的
+    (走 HTTP 表单),而它现在会被拼成目录名 —— `../..` 之类的值能在录制根**之外**
+    建目录。放它进来等于把刚焊好的那道门撬开一个口子。
+    """
+    if not isinstance(value, str):
+        raise ValueError(f"{what} 必须是字符串,收到 {type(value).__name__}")
+    v = value.strip()
+    if not v:
+        raise ValueError(f"{what} 是空的 —— 空的当不了目录名的一段")
+    for ch in _UNSAFE_IN_PATH_COMPONENT:
+        if ch in v:
+            raise ValueError(f"{what} 里有路径分隔符或 NUL:{v!r} —— 它会被拼进目录名")
+    if v.startswith("."):
+        # 一并挡掉 `.` / `..` / `.hidden`
+        raise ValueError(f"{what} 不能以点开头:{v!r}(`.`/`..`/隐藏名都不行)")
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in v):
+        raise ValueError(f"{what} 里有控制字符:{v!r}")
+    return v
+
+
+def label_dir_name(label: str, session_id: str) -> str:
+    """`<标签>__<sid>`。标签本身过长/含路径分隔符时抛 `ValueError`(请求的毛病 → 400)。
+
+    标签里出现 `__` 不影响解析:`resolve_recording_dir` 是按**后缀** `__<sid>` 认的,
+    而 sid 唯一。
+    """
+    sid = validate_session_id(session_id)
+    comp = _safe_path_component(label, "本场标注")
+    name = f"{comp}{LABEL_DIR_SEP}{sid}"
+    n = len(name.encode("utf-8"))
+    if n > DIR_NAME_MAX_BYTES:
+        raise ValueError(
+            f"标注太长:与 session_id 拼成目录名后有 {n} 字节,超过上限 "
+            f"{DIR_NAME_MAX_BYTES}(文件系统是 255;中文 3 字节/字)—— 请写短一点")
+    return name
+
+
+def resolve_recording_dir(session_id: str) -> Path:
+    """定这一场的目录。**不建目录**(读侧不该有副作用)。
+
+    三条路,按顺序:
+    1. `root()/<sid>` 在 ⟹ 就用它。**历史素材(本轮之前那 56 场)照旧不动**,
+       没标的场次也走这条。
+    2. 否则找后缀 `__<sid>` 的目录 —— 那是存过标注、被改过名的。
+       sid 唯一 ⟹ 至多一个。
+    3. 都没有(这一场什么都还没落)⟹ 返回旧形态的路径,由调用方决定建不建。
+    """
+    sid = validate_session_id(session_id)
+    base = root()
+    legacy = base / sid
+    if legacy.is_dir():
+        return legacy
+    suffix = f"{LABEL_DIR_SEP}{sid}"
+    try:
+        for p in sorted(base.iterdir()):
+            if p.is_dir() and p.name.endswith(suffix):
+                return p
+    except (FileNotFoundError, NotADirectoryError):
+        pass          # 录制根都还不存在 ⟹ 走第 3 条
+    return legacy
+
+
+def rename_session_dir_to_label(session_id: str, label: str) -> Path:
+    """把这一场的目录改成 `<标签>__<sid>`。已经叫那个名就原样返回。
+
+    调用时机在 `session_meta.upsert_label` 里,即**开录之前**(标注存完才开录)
+    ⟹ 改名那一刻没有并发的写入方抢路径。
+    ⚠️ 「录完改标签」那次改名**可能**与在录的帧撞上:face/gesture 每个请求都重新
+    解析一次目录,所以撞上的是"刚解析完旧路径、目录就没了"那一瞬间 ——
+    那几帧会被留存层记成降级(`degraded_reasons`),不会静默。
+    """
+    sid = validate_session_id(session_id)
+    target = root() / label_dir_name(label, sid)
+    current = resolve_recording_dir(sid)
+    if current == target:
+        return current
+    if target.exists():
+        raise ValueError(f"目录名已被占用:{target.name}")
+    current.mkdir(parents=True, exist_ok=True)
+    os.replace(current, target)      # 同一个盘 ⟹ 原子
+    return target
 
 
 def media_dir(session_id: str, *parts: str) -> Path:

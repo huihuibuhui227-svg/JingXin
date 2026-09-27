@@ -32,7 +32,9 @@ def _write(**kw):
 
 def test_label_lands_on_disk_next_to_the_session(_isolated):
     rec = _write()
-    p = _isolated / SID / "label.json"
+    # ⚠️ 用 `label_path` 而不是手拼 `SID/label.json`:存标注会把目录**改名**成
+    #    `<标签>__<sid>`(见 test_label_dir_naming.py),手拼路径就测到"改名之前"了。
+    p = session_meta.label_path(SID)
     assert p.exists(), "label.json 该落在会话根(与 questions.jsonl / meta.json 同级)"
     got = session_meta.read_label(SID)
     assert got["name"] == "张三"
@@ -40,6 +42,7 @@ def test_label_lands_on_disk_next_to_the_session(_isolated):
     assert got["department"] == "计算机与人工智能学院"
     assert got["session_id"] == SID
     assert rec["label"] == got["label"]
+    assert SID in p.parent.name and "张三" in p.parent.name
 
 
 def test_timestamp_comes_from_the_session_id_not_the_wall_clock():
@@ -90,12 +93,21 @@ def test_field_that_is_not_a_string_is_rejected():
         _write(serial=1)
 
 
-def test_overlong_field_is_rejected():
-    """长度闸:这是个会被写进 JSON、并在界面上原样渲染的值,不设上限等于让一个
-    粘贴事故把界面撑爆。**上限是 120 字符**(远超真名/学号/院系的长度)。"""
+def test_overlong_single_field_is_rejected():
+    """单字段长度闸:**上限 120 字符**(远超真名/学号/院系的长度)。
+
+    红法:把 `LABEL_FIELD_MAX` 那段判断去掉 → 本测试红在没抛 ValueError。
+
+    ⚠️ 还有**第二道**闸(拼成目录名后 ≤ 240 字节,见 test_label_dir_naming.py)——
+    那道更早生效:中文 3 字节/字,所以 120 个汉字(360 字节)会先撞目录名那道。
+    两道闸都在不同区制下是**生效的那一道**,所以都留着。
+    """
     with pytest.raises(ValueError):
         _write(name="张" * 121)
-    assert _write(name="张" * 120)["name"] == "张" * 120
+    with pytest.raises(ValueError):
+        _write(name="张" * 120)      # 过了字段闸,但目录名闸拦下
+    # ASCII 下字段闸是生效的那一道:120 个 ASCII 字符 = 120 字节,目录名闸不拦
+    assert _write(name="a" * 120)["name"] == "a" * 120
 
 
 def test_illegal_session_id_is_rejected():

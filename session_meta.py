@@ -28,7 +28,9 @@ import time
 from pathlib import Path
 from typing import Any
 
-from media_retention import root as _recordings_root, validate_session_id
+from media_retention import (validate_session_id,
+                             resolve_recording_dir, label_dir_name,
+                             rename_session_dir_to_label)
 
 QUESTIONS_FILENAME = "questions.jsonl"
 META_FILENAME = "meta.json"
@@ -55,9 +57,13 @@ def _session_dir(session_id: str, *, create: bool) -> Path:
 
     为什么不用 `media_retention.recording_dir`:那个函数**总是建目录**,
     于是"读一场根本不存在/没报过题的会话"会在盘上留下一个空会话目录。
+
+    目录**名**由 `media_retention.resolve_recording_dir` 定 —— 存过标注的场次叫
+    `<标签>__<sid>`,其余叫 `<sid>`。三处(本模块 / media_retention /
+    transcript_store)必须共用同一套解析,否则一场会被劈成两个目录。
     """
     sid = validate_session_id(session_id)
-    d = _recordings_root() / sid
+    d = resolve_recording_dir(sid)
     if create:
         d.mkdir(parents=True, exist_ok=True)
     return d
@@ -240,12 +246,19 @@ def upsert_label(session_id: str, *, serial: str, name: str,
            "recorded_at_wall": float(recorded_at if recorded_at is not None else time.time()),
            **fields,
            "label": compose_label(sid, **fields)}
+    # 目录名要先验(**在写盘之前**):标签现在会被拼进录制目录名,而超长/含路径
+    # 分隔符的目录名是**请求本身**的毛病。先验就不会留下"标注存了、目录没改名"
+    # 这种各说各话的中间态。
+    label_dir_name(rec["label"], sid)
     with _session_lock(sid):
         p = _session_dir(sid, create=True) / LABEL_FILENAME
         # 写临时文件再 replace(与 upsert_question 同一讲究:进程被杀不留半个文件)
         tmp = p.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(rec, ensure_ascii=False, indent=2), encoding="utf-8")
         os.replace(tmp, p)
+        # 存完标注就把目录改成 `<标签>__<sid>` —— 这样在盘上 lS 一眼就认得出这一场
+        # 是谁的(使用者要的"recording 里的命名就是我设置的那个")。
+        rename_session_dir_to_label(sid, rec["label"])
     return rec
 
 
