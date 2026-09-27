@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>R5 实测:两路音频流会不会打架</title>
+<style>
+  :root { color-scheme: light; }
+  body { font: 15px/1.7 system-ui, "Segoe UI", sans-serif; max-width: 860px;
+         margin: 28px auto; padding: 0 18px; color: #1a1a1a; }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  .sub { color: #666; margin-top: 0; }
+  .box { border: 1px solid #d8d8d8; border-radius: 8px; padding: 14px 16px; margin: 14px 0; }
+  button { font: inherit; padding: 8px 14px; margin: 4px 6px 4px 0; border-radius: 6px;
+           border: 1px solid #bbb; background: #f6f6f6; cursor: pointer; }
+  button:hover { background: #ececec; }
+  button.stop { border-color: #d99; background: #fdf2f2; }
+  .ok { color: #15692f; font-weight: 600; }
+  .bad { color: #a11; font-weight: 600; }
+  pre { background: #f4f4f4; padding: 10px 12px; border-radius: 6px;
+        white-space: pre-wrap; word-break: break-all; font-size: 13px; }
+  textarea { width: 100%; height: 190px; font: 13px/1.6 ui-monospace, monospace;
+             padding: 10px; border: 1px solid #ccc; border-radius: 6px; }
+  video { width: 320px; background: #000; border-radius: 6px; margin-right: 10px; }
+  ol li { margin: 5px 0; }
+  .warn { background: #fff8e6; border-color: #e8d9a8; }
+</style>
+</head>
+<body>
+<h1>R5 实测:改成 <code>audio: true</code> 之后,两路音频流会不会打架</h1>
+<p class="sub">M2.6 前端腿的前提。全程在本页点按钮,不用改任何代码。</p>
+
+<div class="box warn" id="envbox">
+  <b>环境自检</b>
+  <pre id="env">检查中…</pre>
+</div>
+
+<h3>为什么要有这一页</h3>
+<p>现在的 <code>useCamera</code> 取的是 <code>{video, audio: false}</code>,
+而 <code>useAudioRecorder</code> **另外**取一路麦克风。R5 要把它改成
+<code>audio: true</code> —— 那样就**同时存在两路音频流**(摄像头带一路、录音按钮一路)。
+浏览器通常允许,但必须实测:能不能同时开、录出来的 webm 音轨正不正常、录音按钮还灵不灵。</p>
+
+<h3>照着点(六步)</h3>
+<div class="box">
+  <button onclick="openCamera()">① 只开摄像头(<code>video+audio:true</code>)</button>
+  <button onclick="openMic()">② 只开麦克风(<code>audio:true</code>)</button>
+  <button onclick="openBoth()">③ <b>两路同时开</b> ← R5 的核心</button>
+  <button onclick="recStart()">④ 录 10 秒(摄像头那路带音轨)</button>
+  <button class="stop" onclick="stopAll()">⑤ 全停</button>
+</div>
+
+<div class="box">
+  <video id="cam" autoplay muted playsinline></video>
+  <video id="playback" controls playsinline></video>
+</div>
+
+<div class="box">
+  <b>日志(每一步都会写在这里)</b>
+  <pre id="log">—</pre>
+</div>
+
+<div class="box">
+  <b>⑥ 把下面这个框里的内容整段复制回来给我</b>
+  <p class="sub" style="margin:4px 0 8px">含环境、每一步的结果、录出来那个 webm 的轨与时长 —— 我照它定前端半的方案。</p>
+  <textarea id="report" readonly placeholder="点完上面六步,这里会自动填好"></textarea>
+</div>
+
+<h3>怎么判读</h3>
+<ol>
+  <li><b>③ 两路同时开</b>:两路都显示 <span class="ok">live</span> ⟹ 不打架。
+      报错 / 一路被顶掉 ⟹ <b>打架</b>,前端半退回「另存 <code>audio.webm</code>」。</li>
+  <li><b>④ 录完点播放</b>:<b>又看得见人、又听得见自己说话</b> ⟹ <code>camera.webm</code> 音轨正常。
+      有画面没声音 ⟹ 音轨没进去,同样退回另开一路。</li>
+  <li>录出来那个文件的 <b>轨数</b>会打印出来:<code>video</code> + <code>audio</code> 两条才算过。</li>
+</ol>
+
+<script>
+const logEl = document.getElementById('log');
+const rep = document.getElementById('report');
+let camStream = null, micStream = null, rec = null, chunks = [];
+
+function say(msg) {
+  const t = new Date().toLocaleTimeString();
+  logEl.textContent = (logEl.textContent === '—' ? '' : logEl.textContent + '\n') + `[${t}] ${msg}`;
+  rebuild();
+}
+function desc(s) {
+  if (!s) return '(未开)';
+  return s.getTracks().map(t => `${t.kind}:${t.readyState}`).join(', ') || '(无轨)';
+}
+function rebuild() {
+  rep.value =
+`=== R5 实测结果 ===
+时间: ${new Date().toISOString()}
+页面安全上下文 isSecureContext: ${window.isSecureContext}
+navigator.mediaDevices 可用: ${!!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)}
+userAgent: ${navigator.userAgent}
+
+摄像头那路(拟改为 video+audio:true): ${desc(camStream)}
+麦克风那路(现有 useAudioRecorder): ${desc(micStream)}
+
+--- 逐步日志 ---
+${logEl.textContent}`;
+}
+
+// 环境自检:file:// 下 mediaDevices 可能不可用 —— 要当场说清楚,别让人白点
+(function env() {
+  const secure = window.isSecureContext;
+  const has = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+  document.getElementById('env').innerHTML = has
+    ? `<span class="ok">✓ 可以用</span>\n`
+      + `  isSecureContext: ${secure}    mediaDevices: 有\n`
+      + `  正在枚举设备…`
+    : `<span class="bad">✗ 这个打开方式下拿不到 getUserMedia</span>\n`
+      + `  isSecureContext: ${secure}    mediaDevices: ${has}\n`
+      + `\n请改用「本机静态服务」打开(在 WSL 里跑一行,然后从 Windows 浏览器访问):\n`
+      + `  cd ~/shared && ~/miniconda3/envs/jingxin/bin/python -m http.server 8777\n`
+      + `  然后在 Windows 浏览器打开  http://localhost:8777/r5_two_stream_check.html`;
+  if (has) {
+    navigator.mediaDevices.enumerateDevices().then(ds => {
+      const n = k => ds.filter(d => d.kind === k).length;
+      document.getElementById('env').innerHTML +=
+        `\n  摄像头 ${n('videoinput')} 个 / 麦克风 ${n('audioinput')} 个`;
+      say('环境自检通过,可以开始点 ①');
+    }).catch(e => say('设备枚举失败:' + e.message));
+  } else {
+    say('⚠️ getUserMedia 不可用 —— 先按上面那行换成本机 http 打开');
+  }
+  rebuild();
+})();
+
+async function openCamera() {
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({
+      video: { width: 1280, height: 720 }, audio: true });   // ← 拟改成的样子
+    document.getElementById('cam').srcObject = camStream;
+    say('① 摄像头+音轨 OK → ' + desc(camStream));
+  } catch (e) { say('① 失败:' + e.name + ' ' + e.message); }
+}
+async function openMic() {
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    say('② 麦克风 OK → ' + desc(micStream));
+  } catch (e) { say('② 失败:' + e.name + ' ' + e.message); }
+}
+async function openBoth() {
+  try {
+    if (!camStream) camStream = await navigator.mediaDevices.getUserMedia({
+      video: { width: 1280, height: 720 }, audio: true });
+    document.getElementById('cam').srcObject = camStream;
+    if (!micStream) micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    // 关键判据:两路**同时**还是 live 吗?(取证:再各查一遍 readyState)
+    const camLive = camStream.getTracks().every(t => t.readyState === 'live');
+    const micLive = micStream.getTracks().every(t => t.readyState === 'live');
+    const veredict = camLive && micLive ? '两路都 live ⟹ 不打架' : '有一路不是 live ⟹ 打架';
+    say(`③ ${veredict}\n    摄像头 = ${desc(camStream)}\n    麦克风 = ${desc(micStream)}`);
+  } catch (e) { say('③ 失败(打架的典型症状):' + e.name + ' ' + e.message); }
+}
+function recStart() {
+  const src = camStream;
+  if (!src) { say('④ 先点 ① 或 ③ 开摄像头'); return; }
+  if (!window.MediaRecorder) { say('④ 这个浏览器没有 MediaRecorder'); return; }
+  const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
+    ? 'video/webm;codecs=vp8,opus' : 'video/webm';
+  chunks = [];
+  try { rec = new MediaRecorder(src, { mimeType: mime }); }
+  catch (e) { say('④ MediaRecorder 构造失败:' + e.message); return; }
+  rec.ondataavailable = ev => { if (ev.data && ev.data.size) chunks.push(ev.data); };
+  rec.onstop = () => {
+    const blob = new Blob(chunks, { type: 'video/webm' });
+    const pb = document.getElementById('playback');
+    pb.src = URL.createObjectURL(blob);
+    say(`④ 录完:mime=${rec.mimeType}  大小=${(blob.size/1024).toFixed(0)} KB  `
+        + `块数=${chunks.length}\n    ▶ 请点右边播放器,**听有没有声音**`);
+  };
+  rec.start();
+  say(`④ 开始录 10 秒(mime=${mime})… 请对着麦克风说句话`);
+  setTimeout(() => { if (rec && rec.state !== 'inactive') rec.stop(); }, 10000);
+}
+function stopAll() {
+  [camStream, micStream].forEach(s => s && s.getTracks().forEach(t => t.stop()));
+  camStream = micStream = null;
+  document.getElementById('cam').srcObject = null;
+  say('⑤ 全部已停');
+}
+</script>
+</body>
+</html>

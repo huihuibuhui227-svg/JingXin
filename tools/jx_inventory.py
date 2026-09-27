@@ -209,7 +209,7 @@ def main() -> int:
         "templates": "Flask 面板模板",
         "code_data_supplement": "论文复现包(未跟踪)",
         "docs": "文档 / 规格 / 计划 / SDD 账本",
-        "tools": "本仓维护脚本",
+        "tools": "本仓工具:结构图生成 / L0 导出 / 起服务 / 验收 / 录制会话(2026-09-27 从 ~/shared 迁入)",
         "report_frontend/static": "(不存在)",
     }
     for d in sorted(p for p in ROOT.iterdir() if p.is_dir() and p.name not in SKIP_DIRS | {".claude", ".superpowers"}):
@@ -325,26 +325,43 @@ def main() -> int:
             A(f"| `{d.name}` | {len(list(d.glob('*.csv')))} |")
         A("")
 
-    # ── 6 仓库外工具 ──────────────────────────────────────────
-    A("## 6. 仓库外工具 `~/shared/`(不进仓库)")
+    # ── 6 工具(仓内)与仓外残留 ───────────────────────────────
+    A("## 6. 工具")
+    A("")
+    A("**仓内 `tools/`** —— 2026-09-27 从 `~/shared/` 迁入(此前在 git 之外,换机器就没了):")
     A("")
     A("| 文件 | 行数 | 是什么 |")
     A("|---|---:|---|")
-    for p in sorted(list(SHARED.glob("jx_*.py")) + list(SHARED.glob("*.sh"))):
-        first = ""
-        try:
-            for line in p.read_text(encoding="utf-8", errors="ignore").splitlines()[:8]:
-                s = line.strip().strip('"').strip("'")
-                if s and not s.startswith(("#", "!", "set ", "cd ", "#!/")):
-                    first = s[:70]
-                    break
-        except OSError:
-            pass
-        A(f"| `{p.name}` | {loc_of(p):,} | {first} |")
+    TOOL_DESC = {
+        "jx_inventory.py": "生成本文件(`--check` 只比对)",
+        "jx_env.sh": "运行环境解析:解释器 / 录制根 / 验收样本(全部可用环境变量覆盖)",
+        "export_l0_csv.py": "按需把 `l0_columns.json` 导成 CSV(取代原先两份会漂的手工导出)",
+        "start_all.sh": "一键起三个服务 + 面板 + 前端(幂等)",
+        "t7_acceptance.sh": "T7 端到端验收",
+        "m2_acceptance.sh": "M2 端到端验收",
+        "m21_acceptance.sh": "M2.1 验收(科研自成一场)",
+        "m26_media_acceptance.sh": "M2.6 冒烟验收(原生视频上传 + 题目时刻 + 收尾对账)",
+        "jx_new_session.py": "新会话铺 `meta.json` 模板 + 填机器实测字段",
+        "jx_check_session.py": "按录制判据逐条核一场能不能进 M3",
+        "jx_console_hook.py": "录制用控制台钩子:装 / 读 / 清",
+        "jx_hook_keeper.py": "把钩子焊死在页面上(刷新也不丢)",
+        "jx_console_watch.py": "盯 `__jx_logs`,只吐值得看的事件(常驻)",
+    }
+    for p in sorted((ROOT / "tools").iterdir()):
+        if p.name.startswith(".") or p.is_dir():
+            continue
+        A(f"| `tools/{p.name}` | {loc_of(p):,} | {TOOL_DESC.get(p.name, '')} |")
+    A("")
+    left = sorted(list(SHARED.glob("jx_*.py")) + list(SHARED.glob("*.sh")) + list(SHARED.glob("L0*.csv")))
+    if left:
+        A(f"⚠️ 仓外 `{SHARED}` 仍有 {len(left)} 个脚本/导出未迁(见下)。")
+    else:
+        A(f"仓外 `{SHARED}` 已无脚本或 L0 导出 —— 录制素材与验收样本仍在那边(按设计不进仓库)。")
+    A("")
     for p in sorted(SHARED.glob("*.md")):
-        A(f"| `{p.name}` | {loc_of(p):,} | (文档) |")
-    for p in sorted(SHARED.glob("L0*.csv")):
-        A(f"| `{p.name}` | {loc_of(p):,} | L0 表导出 |")
+        A(f"- `{p.name}`({loc_of(p):,} 行,文档)")
+    for p in sorted(SHARED.glob("*.html")):
+        A(f"- `{p.name}`({loc_of(p):,} 行,浏览器自检页)")
     A("")
 
     # ── 7 文档 ────────────────────────────────────────────────
