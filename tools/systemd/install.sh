@@ -42,12 +42,18 @@ if [ -z "$NODE_BIN" ]; then
   for c in "$HOME"/.nvm/versions/node/*/bin/node; do [ -x "$c" ] && NODE_BIN="$c"; done
 fi
 NODE_DIR="$(dirname "${NODE_BIN:-/usr/bin/node}")"
+# ⚠️ 前端要起的是 **npm run dev**,不是 `node run dev` —— `run` 是 npm 的子命令。
+#    2026-09-27 实测踩到:用 node 起 ⟹ Node 去找一个叫 `run` 的模块 ⟹ MODULE_NOT_FOUND,
+#    服务无限重启(状态停在 activating/auto-restart),端口 5173 从来没起来过。
+NPM_BIN="$NODE_DIR/npm"
+[ -x "$NPM_BIN" ] || NPM_BIN="$(command -v npm || echo "")"
 
 echo "仓库    : $REPO"
 echo "解释器  : $PY"
 echo "素材    : $REC"
 echo "前端    : $FE"
 echo "node    : ${NODE_BIN:-★ 没找到}"
+echo "npm     : ${NPM_BIN:-★ 没找到}"
 echo "本机 IP  : ${LAN_IPS:-<取不到>}(都加进 CORS 了)"
 echo
 
@@ -87,13 +93,21 @@ write_unit() {
   fi
 }
 
+# 前端要 node_modules 才能起。没装就**先说清楚**,别装出一个必然重启的服务。
+if [ ! -d "$FE/node_modules" ]; then
+  echo "⚠️ $FE/node_modules 不存在 —— 前端服务起来会立刻失败。"
+  echo "   先跑:  cd $FE && npm install"
+  echo "   (以下仍会继续装 unit,但你 npm install 之前它是起不来的)"
+  echo
+fi
+
 [ "$DRY" = "0" ] && mkdir -p "$UNIT_DIR"
 
 write_unit jingxin-voice.service    "$(emit jingxin-voice    "JingXin 语音服务 (:8001)"     "$REPO" "$PY" -m voice_interaction.api.app)"
 write_unit jingxin-face.service     "$(emit jingxin-face     "JingXin 面部服务 (:8000)"     "$REPO" "$PY" -m face_expression.api.app)"
 write_unit jingxin-gesture.service  "$(emit jingxin-gesture  "JingXin 手势服务 (:8002)"     "$REPO" "$PY" -m gesture_analysis.api.app)"
 write_unit jingxin-panel.service    "$(emit jingxin-panel    "JingXin 报告面板 (:5000)"     "$REPO" "$PY" app.py)"
-write_unit jingxin-frontend.service "$(emit jingxin-frontend "JingXin 前端 dev server (:5173)" "$FE" "$NODE_BIN" run dev -- --host 0.0.0.0)"
+write_unit jingxin-frontend.service "$(emit jingxin-frontend "JingXin 前端 dev server (:5173)" "$FE" "$NPM_BIN" run dev -- --host 0.0.0.0)"
 
 if [ "$DRY" = "1" ]; then echo "(dry run,未落盘)"; exit 0; fi
 
