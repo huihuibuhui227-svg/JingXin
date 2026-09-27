@@ -25,6 +25,15 @@ OUTPUT_DIR = os.path.join(os.path.dirname(__file__), 'data', 'output')
 # 允许访问的子目录白名单
 ALLOWED_FOLDERS = {'face_expression', 'gesture_analysis', 'voice_interaction'}
 
+# 报告**不写在子目录里** —— `report_generator` 把 `*_Assessment_Report_*.html`
+# 直接落在 OUTPUT_DIR 根下。而前端「报告列表」页请求的是文件夹名,于是它去找一个
+# 根本不存在的子目录 ⟹ 既不在 ALLOWED_FOLDERS 里(回 403)、目录也不存在
+# ⟹ **列表永远是空的**(2026-09-26 实测:使用者反复报"报告列表承接不成功")。
+# 修法:给根目录一个显式别名,连同正确的静态 URL 前缀一起映射。
+# (没有把报告挪进子目录,是因为读它的地方不止这一处:面板自己的打开流程、
+#  `--session-id` 直接跑、以及 §5 的验收判据都按现在这个位置写。)
+REPORT_FOLDER = "reports"          # 前端用这个别名请求根下的报告
+
 # 任务状态追踪
 task_status = {}
 
@@ -82,10 +91,13 @@ def index():
 @app.route('/api/files/<folder_name>')
 def get_files(folder_name):
     """列出 data/output/<folder_name> 下的文件"""
-    if folder_name not in ALLOWED_FOLDERS:
+    if folder_name == REPORT_FOLDER:
+        folder_path, url_prefix = OUTPUT_DIR, "/output"
+    elif folder_name in ALLOWED_FOLDERS:
+        folder_path, url_prefix = os.path.join(OUTPUT_DIR, folder_name), f"/output/{folder_name}"
+    else:
         return jsonify({"status": "error", "message": "不允许访问该目录"}), 403
 
-    folder_path = os.path.join(OUTPUT_DIR, folder_name)
     if not os.path.exists(folder_path):
         return jsonify([])
 
@@ -94,7 +106,9 @@ def get_files(folder_name):
         if f.lower().endswith(('.png', '.jpg', '.jpeg', '.html')):
             files.append({
                 "name": f,
-                "url": f"/output/{folder_name}/{f}"
+                # URL 必须跟着**真实位置**走:别名目录下的文件在根上,
+                # 写成 /output/reports/<f> 会 404(静态路由按 OUTPUT_DIR 相对解析)
+                "url": f"{url_prefix}/{f}"
             })
     files.sort(key=lambda x: x['name'], reverse=True)
     return jsonify(files)
