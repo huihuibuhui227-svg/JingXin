@@ -113,7 +113,7 @@ def classify_session(d: Path, in_trial_dir: bool) -> tuple[str, str, int, bool]:
 def sessions_table(root: Path, in_trial_dir: bool = False) -> list[str]:
     out = []
     if not root.exists():
-        return ["_(录屏根目录不存在)_"]
+        return ["_(该目录不存在)_"]
     dirs = sorted(p for p in root.iterdir() if p.is_dir() and p.name != "NONE")
     for d in dirs:
         if d.name == "_试跑":
@@ -178,8 +178,11 @@ def main() -> int:
         vsn = sh(py, "-c", f"import {mod};print({mod}.__version__)")
         A(f"| `{mod}` | {vsn or '未装'} |")
     A(f"| 仓库根 | `{ROOT}` |")
-    A(f"| 分支 / HEAD | `{sh('git', 'rev-parse', '--abbrev-ref', 'HEAD')}` / `{sh('git', 'rev-parse', '--short', 'HEAD')}` |")
-    A(f"| 未提交条目 | {len(sh('git', 'status', '--porcelain').splitlines())} |")
+    # ⚠️ 下面两行是**生成时的快照**,不是不变量:写完本文件这个动作本身就会改变它们
+    #   (HEAD 会因为提交本文件而前进;未提交条目会 +1,因为本文件变脏了)。
+    #   ⟹ 它们在 `--check` 里被排除,否则本脚本永远报"过期"(实测踩过)。
+    A(f"| 分支 / HEAD(生成时) | `{sh('git', 'rev-parse', '--abbrev-ref', 'HEAD')}` / `{sh('git', 'rev-parse', '--short', 'HEAD')}` |")
+    A(f"| 未提交条目(生成时) | {len(sh('git', 'status', '--porcelain').splitlines())} |")
     A("")
     A("⚠️ **不要用 `~/huihui/bin/python`** —— 那是数据科学环境,本仓没装依赖(实测无 pytest)。")
     A("")
@@ -288,7 +291,10 @@ def main() -> int:
     # ── 5 录制素材 ────────────────────────────────────────────
     A("## 5. 录制素材 `~/shared/jingxin_recordings/`")
     A("")
-    A("**别删。** 三场正式素材是 M3/M4 的输入;`_试跑/` 9 场是废的但留着做回归。")
+    A("**别删。** 三场正式素材是 M3/M4 的输入与验收依据。")
+    A("")
+    A("⚠️ `_试跑/` 的 9 场已于 2026-09-27 按使用者裁定删除(811 MB)⟹ **回归比对现在只能靠"
+      "三场正式素材本身**。原「留着做回归」那条不再成立。")
     A("")
     A("⚠️ **`meta.json` 区分不出正式素材与试跑** —— 实测三场正式与 `_试跑/` 里 5 场的")
     A("`candidate` / `capture` 块**逐字相同**(同一台机器 + 同一个脚手架 `jx_new_session.py`)。")
@@ -301,7 +307,8 @@ def main() -> int:
     A("|---|---|---:|---|---:|---:|---|---|")
     L.extend(sessions_table(RECORDINGS, in_trial_dir=False))
     A("")
-    A("### 5.2 `_试跑/`(试跑,不是素材 —— 但**别删**,留作回归)")
+    A("### 5.2 `_试跑/`(已于 2026-09-27 删除)")
+    A("")
     A("")
     A("| session | 档位 | 问题数 | transcript | webm | media 文件数 | 还有 | 依据 |")
     A("|---|---|---:|---|---:|---:|---|---|")
@@ -383,8 +390,16 @@ def main() -> int:
 
     if "--check" in sys.argv:
         old = OUT.read_text(encoding="utf-8") if OUT.exists() else ""
-        old_body = re.sub(r"_生成时间:.*?_", "", old)
-        new_body = re.sub(r"_生成时间:.*?_", "", text)
+        # 排除三样**生成时快照**:生成时间、HEAD、未提交条目计数 —— 它们随"写本文件"
+        # 这个动作本身变化,拿来比就永远红(2026-09-27 实测复现)。
+        SNAP = (r"_生成时间:.*?_",
+                r"\| 分支 / HEAD\(生成时\) \|.*?\|",
+                r"\| 未提交条目\(生成时\) \|.*?\|")
+        def _strip(s):
+            for pat in SNAP:
+                s = re.sub(pat, "", s)
+            return s
+        old_body, new_body = _strip(old), _strip(text)
         if old_body != new_body:
             print(f"❌ {OUT} 已过期,请重跑本脚本", file=sys.stderr)
             return 1

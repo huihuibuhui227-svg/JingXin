@@ -62,3 +62,11 @@ vosk-model-cn-0.22/
 # 路径常量由各模块的 config.py 提供(face_expression.config.FACE_MODEL 等),
 # 探测器代码不硬编码路径。
 models/mediapipe/
+# ======================
+# 论文投稿的匿名复现包 —— **冻结,一个字节都不许动**
+# ======================
+# CueCoT 的 code & data supplement,2026-07 冻结用于双盲评审。
+# ⚠️ 它里面 modules/ 是本仓三个服务的**旧版分叉**(逐字节比对:face 相同 2/24、
+#    gesture 0/23、voice 0/23)⟹ 它是**第二个实现**,不是第二份数据,别读成本仓现状。
+# 忽略它,是防止 `git add -A` 把它一起卷进提交(2026-09-27 实测发生过一次,已回退)。
+code_data_supplement/
