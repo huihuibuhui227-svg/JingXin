@@ -50,7 +50,6 @@ voice_interaction/
 │   ├── __init__.py
 │   ├── logger.py            # 日志工具
 │   └── visualize.py         # 可视化工具
-└── examples/
     ├── __init__.py
     ├── run_interview_assessment_voice.py
     ├── run_research_assessment_voice.py

@@ -23,7 +23,7 @@ ASSESSMENT_LOG_ROOT = Path(__file__).resolve().parents[2] / "data" / "logs"
 # 那个形态正是报告侧 LogDataLoader 的模态命名空间(`report_frontend/data_loader.py`
 # 的 `file_pattern`):它递归扫 `data/logs`,在每个模态里取**文件名时间戳最新**的那份。
 # 而本文件名里的时间戳取自**回答**时刻,必然晚于会话开始时铸进 M1 会话日志文件名的
-# 那个 —— 于是它每次都被选中;又因为经 API 它永远只有表头(prosody 列只有 examples/
+# 那个 —— 于是它每次都被选中;又因为经 API 它永远只有表头(prosody 列当时只有已删的 examples/
 # 那两个脚本会填),装载器随即把它当空表丢掉 → `voice_interview` 一个模态都到不了
 # 特征引擎 →「连接词密度」渲染成「未采集到对应数据」。
 # 现在叫 `assessment_note_<时间戳>.csv`:整串里没有 `_log_`,**结构上**不可能被

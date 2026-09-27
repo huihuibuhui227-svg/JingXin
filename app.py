@@ -130,7 +130,6 @@ def trigger_module(module):
     module_map = {
         "face": "feature_engine",
         "gesture": "visualizer",
-        "voice": "run_interview_assessment_voice",
         "report": "report_generator"
     }
 

@@ -44,7 +44,6 @@ face_expression/
 │   ├── __init__.py
 │   ├── logger.py            # 日志工具
 │   └── visualize.py         # 可视化工具
-└── examples/
     ├── __init__.py
     ├── run_image_analyzer.py
     └── run_video_analyzer.py

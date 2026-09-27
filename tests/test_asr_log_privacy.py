@@ -45,7 +45,7 @@ TEXT_VARS = {"text", "recognized_text", "recognized", "answer", "transcript",
 
 # 仓库里唯一一个**本来就**解析不了的 .py(未闭合的三引号,预先存在、不在 M1 范围)。
 # 显式列出而不是静默跳过:将来若又多出一个,本测试会红,由人来看。
-_KNOWN_UNPARSEABLE = {"gesture_analysis/examples/__init__.py"}
+_KNOWN_UNPARSEABLE: set[str] = set()   # 2026-09-27:唯一那条(examples/__init__.py)随 examples/ 一起删了
 
 # 扫描上限:仓库约 2.6 GB / 1.1 万个文件,其中 1.8 GB 是 328 份生成的 HTML 报告。
 # 超过 1 MiB 的文件一律不读(它们是报告产物/图片,不是这条路径的落盘目标)。

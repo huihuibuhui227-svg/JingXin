@@ -52,7 +52,6 @@ jingxin/
 │   ├── models/                   # 数据模型
 │   ├── pipeline/                 # 处理流程
 │   ├── utils/                   # 工具函数
-│   └── examples/                # 示例代码
 ├── gesture_analysis/              # 手势姿态分析模块
 │   ├── core/
 │   │   ├── analysis/              # 手部、手臂、肩部、上身分析
@@ -60,7 +59,6 @@ jingxin/
 │   ├── models/                   # 数据模型
 │   ├── pipeline/                 # 处理流程
 │   ├── utils/                   # 工具函数
-│   └── examples/                # 示例代码
 ├── voice_interaction/             # 语音交互分析模块
 │   ├── core/
 │   │   ├── analysis/              # 韵律分析
@@ -68,10 +66,8 @@ jingxin/
 │   ├── models/                   # 数据模型
 │   ├── pipeline/                 # 处理流程
 │   ├── utils/                   # 工具函数
-│   └── examples/                # 示例代码
 ├── main/                        # 多模态集成模块
 │   ├── api/                     # 集成API
-│   ├── examples/                # 集成示例
 │   ├── integrator.py            # 多模态集成器
 │   └── storage.py              # 数据存储模块
 ├── report_frontend/              # 报告生成前端模块

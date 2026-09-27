@@ -3,11 +3,11 @@
 
 实测(场 `20260926_124439_0f5b`,275 帧)之前的真相:
   · **18 列整列全空**:10 个手指角度 + 4 个姿态角度 + 4 个"屏幕角度" ——
-    端点调 `logger.log()` 时压根没传 `angles_data`,算它的代码只活在 `examples/` 里;
-  · **head_*/torso_* 六列恒 0**:`UpperBodyAnalyzer` 只在 `examples/` 里被构造过;
+    端点调 `logger.log()` 时压根没传 `angles_data`,算它的代码当时只活在 `examples/` 里(已删);
+  · **head_*/torso_* 六列恒 0**:`UpperBodyAnalyzer` 当时只在 `examples/` 里被构造过(已删);
   · 没收到手的槽照样写 **50.0**(分析器默认值)—— "没测到"变成一个看着合法的数。
 
-本文件钉四件事:角度定义(照 examples 移植)、四路接线、world 列、空槽留空。
+本文件钉四件事:角度定义(2026-09-26 照 examples 移植)、四路接线、world 列、空槽留空。
 """
 import asyncio
 import csv
@@ -175,7 +175,7 @@ def _post():
         request=_Req(), file=_Upload(), session_id=SID))
 
 
-# ── 角度定义(照 examples 移植)──────────────────────────────────────
+# ── 角度定义(2026-09-26 照 examples 移植;examples/ 已于 2026-09-27 删除)──────────────────────────────────────
 def test_joint_angle_is_the_angle_at_the_middle_point():
     """红法:把顶点当成首点 —— 直角那个用例会得到 45° 而不是 90°。"""
     assert joint_angle(_Pt(0, 0), _Pt(1, 0), _Pt(1, 1)) == 90.0
@@ -183,7 +183,7 @@ def test_joint_angle_is_the_angle_at_the_middle_point():
 
 
 def test_visibility_floor_keeps_low_confidence_points_out():
-    """可见度 ≤0.6 的点不参与(与 examples 的 0.6 门限一致)⟹ 该键**缺席**,不是 0。"""
+    """可见度 ≤0.6 的点不参与(与移植来源 examples/ 的 0.6 门限一致;该目录已删)⟹ 该键**缺席**,不是 0。"""
     pose = _pose33()
     assert "left_elbow_angle" in pose_angles(pose)
     pose[15] = _Pt(0.4, 0.9, visibility=0.5)          # 腕子看不见了
@@ -219,7 +219,7 @@ def test_pose_angles_reach_the_log_row(monkeypatch, tmp_path):
 
 
 def test_upper_body_columns_are_no_longer_structurally_zero(monkeypatch, tmp_path):
-    """★ `UpperBodyAnalyzer` 此前只在 examples 里被构造过 ⟹ head_*/torso_* 恒 0。
+    """★ `UpperBodyAnalyzer` 此前只在 examples 里被构造过(该目录已删)⟹ head_*/torso_* 恒 0。
 
     红法:把 `analyzers['upper_body'].update(...)` 去掉 —— 这几列又回到全 0。
     """

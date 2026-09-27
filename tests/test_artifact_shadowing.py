@@ -13,7 +13,7 @@
 
 1. 与真正的会话日志**同名形态**(都是 `interview_emotion_log_…`),落在同一棵被扫描的树里;
 2. 时间戳是**回答**时刻,必然晚于会话开始时铸进 M1 文件名的那个 → **每次都被选中**;
-3. 经 API 它**永远只有表头** —— prosody 列只有 `examples/` 那两个脚本会填
+3. 经 API 它**永远只有表头** —— prosody 列当时只有 `examples/` 那两个脚本会填(该目录已删)
    (`add_answer()` 走的是 `add_qa_pair(question, answer)`,不传 prosody)。
 
 装载器随即把这个空表丢掉 → `voice_interview` 一个模态都到不了特征引擎 →

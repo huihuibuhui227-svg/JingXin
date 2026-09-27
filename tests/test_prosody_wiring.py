@@ -7,7 +7,7 @@
 写进日志,`log_prosody` 对缺的键一律 `.get(..., 0)`,于是
 `pitch_mean` / `pitch_variation` / `energy_mean` / `energy_variation` /
 `speech_ratio` / `pause_*` / `duration_sec` **全是 0**,而那一行 `is_valid` 恒 True。
-`ProsodyFeatureExtractor` 一直在仓库里躺着,只被两个 `examples/` 引用。
+`ProsodyFeatureExtractor` 一直在仓库里躺着,当时只被两个 `examples/` 引用(该目录已删)。
 
 这个文件守两件**不同**的事,故意分成两组、各自钉各自的坏法,
 免得一条红了看不出是哪一处接线坏了:

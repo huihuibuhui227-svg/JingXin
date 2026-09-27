@@ -4,8 +4,8 @@
 `left/right_elbow_angle` / `left/right_shoulder_angle` / `head_tilt_angle` /
 `head_pitch_angle` / `shoulder_angle` / `torso_angle`)**此前从来没有产出方** ——
 端点调 `logger.log()` 时压根没传 `angles_data`,`_safe_get_angle` 于是永远拿到 None,
-整列全空(实测该场 275 帧全空)。而算这些角度的代码**只活在
-`gesture_analysis/examples/run_realtime_analyzer.py` 里**。
+整列全空(实测该场 275 帧全空)。而算这些角度的代码**当时只活在
+`gesture_analysis/examples/run_realtime_analyzer.py` 里**(整个 `examples/` 已于 2026-09-27 删除;定义**以本文件为准**)。
 
 定义**照实移植,不另起一套** —— 两处各存一份定义迟早漂移(§4.10 那条教训):
 
@@ -50,7 +50,7 @@ _POSE = {
 _POSE_LEFT_SHOULDER = _POSE["left_shoulder"]
 _POSE_RIGHT_SHOULDER = _POSE["right_shoulder"]
 
-# 手指 → 三个关节的索引(与 examples/main_integrator.py 一致)。
+# 手指 → 三个关节的索引(2026-09-26 移植自 examples/main_integrator.py,该文件已删)。
 _FINGER_JOINTS = {
     "thumb": (2, 3, 4),
     "index": (5, 6, 8),

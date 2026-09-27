@@ -49,7 +49,6 @@ gesture_analysis/
 │   ├── __init__.py
 │   ├── logger.py            # 日志工具
 │   └── visualization.py     # 可视化工具
-└── examples/
     ├── __init__.py
     ├── run_realtime_analyzer.py
     └── visualize_logs.py
