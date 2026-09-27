@@ -12,3 +12,10 @@
 # 测试框架。**没有插件依赖** —— pytest.ini 只有 `testpaths = tests`,
 # 测试里没有 `pytest.mark.asyncio` / `anyio` 之类需要额外插件的东西。
 pytest>=8.0
+
+# HTTP 测试客户端。`fastapi.testclient` → `starlette.testclient` 需要它:
+#   starlette 优先 `import httpx2`,退回 `import httpx`(发一条 deprecation 警告),
+#   两个都没有就 **RuntimeError**。2026-09-27 实测:服务器上两个都没装 ⟹ 3 条测试
+#   直接收集失败(报 "requires the httpx2 package")。
+# 装 starlette 自己点名要的那个,免得每次跑测试都吃一条 deprecation 警告。
+httpx2>=2.0
