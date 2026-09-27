@@ -36,6 +36,12 @@ bash tools/start_all.sh          # 三个服务 + 面板 + 前端,幂等(已在�
   2026-09-27 实测:不带 setsid 时,起完的五个服务在父 shell 退出后**全部消失**。
 - 起完用 **Windows 端的浏览器**打开 <http://localhost:5173>。WSL 里的浏览器拿不到摄像头。
 - 全停:`for p in 8000 8001 8002 5000 5173; do fuser -k $p/tcp; done`
+- **要让别的电脑访问**(部署在服务器上时):
+  `JX_BIND=0.0.0.0 bash tools/start_all.sh` —— 它会一并把面板绑 0.0.0.0、
+  给前端加 `--host`、并把本机所有 IP 的 Origin 加进四个服务的 CORS 白名单。
+  少任何一件,远端浏览器都连不上(见 `docs/开发者文档.md` §10.4)。
+- **要常驻**(重启也不掉):`bash tools/systemd/install.sh`
+  —— 装成 systemd 用户服务,照这台机器上 FunASR 的做法。
 
 ## 验收(端到端)
 

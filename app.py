@@ -275,4 +275,7 @@ if __name__ == '__main__':
     logger.info(f"数据目录: {OUTPUT_DIR}")
     logger.info("访问地址：http://127.0.0.1:5000")
     logger.info("=" * 50)
-    app.run(debug=True, port=5000)
+    # 绑地址可配:默认只绑本机;**要让别的电脑访问就把 PANEL_HOST 设成 0.0.0.0**
+    # (tools/start_all.sh 在 JX_BIND=0.0.0.0 时会自动设,并同步把面板的地址
+    #  加进另外三个服务的 CORS 白名单 —— 少一样,远端浏览器就连不上后端)。
+    app.run(debug=True, host=os.getenv('PANEL_HOST', '127.0.0.1'), port=5000)
