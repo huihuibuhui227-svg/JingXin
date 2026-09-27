@@ -272,6 +272,23 @@ class QuestionWindow(BaseModel):
     ask_end: float    # **题问完那一刻**(不是回答提交时刻 —— 见下面端点)
 
 
+class SessionLabel(BaseModel):
+    """本场的「是谁的、第几场」标注(前端录制前弹窗填的那四项)。
+
+    四段都是**自由文本**,可以为空(空的那段不进标签)。中文原样收 —— 它落进
+    `label.json` 的一个 JSON 字段,**不是目录名、也不是日志文件名**,所以不受
+    `validate_session_id` 那套 ASCII 字符集闸的约束(那套闸拦的是路径名)。
+
+    为什么不做成 `session_id` 的一部分:报告侧只认
+    `_log_{YYYYMMDD}_{HHMMSS}[_{4位hex}]` 的文件名形态,塞进去会让每份日志都
+    匹配不上 ⟹ 报告一份都加载不到。详见 `session_meta` 的「本场标注」段。
+    """
+    serial: str = ""       # 场次序号(使用者自己定的口径)
+    name: str = ""         # 受试者姓名
+    student_id: str = ""   # 学号
+    department: str = ""   # 院系
+
+
 @app.get("/")
 async def root():
     """根路径，返回API信息"""
@@ -656,6 +673,35 @@ async def get_interview_evaluation():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取评估结果失败: {str(e)}")
+
+
+@app.post("/session/{session_id}/label")
+async def submit_session_label(session_id: str, body: SessionLabel):
+    """记下本场的标注(姓名/学号/院系/场次序号),落会话根的 `label.json`。
+
+    为什么要有这个端点:标注得**存在服务器上** —— 换台电脑打开也查得到,而这
+    恰恰是 localStorage 顶不了的事(那是"在这台电脑上记得",不是"记下来了")。
+
+    路径参数带 `session_id` 与 `/session/{sid}/question`、`/session/{sid}/media`
+    同一形态:这一条路由的身份就是那个会话。
+
+    同一个会话再报一次 = **覆盖**(见 `session_meta.upsert_label`):标注是"这一场
+    是谁的",一个会话只有一个答案,而打错一个字必须能改。
+
+    非法 `session_id` / 四个字段全空 / 字段类型不对,都是**请求本身**的毛病 → 400
+    (不是 500):客户端得知道是它自己发错了,而不是服务器坏了。
+    """
+    try:
+        rec = session_meta.upsert_label(
+            session_id, serial=body.serial, name=body.name,
+            student_id=body.student_id, department=body.department)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    # 把**拼好的**标签回给前端:界面显示的是这里算出来的那一个,不是前端自己拼的
+    # —— 拼法只允许有一处定义(`session_meta.compose_label`)。
+    return {"status": "success", "session_id": rec["session_id"],
+            "label": rec["label"], "fields": {k: rec[k] for k in
+                                              ("serial", "name", "student_id", "department")}}
 
 
 @app.post("/session/{session_id}/question")

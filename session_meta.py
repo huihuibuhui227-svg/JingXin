@@ -171,6 +171,93 @@ def upsert_question(session_id: str, *, qid: str, index: int,
     return rec
 
 
+# ---------------------------------------------------------------- 本场标注(label)
+
+LABEL_FILENAME = "label.json"
+
+# 单个字段的长度上限。依据:这个值会写进 JSON、并在界面上**原样渲染**,不设上限
+# 等于让一次粘贴事故把界面撑爆。120 远超真名/学号/院系的长度。
+LABEL_FIELD_MAX = 120
+
+
+def label_path(session_id: str) -> Path:
+    return _session_dir(session_id, create=False) / LABEL_FILENAME
+
+
+def _label_field(raw: Any, what: str) -> str:
+    """类型/长度守一道。抛 ValueError = **请求本身**的毛病(端点据此转 400)。"""
+    if not isinstance(raw, str):
+        raise ValueError(f"{what} 必须是字符串,收到 {type(raw).__name__}")
+    v = raw.strip()
+    if len(v) > LABEL_FIELD_MAX:
+        raise ValueError(f"{what} 超过 {LABEL_FIELD_MAX} 字符(收到 {len(v)} 字符)")
+    return v
+
+
+def _stamp_from_session_id(session_id: str) -> str:
+    """`YYYYMMDD_HHMMSS_xxxx` → `YYYYMMDD_HHMMSS`。"""
+    parts = session_id.split("_")
+    return "_".join(parts[:2]) if len(parts) >= 2 else session_id
+
+
+def compose_label(session_id: str, *, serial: str, name: str,
+                  student_id: str, department: str) -> str:
+    """把四个字段拼成给人看的标签(**格式只在这一处定义**)。
+
+    时间取自 `session_id` 自己那一段,**不取当前时刻**:报告端、日志文件名、录制
+    目录名全用 id 那一串,而标签是人拿来**对号**的 —— 它自己另取一个时刻,就会
+    出现"标签说 20:35、文件名说 20:33"这种对不上的场面。
+
+    留空的字段**整段不出现**(不留 `a--b` 那种孤零零的分隔符:"那里有个空字段"
+    与"没填"看着是两回事,实际是一回事)。
+    """
+    parts = [_stamp_from_session_id(session_id),
+             _label_field(serial, "场次序号"), _label_field(name, "姓名"),
+             _label_field(student_id, "学号"), _label_field(department, "院系")]
+    return "-".join(p for p in parts if p)
+
+
+def upsert_label(session_id: str, *, serial: str, name: str,
+                 student_id: str, department: str,
+                 recorded_at: float | None = None) -> dict:
+    """记下"这一场是谁的、第几场"。同一会话再报一次 = **覆盖**。
+
+    为什么是 upsert:标注是"这一场是谁的",一个会话只有一个答案;而**打错一个字
+    必须能改** —— 打错了就永久错了的字段,没人敢填。
+    为什么另存一份、而不是拼进 `session_id`:见 `tests/test_session_meta_label.py`
+    开头(报告侧的文件名契约 + 写侧只收 ASCII 的字符集闸)。
+    """
+    sid = validate_session_id(session_id)
+    fields = {"serial": _label_field(serial, "场次序号"),
+              "name": _label_field(name, "姓名"),
+              "student_id": _label_field(student_id, "学号"),
+              "department": _label_field(department, "院系")}
+    if not any(fields.values()):
+        # 全空 ⟹ 标签退化成那串 id,等于没标 —— 而标注的全部意义就是把它与别的
+        # 场次分开。拒掉,不存一份没有信息量的标注。
+        raise ValueError("标注四个字段全空 —— 那等于没标,请至少填一项")
+    rec = {"session_id": sid,
+           "recorded_at_wall": float(recorded_at if recorded_at is not None else time.time()),
+           **fields,
+           "label": compose_label(sid, **fields)}
+    with _session_lock(sid):
+        p = _session_dir(sid, create=True) / LABEL_FILENAME
+        # 写临时文件再 replace(与 upsert_question 同一讲究:进程被杀不留半个文件)
+        tmp = p.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(rec, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(tmp, p)
+    return rec
+
+
+def read_label(session_id: str) -> dict | None:
+    """没报过 = `None`(不是异常)。文件损坏则**原样抛** —— 与 `read_meta` 同一口径:
+    读不出来就是读不出来,不假装"没有标注"(那两者在收尾对账里是两回事)。"""
+    p = label_path(session_id)
+    if not p.exists():
+        return None
+    return json.loads(p.read_text(encoding="utf-8"))
+
+
 # ---------------------------------------------------------------- 阶段 A 元数据
 
 TEMPLATE_PATH = Path(__file__).resolve().parent / "session_meta_template.json"
