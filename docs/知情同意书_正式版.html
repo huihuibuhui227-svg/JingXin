@@ -150,7 +150,7 @@ input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);margin:0;
     <div class="org">研究伦理文件 · 参与者签署版</div>
     <h1>面试行为观测研究 · 参与者知情同意书</h1>
     <div class="meta">
-      <span class="stamp">版本 v1.1</span>
+      <span class="stamp">版本 v1.2</span>
       <span>生效日期 <span class="blank" style="min-width:7em"></span></span>
     </div>
   </header>
@@ -161,30 +161,29 @@ input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);margin:0;
       <span class="why">打印前填一次即可 —— 这一块不是让参与者填的</span>
     </div>
     <div class="admin-grid">
+      <div class="f"><label for="a-school">学校（打印后即为参与者信息的一部分）</label><div class="line"><input type="text" id="a-school"></div></div>
+      <div class="f"><label for="a-college">学院</label><div class="line"><input type="text" id="a-college"></div></div>
       <div class="f full"><label for="a-title">研究题目</label><div class="line"><input type="text" id="a-title" placeholder="基于结构化行为观测的面试行为记录与反馈方法研究"></div></div>
-      <div class="f full"><label for="a-org">研究机构（全称 · 资质）</label><div class="line"><input type="text" id="a-org"></div></div>
       <div class="f"><label for="a-pi">研究者（姓名 · 职称 · 院系）</label><div class="line"><input type="text" id="a-pi"></div></div>
       <div class="f"><label for="a-sup">指导教师（姓名 · 职称）</label><div class="line"><input type="text" id="a-sup"></div></div>
-      <div class="f"><label for="a-irb">伦理批件号</label><div class="line"><input type="text" id="a-irb"></div></div>
-      <div class="f"><label for="a-n">计划人数 / 单次时长</label><div class="line"><input type="text" id="a-n" placeholder="例 40 人 / 约 30 分钟"></div></div>
       <div class="f"><label for="a-c-pi">研究者联系方式</label><div class="line"><input type="text" id="a-c-pi"></div></div>
-      <div class="f"><label for="a-c-irb">伦理委员会联系方式</label><div class="line"><input type="text" id="a-c-irb"></div></div>
-      <div class="f full"><label for="a-mt">可选的「简单机器测试」—— 内容与时长</label><div class="line"><input type="text" id="a-mt" placeholder="例 一套 5 分钟的按键反应小任务"></div></div>
+      <div class="f"><label for="a-c-irb">院系/伦理联系人及联系方式</label><div class="line"><input type="text" id="a-c-irb"></div></div>
+      <div class="f full"><label for="a-mt">可选「上机测试」的时长</label><div class="line"><input type="text" id="a-mt" placeholder="例 约 10 分钟"></div></div>
     </div>
     <div class="warnline">
-      ⚠️ <em>伦理批件号为空 ⟹ 这项研究还没过伦理审查 ⟹ 这份表不能用。</em>
-      研究期限按本表默认值:自伦理批准之日起 12 个月内。
+      本表为<em>院系内部使用</em>的知情同意表。若这批数据将用于<em>论文发表或对外发布</em>,
+      须先通过所在单位的<em>科技伦理审查</em> —— 届时本表需补上批件号并重新生成。
     </div>
   </div>
 
   <main>
     <section>
-      <h2>参与者信息<span class="no">请本人填写</span></h2>
+      <h2>参与者信息<span class="no">请本人填写 · 能勾的就不用写字</span></h2>
+      <p style="font-size:13.5px;color:var(--ink-soft);margin-bottom:4px">
+        学校与学院已印在上方「研究者填写区」，你不用再写。
+      </p>
       <div class="info">
-        <div class="f"><label for="p-school">学校</label><div class="line"><input type="text" id="p-school"></div></div>
         <div class="f"><label for="p-name">姓名</label><div class="line"><input type="text" id="p-name"></div></div>
-        <div class="f"><label for="p-college">学院</label><div class="line"><input type="text" id="p-college"></div></div>
-        <div class="f"><label for="p-major">专业</label><div class="line"><input type="text" id="p-major"></div></div>
         <div class="f"><label for="p-sid">学号</label><div class="line"><input type="text" id="p-sid"></div></div>
         <div class="f"><label for="p-age">年龄</label><div class="line"><input type="number" id="p-age" min="16" max="99"><span>周岁</span></div></div>
         <div class="f"><label>性别</label><div class="choices">
@@ -192,11 +191,18 @@ input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);margin:0;
           <label class="choice"><input type="checkbox" id="p-sex-f">女</label>
           <label class="choice"><input type="checkbox" id="p-sex-n">不愿告知</label>
         </div></div>
-        <div class="f"><label for="p-contact">联系方式</label><div class="line"><input type="text" id="p-contact"></div></div>
+        <div class="f"><label>年级</label><div class="choices">
+          <label class="choice"><input type="checkbox" id="p-g1">大一</label>
+          <label class="choice"><input type="checkbox" id="p-g2">大二</label>
+          <label class="choice"><input type="checkbox" id="p-g3">大三</label>
+          <label class="choice"><input type="checkbox" id="p-g4">大四</label>
+          <label class="choice"><input type="checkbox" id="p-g5">研究生</label>
+        </div></div>
+        <div class="f"><label for="p-contact">联系方式（仅勾了「用途 A」时填）</label><div class="line"><input type="text" id="p-contact"></div></div>
       </div>
       <p style="margin-top:14px;font-size:13.5px;color:var(--ink-soft)">
         年龄与性别是研究必需的<em>协变量</em>（音高、声学量与人体的生理属性相关，不记录就无法在分析时扣除这部分差异）。
-        学号、姓名、学院用于<em>联系你本人、把结果反馈给你</em>，以及学校的管理留档。
+        姓名、学号用于<em>联系你本人、把结果反馈给你</em>，以及院系的管理留档。
       </p>
     </section>
 
@@ -215,7 +221,9 @@ input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);margin:0;
       <ul>
         <li><em>研究目的</em>：建立一套<em>能追溯依据</em>的行为观测方法 —— 记录面试中可测的行为量，并如实说明
           「哪些量测到了、哪些没测到、值有多可信」。<em>不做</em>心理诊断、人格判定或情绪识别。</li>
-        <li><em>流程</em>：你在一次面试中作答；系统同步采集你的视频、音频、面部与姿态关键点、以及语音文字转写；
+        <li><em>本场由谁提问</em>：面试<em>由导师进行</em>。<em>系统在本场只做记录与录制</em> ——
+          不提问、不评分、不参与对话。面试结束后，系统才会从这段录像算出行为观测摘要。</li>
+        <li><em>流程</em>：你参加一次面试；系统同步采集你的视频、音频、面部与姿态关键点、以及语音文字转写；
           结束后生成一份行为观测摘要。</li>
         <li><em>方法</em>：摄像头与麦克风采集 → 逐帧特征计算 → 报告层按一套<em>带出处的判据</em>披露哪些线索
           证据充足、哪些不足。</li>
@@ -361,9 +369,9 @@ input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);margin:0;
     </section>
 
     <section>
-      <h2>十、可选：你是否愿意参加一项简短的机器测试？</h2>
-      <p>除了上面的面试，我们还准备了一项<em>简短的机器测试</em>（内容与时长见上方<em>研究者填写区</em>）。
-      它<em>与面试结果无关</em>，是独立的一项。</p>
+      <h2>十、可选：你是否愿意参加一次上机测试？</h2>
+      <p>除上面<em>由导师主持的面试</em>之外，我们还准备了一次<em>上机测试</em> —— 用<em>本系统（JingXin）</em>
+      作答（时长见上方<em>研究者填写区</em>）。它<em>与导师的面试结果无关</em>，是独立的一项。</p>
       <p><em>参加与否完全自愿</em>：拒绝<em>不影响</em>面试、不影响上面任何一项同意、也不影响你拿到的反馈。</p>
       <div class="yn">
         <label><input type="checkbox" id="c-mt-yes">我愿意参加</label>
@@ -373,6 +381,8 @@ input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);margin:0;
 
     <section>
       <h2>签署</h2>
+      <label class="tick" style="margin-bottom:14px"><input type="checkbox" id="c-confirm">
+        <span>我已阅读并理解本同意书，同意参加本次研究。</span></label>
       <p class="decl"><em>参与者声明</em>：我已阅读（或听人念过）本同意书，有机会提问并得到答复，
       并有充分时间考虑后才作出决定。我理解我可以随时退出。</p>
       <div class="sign">
