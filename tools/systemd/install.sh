@@ -130,9 +130,14 @@ if [ "$DRY" = "1" ]; then echo "(dry run,未落盘)"; exit 0; fi
 
 echo
 echo "── 启用并启动 ──"
+# ★ 必须 `enable` + **`restart`**,不能只 `enable --now`。
+#   `--now` 对**已经在跑**的服务是 no-op(只设开机自启,不重启进程)⟹
+#   改过的 `Environment=` 永远不会被读进去,而 `systemctl status` 照样显示 running ——
+#   2026-09-27 实测踩到:改绑 127.0.0.1 之后 `ss -ltn` 里仍是 0.0.0.0,查了半天。
+systemctl --user daemon-reload
 for s in voice face gesture panel frontend; do
-  systemctl --user daemon-reload
-  systemctl --user enable --now "jingxin-$s.service"
+  systemctl --user enable "jingxin-$s.service"
+  systemctl --user restart "jingxin-$s.service"
 done
 sleep 3
 echo
@@ -143,6 +148,15 @@ echo "ℹ️ 五个服务现在只绑 127.0.0.1 ⟹ 对外**不需要**放行 80
 echo "   走 tailscale serve 或 SSH 隧道即可(两者都转发到本机 loopback)。"
 echo "   之前为直连 IP 加的那几条 ufw 规则可以撤:"
 echo "     sudo ufw status numbered   # 找到 JingXin 那几条,按编号 sudo ufw delete N"
+echo
+echo "── 自检:五个端口现在绑在哪(应当全是 127.0.0.1)──"
+sleep 3
+ss -ltn 2>/dev/null | grep -E ':(5173|5000|8000|8001|8002)\b' | sed 's/^/  /'
+if ss -ltn 2>/dev/null | grep -E ':(5173|5000|8000|8001|8002)\b' | grep -q '0.0.0.0'; then
+  echo "  ✗ 还有 0.0.0.0 —— 环境变量没生效,检查上面的 restart 有没有报错"
+else
+  echo "  ✓ 全部绑在 127.0.0.1"
+fi
 echo
 echo "看日志:  journalctl --user -u jingxin-voice -f"
 echo "★ 别忘了(要 sudo,只做一次): sudo loginctl enable-linger $USER"
