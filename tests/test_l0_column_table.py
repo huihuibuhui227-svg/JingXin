@@ -669,3 +669,27 @@ def test_quarantine_refs_point_at_real_keys():
     assert not dangling, (
         f"表里引用了封停名单里**不存在**的键:{dangling} —— "
         f"要么键改名了(改引用),要么键被删了(删引用)")
+
+
+def test_the_table_carries_no_line_number_references():
+    """★ 表里**不许**出现 `*.py:NN` 形式的行号引用 —— 行号会随任何一次编辑静默失效。
+
+    实测代价(两次,同一支里):B0 只往 `evidence_gate.py` 加了 7 行,表里 **78 处**
+    `evidence_gate.py:NN` 当场集体失效(改前逐条核过、全部是准的);B1/B2/B3 又改动了
+    `au_calculator.py` / `prosody_extractor.py` / `gesture_analysis/api/app.py` /
+    `face_expression/models/results.py` 等,再失效 **59 种 / 75 处**。
+    两次都是**静默**的:读表的人照着错行号去读,读到的是**别的代码**,而不会报错。
+
+    处置(2026-09-27):把全部 271 处行号换成**文件名**(丢掉会过期的数字,保留可 grep 的定位);
+    引用代码位置请写**符号名**(函数/类/键名)—— 那是稳定的。
+
+    红法:在表里任何一处写回 `xxx.py:123` ⟹ 立刻红。
+    """
+    import json
+    import re
+
+    raw = json.dumps(l0.load(), ensure_ascii=False)
+    hits = re.findall(r"[A-Za-z_][\w/]*\.py:\d+", raw)
+    assert not hits, (
+        f"表里又出现了行号引用:{sorted(set(hits))[:8]} —— "
+        f"行号随任何一次编辑静默失效(本支已踩两次),请改写成文件名 + 符号名")
