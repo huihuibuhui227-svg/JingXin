@@ -369,9 +369,78 @@ def test_three_voiced_frames_do_have_a_trend(monkeypatch):
 
     monkeypatch.setattr(prosody_mod, "librosa", types.SimpleNamespace(pyin=_fake_pyin))
     f = ext.extract_pitch_features(np.ones(16000, dtype=np.float32))
-    # 3 帧:首三分之一 = 第 1 帧(100)、末三分之一 = 最后一帧(200)⟹ 差 100 Hz
-    assert f["pitch_trend"] == 100.0, f["pitch_trend"]
+    # 3 帧:首三分之一 = 第 1 帧(100)、末三分之一 = 最后一帧(200)
+    # ⟹ 单位是**半音**:`12·log2(200/100)` = 12.0(= 一个八度),**不是** 100 Hz
+    assert f["pitch_trend"] == 12.0, f["pitch_trend"]
     assert f["pitch_direction"] == "上扬", f["pitch_direction"]
+
+
+def test_pitch_trend_is_semitones_not_hertz(monkeypatch):
+    """★ `pitch_trend` 的口径是**半音**,不是 Hz 差(L0 行 `pitch_trend` 的验收①)。
+
+    为什么必须换:`12·log2(末/首)` 是**同量纲比值**的对数 —— 跨说话人可比。裸 Hz 差不是:
+    同一个「升了一个八度」,男声可能量到 100 Hz、女声量到 200 Hz,而换个人说话、
+    乃至同一个人把同一句拉长 4 倍,这个数都会变(§4.3:236 的依据栏原文:
+    「是首末均值之差,单位 Hz 不是 Hz/s(拉长 4 倍几乎不变)」)。
+
+    红法:把 `prosody_extractor.py` 的返回改回 `last_third - first_third` ⟹ 立刻红
+    (220→440 会得到 220.0 而不是 12.0)。合成 f0 序列造**已知**半音差,因为真音频凑不出整数。
+    """
+    import types
+    prosody_mod = importlib.import_module(
+        "voice_interaction.core.feature_extraction.prosody_extractor")
+    ext = prosody_mod.ProsodyFeatureExtractor()          # 先构造(init 里要用真的 librosa)
+
+    def _run(first_hz, last_hz):
+        def _fake_pyin(audio, fmin=None, fmax=None, sr=None, **kw):
+            mid = (first_hz + last_hz) / 2.0
+            return (np.array([first_hz, mid, last_hz, np.nan]),
+                    np.array([True, True, True, False]),
+                    np.array([0.9, 0.9, 0.9, 0.01]))
+        monkeypatch.setattr(prosody_mod, "librosa",
+                            types.SimpleNamespace(pyin=_fake_pyin))
+        return ext.extract_pitch_features(np.ones(16000, dtype=np.float32))
+
+    # 220 → 440 Hz:恰好一个八度 = +12 半音
+    assert _run(220.0, 440.0)["pitch_trend"] == 12.0, "一个八度该是 +12 半音"
+    # 440 → 220 Hz:同样一个八度,方向相反 ⟹ **同一个量纲**(裸 Hz 差会给 -220,与 +220 不对称)
+    assert _run(440.0, 220.0)["pitch_trend"] == -12.0, "反向一个八度该是 -12 半音"
+    # 220 → 220·2^(7/12) ≈ 329.63 Hz:纯五度 = +7 半音(非整数比 ⟹ 真的在取对数)
+    assert abs(_run(220.0, 220.0 * 2 ** (7 / 12))["pitch_trend"] - 7.0) < 0.01, "纯五度该是 +7 半音"
+
+
+def test_pitch_direction_keeps_its_hertz_threshold(monkeypatch):
+    """`pitch_direction` 是**白名单里的历史列**,它的 ±10 **Hz** 门限不许被半音改动带走。
+
+    R2(预检裁定):`pitch_direction` 直接吃 `pitch_trend` 的值。半音化之后若门限字面照旧读
+    「10」,那就成了 **10 半音 ≈ 一个八度** —— 一句「上扬」几乎再也发不出来,而且**不报错**。
+
+    本测试取一个能**分辨两种口径**的输入:1000 → 1020 Hz。
+
+      · 按 Hz 差:20 > 10 ⟹ 「上扬」
+      · 按半音:`12·log2(1.02)` ≈ 0.343 < 10 ⟹ 「平稳」
+
+    断言「上扬」⟹ 钉住它仍在按 Hz 差判。
+    红法:把门限那一支改成吃半音值 ⟹ 这里变成「平稳」,立刻红。
+    """
+    import types
+    prosody_mod = importlib.import_module(
+        "voice_interaction.core.feature_extraction.prosody_extractor")
+    ext = prosody_mod.ProsodyFeatureExtractor()
+
+    def _fake_pyin(audio, fmin=None, fmax=None, sr=None, **kw):
+        return (np.array([1000.0, 1010.0, 1020.0, np.nan]),
+                np.array([True, True, True, False]),
+                np.array([0.9, 0.9, 0.9, 0.01]))
+
+    monkeypatch.setattr(prosody_mod, "librosa", types.SimpleNamespace(pyin=_fake_pyin))
+    f = ext.extract_pitch_features(np.ones(16000, dtype=np.float32))
+
+    assert f["pitch_direction"] == "上扬", (
+        f"Hz 差 20 > 10 该判「上扬」,实为 {f['pitch_direction']!r} —— "
+        f"半音化把它带走了(该值是 {f['pitch_trend']!r} 半音,远小于 10)")
+    # 同时确认单位确实换了:半音值 ≈ 0.343,不是 20
+    assert abs(f["pitch_trend"] - 0.343) < 0.01, f["pitch_trend"]
 
 
 def test_a_voiced_clip_still_fills_every_pitch_statistic():

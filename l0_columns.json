@@ -1689,14 +1689,14 @@
       "column": "pitch_trend",
       "modality": "voice",
       "definition": "末三分之一与首三分之一 **voiced f0 均值之差**,单位**半音**:`12 × log2(mean(f0[−n/3:]) ÷ mean(f0[:n/3:]))`,n = 浊音帧数(切法沿用 prosody_extractor.py:89-93)。§4.3:236 判「**改定义+改名**」,依据栏:「是首末均值之差,单位 Hz 不是 Hz/s(拉长 4 倍几乎不变)」—— 名字叫 trend,量的却不是趋势。§7:504 给的修法是「`pitch_trend` **改半音或改名**」;本行选**改半音、保留列名**(见 basis)。",
-      "source": "同 `pitch_mean`(同一批 voiced f0 帧);现行实现 prosody_extractor.py:89-93",
+      "source": "同 `pitch_mean`(同一批 voiced f0 帧);产出方 `ProsodyFeatureExtractor.extract_pitch_features`(首末三分之一的切法在那里)",
       "normalization": "同量纲比值(末 ÷ 首)再取对数 ⟹ 不需要外部归一化基准;半音本身是跨说话人可比的相对量",
       "unit": "半音(semitone)",
       "maturity": "B",
       "l0_output": "吐「首末 f0 之比」的对数量;「语调是升还是降」的事件门限留给 L1(现行的 ±10 Hz 离散化见 `pitch_direction` 那条白名单)。⚠️ **零浊音帧(全静音)时本列留空、不再写 0**(2026-09-26 Task 5 按 `docs/superpowers/plans/2026-09-26-m3-0-l0-column-table.md:38` 改:`f0` 全 `nan`,该量无定义 —— 2026-09-26 使用者裁定 `f0_voiced` 上的**五个统计量一起改**,只修均值、留四个不修会让读的人无法判断这一支可不可信)。",
-      "status": "pending",
+      "status": "implemented",
       "quarantine_ref": "",
-      "acceptance": "① 代码里 `pitch_trend` 的返回是半音值(`12·log2`),不再直接吐 Hz 差(prosody_extractor.py:93);② 合成信号单测造一个已知半音差的 f0 序列,断言输出等于该差(§9:519);③ M3.4。",
+      "acceptance": "① 代码里 `pitch_trend` 的返回是半音值(`12·log2`),不再直接吐 Hz 差(`ProsodyFeatureExtractor.extract_pitch_features`);② 合成信号单测造一个已知半音差的 f0 序列,断言输出等于该差(§9:519);③ M3.4。",
       "basis": "① **「首末」的切法由本行定**:§4.3:236 只说「首末均值之差」没给比例,本行沿用现行代码的**首末三分之一**(prosody_extractor.py:91-92)—— 改单位不改数据形态,风险最小;若改成别的切法(如前后各 20%)必须另立依据。② 换算用 `12·log2(末/首)` 而不是音分(`1200·log2`):L1 的对应指标叫 `pitch_range_semitone`(§5.4:363),单位必须与它一致,否则 L1 拿到的数与它表里的单位差 100 倍。③ **为什么是「改半音」而不是「改名」**:§7:504 的两个选项里,改名要同时动 `VoiceLogger.fieldnames`(列契约)、钉子方向 1/2 以及历史 CSV 的列序,而改半音只动一个返回值 —— 错判代价明显更低。"
     },
     {

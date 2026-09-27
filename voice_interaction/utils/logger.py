@@ -51,7 +51,7 @@ class VoiceLogger:
             "timestamp",  # ISO 8601 时间戳
             "pitch_mean",  # 平均音调
             "pitch_variation",  # 音调变化
-            "pitch_trend",  # 语调趋势（Hz）
+            "pitch_trend",  # 语调趋势（半音:12·log2(末三分之一 f0 均值 ÷ 首三分之一)）
             "pitch_direction",  # 语调方向（上扬/下降/平稳）
             "energy_mean",  # 平均能量
             "energy_variation",  # 能量变化

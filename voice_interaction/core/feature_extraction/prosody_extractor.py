@@ -4,6 +4,8 @@
 负责从原始音频中提取音高、能量、语速等基础特征
 """
 
+import math
+
 import numpy as np
 import librosa
 from typing import Dict, Any
@@ -88,17 +90,38 @@ class ProsodyFeatureExtractor:
         # 3 帧 → 有值。⟹ <3 帧一律留空 + `"无法判断"`。
         if len(f0_voiced) >= 3:
             n = len(f0_voiced)
-            first_third = np.mean(f0_voiced[:n//3])
-            last_third = np.mean(f0_voiced[-n//3:])
-            pitch_trend = last_third - first_third
+            first_third = float(np.mean(f0_voiced[:n//3]))
+            last_third = float(np.mean(f0_voiced[-n//3:]))
 
-            # 判断语调趋势
-            if pitch_trend > 10:
-                pitch_direction = "上扬"
-            elif pitch_trend < -10:
-                pitch_direction = "下降"
+            # ★ `pitch_trend` 的单位是**半音**,不是 Hz 差(L0 行 `pitch_trend` 验收①;
+            #   依据 spec §4.3:236 ——「是首末均值之差,单位 Hz 不是 Hz/s(拉长 4 倍几乎不变)」)。
+            #   `12·log2(末/首)` 是**同量纲比值**的对数 ⟹ 跨说话人可比;裸 Hz 差不是:
+            #   同样是「升了一个八度」,男声量到 ~100 Hz、女声量到 ~200 Hz。
+            #   单位必须与 L1 的 `pitch_range_semitone` 一致(§5.4:363),否则差 100 倍。
+            #   为什么是「改半音」而不是「改名」:改名要同时动 `VoiceLogger.fieldnames`
+            #   (列契约)、双向钉子与历史 CSV 列序,改半音只动这一个返回值(见 L0 行 basis③)。
+            hz_diff = last_third - first_third
+            if first_third > 0 and last_third > 0:
+                pitch_trend = 12.0 * math.log2(last_third / first_third)
+
+                # ⚠️ `pitch_direction` 是白名单里的**历史列**,门限历来是 ±10 **Hz**,
+                #    它必须继续吃 `hz_diff` —— **不许**跟着改成吃半音值:那样「10」就成了
+                #    10 半音(≈ 一个八度),「上扬/下降」几乎再也发不出来,且**不报错**
+                #    (nan 与超阈都是静默的,这正是本项目反复栽的那一类)。
+                #    `tests/test_voice_first_order_columns.py::test_pitch_direction_keeps_its_hertz_threshold`
+                #    用 1000→1020 Hz 钉住这一点(Hz 差 20 > 10 判「上扬」,而半音只有 ≈0.343)。
+                if hz_diff > 10:
+                    pitch_direction = "上扬"
+                elif hz_diff < -10:
+                    pitch_direction = "下降"
+                else:
+                    pitch_direction = "平稳"
             else:
-                pitch_direction = "平稳"
+                # 均值 ≤ 0 时比值无定义(f0 不该 ≤ 0,但 pyin 的边界行为不作保证)。
+                # 与「零浊音帧」同一条判据:算不出来就**留空**,不写 0.0 —— 0 是个真值。
+                # 趋势没量到就不许写方向(与 <3 帧那一支同理)。
+                pitch_trend = None
+                pitch_direction = "无法判断"
         else:
             # ★ **少于 3 帧浊音也算不出「首末之差」** ⟹ 与零浊音帧同一条判据:留空,不写 0.0
             # (写 0.0 就是"一个看着像测量值、其实什么都没量到的数";2026-09-26 复核 Minor 7)。
