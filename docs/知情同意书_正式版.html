@@ -1,7 +1,7 @@
 <!--
   ⚠️ 这份 HTML 是 docs/知情同意书_正式版.md 的**打印渲染**,不是源。
      要改内容请改 .md,再让我重新生成这一份 —— 两份各自手改会静默分叉。
-     打印:Edge 打开 → Ctrl+P → A4、边距「默认」、勾选「背景图形」可选(不勾也清楚)。
+     打印:Edge 打开 → Ctrl+P → A4、边距「默认」。
 -->
 <title>面试行为观测知情同意书</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -10,17 +10,10 @@
 <style>
 :root{
   color-scheme: light;
-  --paper:#fffefb;
-  --ink:#1c1a17;
-  --ink-soft:#5b554d;
-  --ink-faint:#8b847a;
-  --rule:#ded8ce;
-  --rule-strong:#b9b1a4;
-  --accent:#8a2f2b;
-  --accent-soft:#f7ecea;
-  --todo-bg:#fdf4e3;
-  --todo-ink:#7d5310;
-  --todo-rule:#e8cf9a;
+  --paper:#fffefb; --ink:#1c1a17; --ink-soft:#5b554d; --ink-faint:#8b847a;
+  --rule:#ded8ce; --rule-strong:#b9b1a4;
+  --accent:#8a2f2b; --accent-soft:#f7ecea;
+  --admin-bg:#f6f4ef; --admin-rule:#c9c2b6;
   --sheet-shadow:0 1px 2px rgba(40,34,26,.07), 0 12px 32px rgba(40,34,26,.07);
   --serif:"Noto Serif SC","Songti SC","STSong",SimSun,"Times New Roman",serif;
   --sans:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
@@ -28,181 +21,125 @@
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
     color-scheme: dark;
-    --paper:#191817;
-    --ink:#eae5dd;
-    --ink-soft:#b3aca1;
-    --ink-faint:#8d857a;
-    --rule:#393631;
-    --rule-strong:#55504a;
-    --accent:#d98b83;
-    --accent-soft:#2a2020;
-    --todo-bg:#2b2318;
-    --todo-ink:#e0b978;
-    --todo-rule:#5c4a2a;
+    --paper:#191817; --ink:#eae5dd; --ink-soft:#b3aca1; --ink-faint:#8d857a;
+    --rule:#393631; --rule-strong:#55504a;
+    --accent:#d98b83; --accent-soft:#2a2020;
+    --admin-bg:#211f1c; --admin-rule:#3d3934;
     --sheet-shadow:0 1px 2px rgba(0,0,0,.4), 0 12px 32px rgba(0,0,0,.35);
   }
 }
 :root[data-theme="dark"]{
   color-scheme: dark;
-  --paper:#191817;
-  --ink:#eae5dd;
-  --ink-soft:#b3aca1;
-  --ink-faint:#8d857a;
-  --rule:#393631;
-  --rule-strong:#55504a;
-  --accent:#d98b83;
-  --accent-soft:#2a2020;
-  --todo-bg:#2b2318;
-  --todo-ink:#e0b978;
-  --todo-rule:#5c4a2a;
+  --paper:#191817; --ink:#eae5dd; --ink-soft:#b3aca1; --ink-faint:#8d857a;
+  --rule:#393631; --rule-strong:#55504a;
+  --accent:#d98b83; --accent-soft:#2a2020;
+  --admin-bg:#211f1c; --admin-rule:#3d3934;
   --sheet-shadow:0 1px 2px rgba(0,0,0,.4), 0 12px 32px rgba(0,0,0,.35);
 }
 *{box-sizing:border-box}
 body{
-  margin:0;
-  padding-block:clamp(16px,4vw,48px);
-  padding-inline:16px;
-  background:var(--paper);
-  color:var(--ink);
-  font-family:var(--serif);
-  font-size:15.5px;
-  line-height:1.85;
+  margin:0; padding-block:clamp(16px,4vw,48px); padding-inline:16px;
+  background:var(--paper); color:var(--ink);
+  font-family:var(--serif); font-size:15.5px; line-height:1.85;
   -webkit-text-size-adjust:100%;
 }
 .sheet{
-  max-width:760px;margin:0 auto;
-  background:var(--paper);
-  border:1px solid var(--rule);
-  box-shadow:var(--sheet-shadow);
+  max-width:760px; margin:0 auto; background:var(--paper);
+  border:1px solid var(--rule); box-shadow:var(--sheet-shadow); border-radius:2px;
   padding:clamp(22px,4.5vw,52px) clamp(20px,5vw,58px) clamp(28px,4vw,48px);
-  border-radius:2px;
 }
-/* ── 抬头 ───────────────────────────────────────────── */
 .head{display:flex;flex-direction:column;gap:14px;padding-bottom:18px;border-bottom:2px solid var(--ink)}
-.org{font-family:var(--sans);font-size:12.5px;letter-spacing:.14em;color:var(--ink-soft)}
-h1{
-  font-size:clamp(20px,4.4vw,26px);font-weight:700;line-height:1.4;margin:0;
-  text-wrap:balance;letter-spacing:.01em;
+.org{font-family:var(--sans);font-size:12.5px;letter-spacing:.12em;color:var(--ink-soft)}
+h1{font-size:clamp(20px,4.4vw,26px);font-weight:700;line-height:1.4;margin:0;text-wrap:balance}
+.meta{display:flex;flex-wrap:wrap;gap:8px 20px;font-family:var(--sans);font-size:12px;color:var(--ink-soft);align-items:center}
+.stamp{font-family:var(--sans);font-size:11.5px;font-weight:700;letter-spacing:.06em;color:var(--accent);border:1px solid var(--accent);border-radius:2px;padding:2px 8px;white-space:nowrap}
+
+/* ── 研究者填写区 ─────────────────────────────────── */
+.admin{
+  margin-top:24px;border:1px solid var(--admin-rule);border-radius:3px;
+  background:var(--admin-bg);padding:16px 18px 18px;
 }
-.meta{
-  display:flex;flex-wrap:wrap;gap:8px 18px;font-family:var(--sans);
-  font-size:12px;color:var(--ink-soft);align-items:center;
+.admin-title{
+  font-family:var(--sans);font-size:12.5px;font-weight:700;color:var(--ink-soft);
+  letter-spacing:.05em;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:4px;
 }
-.stamp{
-  font-family:var(--sans);font-size:11.5px;font-weight:700;letter-spacing:.06em;
-  color:var(--accent);border:1px solid var(--accent);border-radius:2px;
-  padding:2px 8px;white-space:nowrap;
-}
-/* ── 提示条 ─────────────────────────────────────────── */
-.note{
-  margin-top:22px;padding:13px 16px;border-left:3px solid var(--accent);
-  background:var(--accent-soft);border-radius:0 3px 3px 0;
-  font-size:14px;line-height:1.8;color:var(--ink);
-}
-.note strong{font-weight:700}
-/* ── 通用段落 ───────────────────────────────────────── */
-main{display:flex;flex-direction:column;gap:30px;margin-top:30px}
-h2{
-  font-size:16.5px;font-weight:700;margin:0 0 10px;line-height:1.5;
-  display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;text-wrap:balance;
-}
-h2 .no{
-  font-family:var(--sans);font-size:11.5px;font-weight:500;color:var(--ink-faint);
-  letter-spacing:.04em;white-space:nowrap;
-}
-h3{font-family:var(--sans);font-size:13.5px;font-weight:700;margin:16px 0 8px;color:var(--ink)}
-section{break-inside:avoid}
-p{margin:0 0 10px}
-p:last-child{margin-bottom:0}
-ul,ol{margin:0 0 10px;padding-left:1.35em}
-li{margin-bottom:6px}
-li:last-child{margin-bottom:0}
-.lead{font-size:15.5px}
-em{font-style:normal;font-weight:700}
-/* ── 待定标记:不能被排版吃掉 ─────────────────────────── */
-.todo{
-  font-family:var(--sans);font-size:12.5px;font-weight:500;
-  background:var(--todo-bg);color:var(--todo-ink);
-  border:1px dashed var(--todo-rule);border-radius:3px;
-  padding:1px 6px;white-space:nowrap;
-}
-code{
-  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-  font-size:.88em;background:var(--accent-soft);color:var(--ink-soft);
-  padding:1px 5px;border-radius:2px;
-}
-input[type=number]{appearance:textfield;-moz-appearance:textfield}
-input[type=number]::-webkit-outer-spin-button,
-input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
-/* ── 表格 ───────────────────────────────────────────── */
-.tw{overflow-x:auto}
-table{border-collapse:collapse;width:100%;font-size:14px;margin:0 0 10px}
-th,td{border:1px solid var(--rule);padding:7px 10px;text-align:left;vertical-align:top}
-th{
-  background:transparent;font-family:var(--sans);font-size:12px;font-weight:700;
-  color:var(--ink-soft);letter-spacing:.03em;
-}
-/* ── 表单 ───────────────────────────────────────────── */
-.info{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px 22px;margin-top:14px}
-.f{display:flex;flex-direction:column;gap:4px}
-.f label{font-family:var(--sans);font-size:11.5px;letter-spacing:.06em;color:var(--ink-soft)}
+.admin-title .why{font-weight:400;letter-spacing:0;color:var(--ink-faint);font-size:12px}
+.admin-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px 24px;margin-top:12px}
+.admin-grid .full{grid-column:1/-1}
+.f{display:flex;flex-direction:column;gap:3px}
+.f label{font-family:var(--sans);font-size:11.5px;letter-spacing:.05em;color:var(--ink-soft)}
 .f .line{display:flex;align-items:baseline;gap:8px;font-size:14px;color:var(--ink-soft)}
 input[type=text],input[type=number]{
   flex:1;min-width:0;background:transparent;border:0;border-bottom:1px solid var(--rule-strong);
-  padding:1px 2px 3px;font:inherit;font-family:var(--serif);font-size:15px;color:var(--ink);
-  border-radius:0;
+  padding:1px 2px 3px;font:inherit;font-family:var(--serif);font-size:15px;color:var(--ink);border-radius:0;
 }
 input[type=text]:focus,input[type=number]:focus{outline:2px solid var(--accent);outline-offset:2px}
+input[type=text]::placeholder{color:var(--ink-faint);opacity:.55;font-family:var(--sans);font-size:13px}
+input[type=number]{appearance:textfield;-moz-appearance:textfield}
+input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.warnline{
+  margin-top:14px;font-family:var(--sans);font-size:12.5px;color:var(--accent);
+  border-top:1px dashed var(--admin-rule);padding-top:11px;line-height:1.7;
+}
+
+/* ── 正文 ─────────────────────────────────────────── */
+main{display:flex;flex-direction:column;gap:30px;margin-top:30px}
+h2{font-size:16.5px;font-weight:700;margin:0 0 10px;line-height:1.5;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;text-wrap:balance}
+h2 .no{font-family:var(--sans);font-size:11.5px;font-weight:500;color:var(--ink-faint);letter-spacing:.04em;white-space:nowrap}
+h3{font-family:var(--sans);font-size:13.5px;font-weight:700;margin:16px 0 8px;color:var(--ink)}
+section{break-inside:avoid}
+p{margin:0 0 10px} p:last-child{margin-bottom:0}
+ul{margin:0 0 10px;padding-left:1.35em} li{margin-bottom:6px} li:last-child{margin-bottom:0}
+.lead{font-size:15.5px}
+em{font-style:normal;font-weight:700}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.88em;background:var(--accent-soft);color:var(--ink-soft);padding:1px 5px;border-radius:2px}
+.blank{display:inline-block;min-width:9em;border-bottom:1px solid var(--rule-strong)}
+
+.tw{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px;margin:0 0 10px}
+th,td{border:1px solid var(--rule);padding:7px 10px;text-align:left;vertical-align:top}
+th{font-family:var(--sans);font-size:12px;font-weight:700;color:var(--ink-soft);letter-spacing:.03em;background:transparent}
+
+.info{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px 22px;margin-top:14px}
 .choices{display:flex;gap:16px;flex-wrap:wrap;align-items:center;font-size:14px}
 .choice{display:flex;gap:7px;align-items:center;cursor:pointer;font-family:var(--sans);font-size:13.5px}
 input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);margin:0;flex:none}
-/* ── 勾选区块(法律上必须分开的同意)──────────────────── */
-.consent{
-  border:1px solid var(--accent);border-radius:3px;padding:16px 18px;margin-top:14px;
-  background:transparent;
-}
-.consent .head-line{
-  font-family:var(--sans);font-size:13px;font-weight:700;color:var(--accent);
-  display:flex;gap:9px;align-items:flex-start;margin-bottom:10px;line-height:1.6;
-}
+
+.consent{border:1px solid var(--accent);border-radius:3px;padding:16px 18px;margin-top:14px;background:transparent}
+.consent.neutral{border-color:var(--rule-strong)}
+.consent .head-line{font-family:var(--sans);font-size:13px;font-weight:700;color:var(--accent);display:flex;gap:9px;align-items:flex-start;margin-bottom:10px;line-height:1.6}
+.consent.neutral .head-line{color:var(--ink)}
 .consent ul{margin-bottom:12px}
-.tick{
-  display:flex;gap:10px;align-items:flex-start;font-family:var(--sans);font-size:14px;font-weight:700;
-  padding-top:12px;border-top:1px solid var(--rule);
-}
+.tick{display:flex;gap:10px;align-items:flex-start;font-family:var(--sans);font-size:14px;font-weight:700;padding-top:12px;border-top:1px solid var(--rule)}
+.tick.plain{border-top:0;padding-top:0}
 .tick input{margin-top:4px}
-/* ── 签署 ───────────────────────────────────────────── */
+
+.note{margin-top:14px;padding:12px 16px;border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 3px 3px 0;font-size:14px;line-height:1.8}
+.yn{display:flex;gap:26px;flex-wrap:wrap;margin-top:14px}
+.yn label{display:flex;gap:9px;align-items:center;font-family:var(--sans);font-size:14.5px;font-weight:700;cursor:pointer}
+
 .sign{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px 34px;margin-top:16px}
 .sig{display:flex;flex-direction:column;gap:8px}
 .sig .row{display:flex;align-items:baseline;gap:8px;font-size:14px}
 .sig .row .u{flex:1;border-bottom:1px solid var(--rule-strong);height:1.5em}
 .sig .cap{font-family:var(--sans);font-size:11.5px;letter-spacing:.05em;color:var(--ink-soft)}
 .decl{font-size:14.5px;padding:14px 0 0;border-top:1px solid var(--rule)}
-.dupe{
-  margin-top:20px;font-family:var(--sans);font-size:12.5px;color:var(--accent);font-weight:700;
-  letter-spacing:.02em;
-}
-/* ── 附录 ───────────────────────────────────────────── */
-.appendix{margin-top:44px;padding-top:22px;border-top:2px solid var(--ink)}
-.appendix h2{font-size:15px}
-.appendix table{font-size:13px}
-/* ── 打印 ───────────────────────────────────────────── */
+.dupe{margin-top:20px;font-family:var(--sans);font-size:12.5px;color:var(--accent);font-weight:700}
+
 @media print{
   @page{size:A4;margin:16mm 15mm}
   :root,:root[data-theme="dark"],:root:not([data-theme="light"]){
-    --paper:#fff;--ink:#000;--ink-soft:#333;--ink-faint:#555;
-    --rule:#bbb;--rule-strong:#777;--accent:#7a2622;--accent-soft:#fff;
-    --todo-bg:#fff;--todo-ink:#000;--todo-rule:#777;--sheet-shadow:none;
+    --paper:#fff;--ink:#000;--ink-soft:#333;--ink-faint:#555;--rule:#bbb;--rule-strong:#777;
+    --accent:#7a2622;--accent-soft:#fff;--admin-bg:#fff;--admin-rule:#888;--sheet-shadow:none;
     color-scheme:light;
   }
   body{padding:0;font-size:10.5pt;line-height:20pt;background:#fff}
   .sheet{max-width:none;border:0;box-shadow:none;padding:0;border-radius:0}
-  .screen-only{display:none !important}
   main{gap:16pt;margin-top:16pt}
   section{break-inside:avoid}
   h2{font-size:12pt}
-  .appendix{break-before:page}
   input[type=text],input[type=number]{border-bottom:1px solid #777}
+  input::placeholder{opacity:0}
   .consent{border-color:#7a2622}
 }
 @media (prefers-reduced-motion: reduce){*{transition:none !important;animation:none !important}}
@@ -210,31 +147,52 @@ input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);margin:0;
 
 <div class="sheet">
   <header class="head">
-    <div class="org">【待定：学校 / 学院全称】 · 研究伦理审查批件号 <span class="todo">【待定】</span></div>
+    <div class="org">研究伦理文件 · 参与者签署版</div>
     <h1>面试行为观测研究 · 参与者知情同意书</h1>
     <div class="meta">
-      <span class="stamp">版本 v1.0</span>
-      <span>生效日期 <span class="todo">【待定】</span></span>
-      <span>表单编号 <span class="todo">【待定】</span></span>
+      <span class="stamp">版本 v1.1</span>
+      <span>生效日期 <span class="blank" style="min-width:7em"></span></span>
     </div>
   </header>
+
+  <div class="admin">
+    <div class="admin-title">
+      <span>研究者填写区</span>
+      <span class="why">打印前填一次即可 —— 这一块不是让参与者填的</span>
+    </div>
+    <div class="admin-grid">
+      <div class="f full"><label for="a-title">研究题目</label><div class="line"><input type="text" id="a-title" placeholder="基于结构化行为观测的面试行为记录与反馈方法研究"></div></div>
+      <div class="f full"><label for="a-org">研究机构（全称 · 资质）</label><div class="line"><input type="text" id="a-org"></div></div>
+      <div class="f"><label for="a-pi">研究者（姓名 · 职称 · 院系）</label><div class="line"><input type="text" id="a-pi"></div></div>
+      <div class="f"><label for="a-sup">指导教师（姓名 · 职称）</label><div class="line"><input type="text" id="a-sup"></div></div>
+      <div class="f"><label for="a-irb">伦理批件号</label><div class="line"><input type="text" id="a-irb"></div></div>
+      <div class="f"><label for="a-n">计划人数 / 单次时长</label><div class="line"><input type="text" id="a-n" placeholder="例 40 人 / 约 30 分钟"></div></div>
+      <div class="f"><label for="a-c-pi">研究者联系方式</label><div class="line"><input type="text" id="a-c-pi"></div></div>
+      <div class="f"><label for="a-c-irb">伦理委员会联系方式</label><div class="line"><input type="text" id="a-c-irb"></div></div>
+      <div class="f full"><label for="a-mt">可选的「简单机器测试」—— 内容与时长</label><div class="line"><input type="text" id="a-mt" placeholder="例 一套 5 分钟的按键反应小任务"></div></div>
+    </div>
+    <div class="warnline">
+      ⚠️ <em>伦理批件号为空 ⟹ 这项研究还没过伦理审查 ⟹ 这份表不能用。</em>
+      研究期限按本表默认值:自伦理批准之日起 12 个月内。
+    </div>
+  </div>
 
   <main>
     <section>
       <h2>参与者信息<span class="no">请本人填写</span></h2>
       <div class="info">
-        <div class="f"><label for="f-school">学校</label><div class="line"><input type="text" id="f-school"></div></div>
-        <div class="f"><label for="f-name">姓名</label><div class="line"><input type="text" id="f-name"></div></div>
-        <div class="f"><label for="f-college">学院</label><div class="line"><input type="text" id="f-college"></div></div>
-        <div class="f"><label for="f-major">专业</label><div class="line"><input type="text" id="f-major"></div></div>
-        <div class="f"><label for="f-sid">学号</label><div class="line"><input type="text" id="f-sid"></div></div>
-        <div class="f"><label for="f-age">年龄</label><div class="line"><input type="number" id="f-age" min="16" max="99"><span>周岁</span></div></div>
+        <div class="f"><label for="p-school">学校</label><div class="line"><input type="text" id="p-school"></div></div>
+        <div class="f"><label for="p-name">姓名</label><div class="line"><input type="text" id="p-name"></div></div>
+        <div class="f"><label for="p-college">学院</label><div class="line"><input type="text" id="p-college"></div></div>
+        <div class="f"><label for="p-major">专业</label><div class="line"><input type="text" id="p-major"></div></div>
+        <div class="f"><label for="p-sid">学号</label><div class="line"><input type="text" id="p-sid"></div></div>
+        <div class="f"><label for="p-age">年龄</label><div class="line"><input type="number" id="p-age" min="16" max="99"><span>周岁</span></div></div>
         <div class="f"><label>性别</label><div class="choices">
-          <label class="choice"><input type="checkbox" id="f-sex-m">男</label>
-          <label class="choice"><input type="checkbox" id="f-sex-f">女</label>
-          <label class="choice"><input type="checkbox" id="f-sex-n">不愿告知</label>
+          <label class="choice"><input type="checkbox" id="p-sex-m">男</label>
+          <label class="choice"><input type="checkbox" id="p-sex-f">女</label>
+          <label class="choice"><input type="checkbox" id="p-sex-n">不愿告知</label>
         </div></div>
-        <div class="f"><label for="f-contact">联系方式</label><div class="line"><input type="text" id="f-contact"></div></div>
+        <div class="f"><label for="p-contact">联系方式</label><div class="line"><input type="text" id="p-contact"></div></div>
       </div>
       <p style="margin-top:14px;font-size:13.5px;color:var(--ink-soft)">
         年龄与性别是研究必需的<em>协变量</em>（音高、声学量与人体的生理属性相关，不记录就无法在分析时扣除这部分差异）。
@@ -247,63 +205,48 @@ input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);margin:0;
       <p class="lead"><em>这不是考试。</em>没有对错，没有及格线，也不打分。我们观测的是「一个人在面试里自然会发生
       的动作与语言节律」，不是「你表现得好不好」。</p>
       <p class="lead"><em>你可以随时说不。</em>不参加、或者中途退出，都不影响任何成绩、评奖、评价或录用决定。
-      这句话是认真的，第八节又写了一遍。</p>
-      <p class="lead"><em>你会拿到属于你自己的东西。</em>这一场录完，我们会把观测摘要发给你本人，并结合面试时的
-      交流，给你一份学业与发展方面的建议。这一条写在第五、十一节。</p>
+      这句话是认真的，第七节又写了一遍。</p>
+      <p class="lead"><em>你会拿到属于你自己的东西。</em>这一场录完，我们会把观测摘要<em>发给你本人</em>，并结合面试
+      时的交流，给你一份<em>学业与发展方面的建议</em>。</p>
     </section>
 
     <section>
-      <h2>一、这是一项什么研究<span class="no">办法 §36 (一)</span></h2>
+      <h2>一、这是一项什么研究<span class="no">办法 §36 (一)(二)(九)</span></h2>
       <ul>
-        <li><em>研究题目</em>：基于结构化行为观测的面试行为记录与反馈方法研究。<span class="todo">【待定：以伦理批件为准】</span></li>
-        <li><em>研究目的</em>：建立一套能追溯依据的行为观测方法 —— 记录面试中可测的行为量，并如实说明
+        <li><em>研究目的</em>：建立一套<em>能追溯依据</em>的行为观测方法 —— 记录面试中可测的行为量，并如实说明
           「哪些量测到了、哪些没测到、值有多可信」。<em>不做</em>心理诊断、人格判定或情绪识别。</li>
-        <li><em>研究内容与流程</em>：你在一次面试中作答；系统同步采集你的视频、音频、面部与姿态关键点、
-          以及语音文字转写；结束后生成一份行为观测摘要。</li>
-        <li><em>方法</em>：摄像头与麦克风采集 → 逐帧特征计算 → 报告层按一套带出处的判据披露哪些线索证据充足、哪些不足。</li>
-        <li><em>研究时限</em>：<span class="todo">【待定】</span> 至 <span class="todo">【待定】</span>（见第十节）。</li>
+        <li><em>流程</em>：你在一次面试中作答；系统同步采集你的视频、音频、面部与姿态关键点、以及语音文字转写；
+          结束后生成一份行为观测摘要。</li>
+        <li><em>方法</em>：摄像头与麦克风采集 → 逐帧特征计算 → 报告层按一套<em>带出处的判据</em>披露哪些线索
+          证据充足、哪些不足。</li>
+        <li><em>谁在做 · 时间与人数</em>：见上方<em>研究者填写区</em>。</li>
       </ul>
     </section>
 
     <section>
-      <h2>二、谁在做这项研究<span class="no">办法 §36 (二)</span></h2>
-      <ul>
-        <li><em>研究机构</em>：<span class="todo">【待定：学校 / 学院全称】</span>（资质：<span class="todo">【待定】</span>）</li>
-        <li><em>研究者</em>：<span class="todo">【待定：姓名、职称、院系】</span></li>
-        <li><em>指导教师</em>：<span class="todo">【待定：姓名、职称】</span></li>
-        <li><em>伦理审查</em>：本项研究已通过 <span class="todo">【待定：伦理委员会全称】</span> 审查，批件号 <span class="todo">【待定】</span>。</li>
-      </ul>
-    </section>
-
-    <section>
-      <h2>三、会在你身上采集什么<span class="no">办法 §36 (五) · PIPL §17 §30</span></h2>
+      <h2>二、会在你身上采集什么<span class="no">办法 §36 (五) · PIPL §17 §30</span></h2>
       <div class="tw"><table>
-        <thead><tr><th>类别</th><th>具体内容</th><th>是否属敏感个人信息</th></tr></thead>
+        <thead><tr><th>类别</th><th>具体内容</th><th>敏感个人信息</th></tr></thead>
         <tbody>
           <tr><td>视频</td><td>摄像头原始录像（1280×720），<em>整段留存</em></td><td><em>是</em>（人脸 = 生物识别）</td></tr>
           <tr><td>音频</td><td>原始录音，以及从中算出的声学量（音高、能量、停顿结构等）</td><td>声纹属生物识别</td></tr>
           <tr><td>行为特征</td><td>面部关键点与动作单元近似值、手部 / 姿态关键点的<em>逐帧记录</em></td><td>否</td></tr>
           <tr><td>转写文本</td><td>你说话的<em>文字转写</em>与逐字时间戳</td><td>否（但含身份线索）</td></tr>
           <tr><td>元数据</td><td>设备型号、分辨率、取景距离、光照、面试时间等<em>协变量</em></td><td>否</td></tr>
-          <tr><td>你填写的</td><td>上表「参与者信息」那几栏</td><td>姓名 / 学号属个人信息</td></tr>
+          <tr><td>你填写的</td><td>上面「参与者信息」那几栏</td><td>姓名 / 学号属个人信息</td></tr>
         </tbody>
       </table></div>
-      <p><em>原始录像与录音会整段留存。</em>这是本项目与其他系统最大的不同：没有原始素材，特征算错了就永远无法重算。
-      留存位置见第七节。</p>
+      <p><em>原始录像与录音会整段留存。</em>这是本项目与其他系统最大的不同：没有原始素材，特征算错了就永远无法重算。</p>
 
       <div class="consent">
-        <div class="head-line">
-          <span>★</span>
-          <span>单独同意：人脸视频 —— 法律要求<em>必须单独勾选</em>，不能与下面的用途合并</span>
-        </div>
+        <div class="head-line"><span>★</span><span>单独同意：人脸视频 —— 法律要求<em>单独勾选</em>，不与下面的用途合并</span></div>
         <p>《个人信息保护法》第二十八条把<em>人脸信息</em>列为<em>敏感个人信息</em>（生物识别），第二十九条要求处理它
         必须取得<em>单独同意</em>、不得与其他条款捆绑。所以这一栏单独列、单独签。</p>
         <ul>
-          <li><em>处理它的必要性</em>：本研究的观测对象就是面试中的面部与姿态变化。没有人脸视频就无法完成观测，
-            也无法在算法有缺陷时用新方法重算同一批帧 —— 后者正是我们坚持留存原始素材的理由。</li>
-          <li><em>它对你个人权益的影响</em>：人脸视频是<em>强可识别</em>信息，且会<em>整段</em>留存。我们采取的保护措施
-            见第六节。你可以只同意音频与文本、不同意视频 ——<em>不同意视频不影响你参加这次面试</em>，
-            也不影响你拿到第五节的反馈。</li>
+          <li><em>必要性</em>：本研究的观测对象就是面试中的面部与姿态变化。没有人脸视频就无法完成观测，也无法在算法
+            有缺陷时用新方法重算同一批帧 —— 后者正是我们坚持留存原始素材的理由。</li>
+          <li><em>对你个人权益的影响</em>：人脸视频是<em>强可识别</em>信息，且会<em>整段</em>留存。保护措施见第五节。
+            你可以只同意音频与文本、不同意视频 ——<em>不同意视频不影响你参加这次面试</em>，也不影响你拿到第四节的反馈。</li>
         </ul>
         <label class="tick"><input type="checkbox" id="c-video">
           <span>我单独同意：采集并留存我的<em>人脸视频</em>，并把它作为本项研究的<em>分析材料</em>。</span></label>
@@ -311,128 +254,121 @@ input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);margin:0;
     </section>
 
     <section>
-      <h2>四、采集来的东西用来做什么<span class="no">办法 §36 (五) · 两种用途须分开</span></h2>
-      <p>依据本项目的心理测量学审查意见，两种用途的同意<em>必须分开</em>：</p>
-      <div class="consent" style="border-color:var(--rule-strong)">
-        <label class="tick" style="border-top:0;padding-top:0">
-          <input type="checkbox" id="c-use-a">
-          <span>用途 A —— 反馈给你本人：把本场的行为观测摘要与学业发展建议回给你本人。</span>
-        </label>
-        <label class="tick">
-          <input type="checkbox" id="c-use-b">
-          <span>用途 B —— 结构化的对外记录：向 <span class="todo">【待定：雇主 / 导师 / 其他】</span> 提供
+      <h2>三、采集来的东西用来做什么<span class="no">办法 §36 (五) · 两种用途须分开</span></h2>
+      <p>依据本项目的审查意见，两种用途的同意<em>必须分开</em>：</p>
+      <div class="consent neutral">
+        <label class="tick plain"><input type="checkbox" id="c-use-a">
+          <span>用途 A —— 反馈给你本人：把本场的行为观测摘要与学业发展建议回给你本人。</span></label>
+        <label class="tick"><input type="checkbox" id="c-use-b">
+          <span>用途 B —— 结构化的对外记录：向 <span class="blank"></span>（接收方，由研究者填）提供
             <em>结构化行为记录</em>（即「测到了什么量、值是多少、有效样本多少」）。
-            对方<em>不会</em>拿到任何特质评分，也不会拿到「是否推荐」之类的结论。</span>
-        </label>
+            对方<em>不会</em>拿到任何特质评分，也不会拿到「是否推荐」之类的结论。</span></label>
       </div>
-      <p style="margin-top:10px">两者可以只选一个。<em>只选 A 完全可以</em>，只选 B 也完全可以。</p>
+      <p style="margin-top:10px">两者可以只选一个。<em>只选 A 完全可以</em>，只选 B 也完全可以，都不选也可以（那就只参加面试）。</p>
     </section>
 
     <section>
-      <h2>五、你会得到什么，可能有什么不便<span class="no">办法 §36 (三)</span></h2>
+      <h2>四、你会得到什么，可能有什么不便<span class="no">办法 §36 (三)(十)</span></h2>
       <h3>你会得到的（这一条是必做，不是可选）</h3>
       <ul>
-        <li>本场结束后，<em>行为观测摘要会发给你本人</em>。</li>
+        <li>本场结束后，<em>行为观测摘要会发给你本人</em>（<em>10 个工作日</em>内）。</li>
         <li>摘要写的是「这一场采集到了哪些量、值是多少、有效样本有多少」，并<em>逐条注明置信度</em>。
           它<em>不是评分，也不下结论</em> —— 系统目前没有标定样本，所以任何「你属于哪一类」的说法都不成立，
           我们也就不会这么说。</li>
         <li>团队成员会<em>结合面试时的交流</em>，给你一份<em>学业与发展方面的建议</em>（选课方向、可以补的能力、
           适合尝试的领域等）。这份建议<em>由人给出</em>，依据是「面试交流 + 上面的摘要」，<em>不是系统生成的结论</em>。</li>
-        <li>反馈方式与时限：<span class="todo">【待定：例 面试结束后 10 个工作日内，发到你的邮箱 / 微信】</span></li>
       </ul>
+      <div class="note">
+        请注意区分：<em>「行为观测摘要」是系统按固定规则算出来的</em>（附置信度与有效样本量）；
+        <em>「学业与发展建议」是团队成员给你的个人意见</em>。两者都不是测评结论、都不是诊断。
+      </div>
       <h3>可能的不便与风险</h3>
       <ul>
         <li>被摄像头拍摄会让人<em>有些紧张</em>，这是最常见的反应。我们不会评价你的紧张程度。</li>
-        <li>长时间注视屏幕可能带来轻微眼疲劳。</li>
-        <li><span class="todo">【待定：如涉及误工 / 交通补偿，写在这里】</span></li>
-        <li>目前没有发现其他已知的身体风险。</li>
+        <li>长时间注视屏幕可能带来轻微眼疲劳。目前没有发现其他已知的身体风险。</li>
+        <li>本次研究<em>不提供报酬</em>。</li>
       </ul>
     </section>
 
     <section>
-      <h2>六、我们怎么保护你<span class="no">办法 §36 (四) (五)</span></h2>
+      <h2>五、我们怎么保护你<span class="no">办法 §36 (四)(五)</span></h2>
       <ul>
-        <li><em>谁能看到</em>：研究团队成员 <span class="todo">【待定：共几名】</span>。原始音视频不经同意不对外提供。</li>
+        <li><em>谁能看到</em>：研究团队成员。原始音视频不经同意不对外提供。</li>
         <li><em>存放在哪</em>：服务器本地目录，<em>不进代码仓库、不进报告 HTML</em>。</li>
         <li><em>你的姓名 / 学号 / 院系</em>记在同意书与 <code>label.json</code> 里，用于联系与反馈。
-          <em>如实说明</em>：目前 <code>label.json</code> 与录像<em>在同一个目录</em>里。我们已知悉这一点，
-          后续会把它与素材分开存放（<span class="todo">【待定：时间点】</span>）。</li>
+          <em>如实说明</em>：目前 <code>label.json</code> 与录像<em>在同一个目录</em>里；后续会分开存放。</li>
         <li><em>对外发表</em>：只发表<em>汇总的、去标识的</em>统计结果；不发表可识别到个人的原始素材。</li>
       </ul>
+
+      <div class="consent">
+        <div class="head-line"><span>★</span><span>保密协议：本次面试的一切信息，<em>不向任何形式的社交媒体发布</em></span></div>
+        <ul>
+          <li><em>我们的承诺</em>：本次面试的影像、音频、转写、评分与建议，<em>不会</em>发布到任何形式的社交媒体
+            —— 包括但不限于<em>微信朋友圈 / 微信群 / 公众号、微博、小红书、抖音、B 站、知乎、贴吧</em>。</li>
+          <li><em>学术报告或宣传</em>：如果我们要把本场用于学术报告、课程展示或对外宣传，<em>会另外单独征求你的
+            书面同意</em>；你不同意就只用于研究分析。</li>
+          <li><em>请你同样遵守</em>：请不要把面试题目、面试内容或<em>其他参与者</em>的情况发到社交媒体 ——
+            这既保护你自己，也保护别人。</li>
+        </ul>
+      </div>
     </section>
 
     <section>
-      <h2>七、留存多久、到期怎么处理<span class="no">办法 §36 (五) · PIPL §17</span></h2>
+      <h2>六、留存多久、到期怎么处理<span class="no">办法 §36 (五) · PIPL §17</span></h2>
       <div class="tw"><table>
         <thead><tr><th>类别</th><th>留存期</th><th>到期处理</th></tr></thead>
         <tbody>
-          <tr><td>原始音视频</td><td><span class="todo">【待定：建议 12 个月】</span></td><td><span class="todo">【待定：由谁删除、如何证明】</span></td></tr>
-          <tr><td>特征与转写</td><td><span class="todo">【待定：建议 24 个月】</span></td><td><span class="todo">【待定】</span></td></tr>
-          <tr><td>知情同意书</td><td><span class="todo">【待定：建议长期】</span></td><td>——</td></tr>
-          <tr><td>二次利用 / 共享</td><td colspan="2"><span class="todo">【待定：是否二次利用、是否共享给其他研究】</span></td></tr>
+          <tr><td>原始音视频</td><td><em>12 个月</em></td><td>到期删除</td></tr>
+          <tr><td>特征与转写</td><td><em>24 个月</em></td><td>到期删除</td></tr>
+          <tr><td>知情同意书</td><td>长期（伦理留档）</td><td>——</td></tr>
         </tbody>
       </table></div>
+      <p><em>不做二次利用</em>：你的数据<em>不会</em>被共享给其他研究或用于本项研究以外的用途。
+      撤回同意后，已采集的数据<em>删除</em>。</p>
     </section>
 
     <section>
-      <h2>八、你的权利<span class="no">办法 §36 (六)</span></h2>
+      <h2>七、你的权利<span class="no">办法 §36 (六)</span></h2>
       <ul>
-        <li><em>自愿参加</em>：你可以拒绝参加，<em>不需要理由</em>，不影响任何评价、成绩与录用决定。</li>
+        <li><em>自愿参加</em>：可以拒绝参加，<em>不需要理由</em>，不影响任何评价、成绩与录用决定。</li>
         <li><em>随时退出</em>：中途退出<em>不需要理由</em>，也不承担任何后果。</li>
-        <li><em>撤回同意</em>：撤回后，<span class="todo">【待定：已采集的数据是删除还是匿名化】</span>。</li>
-        <li><em>同意或不同意分开选</em>：第四节的 A / B 两个用途，你可以只选一个；第三节的视频同意也可以单独拒绝。</li>
-        <li><em>知情</em>：你可以问任何问题，我们<em>逐条说明</em>（这是《伦理审查办法》第三十七条的明文要求）。</li>
+        <li><em>同意分开选</em>：第三节的 A / B 两个用途可以只选一个；第二节的视频同意可以单独拒绝。</li>
+        <li><em>撤回同意</em>：撤回后，已采集的数据<em>删除</em>。</li>
+        <li><em>知情</em>：你可以问任何问题，我们<em>逐条说明</em>。</li>
         <li><em>查看与更正</em>：你可以查看与你有关的记录，并指出你认为记错的地方。</li>
         <li><em>不因拒绝而受不利影响</em>：任何以「参加了这项研究」为前提的优待或不利，都是违规的。</li>
-        <li><em>补偿与损害</em>：<span class="todo">【待定：是否补偿；如因参与受到损害如何救助】</span></li>
         <li><em>获取副本</em>：你可以拿到一份<em>已签署的知情同意书副本</em>。</li>
-        <li><em>新版本再签</em>：如果研究内容发生实质性变化、风险提高，我们会<em>重新征求</em>你的同意。</li>
+        <li><em>新版本再签</em>：研究内容发生实质性变化、风险提高时，我们会<em>重新征求</em>你的同意。</li>
       </ul>
     </section>
 
     <section>
-      <h2>九、注意事项<span class="no">办法 §36 (七)</span></h2>
+      <h2>八、注意事项<span class="no">办法 §36 (七)(十一)(十二)</span></h2>
       <ul>
         <li>请在<em>光线充足、背景整洁</em>的地方参加；面试过程中<em>不要让他人入镜</em>。</li>
         <li>请<em>保持摄像头与麦克风开启</em>；若授权失败，当场会提示你（可能只剩画面、没有声音）。</li>
         <li>中途如需暂停，直接告诉主试即可。</li>
         <li>面试前无需准备，按平时说话就好 —— <em>这一条是真心建议，不是客套</em>。</li>
       </ul>
+      <p style="margin-top:10px"><em>本研究的边界</em>：本研究<em>不涉及治疗</em>（因此无「替代治疗」一项），
+      也<em>不采集血液、唾液等生物样本</em>。如果你不想被录像，可以选择<em>只参加面试、不参与本研究</em>。</p>
     </section>
 
     <section>
-      <h2>十、研究时间与参与人数<span class="no">办法 §36 (九)</span></h2>
-      <ul>
-        <li>研究时间：<span class="todo">【待定】</span> 至 <span class="todo">【待定】</span></li>
-        <li>计划参与人数：<span class="todo">【待定】</span> 人（每位参与者只参加一次，单次约 <span class="todo">【待定】</span> 分钟）</li>
-      </ul>
-    </section>
-
-    <section>
-      <h2>十一、结果会不会反馈给你<span class="no">办法 §36 (十)</span></h2>
-      <p><em>会。</em>反馈内容、形式与时限见<em>第五节</em>。这也是《涉及人的生命科学和医学研究伦理审查办法》
-      第三十六条第（十）项的明文要求。</p>
-      <p>请注意区分：<em>「行为观测摘要」是系统按固定规则算出来的</em>（附置信度与有效样本量）；
-      <em>「学业与发展建议」是团队成员给你的个人意见</em>。两者都不是测评结论、都不是诊断。</p>
-    </section>
-
-    <section>
-      <h2>十二、替代方案<span class="no">办法 §36 (十一)</span></h2>
-      <p>本研究<em>不涉及治疗</em>，因此无「替代治疗」一项（第三十六条第（十一）项不适用）。
-      如果你不想被录像，可以<em>选择只参加面试、不参与本研究</em>（见第三节单独同意栏）。</p>
-    </section>
-
-    <section>
-      <h2>十三、联系与申诉<span class="no">办法 §36 (八)</span></h2>
-      <div class="tw"><table>
-        <thead><tr><th>角色</th><th>联系方式</th></tr></thead>
-        <tbody>
-          <tr><td>研究者联系人</td><td><span class="todo">【待定：姓名 / 电话 / 邮箱】</span></td></tr>
-          <tr><td>伦理委员会</td><td><span class="todo">【待定：名称 / 电话 / 邮箱】</span></td></tr>
-          <tr><td>出问题时的联系人</td><td><span class="todo">【待定】</span></td></tr>
-        </tbody>
-      </table></div>
+      <h2>九、联系与申诉<span class="no">办法 §36 (八)</span></h2>
+      <p><em>研究者</em>：<span class="blank"></span>　　<em>伦理委员会</em>：<span class="blank"></span></p>
       <p><em>遇到任何让你不舒服的事情，都可以直接联系上面任何一个渠道。</em>你也可以随时不说明理由地退出。</p>
+    </section>
+
+    <section>
+      <h2>十、可选：你是否愿意参加一项简短的机器测试？</h2>
+      <p>除了上面的面试，我们还准备了一项<em>简短的机器测试</em>（内容与时长见上方<em>研究者填写区</em>）。
+      它<em>与面试结果无关</em>，是独立的一项。</p>
+      <p><em>参加与否完全自愿</em>：拒绝<em>不影响</em>面试、不影响上面任何一项同意、也不影响你拿到的反馈。</p>
+      <div class="yn">
+        <label><input type="checkbox" id="c-mt-yes">我愿意参加</label>
+        <label><input type="checkbox" id="c-mt-no">我不愿意</label>
+      </div>
     </section>
 
     <section>
@@ -460,38 +396,4 @@ input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);margin:0;
       <p class="dupe">本同意书一式两份，参与者保留一份副本。</p>
     </section>
   </main>
-
-  <div class="appendix">
-    <h2>附录一 · 逐条对照表<span class="no">给伦理申报用，打印时可裁掉</span></h2>
-    <div class="tw"><table>
-      <thead><tr><th>《伦理审查办法》第三十六条</th><th>本同意书对应节</th></tr></thead>
-      <tbody>
-        <tr><td>(一) 研究目的、内容、流程、方法、时限</td><td>第一节</td></tr>
-        <tr><td>(二) 研究者信息与机构资质</td><td>第二节</td></tr>
-        <tr><td>(三) 益处与风险</td><td>第五节</td></tr>
-        <tr><td>(四) 对参与者的保护措施</td><td>第六节</td></tr>
-        <tr><td>(五) 数据使用范围与方式、共享与二次利用、保密范围与措施</td><td>第三、四、六、七节</td></tr>
-        <tr><td>(六) 参与者权利（自愿、退出、知情、同意与否、保密、补偿、获赔、新信息、再签、获得副本）</td><td>第八节</td></tr>
-        <tr><td>(七) 参与前中后的注意事项</td><td>第九节</td></tr>
-        <tr><td>(八) 研究者 / 伦理委员会 / 问题时的联系方式</td><td>第十三节</td></tr>
-        <tr><td>(九) 研究时间与参与人数</td><td>第十节</td></tr>
-        <tr><td>(十) 结果是否反馈</td><td>第十一节</td></tr>
-        <tr><td>(十一) 替代治疗</td><td>第十二节（不适用，已说明理由）</td></tr>
-        <tr><td>(十二) 生物样本</td><td>不适用（本研究不采集生物样本）</td></tr>
-      </tbody>
-    </table></div>
-    <h2 style="margin-top:20px">附录二 · 另需满足</h2>
-    <ul>
-      <li><em>第三十五条</em>：以参与者能理解的语言表述（本稿全篇用第二人称与短句）。</li>
-      <li><em>第三十七条</em>：逐项说明、给足时间后由参与者决定并签署（见签署区声明）。</li>
-      <li><em>第三十八条</em>：实质性变化须再次获取同意（对应第八节「新版本再签」）。</li>
-      <li><em>PIPL 第十七条</em>：处理者名称与联系方式、处理目的 / 方式 / 种类 / 保存期限、行使权利的方式程序。</li>
-      <li><em>PIPL 第二十八条</em>：人脸属敏感个人信息。</li>
-      <li><em>PIPL 第二十九条</em>：处理敏感个人信息须取得<em>单独同意</em>（见第三节）。</li>
-      <li><em>PIPL 第三十条</em>：敏感个人信息还须告知<em>必要性</em>与<em>对个人权益的影响</em>（见第三节）。</li>
-    </ul>
-    <p style="margin-top:18px;font-size:13.5px;color:var(--ink-soft)">
-      <em>正式使用前必须过机构科技伦理审查。</em>文中所有 <span class="todo">【待定】</span> 项需由研究者与伦理委员会填写后生效。
-    </p>
-  </div>
 </div>
