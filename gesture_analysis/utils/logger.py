@@ -194,6 +194,13 @@ class GestureLogger:
         "left_shoulder_jitter_world", "right_shoulder_jitter_world",
     )
 
+    # world 列的落盘小数位(M3.3 B3,2026-09-27:4 → 6)。
+    # 为什么改:那 6 个 jitter 列现在是**率**(米/秒),M3 之后量级从 ~0.01 m 掉到
+    # ~1e-4…1e-3 m/s —— 4 位小数(步长 1e-4)在那个量级上只剩 **1 位有效数字**,
+    # 相关/分位这类下游统计会被量化噪声吃掉(实测:改后 3 场的中位数落在
+    # 2e-4…8e-4,4 位小数下相邻两档就能差一倍)。列名/列序一个都没动。
+    _WORLD_DECIMALS = 6
+
     @classmethod
     def _world_cells(cls, world_results: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         src = world_results or {}
@@ -205,7 +212,8 @@ class GestureLogger:
         out: Dict[str, Any] = {}
         for col in cls._WORLD_COLUMNS:
             v = src.get(col)
-            out[col] = "" if v is None else (round(float(v), 4) if _is_num(v) else v)
+            out[col] = "" if v is None else (
+                round(float(v), cls._WORLD_DECIMALS) if _is_num(v) else v)
         return out
 
     @staticmethod

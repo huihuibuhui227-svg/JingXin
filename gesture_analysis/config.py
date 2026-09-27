@@ -117,11 +117,13 @@ ARM_CONFIG: ArmAnalysisConfig = {
 
 SHOULDER_CONFIG: ShoulderAnalysisConfig = {
     'history_length': 30,
-    'baseline_frames_needed': 30,  # 初始校准所需帧数
+    'baseline_frames_needed': 30,  # 「本场已经看够 30 帧了」——只喂 is_calibrated 那一列
     'jitter_multiplier': 2000.0,  # 肩部抖动更敏感，系数更高
     'shrug_penalty': 30.0,  # 耸肩惩罚分
-    'max_shrug_diff': 0.1,  # 左右肩高度差超过此值视为耸肩
-    'baseline_smoothing': 0.9  # 基准线平滑因子（指数移动平均）
+    # ⚠️ `max_shrug_diff`(0.1)与 `baseline_smoothing`(0.9)已随 M3.3(B3,2026-09-27)**删除**:
+    #    `shrug_level` 的分母改成了**肩宽**(归一化图像单位,同坐标系)、基线改成了**全程中位数**
+    #    (口径见 l0_columns.json 那一行的 basis)。留着这两个键的话,改它们**不会有任何效果** ——
+    #    而"旋钮转了没反应"比没有旋钮更难查。
 }
 
 # ======================

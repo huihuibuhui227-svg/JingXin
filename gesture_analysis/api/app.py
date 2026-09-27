@@ -189,10 +189,14 @@ def get_or_create_analyzers(session_id: str):
             # 同一套分析器再喂一份 **world(米制 3D)** 坐标:公式不变、输入空间变。
             # 那批量的"取景代理/未除尺度"来自画面坐标,这份与取景无关,且能与上面
             # 直接对照(M3 决定用哪一份时有据可依)。
+            # ★ `metric=True` 是**必须显式给**的开关,它决定"除不除肩宽":米制已是解剖
+            #   尺度,`*_jitter_world` 那 6 行明写「**不**除肩宽」(l0_columns.json)。
+            #   漏了它 ⟹ 米制那批去找一个**从来没喂过**的肩宽 ⟹ 整批交空
+            #   (不会崩、不会报错,只有真产出方看得见 —— 本批的 L0 测试就是这么抓到的)。
             'world': {
-                'shoulder': ShoulderAnalyzer(),
-                'left_arm': ArmAnalyzer(arm_id='left'),
-                'right_arm': ArmAnalyzer(arm_id='right'),
+                'shoulder': ShoulderAnalyzer(metric=True),
+                'left_arm': ArmAnalyzer(arm_id='left', metric=True),
+                'right_arm': ArmAnalyzer(arm_id='right', metric=True),
             },
         }
         session_analyzers[session_id] = (analyzers, current_time)

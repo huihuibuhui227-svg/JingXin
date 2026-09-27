@@ -8,6 +8,7 @@ import numpy as np
 from collections import deque
 from typing import Dict, Any, Optional, Tuple
 from gesture_analysis.config import ARM_CONFIG
+from gesture_analysis.core.analysis.jitter import windowed_jitter
 import math
 
 
@@ -26,9 +27,11 @@ class UpperBodyAnalyzer:
         """
         self.config = config or ARM_CONFIG.copy()
 
-        # 初始化历史数据
+        # 初始化历史数据(每一条是 `(timestamp_ms, x, y)`:jitter 的分母之一要用窗内真实秒数)
         self.head_history = deque(maxlen=int(self.config['history_length']))
         self.torso_history = deque(maxlen=int(self.config['history_length']))
+        # 同长的肩宽窗:画面坐标 jitter 的**另一层分母**(窗内中位数)
+        self.shoulder_width_history = deque(maxlen=int(self.config['history_length']))
 
         # 分析状态
         self._is_valid = False
@@ -81,9 +84,10 @@ class UpperBodyAnalyzer:
                 (left_shoulder[1] + right_shoulder[1]) / 2.0
             )
 
-            # 更新历史数据
-            self.head_history.append(nose)
-            self.torso_history.append(torso_center)
+            # 更新历史数据(时间戳与位置一起进窗)
+            self.head_history.append((timestamp_ms, nose[0], nose[1]))
+            self.torso_history.append((timestamp_ms, torso_center[0], torso_center[1]))
+            self.shoulder_width_history.append(shoulder_width)
 
             # 计算特征
             head_jitter = self._calculate_jitter(self.head_history)
@@ -113,21 +117,18 @@ class UpperBodyAnalyzer:
         self.results["is_valid"] = False
         self._is_valid = False
 
-    def _calculate_jitter(self, history: deque) -> float:
+    def _calculate_jitter(self, history: deque) -> Optional[float]:
         """
-        计算抖动幅度
+        计算抖动**率** = 逐轴标准差均值 ÷ 窗内肩宽中位数 ÷ 窗内真实秒数
 
         参数:
-            history: 位置历史记录
+            history: `(timestamp_ms, x, y)` 的位置历史
 
         返回:
-            抖动幅度
+            抖动率;缺分母/没走过时间 ⟹ `None`(由 logger 落**空**)
         """
-        if len(history) < min(10, history.maxlen // 3):
-            return 0.0
-        positions = np.array(history)
-        jitter = np.std(positions, axis=0).mean()
-        return float(jitter)
+        return windowed_jitter(history, self.shoulder_width_history,
+                               divide_by_shoulder=True)
 
     def _calculate_head_tilt(self, landmarks) -> float:
         """
@@ -152,7 +153,7 @@ class UpperBodyAnalyzer:
         except (AttributeError, IndexError):
             return 0.0
 
-    def _calculate_torso_stability(self, torso_jitter: float) -> float:
+    def _calculate_torso_stability(self, torso_jitter: Optional[float]) -> Optional[float]:
         """
         计算躯干稳定性
 
@@ -162,11 +163,13 @@ class UpperBodyAnalyzer:
         返回:
             稳定性评分 (0-1)
         """
+        if torso_jitter is None:
+            return None                  # 没测到 ⟹ 不编一个"很稳"
         # 抖动越小，稳定性越高
         stability = max(0.0, 1.0 - torso_jitter * self.config['jitter_multiplier'] / 100.0)
         return float(stability)
 
-    def _compute_head_score(self, jitter: float, tilt: float) -> float:
+    def _compute_head_score(self, jitter: Optional[float], tilt: float) -> float:
         """
         计算头部评分
 
@@ -180,8 +183,8 @@ class UpperBodyAnalyzer:
         # 基础分
         base_score = 70.0
 
-        # 抖动惩罚
-        jitter_penalty = jitter * self.config['jitter_multiplier']
+        # 抖动惩罚(None = 没测到 ⟹ 不罚 —— 不拿"没测到"算出一个好分)
+        jitter_penalty = 0.0 if jitter is None else jitter * self.config['jitter_multiplier']
 
         # 倾斜惩罚（理想角度在0-10度）
         if tilt <= 10:
@@ -194,7 +197,8 @@ class UpperBodyAnalyzer:
         score = base_score - jitter_penalty - tilt_penalty
         return float(score)
 
-    def _compute_torso_score(self, jitter: float, stability: float) -> float:
+    def _compute_torso_score(self, jitter: Optional[float],
+                             stability: Optional[float]) -> float:
         """
         计算躯干评分
 
@@ -208,11 +212,11 @@ class UpperBodyAnalyzer:
         # 基础分
         base_score = 70.0
 
-        # 抖动惩罚
-        jitter_penalty = jitter * self.config['jitter_multiplier']
+        # 抖动惩罚(None = 没测到 ⟹ 不罚)
+        jitter_penalty = 0.0 if jitter is None else jitter * self.config['jitter_multiplier']
 
-        # 稳定性奖励
-        stability_bonus = stability * self.config['stability_bonus']
+        # 稳定性奖励(None = 没测到 ⟹ 不给奖励)
+        stability_bonus = (stability or 0.0) * self.config['stability_bonus']
 
         score = base_score - jitter_penalty + stability_bonus
         return float(score)

@@ -9,6 +9,7 @@ import numpy as np
 from collections import deque
 from typing import Dict, Any, Optional, Tuple
 from gesture_analysis.config import ARM_CONFIG
+from gesture_analysis.core.analysis.jitter import windowed_jitter
 
 
 ArmAnalysisResult = Dict[str, Any]
@@ -17,23 +18,32 @@ ArmAnalysisResult = Dict[str, Any]
 class ArmAnalyzer:
     """手臂分析器"""
 
-    def __init__(self, arm_id: str = 'left', config: Optional[Dict[str, float]] = None):
+    def __init__(self, arm_id: str = 'left', config: Optional[Dict[str, float]] = None,
+                 metric: bool = False):
         """
         初始化手臂分析器
 
         参数:
             arm_id: 手臂标识 ('left' 或 'right')
             config: 配置字典，如果为None则使用默认配置
+            metric: 喂进来的是**米制 3D 坐标**(`pose_world_landmarks`)时为 `True`。
+                ⚠️ 它只影响**分母**:米制已是解剖尺度,`*_jitter_world` 明写「**不**除肩宽」
+                (l0_columns.json 那 6 行);画面坐标那批要 ÷ 肩宽。两批用的是**同一个类**
+                (公式同一套、只换输入空间),所以这个开关必须显式给 —— 让调用方说明
+                "我喂的是哪一种坐标",而不是让类去猜。
         """
         if arm_id not in ('left', 'right'):
             raise ValueError("arm_id 必须为 'left' 或 'right'")
 
         self.arm_id = arm_id
+        self.metric = bool(metric)
         self.config = config or ARM_CONFIG.copy()
 
-        # 初始化历史数据
+        # 初始化历史数据(每一条是 `(timestamp_ms, x, y)`:jitter 的分母之一要用窗内真实秒数)
         self.wrist_history = deque(maxlen=int(self.config['history_length']))
         self.elbow_history = deque(maxlen=int(self.config['history_length']))
+        # 同长的肩宽窗 —— 只有画面坐标那批拿它当中位数分母(见 `self.metric`)
+        self.shoulder_width_history = deque(maxlen=int(self.config['history_length']))
 
         # 分析状态标志
         self._is_valid = False
@@ -94,9 +104,12 @@ class ArmAnalyzer:
                 elbow = (float(landmarks.get('elbow_x', 0)), float(landmarks.get('elbow_y', 0)))
                 shoulder = (float(landmarks.get('shoulder_x', 0)), float(landmarks.get('shoulder_y', 0)))
 
-            # 更新历史数据
-            self.wrist_history.append(wrist)
-            self.elbow_history.append(elbow)
+            # 更新历史数据(时间戳与位置一起进窗)
+            self.wrist_history.append(
+                (timestamp_ms, wrist[0], wrist[1]))
+            self.elbow_history.append(
+                (timestamp_ms, elbow[0], elbow[1]))
+            self.shoulder_width_history.append(shoulder_width)
 
             # 计算特征
             wrist_jitter = self._calculate_jitter(self.wrist_history)
@@ -124,21 +137,18 @@ class ArmAnalyzer:
         self.results["is_valid"] = False
         self._is_valid = False
 
-    def _calculate_jitter(self, history: deque) -> float:
+    def _calculate_jitter(self, history: deque) -> Optional[float]:
         """
-        计算抖动幅度
+        计算抖动**率** = 逐轴标准差均值 ÷ 窗内真实秒数(画面坐标那批再 ÷ 窗内肩宽中位数)
 
         参数:
-            history: 位置历史记录
+            history: `(timestamp_ms, x, y)` 的位置历史
 
         返回:
-            抖动幅度
+            抖动率;缺分母/没走过时间 ⟹ `None`(由 logger 落**空**)
         """
-        if len(history) < min(10, history.maxlen // 3):
-            return 0.0
-        positions = np.array(history)
-        jitter = np.std(positions, axis=0).mean()
-        return float(jitter)
+        return windowed_jitter(history, self.shoulder_width_history,
+                               divide_by_shoulder=not self.metric)
 
     def _calculate_arm_angle(self, shoulder: Tuple[float, float], 
                             elbow: Tuple[float, float], 
@@ -175,24 +185,31 @@ class ArmAnalyzer:
         except Exception:
             return 0.0
 
-    def _calculate_arm_stability(self, wrist_jitter: float, elbow_jitter: float) -> float:
+    def _calculate_arm_stability(self, wrist_jitter: Optional[float],
+                                 elbow_jitter: Optional[float]) -> float:
         """
         计算手臂稳定性
 
         参数:
-            wrist_jitter: 手腕抖动
-            elbow_jitter: 肘关节抖动
+            wrist_jitter: 手腕抖动率;`None` = 没测到
+            elbow_jitter: 肘关节抖动率;`None` = 没测到
+
+        ⚠️ `None` 的那一路**不进均值**,而不是当 0 用(当 0 = 把"没测到"算成"很稳");
+        两路都没有 ⟹ 交 `None`(稳定性这一帧没有依据)。
 
         返回:
             稳定性评分 (0-1)
         """
-        avg_jitter = (wrist_jitter + elbow_jitter) / 2.0
+        seen = [j for j in (wrist_jitter, elbow_jitter) if j is not None]
+        if not seen:
+            return None
+        avg_jitter = sum(seen) / len(seen)
         # 抖动越小，稳定性越高
         stability = max(0.0, 1.0 - avg_jitter * self.config['jitter_multiplier'] / 100.0)
         return float(stability)
 
-    def _compute_arm_score(self, wrist_jitter: float, elbow_jitter: float, 
-                          arm_angle: float, arm_stability: float) -> float:
+    def _compute_arm_score(self, wrist_jitter: Optional[float], elbow_jitter: Optional[float],
+                          arm_angle: float, arm_stability: Optional[float]) -> float:
         """
         计算手臂评分
 
@@ -208,9 +225,10 @@ class ArmAnalyzer:
         # 基础分
         base_score = 70.0
 
-        # 抖动惩罚
-        avg_jitter = (wrist_jitter + elbow_jitter) / 2.0
-        jitter_penalty = avg_jitter * self.config['jitter_multiplier']
+        # 抖动惩罚(`None` 的那一路不算进来 —— 不拿"没测到"去算分)
+        seen = [j for j in (wrist_jitter, elbow_jitter) if j is not None]
+        jitter_penalty = (sum(seen) / len(seen) * self.config['jitter_multiplier']
+                          if seen else 0.0)
 
         # 角度评分（使用配置中的角度参数）
         if self.config['ideal_angle_min'] <= arm_angle <= self.config['ideal_angle_max']:
@@ -220,8 +238,8 @@ class ArmAnalyzer:
         else:
             angle_bonus = 0.0
 
-        # 稳定性奖励
-        stability_bonus = arm_stability * self.config['stability_bonus']
+        # 稳定性奖励(None = 没测到 ⟹ 不给奖励)
+        stability_bonus = (arm_stability or 0.0) * self.config['stability_bonus']
 
         # 综合评分
         score = base_score - jitter_penalty + angle_bonus + stability_bonus

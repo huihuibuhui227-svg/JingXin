@@ -8,6 +8,7 @@ import numpy as np
 from collections import deque
 from typing import Dict, Any, Optional, Tuple
 from gesture_analysis.config import HAND_CONFIG
+from gesture_analysis.core.analysis.jitter import windowed_jitter
 
 # 定义明确的返回类型，便于类型检查和文档生成
 HandAnalysisResult = Dict[str, Any]
@@ -31,7 +32,13 @@ class HandAnalyzer:
         self.config = config or HAND_CONFIG.copy()  # 避免外部修改污染
 
         # 初始化历史数据：仅跟踪食指指尖（ID=8）
+        # ⚠️ 每一条是 `(timestamp_ms, x, y)` —— 时间戳必须**在窗口里**:
+        #    jitter 的分母之一是「窗内真实秒数」(l0_columns.json 的 `*_hand_jitter` 行),
+        #    而"帧数 ÷ 假定帧率"等于假设帧率恒定,帧率正是被污染的那个量。
         self.tip_history = {8: deque(maxlen=int(self.config['history_length']))}
+        # 同长的肩宽窗:画面坐标 jitter 的**另一层分母**(窗内中位数)。缺肩/无姿态的帧
+        # 占位 `None` —— 它们对中位数没有发言权,但也不让窗整体作废。
+        self.shoulder_width_history = deque(maxlen=int(self.config['history_length']))
 
         # 分析状态标志
         self._is_valid = False  # 是否有有效 landmarks 输入
@@ -75,8 +82,10 @@ class HandAnalyzer:
             raise ValueError(f"手部 landmarks 长度不足，期望 >=21，实际: {len(landmarks)}")
 
         try:
-            # 更新食指指尖历史
-            self.tip_history[8].append((float(landmarks[8].x), float(landmarks[8].y)))
+            # 更新食指指尖历史(时间戳与位置一起进窗:分母要用窗内真实秒数)
+            self.tip_history[8].append(
+                (timestamp_ms, float(landmarks[8].x), float(landmarks[8].y)))
+            self.shoulder_width_history.append(shoulder_width)
 
             # 计算特征
             jitter = self._calculate_jitter()
@@ -105,13 +114,14 @@ class HandAnalyzer:
         self.results["is_valid"] = False
         self._is_valid = False
 
-    def _calculate_jitter(self) -> float:
-        """计算手指抖动幅度"""
-        if len(self.tip_history[8]) < min(10, self.tip_history[8].maxlen // 3):
-            return 0.0
-        positions = np.array(self.tip_history[8])
-        jitter = np.std(positions, axis=0).mean()
-        return float(jitter)
+    def _calculate_jitter(self) -> Optional[float]:
+        """食指指尖的抖动**率** = 逐轴标准差均值 ÷ 窗内肩宽中位数 ÷ 窗内真实秒数。
+
+        交 `None` = 这一帧没有这个量(窗内没有肩宽 / 没走过时间),由 logger 落**空**。
+        口径见 `l0_columns.json` 的 `left/right_hand_jitter` 两行。
+        """
+        return windowed_jitter(self.tip_history[8], self.shoulder_width_history,
+                               divide_by_shoulder=True)
 
     def _is_fist(self, landmarks, threshold: Optional[float] = None) -> bool:
         """
@@ -139,44 +149,64 @@ class HandAnalyzer:
         except (AttributeError, IndexError):
             return False
 
-    def _calculate_finger_spread(self, landmarks) -> float:
+    def _calculate_finger_spread(self, landmarks) -> Optional[float]:
         """
-        计算手指张开度
+        计算手指张开度 = `mean(dist(指尖_i, lm[0])) ÷ dist(lm[0], lm[9])`(掌长)
+
+        分子与现行实现**逐字一致**(指尖 = 4/8/12/16/20、参考点是腕 lm[0])—— L0 行
+        basis 明写「一次只改一处,否则『改坏了是分子还是分母』不可回答」。本批加的
+        只有那个分母(掌长,同坐标系)。
+
+        为什么要除:归一化图像坐标下的"指尖到腕的距离"同时编码**张开**与**离镜头远近**
+        (手靠近镜头一倍,该值也大一倍)。取**掌长**而不是肩宽:手前伸时与肩不在同一
+        深度,除肩宽会把深度差算成张开度变化;掌长是同一只手自己的骨性长度、同深度。
+        口径见 `l0_columns.json` 的 `left/right_hand_spread` 两行。
 
         参数:
             landmarks: 手部关键点
 
         返回:
-            手指张开度值
+            张开度比值;掌长取不出来或为 0(退化)⟹ `None`(没有分母就没有这个比值,
+            **不补 0** —— 0 的意思是"指尖全贴在腕上",那是个测量结果)
         """
         try:
             palm = np.array([landmarks[0].x, landmarks[0].y])
+            palm_length = float(np.linalg.norm(
+                np.array([landmarks[9].x, landmarks[9].y]) - palm))
             tips = [4, 8, 12, 16, 20]
             spread = np.mean([
                 np.linalg.norm(np.array([landmarks[i].x, landmarks[i].y]) - palm)
                 for i in tips
             ])
-            return float(spread)
+            if palm_length <= 0:
+                return None
+            return float(spread / palm_length)
         except (AttributeError, IndexError):
-            return 0.0
+            return None
 
-    def _compute_resilience_score(self, jitter: float, is_fist: bool, spread: float) -> float:
+    def _compute_resilience_score(self, jitter: Optional[float], is_fist: bool,
+                                  spread: Optional[float]) -> float:
         """
         计算抗压能力评分
 
         参数:
-            jitter: 抖动幅度
+            jitter: 抖动**率**(肩宽/秒);`None` = 这一帧没测到
             is_fist: 是否握拳
-            spread: 手指张开度
+            spread: 手指张开度比值;`None` = 这一帧没测到
 
         返回:
             抗压能力评分 (0-100)
+
+        ⚠️ `None` ⟹ **不加那一项惩罚/奖励**,而不是当 0 用:当 0 用等于拿"完全静止"
+        去算分(那是把"没测到"说成一个好结果)。分数列本身已被报告层封停
+        (`evidence_gate.QUARANTINE` 里的 `hand_score`),口径另批处置 —— 这里只保证
+        "没测到"不会伪装成"测到一个好数"。
         """
-        jitter_penalty = jitter * self.config['jitter_multiplier']
+        jitter_penalty = 0.0 if jitter is None else jitter * self.config['jitter_multiplier']
         jitter_score = max(0.0, 70.0 - jitter_penalty)
         fist_penalty = self.config['fist_penalty'] if is_fist else 0.0
         spread_bonus = 0.0
-        if spread > self.config['spread_threshold']:
+        if spread is not None and spread > self.config['spread_threshold']:
             spread_bonus = min(
                 self.config['spread_bonus_multiplier'],
                 (spread - self.config['spread_threshold']) * self.config['spread_bonus_multiplier']

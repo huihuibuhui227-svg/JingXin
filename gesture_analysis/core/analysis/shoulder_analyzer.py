@@ -8,6 +8,7 @@ import numpy as np
 from collections import deque
 from typing import Dict, Any, Optional, Tuple
 from gesture_analysis.config import SHOULDER_CONFIG
+from gesture_analysis.core.analysis.jitter import window_median, windowed_jitter
 
 
 ShoulderAnalysisResult = Dict[str, Any]
@@ -16,22 +17,35 @@ ShoulderAnalysisResult = Dict[str, Any]
 class ShoulderAnalyzer:
     """肩部分析器"""
 
-    def __init__(self, config: Optional[Dict[str, float]] = None):
+    def __init__(self, config: Optional[Dict[str, float]] = None, metric: bool = False):
         """
         初始化肩部分析器
 
         参数:
             config: 配置字典，如果为None则使用默认配置
+            metric: 喂进来的是**米制 3D 坐标**(`pose_world_landmarks`)时为 `True`。
+                只影响**分母**:米制已是解剖尺度,`*_jitter_world` 明写「**不**除肩宽」
+                (l0_columns.json 那 6 行),画面坐标那两列要除。同一个类两处用,所以
+                这个开关由调用方显式给。
         """
+        self.metric = bool(metric)
         self.config = config or SHOULDER_CONFIG.copy()
 
         self.shoulder_history = {
             'left': deque(maxlen=int(self.config['history_length'])),
             'right': deque(maxlen=int(self.config['history_length']))
         }
+        # 每一条是 `(timestamp_ms, x, y)` —— jitter 的分母之一要用窗内真实秒数
+        self.shoulder_width_history = deque(maxlen=int(self.config['history_length']))
+        # `shrug_level` 的**基线**原料:双肩平均 y,**全程**(不设上限)。
+        # 基线 = 它的中位数(`_calculate_shrug_level` 里有为什么是因果中位数的一整段)
+        self.shrug_y_history: deque = deque()
 
         # 校准状态
-        self.shoulder_baseline_y: Optional[float] = None
+        # ⚠️ 旧口径的 `shoulder_baseline_y`(开头 30 帧的指数滑动均值)**已删**:基线
+        #    现在是 `shrug_y_history` 的中位数。`baseline_frames_collected` 还在,但只喂
+        #    `is_calibrated` 那一列(它的语义 = "这一场已经看够 30 帧了",与基线不再是
+        #    一回事)—— 留着一个没人读的基线字段,下一个读代码的人会以为它还在用。
         self.baseline_frames_collected = 0
 
         # 分析状态
@@ -48,8 +62,10 @@ class ShoulderAnalyzer:
             "is_valid": False,
             "is_calibrated": False
         }
-        self.shoulder_baseline_y = None
         self.baseline_frames_collected = 0
+        # 基线窗口**清空**:新会话从零开始攒(基线是"这场会话的中位数",不是跨会话的)。
+        # ⚠️ 位置窗口(`shoulder_history`)历来**不**清 —— 那是现行行为,本批不动它。
+        self.shrug_y_history.clear()
         self._is_valid = False
 
     def update(self, landmarks, timestamp_ms: Optional[int] = None,
@@ -78,11 +94,12 @@ class ShoulderAnalyzer:
         try:
             left_shoulder = (float(landmarks[11].x), float(landmarks[11].y))
             right_shoulder = (float(landmarks[12].x), float(landmarks[12].y))
-            self.shoulder_history['left'].append(left_shoulder)
-            self.shoulder_history['right'].append(right_shoulder)
+            self.shoulder_history['left'].append((timestamp_ms,) + left_shoulder)
+            self.shoulder_history['right'].append((timestamp_ms,) + right_shoulder)
+            self.shoulder_width_history.append(shoulder_width)
 
             left_jitter, right_jitter = self._calculate_shoulder_jitter()
-            shrug = self._calculate_shrug_level(landmarks)
+            shrug = self._calculate_shrug_level(landmarks, shoulder_width)
             score = self._compute_shoulder_score(left_jitter, right_jitter, shrug)
 
             is_calibrated = self.is_calibrated()
@@ -108,73 +125,93 @@ class ShoulderAnalyzer:
         })
         self._is_valid = False
 
-    def _calculate_shoulder_jitter(self) -> Tuple[float, float]:
+    def _calculate_shoulder_jitter(self) -> Tuple[Optional[float], Optional[float]]:
         """
-        计算肩部抖动幅度
+        计算肩部抖动**率** = 逐轴标准差均值 ÷ 窗内肩宽中位数 ÷ 窗内真实秒数
 
         返回:
-            (左肩抖动, 右肩抖动)
+            (左肩抖动, 右肩抖动);缺分母/没走过时间 ⟹ `None`(由 logger 落**空**)。
+            米制那一路(`metric=True`)**不除肩宽** —— 米制已是解剖尺度。
         """
-        min_len = min(10, self.shoulder_history['left'].maxlen // 3)
-        if (len(self.shoulder_history['left']) < min_len or
-            len(self.shoulder_history['right']) < min_len):
-            return 0.0, 0.0
+        divide = not self.metric
+        return (windowed_jitter(self.shoulder_history['left'],
+                                self.shoulder_width_history, divide_by_shoulder=divide),
+                windowed_jitter(self.shoulder_history['right'],
+                                self.shoulder_width_history, divide_by_shoulder=divide))
 
-        left_jitter = np.std(np.array(self.shoulder_history['left']), axis=0).mean()
-        right_jitter = np.std(np.array(self.shoulder_history['right']), axis=0).mean()
-        return float(left_jitter), float(right_jitter)
-
-    def _calculate_shrug_level(self, landmarks) -> float:
+    def _calculate_shrug_level(self, landmarks, shoulder_width: Optional[float]) -> Optional[float]:
         """
-        计算耸肩程度
+        计算耸肩程度 = `max(0, 基线 − 双肩平均 y) ÷ 肩宽`,**不截顶**。
 
         参数:
             landmarks: MediaPipe姿态关键点
+            shoulder_width: 本帧的双肩归一化图像距离(分母)
 
         返回:
-            耸肩程度 (0-1)
+            耸肩程度;缺肩宽 ⟹ `None`(没有分母就没有这个比值)
+
+        ★ 两处口径由 `l0_columns.json` 的 `shrug_level` 行定(basis ①②):
+
+        ① **基线 = 双肩平均 y 的全程中位数**,不再是"开头 30 帧的指数滑动均值"。
+           旧口径下这一列**成了时间的函数**:基线冻在开头,人只要慢慢沉肩,后半场就
+           一路恒 1.0 或恒 0(§4.2 依据栏点名的「时间漂移量」)。中位数只用到"哪一半
+           更高",对缓慢漂移不敏感。
+           ⚠️ 实时流上"全程中位数"要用到**会话未来** ⟹ 这里取**因果近似**:每次只用
+           **已经见过**的帧算中位数(`shrug_y_history`,按帧推进)。这层近似不改本行的
+           定义(与「禁止用视频内分位定义**事件**」那条上游规矩无关:本列的分位是
+           **基线**,不是事件门限 —— 与 `au12_smile` 的 p10 同一性质)。
+
+        ② **分母 = 肩宽**(归一化图像单位,同坐标系),不再是裸常量
+           `max_shrug_diff = 0.1` —— 那个常量量纲上与"肩抬了多少"无关,而且像所有
+           画面坐标量一样随取景缩放变(§4.5 规矩 1)。
+
+        不截顶:截顶会把幅度藏起来;饱和交给 L1 的分位映射(与 `au26_jaw_drop` 同一处置)。
+
+        ⚠️ 图像坐标里 **y 越小 = 位置越高**,所以"抬起"= 当前 y 低于基线。
         """
         try:
             left_y = landmarks[11].y
             right_y = landmarks[12].y
             avg_y = (left_y + right_y) / 2.0
         except (AttributeError, IndexError):
-            return 0.0
+            return None
 
-        # 校准阶段
+        # 基线原料:本帧的双肩平均 y。`baseline_frames_collected` 只为 `is_calibrated`
+        # 那一列继续计数(它的语义是"这一场已经看够 30 帧了",与基线不再是一回事)。
+        self.shrug_y_history.append(avg_y)
         if self.baseline_frames_collected < self.config['baseline_frames_needed']:
-            if self.shoulder_baseline_y is None:
-                self.shoulder_baseline_y = avg_y
-            else:
-                self.shoulder_baseline_y = (
-                    self.shoulder_baseline_y * self.config['baseline_smoothing'] +
-                    avg_y * (1 - self.config['baseline_smoothing'])
-                )
             self.baseline_frames_collected += 1
-            return 0.0
 
-        # 耸肩判断：y 值越小表示位置越高（图像坐标系）
-        if avg_y < self.shoulder_baseline_y:
-            shrug_diff = self.shoulder_baseline_y - avg_y
-            shrug_norm = min(shrug_diff, self.config['max_shrug_diff']) / self.config['max_shrug_diff']
-            return float(shrug_norm)
+        baseline = window_median(self.shrug_y_history)
+        if baseline is None or not shoulder_width:
+            return None
+        if avg_y < baseline:
+            return float((baseline - avg_y) / shoulder_width)
         return 0.0
 
-    def _compute_shoulder_score(self, left_jitter: float, right_jitter: float, shrug: float) -> float:
+    def _compute_shoulder_score(self, left_jitter: Optional[float],
+                                right_jitter: Optional[float],
+                                shrug: Optional[float]) -> float:
         """
         计算肩部评分
 
         参数:
-            left_jitter: 左肩抖动
-            right_jitter: 右肩抖动
-            shrug: 耸肩程度
+            left_jitter: 左肩抖动率;`None` = 没测到
+            right_jitter: 右肩抖动率;`None` = 没测到
+            shrug: 耸肩程度;`None` = 没测到
 
         返回:
             肩部评分 (0-100)
+
+        ⚠️ `None` 的那几项**不进惩罚**(当 0 用 = 拿"没测到"算出一个好分);
+        三项都没测到 ⟹ 交基础分 70.0(与"没有任何可罚的东西"同形,而不是编一个
+        更高/更低的分)。分数列本身已被报告层封停(`evidence_gate.QUARANTINE`),
+        口径另批处置 —— 这里只保证不会因为 `None` 崩掉。
         """
-        avg_jitter = (left_jitter + right_jitter) / 2.0
-        jitter_penalty = avg_jitter * self.config['jitter_multiplier']
-        shrug_penalty = shrug * self.config['shrug_penalty']
+        seen = [j for j in (left_jitter, right_jitter) if j is not None]
+        jitter_penalty = (sum(seen) / len(seen) * self.config['jitter_multiplier']
+                          if seen else 0.0)
+        shrug_penalty = (shrug or 0.0) * self.config['shrug_penalty']
         score = 70.0 - jitter_penalty - shrug_penalty
         return float(score)
 
