@@ -31,6 +31,11 @@ class AUFeatures:
     head_pitch: float = 0.0
     symmetry_score: float = 1.0
 
+    # 协变量:该帧的**面部尺度本身**(= 各面部列当分母用的那个量)。
+    # 它不是"另一个指标",而是让下游能看见并控住取景差异的那个数(§4.5:272 的第二条路)。
+    # ⚠️ 默认 0.0 是个**看着像测量值**的假值 —— `calculate` 必须显式赋值。
+    face_scale: float = 0.0
+
     # 生理指标
     blink_rate_per_min: float = 0.0
     eye_closed_sec: float = 0.0

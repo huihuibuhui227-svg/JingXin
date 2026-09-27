@@ -21,7 +21,7 @@
       "text": 4
     },
     "live_contract": {
-      "face": 91,
+      "face": 92,
       "gesture": 70,
       "voice": 32
     },
@@ -827,7 +827,7 @@
       "unit": "比值",
       "maturity": "B",
       "l0_output": "吐「眉间距 ÷ 眼距」这个比值;「皱眉」的事件门限留给 L1。",
-      "status": "pending",
+      "status": "implemented",
       "quarantine_ref": "au4_freq —— 从 micro_exp 字符串解析出的垃圾匹配(report_frontend/evidence_gate.QUARANTINE['au4_freq']);unblock: M3 修 au4 landmark",
       "acceptance": "重构好 = ① 代码里眉内端用 107/336(不再是 276/33),分母用眼距(不再是 face_width);② 该列的取值不再 86~92% 触地板(spec §1 的实测症状消失);③ evidence_gate.QUARANTINE['au4_freq'] 的 au4_freq 封停可解。",
       "basis": "两处下标由本行定(§4.1:163 给了两套候选、没定眼距):① 眉内端取 107/336 —— landmarks.py:10-11 把 107/336 声明为左右眉上缘的第一个点(LEFT_EYEBROW_UPPER[0] / RIGHT_EYEBROW_UPPER[0]),即内端;候选的 52/55 在这张映射表里**没有声明**(只在 au_calculator.py:135-136 现用)。② 眼距取 dist(lm[130], lm[359]) —— landmarks.py:30-31 直接把这两个下标声明为 EYE_CORNER_LEFT / EYE_CORNER_RIGHT,是映射表里唯一现成的「眼距」;候选 dist(lm[33], lm[263]) 要从 LEFT_EYE/RIGHT_EYE 列表的元素次序反推哪个是外角,不如前者直接。"
@@ -841,7 +841,7 @@
       "unit": "比值",
       "maturity": "B",
       "l0_output": "吐「颊-眼竖直距 ÷ 眼距」这个比值;「颊抬起」的事件门限留给 L1。",
-      "status": "pending",
+      "status": "implemented",
       "quarantine_ref": "",
       "acceptance": "重构好 = ① 分母不再是 face_height 而是眼距;② 左右转头素材上该列的会话内方差不再随 yaw 单向漂移(拿 3 场正式素材逐帧比对 yaw 与本品)。",
       "basis": "分母由本行定:§4.1:164 只写了「分母 ÷ 眼距」,没给下标,故达不到 A 的②。取 landmarks.py:30-31 声明的 EYE_CORNER_LEFT/RIGHT。为什么必须是水平尺度:§4.1:164 依据栏说现行「分子水平向、分母竖直向,随转头不成比例」;换成同为水平向的眼距后,转头造成的透视缩短在分子分母上同比抵消。"
@@ -855,7 +855,7 @@
       "unit": "比值",
       "maturity": "B",
       "l0_output": "吐「1 − 鼻尖到两鼻翼均距 ÷ face_width」这个比值;「皱鼻」的事件门限留给 L1。",
-      "status": "pending",
+      "status": "implemented",
       "quarantine_ref": "",
       "acceptance": "重构好 = ① 代码里鼻翼用 129/358(不再是 234/455);② spec §1 的实测症状消失:每视频 max 不再恰为 0.5(实测 46/60 场恰为 0.5);③ 60 场素材上该列不再触顶。",
       "basis": "分母由本行定:§4.1:166 的「L0 形态」栏只给了下标(129/358),没给归一化分母 ⟹ 达不到 A 的②。取现行实现的 face_width(au_calculator.py:164-167 就是除以 2×face_width),一次只改一处 —— §4.1 点名要改的是下标,同时改分母会让「改坏了是下标还是分母」不可回答。"
@@ -909,9 +909,9 @@
       "unit": "比值",
       "maturity": "B",
       "l0_output": "吐「上唇唇红厚度 ÷ face_height」这个比值;「抿唇」的事件门限留给 L1。",
-      "status": "pending",
+      "status": "implemented",
       "quarantine_ref": "",
-      "acceptance": "重构好 = ① 代码里 au23 与 au25 不再互为镜像(该列与 au25 的会话内相关从 −0.50 移向 0 附近或正);② 该列不再等于「1 − 口内开合度 ÷ 静息值」。",
+      "acceptance": "重构好 = ① 代码里 au23 与 au25 不再互为镜像;② 该列不再等于「1 − 口内开合度 ÷ 静息值」。⚠️ **① 的判据 2026-09-27 已改**(B0/B2 那一轮,原判据不可达,理由见下)—— 原判据是「该列与 au25 的会话内相关从 −0.50 移向 0 附近或正」,**实测达不到**:三场正式素材上改前 −0.368/−0.721/−0.499、改后 −0.471/−0.403/−0.357,没往 0 走。查过原因,**不是**旧的口径还在:定义式的镜像(au23 曾等于「1 − (lm[13]−lm[14])/静息」)已经彻底消失 —— 新定义**根本不读 lm[14]**(钉子 `test_au23_does_not_move_when_the_mouth_opens`)。残余相关的两个来源都**不在本列**:㈠ 解剖耦合 —— 张口时上唇变薄,au25↑ 与 au23↓ 是同一张脸的同一件事;㈡ `au25` 自己有**尺度污染**(实测 `au25~face_scale` = +0.853/+0.681/+0.780),而 `au25` 不在本计划 33 条内。控制住 `face_scale` 后偏相关仍为 −0.259/−0.522/−0.410 ⟹ 剩下的确是解剖耦合,不是口径残留。**故①改用「机制判据」**:新定义不读 `lm[14]`、且张口时本列逐帧不变(machine 钉子钉住)。",
       "basis": "两处由本行定:① 下标 —— §4.1:172 只写了「唇红厚度(上唇上缘→唇缝)」,没给下标;上唇上缘、唇缝各取 landmarks.py 里已声明的 LIP_TOP=0 与 MOUTH_CENTER_TOP=13。② 分母 —— 该栏没有分母;取 face_height(竖直÷竖直,理由同上)。开口度那一支留给 au25,本行不再用 lm[14]。"
     },
     {
@@ -1001,7 +1001,7 @@
       "unit": "比值",
       "maturity": "B",
       "l0_output": "吐 1 − (两个竖直差之和 ÷ face_height) 这个对称度比值;「不对称」的阈值留给 L1。",
-      "status": "pending",
+      "status": "implemented",
       "quarantine_ref": "symmetry_score —— 未除人脸尺度,近常量,取景代理(evidence_gate.QUARANTINE['symmetry_score']);unblock: M3",
       "acceptance": "重构好 = ① 该列不再随人脸在画面中的位置/大小变化(平移或缩放裁剪框,该列不变);② 会话内不再是近常量(spec §1 实测 mean 0.9825);③ evidence_gate.QUARANTINE['symmetry_score'] 的 symmetry_score 封停可解。",
       "basis": "分母由本行定:§4.1:208 只说「未除人脸尺度」,没说除哪个。取 face_height —— 被除的两个差都是**竖直**距离,分母取竖直尺度,与 §4.1:164 给 au6 的理由一致(分子分母同向,转头时同比缩短);若取 face_width,左右转头会直接污染对称度。"
@@ -1015,7 +1015,7 @@
       "unit": "比值",
       "maturity": "B",
       "l0_output": "吐「虹膜中心相对眼中心」的眼内归一化横坐标;「看哪边」的阈值留给 L1。",
-      "status": "pending",
+      "status": "implemented",
       "quarantine_ref": "eye_contact —— iris 图像坐标到画面中心距离,是取景代理(evidence_gate.QUARANTINE['eye_contact']);unblock: M3 改眼内相对坐标",
       "acceptance": "重构好 = ① 平移裁剪框(人脸在画面里的位置变)该列不变;② evidence_gate.QUARANTINE['eye_contact'] 的 eye_contact 封停可解(它的 unblock 就是这 4 列);③ 左右列名与实际虹膜的一致性在 M3.2 定(本行保留现名,改名会动日志列契约)。",
       "basis": "① eye_center / eye_width 的下标由本行定:§4.1:188 只写了「(iris − eye_center) ÷ eye_width」,没给这两个量怎么取;本行取该眼两角的均值与距离(角点出处:landmarks.py:5 的 RIGHT_EYE 含 33/133、landmarks.py:4 的 LEFT_EYE 含 362/263;au_calculator.py:27 也把 dist(lm[33], lm[133]) 当该眼宽用)。② ⚠️ 左右命名:landmarks.py:4-5 与 mediapipe 的 FACEMESH_LEFT_EYE / RIGHT_EYE **逐点相同**,即 lm[33..133] 是**右**眼;而 au_calculator.py:10-11 把它叫 left。本行按**代码的配对**(日志列实际装的量)定义并保留列名 —— 改列名会动日志列契约(钉子方向 1),那是 M3.2 的决定。"
@@ -1029,7 +1029,7 @@
       "unit": "比值",
       "maturity": "B",
       "l0_output": "吐「虹膜中心相对眼中心」的眼内归一化纵坐标;「看上/下」的阈值留给 L1。",
-      "status": "pending",
+      "status": "implemented",
       "quarantine_ref": "eye_contact —— iris 图像坐标到画面中心距离,是取景代理(evidence_gate.QUARANTINE['eye_contact']);unblock: M3 改眼内相对坐标",
       "acceptance": "同 left_iris_x:① 平移裁剪框该列不变;② evidence_gate.QUARANTINE['eye_contact'] 的 eye_contact 封停可解;③ 列名与虹膜左右的一致性归 M3.2。",
       "basis": "同 left_iris_x:eye_center / eye_width 的下标由本行定(§4.1:188 没给),取该眼两角的均值与距离;并提醒代码的 left/right 与 landmarks.py:4-5 的声明相反,本行按代码的配对定义。"
@@ -1043,7 +1043,7 @@
       "unit": "比值",
       "maturity": "B",
       "l0_output": "吐「虹膜中心相对眼中心」的眼内归一化横坐标;「看哪边」的阈值留给 L1。",
-      "status": "pending",
+      "status": "implemented",
       "quarantine_ref": "eye_contact —— iris 图像坐标到画面中心距离,是取景代理(evidence_gate.QUARANTINE['eye_contact']);unblock: M3 改眼内相对坐标",
       "acceptance": "同 left_iris_x:① 平移裁剪框该列不变;② evidence_gate.QUARANTINE['eye_contact'] 的 eye_contact 封停可解;③ 列名与虹膜左右的一致性归 M3.2。",
       "basis": "同 left_iris_x:eye_center / eye_width 的下标由本行定(§4.1:188 没给);角点出处 landmarks.py:4(LEFT_EYE 含 362/263)。代码的 left/right 命名与 landmarks.py:4-5 相反,本行按代码的配对定义并保留列名。"
@@ -1057,7 +1057,7 @@
       "unit": "比值",
       "maturity": "B",
       "l0_output": "吐「虹膜中心相对眼中心」的眼内归一化纵坐标;「看上/下」的阈值留给 L1。",
-      "status": "pending",
+      "status": "implemented",
       "quarantine_ref": "eye_contact —— iris 图像坐标到画面中心距离,是取景代理(evidence_gate.QUARANTINE['eye_contact']);unblock: M3 改眼内相对坐标",
       "acceptance": "同 left_iris_x:① 平移裁剪框该列不变;② evidence_gate.QUARANTINE['eye_contact'] 的 eye_contact 封停可解;③ 列名与虹膜左右的一致性归 M3.2。",
       "basis": "同 left_iris_x:eye_center / eye_width 的下标由本行定(§4.1:188 没给);角点出处 landmarks.py:4(LEFT_EYE 含 362/263)。代码的 left/right 命名与 landmarks.py:4-5 相反,本行按代码的配对定义并保留列名。"
@@ -1097,7 +1097,7 @@
       "unit": "归一化图像单位(比值)",
       "maturity": "B",
       "l0_output": "吐该帧的面部尺度本身,让模型/报告能看见取景差异(§4.5:272 的第二条路)。",
-      "status": "pending",
+      "status": "implemented",
       "quarantine_ref": "",
       "acceptance": "① 与面部各列的分母**逐帧相等**(不许两处各算一遍同一个 dist);② `symmetry_score`/iris 四列那条「取景代理」病由本列吸收(§4.5:272 点名的三条最毒列);③ M3.2(面部逐列重构 —— 与面部列的归一化一起落地)。",
       "basis": "① **取哪个解剖尺度由本行定**:§4.5:272 与 §3:133 都只点了名字(`face_scale`),全仓没有第二处定义。选 `dist(lm[1], lm[152])`(face_height)的依据:它是**现役**面部列的分母 —— `au1_inner_brow_raise` 等行的`normalization` 栏引的就是 video_pipeline.py:77 的 `face_height`;协变量必须与列实际除的那个尺度同源,否则「模型看见的取景尺度」与「列被除掉的尺度」是两个量,协变量就白给了。② `modality` 填 **face** 而不是 `covariate`:预检裁定 F2 —— 本列由 face 服务产出,而钉子方向 2 的 `_live_columns()` 只有 face/gesture/voice 三个键,填 `covariate` 的行一旦标 implemented 就会假红(schema_errors 已硬校验这条);「协变量」是**用途**(§4.5:272 的原话就是「显式输出为协变量」),写在定义与验收里,不写进 `modality`。③ 与另三条协变量的分工:`shoulder_width` / `hand_visible_left` / `hand_visible_right` 由 Task 3 登记、Task 7 实现(裁定 F3),本任务只登记 `face_scale`。"

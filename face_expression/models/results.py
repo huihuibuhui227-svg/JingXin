@@ -138,6 +138,14 @@ class AnalysisFrameResult:
             "micro_exp_intensity": round(float(micro_exp_intensity), 3) if micro_exp_intensity is not None else None,
             "micro_exp_duration_frames": int(micro_exp_duration_frames) if micro_exp_duration_frames is not None else None,
             "micro_exp_onset_frame": int(micro_exp_onset_frame) if micro_exp_onset_frame is not None else None,
+
+            # 协变量:该帧的**面部尺度本身**(= 上面那些面部列当分母用的那个量)。
+            # ⚠️ 本字典是**显式**字段表(不是 `vars(au)` 那种展开)⟹ 只在 `AUFeatures`
+            #    里加字段**不会**自动落盘 —— 漏掉这一行的话 `face_scale` 在日志里根本不存在,
+            #    而所有单元测试仍然全绿(它们直接读 dataclass)。
+            # 4 位小数(其余列是 3):它是**尺度**不是 [0,1] 比值,量级约 0.1~0.4,
+            #   3 位会把相对精度压到 ~1%,而下游拿它当分母用,误差会被放大进每个比值。
+            "face_scale": round(float(au.face_scale), 4),
         }
 
         # === 时间动态统计（90+ 字段）===

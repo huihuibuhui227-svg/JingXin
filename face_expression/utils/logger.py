@@ -56,7 +56,14 @@ class DataLogger:
                 "tension_score", "tension_level",
                 "micro_exp_au_name", "micro_exp_intensity",
                 "micro_exp_duration_frames", "micro_exp_onset_frame"
-            ] + list(BLENDSHAPE_COLUMNS)
+            ] + list(BLENDSHAPE_COLUMNS) + [
+                # 协变量:该帧的面部尺度本身(= 各面部列当分母用的那个 `face_height`)。
+                # ★ 必须放在 52 个 `bs_*` **之后**:那 52 列被钉子钉成
+                #   「紧随 `micro_exp_onset_frame` 的一整块」(test_face_blendshapes.py),
+                #   插在它们前面会把那一块切断。新列一律加在**列序最末**,
+                #   老场次的文件照旧读得动(读侧按列名取)。
+                "face_scale",
+            ]
             # ↑ 模型自带的 52 个 blendshape(bs_* 列,2026-09-26 接上)。
             #   **加在末尾、旧列一个不动** ⟹ 老场次的文件照旧读得动(读侧按列名取),
             #   新场次多这 52 列。列名只在 models/blendshapes.py 生成,别处不拼字符串。
