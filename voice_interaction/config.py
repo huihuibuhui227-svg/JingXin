@@ -114,7 +114,12 @@ FFMPEG_PATH: str = os.getenv('FFMPEG_PATH', 'ffmpeg')
 # ======================
 
 API_CONFIG: Dict[str, Any] = {
-    'host': '0.0.0.0',
+    'host': os.getenv('JX_BIND', '0.0.0.0'),   # 绑地址用 JX_BIND 覆盖(默认 0.0.0.0 = 所有网卡)。
+# ⚠️ 经 `tailscale serve` 发布时**必须**设 JX_BIND=127.0.0.1 ——
+#   否则本服务占了 tailscale IP 上的同一个端口,tailscaled 的 TLS 监听器
+#   `bind: address already in use`(只在它自己的 journal 里报,静默重试),
+#   于是 https://<host>.ts.net:<port> 通不了 —— 2026-09-27 实测踩到。
+
     'port': 8001,  # 避免与 gesture_analysis (8002) 冲突
     'debug': False
 }

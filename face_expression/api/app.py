@@ -447,5 +447,5 @@ if __name__ == "__main__":
     logger.info("特性: 会话管理、时间序列分析、微表情检测")
     logger.info("=" * 60)
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host=os.getenv("JX_BIND", "0.0.0.0"), port=8000)
 

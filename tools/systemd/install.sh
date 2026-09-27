@@ -80,7 +80,14 @@ Type=simple
 WorkingDirectory=$wd
 Environment=PYTHONUNBUFFERED=1
 Environment=CORS_ORIGINS=$CORS
-Environment=PANEL_HOST=0.0.0.0
+# ★ 绑 **127.0.0.1** 而不是 0.0.0.0 —— 经 `tailscale serve` 发布时这是必须的:
+#   服务若占了 tailscale IP 上的同一个端口,tailscaled 的 TLS 监听器会
+#   `bind: address already in use`(**只在它自己的 journal 里报,静默重试**),
+#   于是 https://<host>.ts.net:<port> 永远通不了。2026-09-27 实测踩到。
+#   改成 loopback 之后:tailscale serve 转发到 127.0.0.1 ✓,
+#   SSH 隧道也打 127.0.0.1 ✓,两条路都成立。
+Environment=JX_BIND=127.0.0.1
+Environment=PANEL_HOST=127.0.0.1
 Environment=JX_RECORDINGS=$REC
 Environment=PATH=$NODE_DIR:/usr/local/bin:/usr/bin:/bin
 ExecStart=$*
@@ -117,7 +124,7 @@ write_unit jingxin-voice.service    "$(emit jingxin-voice    "JingXin 语音服�
 write_unit jingxin-face.service     "$(emit jingxin-face     "JingXin 面部服务 (:8000)"     "$REPO" "$PY" -m face_expression.api.app)"
 write_unit jingxin-gesture.service  "$(emit jingxin-gesture  "JingXin 手势服务 (:8002)"     "$REPO" "$PY" -m gesture_analysis.api.app)"
 write_unit jingxin-panel.service    "$(emit jingxin-panel    "JingXin 报告面板 (:5000)"     "$REPO" "$PY" app.py)"
-write_unit jingxin-frontend.service "$(emit jingxin-frontend "JingXin 前端 dev server (:5173)" "$FE" "$NPM_BIN" run dev -- --host 0.0.0.0)"
+write_unit jingxin-frontend.service "$(emit jingxin-frontend "JingXin 前端 dev server (:5173)" "$FE" "$NPM_BIN" run dev -- --host 127.0.0.1)"
 
 if [ "$DRY" = "1" ]; then echo "(dry run,未落盘)"; exit 0; fi
 
@@ -130,6 +137,12 @@ done
 sleep 3
 echo
 systemctl --user --no-pager list-units 'jingxin-*' --all | sed 's/^/  /'
+echo
+echo
+echo "ℹ️ 五个服务现在只绑 127.0.0.1 ⟹ 对外**不需要**放行 8000/8001/8002/5000/5173,"
+echo "   走 tailscale serve 或 SSH 隧道即可(两者都转发到本机 loopback)。"
+echo "   之前为直连 IP 加的那几条 ufw 规则可以撤:"
+echo "     sudo ufw status numbered   # 找到 JingXin 那几条,按编号 sudo ufw delete N"
 echo
 echo "看日志:  journalctl --user -u jingxin-voice -f"
 echo "★ 别忘了(要 sudo,只做一次): sudo loginctl enable-linger $USER"
