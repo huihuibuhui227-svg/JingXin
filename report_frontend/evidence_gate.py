@@ -35,6 +35,13 @@ class Quarantine:
     reason: str
     unblock: str
     permanent: bool = False
+    # ★ E7(2026-09-27 裁定,选项 c):命中了**这些**子串的键不算命中本条。
+    #   存在的唯一理由是「一个键名是另一个键名前缀」:`head_tilt` 是 `head_tilt_angle`
+    #   的子串,而后者是 maturity=A 的**保留列**(实测 `is_quarantined` 的子串匹配
+    #   分不开两者,天真改名会把保留列一起封掉,且**不报错**)。
+    #   机制**只**做排除,不放宽匹配 —— 全表仍是「子串 + 最长匹配」一套语义,
+    #   豁免就地挂在本条上,不引入全局名单。
+    not_substrings: tuple[str, ...] = ()
 
 
 # 封停名单(spec §5.2)。key 为**子串**,按最长匹配生效。
@@ -66,8 +73,15 @@ QUARANTINE: dict[str, Quarantine] = {
     "fluency_score": Quarantine("生产分支为死代码,实测走 BASELINE_FILL", "M3 真 VAD"),
     # 永久封停:unblock 是给人看的显示文本,逻辑判断一律用 permanent 字段。
     # 不要用 unblock == "永不" 反推 —— 字符串是显示层,不是逻辑层。
-    "upper_body_head_tilt": Quarantine("参考系错位 180 度,分支命中率 0%", "永不", permanent=True),
-    "shoulder_is_calibrated": Quarantine("纯时长变量,控时长后相关 0.014", "永不", permanent=True),
+    # ★ 这两条此前写成 `upper_body_head_tilt` / `shoulder_is_calibrated` —— 那是
+    #   **旧代码里的名字**,而报告层拿到的是扁平化后的 `<模态>_<基名>_<统计量>`
+    #   (`gesture_head_tilt_mean` / `gesture_is_calibrated_mean`)⟹ 子串匹配恒不命中,
+    #   两条永久封停**形同虚设**(E7,2026-09-27 实测复现)。键名已对齐真键。
+    #   `head_tilt` 必须带豁免:它是 `head_tilt_angle` 的子串,而后者是
+    #   `maturity=A` / `status=implemented` 的保留列(见 `Quarantine.not_substrings`)。
+    "head_tilt": Quarantine("参考系错位 180 度,分支命中率 0%", "永不", permanent=True,
+                            not_substrings=("head_tilt_angle",)),
+    "is_calibrated": Quarantine("纯时长变量,控时长后相关 0.014", "永不", permanent=True),
     "overall_score": Quarantine("属性不存在,getattr 走默认值", "永不", permanent=True),
     "emotion_state": Quarantine("属性不存在,恒 neutral", "永不", permanent=True),
     "emotion_": Quarantine("7 个分量结构性恒 0,单形归一化互竞", "永不", permanent=True),
@@ -200,9 +214,16 @@ def normalize_value(val: float, key: str) -> float:
 
 
 def is_quarantined(key: str) -> Optional[Quarantine]:
-    """按最长子串匹配封停名单。"""
+    """按最长子串匹配封停名单;条目可用 `not_substrings` 声明「这些键不算命中本条」。
+
+    匹配**只有一套语义**(子串 + 最长优先,与 `_threshold_for` / `scale_factor_for`
+    同一套 —— 同模块内两套匹配规则是本仓已定性的缺陷)。`not_substrings` 是在这套
+    语义**之内**的一个排除位,不是第二套规则:被排除的条目从候选里去掉,再取最长的
+    那个;候选清空则返回 `None`(放行),不会退化成"随便挑一个"。
+    """
     k = key.lower()
-    matched = [s for s in QUARANTINE if s in k]
+    matched = [s for s in QUARANTINE
+               if s in k and not any(x in k for x in QUARANTINE[s].not_substrings)]
     if not matched:
         return None
     return QUARANTINE[max(matched, key=len)]

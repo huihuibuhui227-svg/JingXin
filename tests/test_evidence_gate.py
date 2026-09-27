@@ -78,6 +78,45 @@ class TestG4NotProxy:
         assert gate("interview_duration_mean", 0.8, 500,
                     values=[0.7, 0.9]).ok is True
 
+    def test_permanent_entries_hit_the_real_flattened_keys(self):
+        """★ E7:两条永久封停此前打不中**目标**,于是一个本该被拦下的量看着正常。
+
+        真键形如 `<模态>_<基名>_<统计量>`(实测:一场会话 579 个扁平键里 573 个带
+        `_mean/_std/_min/_max/_sum/_trend` 后缀)。这两条写的是旧代码里的名字
+        (`upper_body_head_tilt` / `shoulder_is_calibrated`),而真键是
+        `gesture_head_tilt_*` / `gesture_is_calibrated_*` ⟹ 子串匹配恒不命中,
+        `is_quarantined` 恒返回 `None`。
+
+        红法:把键名改回 `upper_body_head_tilt` / `shoulder_is_calibrated` ⟹ 立刻红。
+        """
+        for key in ("gesture_head_tilt_mean", "gesture_is_calibrated_mean"):
+            q = is_quarantined(key)
+            assert q is not None, f"{key} 未被封停(E7:封停键与扁平化真键对不上)"
+            assert q.permanent is True, f"{key} 该是永久封停"
+
+    def test_head_tilt_does_not_swallow_head_tilt_angle(self):
+        """★ 天真的改法会**误封一个要留的列**:`head_tilt` 是 `head_tilt_angle` 的子串。
+
+        两者是**不同的列**,不是一个列的两个名字:
+          · `head_tilt`       —— 参考系错位 180 度、分支命中率 0%,永久封停;
+          · `head_tilt_angle` —— L0 表里 `maturity=A` / `status=implemented` 的**保留列**。
+
+        子串匹配分不开它们 ⟹ 该条目必须带 `not_substrings` 豁免。
+        红法:去掉豁免(即只改名、不加 `not_substrings`)⟹ 本测试立刻红,
+        且是一个**静默**的错误结果:保留列被封停、报告里少一个指标,不报错。
+        """
+        for key in ("gesture_head_tilt_angle_mean", "gesture_head_tilt_angle_trend"):
+            assert is_quarantined(key) is None, (
+                f"{key} 是 maturity=A 的保留列,不该被封停 —— "
+                f"被 `head_tilt` 的子串匹配误伤了")
+
+    def test_not_substrings_only_shields_the_named_keys(self):
+        """豁免必须**只**挡它点名的那个子串,不能顺手把整条封停废掉。"""
+        assert is_quarantined("gesture_head_tilt_mean") is not None, "目标列该被拦"
+        assert is_quarantined("gesture_is_calibrated_mean") is not None, "目标列该被拦"
+        # 同条目族里不含 `head_tilt_angle` 的键,照旧被拦
+        assert is_quarantined("gesture_head_tilt_max") is not None, "同族未被豁免的该被拦"
+
 
 class TestConfidence:
     def test_zero_is_wu(self):

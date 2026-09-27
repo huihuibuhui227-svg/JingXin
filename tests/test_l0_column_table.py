@@ -638,3 +638,34 @@ def test_delta_reason_numbers_match_the_table():
     assert f"{n_voice} 条活列进" in voice_reason, (
         f"voice 那条散文里的「N 条活列进 legacy_allowlist」与数出来的 {n_voice} 条对不上;"
         f"散文:{voice_reason[:120]!r}")
+
+
+def test_quarantine_refs_point_at_real_keys():
+    """★ 表里对 `evidence_gate` 的引用必须是**键名**,不能是行号 —— 键名不会过期。
+
+    2026-09-27(B0)实测踩到:表里原有 **78 处** `evidence_gate.py:NN` 行号引用,当时
+    **全部是准的**;B0 只往 `evidence_gate.py` 加了几行(一个 dataclass 字段 + 注释),
+    78 处**集体失效** —— 而失效是**静默**的,读表的人会照着错行号去读错的代码。
+    这正是纪律 2「散文里的数会静默过期」的教科书形态 ⟹ 全部换成键名引用
+    (`evidence_gate.QUARANTINE['jitter']` / `evidence_gate.is_quarantined`),本钉子守住。
+
+    红法:把任一处改成指向不存在的键(如 `QUARANTINE['jitter_world']`),或改回行号形式 ⟹ 立刻红。
+    """
+    import json
+    import re
+
+    from report_frontend.evidence_gate import QUARANTINE
+
+    doc = l0.load()
+    raw = json.dumps(doc, ensure_ascii=False)
+
+    assert not re.search(r"evidence_gate\.py:\d+", raw), (
+        "表里又出现了 evidence_gate.py 的**行号**引用 —— 行号会随任何一次编辑静默失效,"
+        "请写成键名(evidence_gate.QUARANTINE['<键>'])或符号名(evidence_gate.is_quarantined)")
+
+    refs = set(re.findall(r"QUARANTINE\['([^']+)'\]", raw))
+    assert refs, "表里一处 QUARANTINE 引用都没有了?那封停依据就无处可查了"
+    dangling = sorted(r for r in refs if r not in QUARANTINE)
+    assert not dangling, (
+        f"表里引用了封停名单里**不存在**的键:{dangling} —— "
+        f"要么键改名了(改引用),要么键被删了(删引用)")

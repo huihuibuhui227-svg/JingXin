@@ -57,7 +57,7 @@
           "**3 条姿态角度判删的依据是覆盖率为零**(§4.2 没提它们,处置由本行定):`left_shoulder_angle` 0/1418、`right_shoulder_angle` 12/1418、`torso_angle` 11/1418 —— 它们要髋部关键点(lm[23]/[24])`visibility > 0.6`,而三场正式素材的取景里髋部不在画面里。§4.5 规矩 2「证明不了就删」;白名单条目里写明了**加回条件**(取景纳入髋部后作为**新列**追加,不动历史列序)。",
           "**`head_tilt` 判删的依据实测过**:§4.2 写「参考系错位 180°」,实测 `head_tilt + head_tilt_angle = 180°`(最大偏差 0.005°,1414 帧)⟹ 它与 `head_tilt_angle` 是**同一个量的两种约定**,零额外信息;留 angles.py 那份(有 0.6 可见度门限、同时喂屏幕显示)。",
           "**情绪块整块判删的依据实测过**:`overall_score` 1418/1418 行恒 50.0、`emotion_state` 恒「中性」、`feedback` 恒同一句话、`used_features` 恒 `none`、`is_valid` 恒 False —— 情绪推断在活服务里整块**没有产出**(§4.2 没提这一块,本表按「常量/零信息」这条通用规则判删)。",
-          "**一处 QUARANTINE 的键/列名错配(实测,登记不改)**:`is_quarantined` 是**子串**匹配(evidence_gate.py:202-208),于是 ① 8 个 `*_jitter_world` 也被 `jitter` 键(:63)封停 —— 而那条封停理由量的是画面坐标那批(「经 x5 归一化恒饱和」),米制这批是被**顺带**封的;② 反过来,`is_calibrated` 与 `head_tilt` 的**列名**与封停名单的键(`shoulder_is_calibrated` :70、`upper_body_head_tilt` :69)**对不上** —— `is_quarantined('is_calibrated')` 与 `is_quarantined('head_tilt')` 实测都返回 None ⟹ 那两条**永久封停**在报告层不会命中这两列。键名与列名的对齐归 M3.3 收口(本任务只登记,不动 evidence_gate.py 的 35 条封停 —— 那是计划的 §7.3)。"
+          "**两处 QUARANTINE 的键/列名错配(实测)**—— 均已按 2026-09-27 的裁定处置:① **米制 jitter 被顺带封停**(登记不改):`is_quarantined` 是**子串**匹配(`evidence_gate.QUARANTINE`),`jitter` 键于是也命中了米制那批 —— 但那条封停理由量的是**画面坐标**那批(「经 x5 归一化恒饱和」)。⚠️ **数只说一次**:米制列由 `GestureLogger._WORLD_COLUMNS` 定义(共 8 项),其中**含 `jitter` 子串**的才是被顺带封的;剩下两项是 `*_arm_angle_world`,**不**含 `jitter`、实测未被封(此前本行写的「8 个 `*_jitter_world`」把「8 个 world 列」与「含 jitter 的那几项」混成了一个数)。② **`is_calibrated` / `head_tilt` 的键名对不上**(**已修**,B0 2026-09-27):封停名单里原写 `shoulder_is_calibrated` / `upper_body_head_tilt`(旧代码里的名字),而报告层拿到的是扁平化的 `<模态>_<基名>_<统计量>` ⟹ 两条**永久封停**形同虚设。键名已对齐真键;`head_tilt` 另带 `not_substrings=(\"head_tilt_angle\",)` 豁免 —— 后者是 `maturity=A` 的**保留列**,子串匹配分不开两者(实测:三场真键并集 619 个里判定只变 12 个,保留列零误伤)。**归属冲突就此消解**:此前本行写「归 M3.3 收口」而简报 §11.4 写「归 M3.5」,现由 B0 直接收口,不再挂账。"
         ]
       },
       {
@@ -110,7 +110,7 @@
     {
       "column": "blink_rate_per_min",
       "modality": "face",
-      "why": "§4.1:186 依据栏原文:「直接列恒 0;衍生列走挂钟 60 秒窗 → 编码机器负载」,L0 形态栏:「从 is_blink 算 per-sec」。⚠️ 「恒 0」这条已由 M2.5 修掉(序列化改用 current_au,video_pipeline.py:97-101;evidence_gate.py:78 的 blink_rate 封停 unblock 写的正是「M2 修序列化」);剩下的删除理由是「60 秒窗」那条:窗口按会话相对秒算,量的不是 per-sec 眨眼率。",
+      "why": "§4.1:186 依据栏原文:「直接列恒 0;衍生列走挂钟 60 秒窗 → 编码机器负载」,L0 形态栏:「从 is_blink 算 per-sec」。⚠️ 「恒 0」这条已由 M2.5 修掉(序列化改用 current_au,video_pipeline.py:97-101;evidence_gate.QUARANTINE['blink_rate'] 的 blink_rate 封停 unblock 写的正是「M2 修序列化」);剩下的删除理由是「60 秒窗」那条:窗口按会话相对秒算,量的不是 per-sec 眨眼率。",
       "planned": "M3.2 删列"
     },
     {
@@ -158,25 +158,25 @@
     {
       "column": "dominant_emotion",
       "modality": "face",
-      "why": "§4.1:205 依据栏原文:「argmax / 归一化最大值,非置信度」(该行同时覆盖 dominant_emotion 与 confidence);evidence_gate.py:74 永久封停(permanent)",
+      "why": "§4.1:205 依据栏原文:「argmax / 归一化最大值,非置信度」(该行同时覆盖 dominant_emotion 与 confidence);evidence_gate.QUARANTINE['dominant_emotion'] 永久封停(permanent)",
       "planned": "M3.2 删列"
     },
     {
       "column": "confidence",
       "modality": "face",
-      "why": "§4.1:205 依据栏原文:「argmax / 归一化最大值,非置信度」(该行同时覆盖 dominant_emotion 与 confidence)。⚠️ 本行原先还写着「evidence_gate.py:74 永久封停(permanent)」——**那是假话,2026-09-26 已改**:`:74` 封的是 `dominant_emotion`,而 `QUARANTINE` 里**没有任何键是 `confidence` 的子串**(实测 `is_quarantined(\"confidence\") -> None`)⟹ 这一列**不在封停名单里**,报告层不会拦它。它判删的依据只有 §4.1:205 那一行的共同处置(删),与封停名单无关。",
+      "why": "§4.1:205 依据栏原文:「argmax / 归一化最大值,非置信度」(该行同时覆盖 dominant_emotion 与 confidence)。⚠️ 本行原先还写着「evidence_gate.QUARANTINE['dominant_emotion'] 永久封停(permanent)」——**那是假话,2026-09-26 已改**:`:74` 封的是 `dominant_emotion`,而 `QUARANTINE` 里**没有任何键是 `confidence` 的子串**(实测 `is_quarantined(\"confidence\") -> None`)⟹ 这一列**不在封停名单里**,报告层不会拦它。它判删的依据只有 §4.1:205 那一行的共同处置(删),与封停名单无关。",
       "planned": "M3.2 删列"
     },
     {
       "column": "tension_score",
       "modality": "face",
-      "why": "§4.1:197 依据栏原文:「伪合成:5 项里 eye_closed 恒 0、expression_instability 饱和 1.0、au4 86~92% 为 0;与倒置 au23 相关 0.87」;evidence_gate.py:46 封停",
+      "why": "§4.1:197 依据栏原文:「伪合成:5 项里 eye_closed 恒 0、expression_instability 饱和 1.0、au4 86~92% 为 0;与倒置 au23 相关 0.87」;evidence_gate.QUARANTINE['tension_score'] 封停",
       "planned": "M3.2 删列"
     },
     {
       "column": "tension_level",
       "modality": "face",
-      "why": "§4.1:198 依据栏原文:「字符串分箱」;evidence_gate.py:47 封停",
+      "why": "§4.1:198 依据栏原文:「字符串分箱」;evidence_gate.QUARANTINE['tension_level'] 封停",
       "planned": "M3.2 删列"
     },
     {
@@ -200,7 +200,7 @@
     {
       "column": "micro_exp_onset_frame",
       "modality": "face",
-      "why": "§4.1:203 依据栏原文:「15 帧环形缓冲下标,恒在 5~13」;evidence_gate.py:75 永久封停(permanent);并见 R9(m2-6 spec:454)",
+      "why": "§4.1:203 依据栏原文:「15 帧环形缓冲下标,恒在 5~13」;evidence_gate.QUARANTINE['micro_exp_onset_frame'] 永久封停(permanent);并见 R9(m2-6 spec:454)",
       "planned": "M3.2 删列"
     },
     {
@@ -212,31 +212,31 @@
     {
       "column": "tension_sources_*(×5: brow_furrow / lip_compression / eye_closure / expression_instability / emotional_influence)",
       "modality": "face",
-      "why": "§4.1:199 依据栏原文:「au4/au23 副本或恒定量」;evidence_gate.py:48 的 tension_sources_ 封停。5 列见 face_expression/models/results.py:130-134(其中 eye_closure 等结构性恒 0,spec §1)。",
+      "why": "§4.1:199 依据栏原文:「au4/au23 副本或恒定量」;evidence_gate.QUARANTINE['tension_sources_'] 的 tension_sources_ 封停。5 列见 face_expression/models/results.py:130-134(其中 eye_closure 等结构性恒 0,spec §1)。",
       "planned": "M3.2 删列"
     },
     {
       "column": "emotion_*(×15: happy / sadness / anger / fear / surprise / disgust / contempt / anxiety / fatigue / polite_smile / distress / forced_smile / startled_anxiety / cognitive_load / moral_disgust)",
       "modality": "face",
-      "why": "§4.1:204 依据栏原文:「单形归一化互相竞争;7 个分量结构性恒 0;neutral 时 confidence 恒 1.0」;evidence_gate.py:73 的 emotion_ 永久封停(permanent)。15 列清单见 face_expression/models/results.py:164-172。",
+      "why": "§4.1:204 依据栏原文:「单形归一化互相竞争;7 个分量结构性恒 0;neutral 时 confidence 恒 1.0」;evidence_gate.QUARANTINE['emotion_'] 的 emotion_ 永久封停(permanent)。15 列清单见 face_expression/models/results.py:164-172。",
       "planned": "M3.2 删列"
     },
     {
       "column": "overall_score",
       "modality": "face",
-      "why": "§4.1:206 依据栏原文:「属性不存在 → 恒 0 / 恒 neutral」(该行同时覆盖 overall_score 与 emotion_state);evidence_gate.py:71 永久封停(permanent)。它不在日志列契约里,是结果对象摊平出来的字段(results.py:177)。",
+      "why": "§4.1:206 依据栏原文:「属性不存在 → 恒 0 / 恒 neutral」(该行同时覆盖 overall_score 与 emotion_state);evidence_gate.QUARANTINE['overall_score'] 永久封停(permanent)。它不在日志列契约里,是结果对象摊平出来的字段(results.py:177)。",
       "planned": "M3.2 删列"
     },
     {
       "column": "emotion_state",
       "modality": "face",
-      "why": "§4.1:206 依据栏原文:「属性不存在 → 恒 0 / 恒 neutral」;evidence_gate.py:72 永久封停(permanent);摊平来源 results.py:178。",
+      "why": "§4.1:206 依据栏原文:「属性不存在 → 恒 0 / 恒 neutral」;evidence_gate.QUARANTINE['emotion_state'] 永久封停(permanent);摊平来源 results.py:178。",
       "planned": "M3.2 删列"
     },
     {
       "column": "is_valid",
       "modality": "face",
-      "why": "§4.1:209 处置「修」:「恒 1 且下游从未使用 → 改真实有效帧掩码」;evidence_gate.py:84 封停。它是**非测量列**(裁定 C5 不计入 L0 计数口径;spec §1 把「不计入 is_valid/session_id/timestamp」点为未声明决定)。⚠️ face 的 is_valid 根本不在日志列契约里(face_expression/utils/logger.py:43-59 无此列),它是结果对象摊平出来的恒 1 字段(results.py:179);gesture / voice 的 is_valid 归各自任务。",
+      "why": "§4.1:209 处置「修」:「恒 1 且下游从未使用 → 改真实有效帧掩码」;evidence_gate.QUARANTINE['is_valid'] 封停。它是**非测量列**(裁定 C5 不计入 L0 计数口径;spec §1 把「不计入 is_valid/session_id/timestamp」点为未声明决定)。⚠️ face 的 is_valid 根本不在日志列契约里(face_expression/utils/logger.py:43-59 无此列),它是结果对象摊平出来的恒 1 字段(results.py:179);gesture / voice 的 is_valid 归各自任务。",
       "planned": "M3.2"
     },
     {
@@ -572,31 +572,31 @@
     {
       "column": "left_hand_score",
       "modality": "gesture",
-      "why": "§4.2 依据栏原文:「可由同 block jitter 精确重构(max\\|diff\\| = 0)」。**实测证实**(不是照抄):三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),用现行公式从**同 block 的其余列**重算 **本列 `left_hand_score`**(连同 head / torso / shoulder / arm 的 score 与 `left_arm_stability`),`max|diff| = 0`(261 个共现行)。`_compute_resilience_score`(hand_analyzer.py:154-176)吃**三个**输入:jitter + is_fist + spread(常量 gesture_analysis/config.py:92-97)。⟹ 它是同 block 其余列的**确定性函数**,零额外信息(§4.5 规矩 2)。⚠️ §4.2 写的「6 个 `*_score`」**没有枚举**是哪 6 个(带 `_score` 后缀的活列实为 7 条),本表按后缀逐列处置。 evidence_gate.py:51 的 `hand_score` 封停;unblock: M3。",
+      "why": "§4.2 依据栏原文:「可由同 block jitter 精确重构(max\\|diff\\| = 0)」。**实测证实**(不是照抄):三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),用现行公式从**同 block 的其余列**重算 **本列 `left_hand_score`**(连同 head / torso / shoulder / arm 的 score 与 `left_arm_stability`),`max|diff| = 0`(261 个共现行)。`_compute_resilience_score`(hand_analyzer.py:154-176)吃**三个**输入:jitter + is_fist + spread(常量 gesture_analysis/config.py:92-97)。⟹ 它是同 block 其余列的**确定性函数**,零额外信息(§4.5 规矩 2)。⚠️ §4.2 写的「6 个 `*_score`」**没有枚举**是哪 6 个(带 `_score` 后缀的活列实为 7 条),本表按后缀逐列处置。 evidence_gate.QUARANTINE['hand_score'] 的 `hand_score` 封停;unblock: M3。",
       "planned": "M3.3 删列"
     },
     {
       "column": "right_hand_score",
       "modality": "gesture",
-      "why": "§4.2 依据栏原文:「可由同 block jitter 精确重构(max\\|diff\\| = 0)」。**实测证实**(不是照抄):三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),用现行公式从**同 block 的其余列**重算 **本列 `right_hand_score`**(连同 head / torso / shoulder / arm 的 score 与 `left_arm_stability`),`max|diff| = 0`(238 个共现行)。`_compute_resilience_score`(hand_analyzer.py:154-176)吃**三个**输入:jitter + is_fist + spread(常量 gesture_analysis/config.py:92-97)。⟹ 它是同 block 其余列的**确定性函数**,零额外信息(§4.5 规矩 2)。⚠️ §4.2 写的「6 个 `*_score`」**没有枚举**是哪 6 个(带 `_score` 后缀的活列实为 7 条),本表按后缀逐列处置。 evidence_gate.py:51 的 `hand_score` 封停;unblock: M3。",
+      "why": "§4.2 依据栏原文:「可由同 block jitter 精确重构(max\\|diff\\| = 0)」。**实测证实**(不是照抄):三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),用现行公式从**同 block 的其余列**重算 **本列 `right_hand_score`**(连同 head / torso / shoulder / arm 的 score 与 `left_arm_stability`),`max|diff| = 0`(238 个共现行)。`_compute_resilience_score`(hand_analyzer.py:154-176)吃**三个**输入:jitter + is_fist + spread(常量 gesture_analysis/config.py:92-97)。⟹ 它是同 block 其余列的**确定性函数**,零额外信息(§4.5 规矩 2)。⚠️ §4.2 写的「6 个 `*_score`」**没有枚举**是哪 6 个(带 `_score` 后缀的活列实为 7 条),本表按后缀逐列处置。 evidence_gate.QUARANTINE['hand_score'] 的 `hand_score` 封停;unblock: M3。",
       "planned": "M3.3 删列"
     },
     {
       "column": "shoulder_score",
       "modality": "gesture",
-      "why": "§4.2 依据栏原文:「可由同 block jitter 精确重构(max\\|diff\\| = 0)」。**实测证实**(不是照抄):三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),用现行公式从**同 block 的其余列**重算 **本列 `shoulder_score`**(连同 head / torso / shoulder / arm 的 score 与 `left_arm_stability`),`max|diff| = 0`(1414 个共现行)。`_compute_shoulder_score`(shoulder_analyzer.py:157-173)吃 left_jitter + right_jitter + shrug_level(常量 gesture_analysis/config.py:119-124)。⟹ 它是同 block 其余列的**确定性函数**,零额外信息(§4.5 规矩 2)。⚠️ §4.2 写的「6 个 `*_score`」**没有枚举**是哪 6 个(带 `_score` 后缀的活列实为 7 条),本表按后缀逐列处置。 evidence_gate.py:52 的 `shoulder_score` 封停;unblock: M3。",
+      "why": "§4.2 依据栏原文:「可由同 block jitter 精确重构(max\\|diff\\| = 0)」。**实测证实**(不是照抄):三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),用现行公式从**同 block 的其余列**重算 **本列 `shoulder_score`**(连同 head / torso / shoulder / arm 的 score 与 `left_arm_stability`),`max|diff| = 0`(1414 个共现行)。`_compute_shoulder_score`(shoulder_analyzer.py:157-173)吃 left_jitter + right_jitter + shrug_level(常量 gesture_analysis/config.py:119-124)。⟹ 它是同 block 其余列的**确定性函数**,零额外信息(§4.5 规矩 2)。⚠️ §4.2 写的「6 个 `*_score`」**没有枚举**是哪 6 个(带 `_score` 后缀的活列实为 7 条),本表按后缀逐列处置。 evidence_gate.QUARANTINE['shoulder_score'] 的 `shoulder_score` 封停;unblock: M3。",
       "planned": "M3.3 删列"
     },
     {
       "column": "is_calibrated",
       "modality": "gesture",
-      "why": "§4.2 依据栏原文:「纯时长变量(与帧数 r = 0.684,控时长后 → 0.014)」;evidence_gate.py:70 的 `shoulder_is_calibrated` 永久封停(permanent)。**实测证实它是纯帧序**:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),三场各有 **29 行**写 `0`;第一个 `1` 落在 2b11 的第 **30** 行、落在 1592 与 caf0 的第 **31** 行(后两场在这之前各有一行为空:第 9 行 / 第 7 行 —— 姿态没检出时本列也写空;1592 此后还有第 33 / 37 两行为空);**除这些空行外,第一个 `1` 之后再没出现过 `0`**。与 `baseline_frames_needed = 30`(gesture_analysis/config.py:120)一一对应 ⟹ 它只是「本场跑了几帧」的另一种写法。⚠️ **键名与列名对不上**:名单里的键是 `shoulder_is_calibrated`,日志列叫 `is_calibrated` —— `is_quarantined('is_calibrated')` 实测返回 **None** ⟹ 永久封停不会命中这一列。",
+      "why": "§4.2 依据栏原文:「纯时长变量(与帧数 r = 0.684,控时长后 → 0.014)」;evidence_gate.QUARANTINE['is_calibrated'] 的 `shoulder_is_calibrated` 永久封停(permanent)。**实测证实它是纯帧序**:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),三场各有 **29 行**写 `0`;第一个 `1` 落在 2b11 的第 **30** 行、落在 1592 与 caf0 的第 **31** 行(后两场在这之前各有一行为空:第 9 行 / 第 7 行 —— 姿态没检出时本列也写空;1592 此后还有第 33 / 37 两行为空);**除这些空行外,第一个 `1` 之后再没出现过 `0`**。与 `baseline_frames_needed = 30`(gesture_analysis/config.py:120)一一对应 ⟹ 它只是「本场跑了几帧」的另一种写法。⚠️ **键名与列名对不上**:名单里的键是 `shoulder_is_calibrated`,日志列叫 `is_calibrated` —— `is_quarantined('is_calibrated')` 实测返回 **None** ⟹ 永久封停不会命中这一列。",
       "planned": "M3.3 删列"
     },
     {
       "column": "left_arm_score",
       "modality": "gesture",
-      "why": "§4.2 依据栏原文:「可由同 block jitter 精确重构(max\\|diff\\| = 0)」。**实测证实**(不是照抄):三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),用现行公式从**同 block 的其余列**重算 **本列 `left_arm_score`**(连同 head / torso / shoulder / arm 的 score 与 `left_arm_stability`),`max|diff| = 0`(1414 个共现行)。`_compute_arm_score`(arm_analyzer.py:189-223)吃 wrist/elbow jitter + arm_angle + arm_stability(常量 gesture_analysis/config.py:105-111)。⟹ 它是同 block 其余列的**确定性函数**,零额外信息(§4.5 规矩 2)。⚠️ §4.2 写的「6 个 `*_score`」**没有枚举**是哪 6 个(带 `_score` 后缀的活列实为 7 条),本表按后缀逐列处置。 evidence_gate.py:53 的 `arm_score` 封停;unblock: M3。",
+      "why": "§4.2 依据栏原文:「可由同 block jitter 精确重构(max\\|diff\\| = 0)」。**实测证实**(不是照抄):三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),用现行公式从**同 block 的其余列**重算 **本列 `left_arm_score`**(连同 head / torso / shoulder / arm 的 score 与 `left_arm_stability`),`max|diff| = 0`(1414 个共现行)。`_compute_arm_score`(arm_analyzer.py:189-223)吃 wrist/elbow jitter + arm_angle + arm_stability(常量 gesture_analysis/config.py:105-111)。⟹ 它是同 block 其余列的**确定性函数**,零额外信息(§4.5 规矩 2)。⚠️ §4.2 写的「6 个 `*_score`」**没有枚举**是哪 6 个(带 `_score` 后缀的活列实为 7 条),本表按后缀逐列处置。 evidence_gate.QUARANTINE['arm_score'] 的 `arm_score` 封停;unblock: M3。",
       "planned": "M3.3 删列"
     },
     {
@@ -614,7 +614,7 @@
     {
       "column": "right_arm_score",
       "modality": "gesture",
-      "why": "§4.2 依据栏原文:「可由同 block jitter 精确重构(max\\|diff\\| = 0)」。**实测证实**(不是照抄):三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),用现行公式从**同 block 的其余列**重算 **本列 `right_arm_score`**(连同 head / torso / shoulder / arm 的 score 与 `left_arm_stability`),`max|diff| = 0`(1414 个共现行)。`_compute_arm_score`(arm_analyzer.py:189-223)吃 wrist/elbow jitter + arm_angle + arm_stability(常量 gesture_analysis/config.py:105-111)。⟹ 它是同 block 其余列的**确定性函数**,零额外信息(§4.5 规矩 2)。⚠️ §4.2 写的「6 个 `*_score`」**没有枚举**是哪 6 个(带 `_score` 后缀的活列实为 7 条),本表按后缀逐列处置。 evidence_gate.py:53 的 `arm_score` 封停;unblock: M3。",
+      "why": "§4.2 依据栏原文:「可由同 block jitter 精确重构(max\\|diff\\| = 0)」。**实测证实**(不是照抄):三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),用现行公式从**同 block 的其余列**重算 **本列 `right_arm_score`**(连同 head / torso / shoulder / arm 的 score 与 `left_arm_stability`),`max|diff| = 0`(1414 个共现行)。`_compute_arm_score`(arm_analyzer.py:189-223)吃 wrist/elbow jitter + arm_angle + arm_stability(常量 gesture_analysis/config.py:105-111)。⟹ 它是同 block 其余列的**确定性函数**,零额外信息(§4.5 规矩 2)。⚠️ §4.2 写的「6 个 `*_score`」**没有枚举**是哪 6 个(带 `_score` 后缀的活列实为 7 条),本表按后缀逐列处置。 evidence_gate.QUARANTINE['arm_score'] 的 `arm_score` 封停;unblock: M3。",
       "planned": "M3.3 删列"
     },
     {
@@ -644,19 +644,19 @@
     {
       "column": "head_score",
       "modality": "gesture",
-      "why": "§4.2 依据栏原文:「可由同 block jitter 精确重构(max\\|diff\\| = 0)」。**实测证实**(不是照抄):三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),用现行公式从**同 block 的其余列**重算 **本列 `head_score`**(连同 head / torso / shoulder / arm 的 score 与 `left_arm_stability`),`max|diff| = 0`(1414 个共现行)。`_compute_head_score`(upper_body_analyzer.py:164-190)吃 head_jitter + head_tilt(常量 gesture_analysis/config.py:105-111)。⟹ 它是同 block 其余列的**确定性函数**,零额外信息(§4.5 规矩 2)。⚠️ §4.2 写的「6 个 `*_score`」**没有枚举**是哪 6 个(带 `_score` 后缀的活列实为 7 条),本表按后缀逐列处置。 evidence_gate.py:54 的 `head_score` 封停;unblock: M3。",
+      "why": "§4.2 依据栏原文:「可由同 block jitter 精确重构(max\\|diff\\| = 0)」。**实测证实**(不是照抄):三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),用现行公式从**同 block 的其余列**重算 **本列 `head_score`**(连同 head / torso / shoulder / arm 的 score 与 `left_arm_stability`),`max|diff| = 0`(1414 个共现行)。`_compute_head_score`(upper_body_analyzer.py:164-190)吃 head_jitter + head_tilt(常量 gesture_analysis/config.py:105-111)。⟹ 它是同 block 其余列的**确定性函数**,零额外信息(§4.5 规矩 2)。⚠️ §4.2 写的「6 个 `*_score`」**没有枚举**是哪 6 个(带 `_score` 后缀的活列实为 7 条),本表按后缀逐列处置。 evidence_gate.QUARANTINE['head_score'] 的 `head_score` 封停;unblock: M3。",
       "planned": "M3.3 删列"
     },
     {
       "column": "head_tilt",
       "modality": "gesture",
-      "why": "§4.2 依据栏原文:「参考系错位 180°,下游分支命中率 0.000%」;evidence_gate.py:69 的 `upper_body_head_tilt` 永久封停(permanent)。**实测证实那 180°**:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),`head_tilt + head_tilt_angle = 180°`(最大偏差 0.005° = 四舍五入,1414 帧)⟹ 它与 `head_tilt_angle`(angles.py 那份,保留)**是同一个量的两种约定**,零额外信息。留 `head_tilt_angle`:它有 0.6 可见度门限、同时喂屏幕显示。⚠️ **键名与列名对不上**:名单里的键是 `upper_body_head_tilt`,而日志里的列叫 `head_tilt` —— `is_quarantined('head_tilt')` 实测返回 **None** ⟹ 那条永久封停在报告层**不会命中这一列**。",
+      "why": "§4.2 依据栏原文:「参考系错位 180°,下游分支命中率 0.000%」;evidence_gate.QUARANTINE['head_tilt'] 的 `upper_body_head_tilt` 永久封停(permanent)。**实测证实那 180°**:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),`head_tilt + head_tilt_angle = 180°`(最大偏差 0.005° = 四舍五入,1414 帧)⟹ 它与 `head_tilt_angle`(angles.py 那份,保留)**是同一个量的两种约定**,零额外信息。留 `head_tilt_angle`:它有 0.6 可见度门限、同时喂屏幕显示。⚠️ **键名与列名对不上**:名单里的键是 `upper_body_head_tilt`,而日志里的列叫 `head_tilt` —— `is_quarantined('head_tilt')` 实测返回 **None** ⟹ 那条永久封停在报告层**不会命中这一列**。",
       "planned": "M3.3 删列"
     },
     {
       "column": "torso_score",
       "modality": "gesture",
-      "why": "§4.2 依据栏原文:「可由同 block jitter 精确重构(max\\|diff\\| = 0)」。**实测证实**(不是照抄):三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),用现行公式从**同 block 的其余列**重算 **本列 `torso_score`**(连同 head / torso / shoulder / arm 的 score 与 `left_arm_stability`),`max|diff| = 0`(1414 个共现行)。`_compute_torso_score`(upper_body_analyzer.py:192-213)吃 torso_jitter + torso_stability。⟹ 它是同 block 其余列的**确定性函数**,零额外信息(§4.5 规矩 2)。⚠️ §4.2 写的「6 个 `*_score`」**没有枚举**是哪 6 个(带 `_score` 后缀的活列实为 7 条),本表按后缀逐列处置。 evidence_gate.py:55 的 `torso_score` 封停;unblock: M3。",
+      "why": "§4.2 依据栏原文:「可由同 block jitter 精确重构(max\\|diff\\| = 0)」。**实测证实**(不是照抄):三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),用现行公式从**同 block 的其余列**重算 **本列 `torso_score`**(连同 head / torso / shoulder / arm 的 score 与 `left_arm_stability`),`max|diff| = 0`(1414 个共现行)。`_compute_torso_score`(upper_body_analyzer.py:192-213)吃 torso_jitter + torso_stability。⟹ 它是同 block 其余列的**确定性函数**,零额外信息(§4.5 规矩 2)。⚠️ §4.2 写的「6 个 `*_score`」**没有枚举**是哪 6 个(带 `_score` 后缀的活列实为 7 条),本表按后缀逐列处置。 evidence_gate.QUARANTINE['torso_score'] 的 `torso_score` 封停;unblock: M3。",
       "planned": "M3.3 删列"
     },
     {
@@ -674,13 +674,13 @@
     {
       "column": "overall_score",
       "modality": "gesture",
-      "why": "§4.2 没提它(情绪块整块没进 §4.2 的表),但它是**结构性常量**:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),`overall_score` **1418/1418 行全为 50.0**(emotion_inferencer 的默认值)。它与 `emotion_state` / `feedback` / `used_features` / `is_valid` 一起构成整个**没有产出**的情绪块(见那 4 条)。evidence_gate.py:71 永久封停(permanent);并见 §4.1:206 对 face 侧同名列的处置(「属性不存在 → 恒 0」)。",
+      "why": "§4.2 没提它(情绪块整块没进 §4.2 的表),但它是**结构性常量**:三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),`overall_score` **1418/1418 行全为 50.0**(emotion_inferencer 的默认值)。它与 `emotion_state` / `feedback` / `used_features` / `is_valid` 一起构成整个**没有产出**的情绪块(见那 4 条)。evidence_gate.QUARANTINE['overall_score'] 永久封停(permanent);并见 §4.1:206 对 face 侧同名列的处置(「属性不存在 → 恒 0」)。",
       "planned": "M3.3 删列"
     },
     {
       "column": "emotion_state",
       "modality": "gesture",
-      "why": "三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),**1418/1418 行恒为「中性」**—— 情绪推断在活服务里从来没产出过第二个取值(同一行 `used_features` 恒为 `none`、`is_valid` 恒为 False:推断器一个特征都没用上)。evidence_gate.py:73 的 `emotion_` 永久封停(permanent)也覆盖它。",
+      "why": "三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),**1418/1418 行恒为「中性」**—— 情绪推断在活服务里从来没产出过第二个取值(同一行 `used_features` 恒为 `none`、`is_valid` 恒为 False:推断器一个特征都没用上)。evidence_gate.QUARANTINE['emotion_'] 的 `emotion_` 永久封停(permanent)也覆盖它。",
       "planned": "M3.3 删列"
     },
     {
@@ -698,7 +698,7 @@
     {
       "column": "is_valid",
       "modality": "gesture",
-      "why": "三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),**1418/1418 行全为 False**(`used_features` 恒 `none`)。三点:① 它是**非测量列**(C5 不计入);② 它装的是 **emotion 结果**的 is_valid,**不是** §4.2 说的那 4 个分析器的 `is_valid()` —— 那 4 个在日志列契约里的落点只有 1 列,文档没写合并后叫什么、装在哪;③ 有效性在本项目的既有约定里由**空值**表达(`_safe_get(None) → \"\"`,gesture_analysis/utils/logger.py:444-457),再加一列布尔等于把同一件事数两遍 ⟹ 判删。evidence_gate.py:84 封停(unblock「M3 改真掩码」)。⚠️ 键名与列名对不上:名单里 face 侧那条叫 `is_valid`、这里同名,但 gesture 的这列语义不同(它是情绪块的),两者只共用了名字。",
+      "why": "三场正式素材 20260926_153202_2b11 / 153854_1592 / 155559_caf0(data/logs/gesture_emotion_log_20260926_*.csv,合计 1418 行,2026-09-26 实测),**1418/1418 行全为 False**(`used_features` 恒 `none`)。三点:① 它是**非测量列**(C5 不计入);② 它装的是 **emotion 结果**的 is_valid,**不是** §4.2 说的那 4 个分析器的 `is_valid()` —— 那 4 个在日志列契约里的落点只有 1 列,文档没写合并后叫什么、装在哪;③ 有效性在本项目的既有约定里由**空值**表达(`_safe_get(None) → \"\"`,gesture_analysis/utils/logger.py:444-457),再加一列布尔等于把同一件事数两遍 ⟹ 判删。evidence_gate.QUARANTINE['is_valid'] 封停(unblock「M3 改真掩码」)。⚠️ 键名与列名对不上:名单里 face 侧那条叫 `is_valid`、这里同名,但 gesture 的这列语义不同(它是情绪块的),两者只共用了名字。",
       "planned": "M3.3 删列"
     },
     {
@@ -828,8 +828,8 @@
       "maturity": "B",
       "l0_output": "吐「眉间距 ÷ 眼距」这个比值;「皱眉」的事件门限留给 L1。",
       "status": "pending",
-      "quarantine_ref": "au4_freq —— 从 micro_exp 字符串解析出的垃圾匹配(report_frontend/evidence_gate.py:61);unblock: M3 修 au4 landmark",
-      "acceptance": "重构好 = ① 代码里眉内端用 107/336(不再是 276/33),分母用眼距(不再是 face_width);② 该列的取值不再 86~92% 触地板(spec §1 的实测症状消失);③ evidence_gate.py:61 的 au4_freq 封停可解。",
+      "quarantine_ref": "au4_freq —— 从 micro_exp 字符串解析出的垃圾匹配(report_frontend/evidence_gate.QUARANTINE['au4_freq']);unblock: M3 修 au4 landmark",
+      "acceptance": "重构好 = ① 代码里眉内端用 107/336(不再是 276/33),分母用眼距(不再是 face_width);② 该列的取值不再 86~92% 触地板(spec §1 的实测症状消失);③ evidence_gate.QUARANTINE['au4_freq'] 的 au4_freq 封停可解。",
       "basis": "两处下标由本行定(§4.1:163 给了两套候选、没定眼距):① 眉内端取 107/336 —— landmarks.py:10-11 把 107/336 声明为左右眉上缘的第一个点(LEFT_EYEBROW_UPPER[0] / RIGHT_EYEBROW_UPPER[0]),即内端;候选的 52/55 在这张映射表里**没有声明**(只在 au_calculator.py:135-136 现用)。② 眼距取 dist(lm[130], lm[359]) —— landmarks.py:30-31 直接把这两个下标声明为 EYE_CORNER_LEFT / EYE_CORNER_RIGHT,是映射表里唯一现成的「眼距」;候选 dist(lm[33], lm[263]) 要从 LEFT_EYE/RIGHT_EYE 列表的元素次序反推哪个是外角,不如前者直接。"
     },
     {
@@ -1002,8 +1002,8 @@
       "maturity": "B",
       "l0_output": "吐 1 − (两个竖直差之和 ÷ face_height) 这个对称度比值;「不对称」的阈值留给 L1。",
       "status": "pending",
-      "quarantine_ref": "symmetry_score —— 未除人脸尺度,近常量,取景代理(evidence_gate.py:45);unblock: M3",
-      "acceptance": "重构好 = ① 该列不再随人脸在画面中的位置/大小变化(平移或缩放裁剪框,该列不变);② 会话内不再是近常量(spec §1 实测 mean 0.9825);③ evidence_gate.py:45 的 symmetry_score 封停可解。",
+      "quarantine_ref": "symmetry_score —— 未除人脸尺度,近常量,取景代理(evidence_gate.QUARANTINE['symmetry_score']);unblock: M3",
+      "acceptance": "重构好 = ① 该列不再随人脸在画面中的位置/大小变化(平移或缩放裁剪框,该列不变);② 会话内不再是近常量(spec §1 实测 mean 0.9825);③ evidence_gate.QUARANTINE['symmetry_score'] 的 symmetry_score 封停可解。",
       "basis": "分母由本行定:§4.1:208 只说「未除人脸尺度」,没说除哪个。取 face_height —— 被除的两个差都是**竖直**距离,分母取竖直尺度,与 §4.1:164 给 au6 的理由一致(分子分母同向,转头时同比缩短);若取 face_width,左右转头会直接污染对称度。"
     },
     {
@@ -1016,8 +1016,8 @@
       "maturity": "B",
       "l0_output": "吐「虹膜中心相对眼中心」的眼内归一化横坐标;「看哪边」的阈值留给 L1。",
       "status": "pending",
-      "quarantine_ref": "eye_contact —— iris 图像坐标到画面中心距离,是取景代理(evidence_gate.py:65);unblock: M3 改眼内相对坐标",
-      "acceptance": "重构好 = ① 平移裁剪框(人脸在画面里的位置变)该列不变;② evidence_gate.py:65 的 eye_contact 封停可解(它的 unblock 就是这 4 列);③ 左右列名与实际虹膜的一致性在 M3.2 定(本行保留现名,改名会动日志列契约)。",
+      "quarantine_ref": "eye_contact —— iris 图像坐标到画面中心距离,是取景代理(evidence_gate.QUARANTINE['eye_contact']);unblock: M3 改眼内相对坐标",
+      "acceptance": "重构好 = ① 平移裁剪框(人脸在画面里的位置变)该列不变;② evidence_gate.QUARANTINE['eye_contact'] 的 eye_contact 封停可解(它的 unblock 就是这 4 列);③ 左右列名与实际虹膜的一致性在 M3.2 定(本行保留现名,改名会动日志列契约)。",
       "basis": "① eye_center / eye_width 的下标由本行定:§4.1:188 只写了「(iris − eye_center) ÷ eye_width」,没给这两个量怎么取;本行取该眼两角的均值与距离(角点出处:landmarks.py:5 的 RIGHT_EYE 含 33/133、landmarks.py:4 的 LEFT_EYE 含 362/263;au_calculator.py:27 也把 dist(lm[33], lm[133]) 当该眼宽用)。② ⚠️ 左右命名:landmarks.py:4-5 与 mediapipe 的 FACEMESH_LEFT_EYE / RIGHT_EYE **逐点相同**,即 lm[33..133] 是**右**眼;而 au_calculator.py:10-11 把它叫 left。本行按**代码的配对**(日志列实际装的量)定义并保留列名 —— 改列名会动日志列契约(钉子方向 1),那是 M3.2 的决定。"
     },
     {
@@ -1030,8 +1030,8 @@
       "maturity": "B",
       "l0_output": "吐「虹膜中心相对眼中心」的眼内归一化纵坐标;「看上/下」的阈值留给 L1。",
       "status": "pending",
-      "quarantine_ref": "eye_contact —— iris 图像坐标到画面中心距离,是取景代理(evidence_gate.py:65);unblock: M3 改眼内相对坐标",
-      "acceptance": "同 left_iris_x:① 平移裁剪框该列不变;② evidence_gate.py:65 的 eye_contact 封停可解;③ 列名与虹膜左右的一致性归 M3.2。",
+      "quarantine_ref": "eye_contact —— iris 图像坐标到画面中心距离,是取景代理(evidence_gate.QUARANTINE['eye_contact']);unblock: M3 改眼内相对坐标",
+      "acceptance": "同 left_iris_x:① 平移裁剪框该列不变;② evidence_gate.QUARANTINE['eye_contact'] 的 eye_contact 封停可解;③ 列名与虹膜左右的一致性归 M3.2。",
       "basis": "同 left_iris_x:eye_center / eye_width 的下标由本行定(§4.1:188 没给),取该眼两角的均值与距离;并提醒代码的 left/right 与 landmarks.py:4-5 的声明相反,本行按代码的配对定义。"
     },
     {
@@ -1044,8 +1044,8 @@
       "maturity": "B",
       "l0_output": "吐「虹膜中心相对眼中心」的眼内归一化横坐标;「看哪边」的阈值留给 L1。",
       "status": "pending",
-      "quarantine_ref": "eye_contact —— iris 图像坐标到画面中心距离,是取景代理(evidence_gate.py:65);unblock: M3 改眼内相对坐标",
-      "acceptance": "同 left_iris_x:① 平移裁剪框该列不变;② evidence_gate.py:65 的 eye_contact 封停可解;③ 列名与虹膜左右的一致性归 M3.2。",
+      "quarantine_ref": "eye_contact —— iris 图像坐标到画面中心距离,是取景代理(evidence_gate.QUARANTINE['eye_contact']);unblock: M3 改眼内相对坐标",
+      "acceptance": "同 left_iris_x:① 平移裁剪框该列不变;② evidence_gate.QUARANTINE['eye_contact'] 的 eye_contact 封停可解;③ 列名与虹膜左右的一致性归 M3.2。",
       "basis": "同 left_iris_x:eye_center / eye_width 的下标由本行定(§4.1:188 没给);角点出处 landmarks.py:4(LEFT_EYE 含 362/263)。代码的 left/right 命名与 landmarks.py:4-5 相反,本行按代码的配对定义并保留列名。"
     },
     {
@@ -1058,8 +1058,8 @@
       "maturity": "B",
       "l0_output": "吐「虹膜中心相对眼中心」的眼内归一化纵坐标;「看上/下」的阈值留给 L1。",
       "status": "pending",
-      "quarantine_ref": "eye_contact —— iris 图像坐标到画面中心距离,是取景代理(evidence_gate.py:65);unblock: M3 改眼内相对坐标",
-      "acceptance": "同 left_iris_x:① 平移裁剪框该列不变;② evidence_gate.py:65 的 eye_contact 封停可解;③ 列名与虹膜左右的一致性归 M3.2。",
+      "quarantine_ref": "eye_contact —— iris 图像坐标到画面中心距离,是取景代理(evidence_gate.QUARANTINE['eye_contact']);unblock: M3 改眼内相对坐标",
+      "acceptance": "同 left_iris_x:① 平移裁剪框该列不变;② evidence_gate.QUARANTINE['eye_contact'] 的 eye_contact 封停可解;③ 列名与虹膜左右的一致性归 M3.2。",
       "basis": "同 left_iris_x:eye_center / eye_width 的下标由本行定(§4.1:188 没给);角点出处 landmarks.py:4(LEFT_EYE 含 362/263)。代码的 left/right 命名与 landmarks.py:4-5 相反,本行按代码的配对定义并保留列名。"
     },
     {
@@ -1073,7 +1073,7 @@
       "l0_output": "吐 (眼中心 x − 鼻尖 x) ÷ face_width 这个偏移比值;「看向哪」的门限留给 L1。",
       "status": "implemented",
       "quarantine_ref": "",
-      "acceptance": "保的行:验收 = ① definition 与产出逐字一致;② 本列是 gaze_direction_y / gaze_deviation 被删后**留下**的那一列(§4.1:189-191);L1 不许再把 gaze_deviation 从别处派生回来 —— evidence_gate.py:60 的 gaze_stability(由被封停的 gaze_deviation 派生)就是这个形态。"
+      "acceptance": "保的行:验收 = ① definition 与产出逐字一致;② 本列是 gaze_direction_y / gaze_deviation 被删后**留下**的那一列(§4.1:189-191);L1 不许再把 gaze_deviation 从别处派生回来 —— evidence_gate.QUARANTINE['gaze_stability'] 的 gaze_stability(由被封停的 gaze_deviation 派生)就是这个形态。"
     },
     {
       "column": "is_blink",
@@ -1112,8 +1112,8 @@
       "maturity": "B",
       "l0_output": "吐「逐轴标准差 ÷ 肩宽 ÷ 窗内秒数」这个**时间归一化率**;「抖到什么程度算抖」的事件门限留给 L1(标定集)。",
       "status": "pending",
-      "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(report_frontend/evidence_gate.py:63);unblock: M3 归一化(除肩宽除时间)",
-      "acceptance": "重构好 = ① 该列不再随帧率变(同一段动作在 1 fps 与 30 fps 下抽,值差 < 20%);② 不再随人离镜头远近变(平移/缩放裁剪框该列不变);③ 与同名 `*_world`(米制)列的会话内相关 > 0.9 —— 两份量的是同一个动作,相关低就说明还有一路的归一化没做对;④ evidence_gate.py:63 的 `jitter` 封停可解。",
+      "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(report_frontend/evidence_gate.QUARANTINE['jitter']);unblock: M3 归一化(除肩宽除时间)",
+      "acceptance": "重构好 = ① 该列不再随帧率变(同一段动作在 1 fps 与 30 fps 下抽,值差 < 20%);② 不再随人离镜头远近变(平移/缩放裁剪框该列不变);③ 与同名 `*_world`(米制)列的会话内相关 > 0.9 —— 两份量的是同一个动作,相关低就说明还有一路的归一化没做对;④ evidence_gate.QUARANTINE['jitter'] 的 `jitter` 封停可解。",
       "basis": "两处分母的口径由**本行定**(§4.2 只写「÷ 肩宽、÷ 时间」,没给口径):① 肩宽取**窗内中位数** —— 窗统计量用窗级标尺,避免瞬时肩宽噪声进分母;分母本身的口径见 `shoulder_width` 那一行(Task 7 建)。② 时间分母取**窗内真实秒数**(t_last − t_first),**不取 30 ÷ fps** —— 后者等于假设帧率恒定,而帧率正是被污染的那个量。窗长 30 帧是现行代码常量(gesture_analysis/config.py:92/105/119)、文档里没有出处 ⟹ 本行把它**定为** L0 口径(与 `au10_upper_lip_raise` 对「开头 10 帧」的处置同一理由,那次同样判 B)。够 B 的判据:缺的只是一个现在就能定的参数(两个分母的口径),不需要标定数据。"
     },
     {
@@ -1126,8 +1126,8 @@
       "maturity": "C",
       "l0_output": "L0 只吐 `mean(dist(指尖, 掌心)) ÷ 掌长` 这个**无量纲比值**;「算不算握拳」的**门限来自标定集**(M3.1 仪器标定 / M5),L0 不判。",
       "status": "pending",
-      "quarantine_ref": "fist_status —— fist_threshold=0.08 -> 有效帧 100% 判握拳(report_frontend/evidence_gate.py:56);unblock: M3",
-      "acceptance": "重构好 = ① 代码不再把「远端指骨长度」与阈值比大小,改为输出上述比值;② 该列在标定集上给出「握拳/未握拳」的判定误差口径(阈值由标定定,拒绝再来一个硬编码常量);③ 「近乎 100% 判握拳」的形态消失(实测两列 499 个有值帧里 496 帧判握拳,非握拳只有 3 帧、全在右手);④ evidence_gate.py:56 的 fist_status 封停可解。",
+      "quarantine_ref": "fist_status —— fist_threshold=0.08 -> 有效帧 100% 判握拳(report_frontend/evidence_gate.QUARANTINE['fist_status']);unblock: M3",
+      "acceptance": "重构好 = ① 代码不再把「远端指骨长度」与阈值比大小,改为输出上述比值;② 该列在标定集上给出「握拳/未握拳」的判定误差口径(阈值由标定定,拒绝再来一个硬编码常量);③ 「近乎 100% 判握拳」的形态消失(实测两列 499 个有值帧里 496 帧判握拳,非握拳只有 3 帧、全在右手);④ evidence_gate.QUARANTINE['fist_status'] 的 fist_status 封停可解。",
       "basis": "三处由**本行定**(§4.2 只写「手部 10 列 | 重构」,没给重构成什么):① 掌心取 lm[0] 与 lm[9] 的中点 —— 代码注释自己写的目标量是「指尖到手掌心平均距离」,而它没有实现;掌心用腕与中指掌指关节的中点是无参的取法(不引入新常量)。② 掌长取 dist(lm[0], lm[9]) —— 同一只手、同一深度上的骨性长度,是唯一能消掉距离的分母。③ 阈值**不在这里定**:文档里的 0.08 没有出处(§4.2 依据栏点名的正是它),而它的量纲(归一化图像单位)注定随取景变化 —— 一个随取景变化的阈值不能跨会话用,所以按 §4.2 灰区规则判 **C**,把门限推给标定集。"
     },
     {
@@ -1154,8 +1154,8 @@
       "maturity": "B",
       "l0_output": "吐「逐轴标准差 ÷ 肩宽 ÷ 窗内秒数」这个**时间归一化率**;「抖到什么程度算抖」的事件门限留给 L1(标定集)。",
       "status": "pending",
-      "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(report_frontend/evidence_gate.py:63);unblock: M3 归一化(除肩宽除时间)",
-      "acceptance": "重构好 = ① 该列不再随帧率变(同一段动作在 1 fps 与 30 fps 下抽,值差 < 20%);② 不再随人离镜头远近变(平移/缩放裁剪框该列不变);③ 与同名 `*_world`(米制)列的会话内相关 > 0.9 —— 两份量的是同一个动作,相关低就说明还有一路的归一化没做对;④ evidence_gate.py:63 的 `jitter` 封停可解。",
+      "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(report_frontend/evidence_gate.QUARANTINE['jitter']);unblock: M3 归一化(除肩宽除时间)",
+      "acceptance": "重构好 = ① 该列不再随帧率变(同一段动作在 1 fps 与 30 fps 下抽,值差 < 20%);② 不再随人离镜头远近变(平移/缩放裁剪框该列不变);③ 与同名 `*_world`(米制)列的会话内相关 > 0.9 —— 两份量的是同一个动作,相关低就说明还有一路的归一化没做对;④ evidence_gate.QUARANTINE['jitter'] 的 `jitter` 封停可解。",
       "basis": "两处分母的口径由**本行定**(§4.2 只写「÷ 肩宽、÷ 时间」,没给口径):① 肩宽取**窗内中位数** —— 窗统计量用窗级标尺,避免瞬时肩宽噪声进分母;分母本身的口径见 `shoulder_width` 那一行(Task 7 建)。② 时间分母取**窗内真实秒数**(t_last − t_first),**不取 30 ÷ fps** —— 后者等于假设帧率恒定,而帧率正是被污染的那个量。窗长 30 帧是现行代码常量(gesture_analysis/config.py:92/105/119)、文档里没有出处 ⟹ 本行把它**定为** L0 口径(与 `au10_upper_lip_raise` 对「开头 10 帧」的处置同一理由,那次同样判 B)。够 B 的判据:缺的只是一个现在就能定的参数(两个分母的口径),不需要标定数据。"
     },
     {
@@ -1168,8 +1168,8 @@
       "maturity": "C",
       "l0_output": "L0 只吐 `mean(dist(指尖, 掌心)) ÷ 掌长` 这个**无量纲比值**;「算不算握拳」的**门限来自标定集**(M3.1 仪器标定 / M5),L0 不判。",
       "status": "pending",
-      "quarantine_ref": "fist_status —— fist_threshold=0.08 -> 有效帧 100% 判握拳(report_frontend/evidence_gate.py:56);unblock: M3",
-      "acceptance": "重构好 = ① 代码不再把「远端指骨长度」与阈值比大小,改为输出上述比值;② 该列在标定集上给出「握拳/未握拳」的判定误差口径(阈值由标定定,拒绝再来一个硬编码常量);③ 「近乎 100% 判握拳」的形态消失(实测两列 499 个有值帧里 496 帧判握拳,非握拳只有 3 帧、全在右手);④ evidence_gate.py:56 的 fist_status 封停可解。",
+      "quarantine_ref": "fist_status —— fist_threshold=0.08 -> 有效帧 100% 判握拳(report_frontend/evidence_gate.QUARANTINE['fist_status']);unblock: M3",
+      "acceptance": "重构好 = ① 代码不再把「远端指骨长度」与阈值比大小,改为输出上述比值;② 该列在标定集上给出「握拳/未握拳」的判定误差口径(阈值由标定定,拒绝再来一个硬编码常量);③ 「近乎 100% 判握拳」的形态消失(实测两列 499 个有值帧里 496 帧判握拳,非握拳只有 3 帧、全在右手);④ evidence_gate.QUARANTINE['fist_status'] 的 fist_status 封停可解。",
       "basis": "三处由**本行定**(§4.2 只写「手部 10 列 | 重构」,没给重构成什么):① 掌心取 lm[0] 与 lm[9] 的中点 —— 代码注释自己写的目标量是「指尖到手掌心平均距离」,而它没有实现;掌心用腕与中指掌指关节的中点是无参的取法(不引入新常量)。② 掌长取 dist(lm[0], lm[9]) —— 同一只手、同一深度上的骨性长度,是唯一能消掉距离的分母。③ 阈值**不在这里定**:文档里的 0.08 没有出处(§4.2 依据栏点名的正是它),而它的量纲(归一化图像单位)注定随取景变化 —— 一个随取景变化的阈值不能跨会话用,所以按 §4.2 灰区规则判 **C**,把门限推给标定集。"
     },
     {
@@ -1326,8 +1326,8 @@
       "maturity": "B",
       "l0_output": "吐「逐轴标准差 ÷ 肩宽 ÷ 窗内秒数」这个**时间归一化率**;「抖到什么程度算抖」的事件门限留给 L1(标定集)。",
       "status": "pending",
-      "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(report_frontend/evidence_gate.py:63);unblock: M3 归一化(除肩宽除时间)",
-      "acceptance": "重构好 = ① 该列不再随帧率变(同一段动作在 1 fps 与 30 fps 下抽,值差 < 20%);② 不再随人离镜头远近变(平移/缩放裁剪框该列不变);③ 与同名 `*_world`(米制)列的会话内相关 > 0.9 —— 两份量的是同一个动作,相关低就说明还有一路的归一化没做对;④ evidence_gate.py:63 的 `jitter` 封停可解。",
+      "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(report_frontend/evidence_gate.QUARANTINE['jitter']);unblock: M3 归一化(除肩宽除时间)",
+      "acceptance": "重构好 = ① 该列不再随帧率变(同一段动作在 1 fps 与 30 fps 下抽,值差 < 20%);② 不再随人离镜头远近变(平移/缩放裁剪框该列不变);③ 与同名 `*_world`(米制)列的会话内相关 > 0.9 —— 两份量的是同一个动作,相关低就说明还有一路的归一化没做对;④ evidence_gate.QUARANTINE['jitter'] 的 `jitter` 封停可解。",
       "basis": "两处分母的口径由**本行定**(§4.2 只写「÷ 肩宽、÷ 时间」,没给口径):① 肩宽取**窗内中位数** —— 窗统计量用窗级标尺,避免瞬时肩宽噪声进分母;分母本身的口径见 `shoulder_width` 那一行(Task 7 建)。② 时间分母取**窗内真实秒数**(t_last − t_first),**不取 30 ÷ fps** —— 后者等于假设帧率恒定,而帧率正是被污染的那个量。窗长 30 帧是现行代码常量(gesture_analysis/config.py:92/105/119)、文档里没有出处 ⟹ 本行把它**定为** L0 口径(与 `au10_upper_lip_raise` 对「开头 10 帧」的处置同一理由,那次同样判 B)。够 B 的判据:缺的只是一个现在就能定的参数(两个分母的口径),不需要标定数据。"
     },
     {
@@ -1340,8 +1340,8 @@
       "maturity": "B",
       "l0_output": "吐「逐轴标准差 ÷ 肩宽 ÷ 窗内秒数」这个**时间归一化率**;「抖到什么程度算抖」的事件门限留给 L1(标定集)。",
       "status": "pending",
-      "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(report_frontend/evidence_gate.py:63);unblock: M3 归一化(除肩宽除时间)",
-      "acceptance": "重构好 = ① 该列不再随帧率变(同一段动作在 1 fps 与 30 fps 下抽,值差 < 20%);② 不再随人离镜头远近变(平移/缩放裁剪框该列不变);③ 与同名 `*_world`(米制)列的会话内相关 > 0.9 —— 两份量的是同一个动作,相关低就说明还有一路的归一化没做对;④ evidence_gate.py:63 的 `jitter` 封停可解。",
+      "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(report_frontend/evidence_gate.QUARANTINE['jitter']);unblock: M3 归一化(除肩宽除时间)",
+      "acceptance": "重构好 = ① 该列不再随帧率变(同一段动作在 1 fps 与 30 fps 下抽,值差 < 20%);② 不再随人离镜头远近变(平移/缩放裁剪框该列不变);③ 与同名 `*_world`(米制)列的会话内相关 > 0.9 —— 两份量的是同一个动作,相关低就说明还有一路的归一化没做对;④ evidence_gate.QUARANTINE['jitter'] 的 `jitter` 封停可解。",
       "basis": "两处分母的口径由**本行定**(§4.2 只写「÷ 肩宽、÷ 时间」,没给口径):① 肩宽取**窗内中位数** —— 窗统计量用窗级标尺,避免瞬时肩宽噪声进分母;分母本身的口径见 `shoulder_width` 那一行(Task 7 建)。② 时间分母取**窗内真实秒数**(t_last − t_first),**不取 30 ÷ fps** —— 后者等于假设帧率恒定,而帧率正是被污染的那个量。窗长 30 帧是现行代码常量(gesture_analysis/config.py:92/105/119)、文档里没有出处 ⟹ 本行把它**定为** L0 口径(与 `au10_upper_lip_raise` 对「开头 10 帧」的处置同一理由,那次同样判 B)。够 B 的判据:缺的只是一个现在就能定的参数(两个分母的口径),不需要标定数据。"
     },
     {
@@ -1368,8 +1368,8 @@
       "maturity": "B",
       "l0_output": "吐「逐轴标准差 ÷ 肩宽 ÷ 窗内秒数」这个**时间归一化率**;「抖到什么程度算抖」的事件门限留给 L1(标定集)。",
       "status": "pending",
-      "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(report_frontend/evidence_gate.py:63);unblock: M3 归一化(除肩宽除时间)",
-      "acceptance": "重构好 = ① 该列不再随帧率变(同一段动作在 1 fps 与 30 fps 下抽,值差 < 20%);② 不再随人离镜头远近变(平移/缩放裁剪框该列不变);③ 与同名 `*_world`(米制)列的会话内相关 > 0.9 —— 两份量的是同一个动作,相关低就说明还有一路的归一化没做对;④ evidence_gate.py:63 的 `jitter` 封停可解。",
+      "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(report_frontend/evidence_gate.QUARANTINE['jitter']);unblock: M3 归一化(除肩宽除时间)",
+      "acceptance": "重构好 = ① 该列不再随帧率变(同一段动作在 1 fps 与 30 fps 下抽,值差 < 20%);② 不再随人离镜头远近变(平移/缩放裁剪框该列不变);③ 与同名 `*_world`(米制)列的会话内相关 > 0.9 —— 两份量的是同一个动作,相关低就说明还有一路的归一化没做对;④ evidence_gate.QUARANTINE['jitter'] 的 `jitter` 封停可解。",
       "basis": "两处分母的口径由**本行定**(§4.2 只写「÷ 肩宽、÷ 时间」,没给口径):① 肩宽取**窗内中位数** —— 窗统计量用窗级标尺,避免瞬时肩宽噪声进分母;分母本身的口径见 `shoulder_width` 那一行(Task 7 建)。② 时间分母取**窗内真实秒数**(t_last − t_first),**不取 30 ÷ fps** —— 后者等于假设帧率恒定,而帧率正是被污染的那个量。窗长 30 帧是现行代码常量(gesture_analysis/config.py:92/105/119)、文档里没有出处 ⟹ 本行把它**定为** L0 口径(与 `au10_upper_lip_raise` 对「开头 10 帧」的处置同一理由,那次同样判 B)。够 B 的判据:缺的只是一个现在就能定的参数(两个分母的口径),不需要标定数据。"
     },
     {
@@ -1382,8 +1382,8 @@
       "maturity": "B",
       "l0_output": "吐「逐轴标准差 ÷ 肩宽 ÷ 窗内秒数」这个**时间归一化率**;「抖到什么程度算抖」的事件门限留给 L1(标定集)。",
       "status": "pending",
-      "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(report_frontend/evidence_gate.py:63);unblock: M3 归一化(除肩宽除时间)",
-      "acceptance": "重构好 = ① 该列不再随帧率变(同一段动作在 1 fps 与 30 fps 下抽,值差 < 20%);② 不再随人离镜头远近变(平移/缩放裁剪框该列不变);③ 与同名 `*_world`(米制)列的会话内相关 > 0.9 —— 两份量的是同一个动作,相关低就说明还有一路的归一化没做对;④ evidence_gate.py:63 的 `jitter` 封停可解。",
+      "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(report_frontend/evidence_gate.QUARANTINE['jitter']);unblock: M3 归一化(除肩宽除时间)",
+      "acceptance": "重构好 = ① 该列不再随帧率变(同一段动作在 1 fps 与 30 fps 下抽,值差 < 20%);② 不再随人离镜头远近变(平移/缩放裁剪框该列不变);③ 与同名 `*_world`(米制)列的会话内相关 > 0.9 —— 两份量的是同一个动作,相关低就说明还有一路的归一化没做对;④ evidence_gate.QUARANTINE['jitter'] 的 `jitter` 封停可解。",
       "basis": "两处分母的口径由**本行定**(§4.2 只写「÷ 肩宽、÷ 时间」,没给口径):① 肩宽取**窗内中位数** —— 窗统计量用窗级标尺,避免瞬时肩宽噪声进分母;分母本身的口径见 `shoulder_width` 那一行(Task 7 建)。② 时间分母取**窗内真实秒数**(t_last − t_first),**不取 30 ÷ fps** —— 后者等于假设帧率恒定,而帧率正是被污染的那个量。窗长 30 帧是现行代码常量(gesture_analysis/config.py:92/105/119)、文档里没有出处 ⟹ 本行把它**定为** L0 口径(与 `au10_upper_lip_raise` 对「开头 10 帧」的处置同一理由,那次同样判 B)。够 B 的判据:缺的只是一个现在就能定的参数(两个分母的口径),不需要标定数据。"
     },
     {
@@ -1396,8 +1396,8 @@
       "maturity": "B",
       "l0_output": "吐「逐轴标准差 ÷ 肩宽 ÷ 窗内秒数」这个**时间归一化率**;「抖到什么程度算抖」的事件门限留给 L1(标定集)。",
       "status": "pending",
-      "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(report_frontend/evidence_gate.py:63);unblock: M3 归一化(除肩宽除时间)",
-      "acceptance": "重构好 = ① 该列不再随帧率变(同一段动作在 1 fps 与 30 fps 下抽,值差 < 20%);② 不再随人离镜头远近变(平移/缩放裁剪框该列不变);③ 与同名 `*_world`(米制)列的会话内相关 > 0.9 —— 两份量的是同一个动作,相关低就说明还有一路的归一化没做对;④ evidence_gate.py:63 的 `jitter` 封停可解。",
+      "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(report_frontend/evidence_gate.QUARANTINE['jitter']);unblock: M3 归一化(除肩宽除时间)",
+      "acceptance": "重构好 = ① 该列不再随帧率变(同一段动作在 1 fps 与 30 fps 下抽,值差 < 20%);② 不再随人离镜头远近变(平移/缩放裁剪框该列不变);③ 与同名 `*_world`(米制)列的会话内相关 > 0.9 —— 两份量的是同一个动作,相关低就说明还有一路的归一化没做对;④ evidence_gate.QUARANTINE['jitter'] 的 `jitter` 封停可解。",
       "basis": "两处分母的口径由**本行定**(§4.2 只写「÷ 肩宽、÷ 时间」,没给口径):① 肩宽取**窗内中位数** —— 窗统计量用窗级标尺,避免瞬时肩宽噪声进分母;分母本身的口径见 `shoulder_width` 那一行(Task 7 建)。② 时间分母取**窗内真实秒数**(t_last − t_first),**不取 30 ÷ fps** —— 后者等于假设帧率恒定,而帧率正是被污染的那个量。窗长 30 帧是现行代码常量(gesture_analysis/config.py:92/105/119)、文档里没有出处 ⟹ 本行把它**定为** L0 口径(与 `au10_upper_lip_raise` 对「开头 10 帧」的处置同一理由,那次同样判 B)。够 B 的判据:缺的只是一个现在就能定的参数(两个分母的口径),不需要标定数据。"
     },
     {
@@ -1410,8 +1410,8 @@
       "maturity": "B",
       "l0_output": "吐「逐轴标准差 ÷ 肩宽 ÷ 窗内秒数」这个**时间归一化率**;「抖到什么程度算抖」的事件门限留给 L1(标定集)。",
       "status": "pending",
-      "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(report_frontend/evidence_gate.py:63);unblock: M3 归一化(除肩宽除时间)",
-      "acceptance": "重构好 = ① 该列不再随帧率变(同一段动作在 1 fps 与 30 fps 下抽,值差 < 20%);② 不再随人离镜头远近变(平移/缩放裁剪框该列不变);③ 与同名 `*_world`(米制)列的会话内相关 > 0.9 —— 两份量的是同一个动作,相关低就说明还有一路的归一化没做对;④ evidence_gate.py:63 的 `jitter` 封停可解。",
+      "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(report_frontend/evidence_gate.QUARANTINE['jitter']);unblock: M3 归一化(除肩宽除时间)",
+      "acceptance": "重构好 = ① 该列不再随帧率变(同一段动作在 1 fps 与 30 fps 下抽,值差 < 20%);② 不再随人离镜头远近变(平移/缩放裁剪框该列不变);③ 与同名 `*_world`(米制)列的会话内相关 > 0.9 —— 两份量的是同一个动作,相关低就说明还有一路的归一化没做对;④ evidence_gate.QUARANTINE['jitter'] 的 `jitter` 封停可解。",
       "basis": "两处分母的口径由**本行定**(§4.2 只写「÷ 肩宽、÷ 时间」,没给口径):① 肩宽取**窗内中位数** —— 窗统计量用窗级标尺,避免瞬时肩宽噪声进分母;分母本身的口径见 `shoulder_width` 那一行(Task 7 建)。② 时间分母取**窗内真实秒数**(t_last − t_first),**不取 30 ÷ fps** —— 后者等于假设帧率恒定,而帧率正是被污染的那个量。窗长 30 帧是现行代码常量(gesture_analysis/config.py:92/105/119)、文档里没有出处 ⟹ 本行把它**定为** L0 口径(与 `au10_upper_lip_raise` 对「开头 10 帧」的处置同一理由,那次同样判 B)。够 B 的判据:缺的只是一个现在就能定的参数(两个分母的口径),不需要标定数据。"
     },
     {
@@ -1450,8 +1450,8 @@
       "maturity": "B",
       "l0_output": "吐「逐轴标准差 ÷ 肩宽 ÷ 窗内秒数」这个**时间归一化率**;「抖到什么程度算抖」的事件门限留给 L1(标定集)。",
       "status": "pending",
-      "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(report_frontend/evidence_gate.py:63);unblock: M3 归一化(除肩宽除时间)",
-      "acceptance": "重构好 = ① 该列不再随帧率变(同一段动作在 1 fps 与 30 fps 下抽,值差 < 20%);② 不再随人离镜头远近变(平移/缩放裁剪框该列不变);③ 与同名 `*_world`(米制)列的会话内相关 > 0.9 —— 两份量的是同一个动作,相关低就说明还有一路的归一化没做对;④ evidence_gate.py:63 的 `jitter` 封停可解。",
+      "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(report_frontend/evidence_gate.QUARANTINE['jitter']);unblock: M3 归一化(除肩宽除时间)",
+      "acceptance": "重构好 = ① 该列不再随帧率变(同一段动作在 1 fps 与 30 fps 下抽,值差 < 20%);② 不再随人离镜头远近变(平移/缩放裁剪框该列不变);③ 与同名 `*_world`(米制)列的会话内相关 > 0.9 —— 两份量的是同一个动作,相关低就说明还有一路的归一化没做对;④ evidence_gate.QUARANTINE['jitter'] 的 `jitter` 封停可解。",
       "basis": "两处分母的口径由**本行定**(§4.2 只写「÷ 肩宽、÷ 时间」,没给口径):① 肩宽取**窗内中位数** —— 窗统计量用窗级标尺,避免瞬时肩宽噪声进分母;分母本身的口径见 `shoulder_width` 那一行(Task 7 建)。② 时间分母取**窗内真实秒数**(t_last − t_first),**不取 30 ÷ fps** —— 后者等于假设帧率恒定,而帧率正是被污染的那个量。窗长 30 帧是现行代码常量(gesture_analysis/config.py:92/105/119)、文档里没有出处 ⟹ 本行把它**定为** L0 口径(与 `au10_upper_lip_raise` 对「开头 10 帧」的处置同一理由,那次同样判 B)。够 B 的判据:缺的只是一个现在就能定的参数(两个分母的口径),不需要标定数据。"
     },
     {
@@ -1464,8 +1464,8 @@
       "maturity": "B",
       "l0_output": "吐「逐轴标准差 ÷ 肩宽 ÷ 窗内秒数」这个**时间归一化率**;「抖到什么程度算抖」的事件门限留给 L1(标定集)。",
       "status": "pending",
-      "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(report_frontend/evidence_gate.py:63);unblock: M3 归一化(除肩宽除时间)",
-      "acceptance": "重构好 = ① 该列不再随帧率变(同一段动作在 1 fps 与 30 fps 下抽,值差 < 20%);② 不再随人离镜头远近变(平移/缩放裁剪框该列不变);③ 与同名 `*_world`(米制)列的会话内相关 > 0.9 —— 两份量的是同一个动作,相关低就说明还有一路的归一化没做对;④ evidence_gate.py:63 的 `jitter` 封停可解。",
+      "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(report_frontend/evidence_gate.QUARANTINE['jitter']);unblock: M3 归一化(除肩宽除时间)",
+      "acceptance": "重构好 = ① 该列不再随帧率变(同一段动作在 1 fps 与 30 fps 下抽,值差 < 20%);② 不再随人离镜头远近变(平移/缩放裁剪框该列不变);③ 与同名 `*_world`(米制)列的会话内相关 > 0.9 —— 两份量的是同一个动作,相关低就说明还有一路的归一化没做对;④ evidence_gate.QUARANTINE['jitter'] 的 `jitter` 封停可解。",
       "basis": "两处分母的口径由**本行定**(§4.2 只写「÷ 肩宽、÷ 时间」,没给口径):① 肩宽取**窗内中位数** —— 窗统计量用窗级标尺,避免瞬时肩宽噪声进分母;分母本身的口径见 `shoulder_width` 那一行(Task 7 建)。② 时间分母取**窗内真实秒数**(t_last − t_first),**不取 30 ÷ fps** —— 后者等于假设帧率恒定,而帧率正是被污染的那个量。窗长 30 帧是现行代码常量(gesture_analysis/config.py:92/105/119)、文档里没有出处 ⟹ 本行把它**定为** L0 口径(与 `au10_upper_lip_raise` 对「开头 10 帧」的处置同一理由,那次同样判 B)。够 B 的判据:缺的只是一个现在就能定的参数(两个分母的口径),不需要标定数据。"
     },
     {
@@ -1517,7 +1517,7 @@
       "maturity": "B",
       "l0_output": "吐「米制逐轴标准差 ÷ 窗内秒数」这个率;「抖到什么程度算抖」的门限留给 L1。",
       "status": "pending",
-      "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(evidence_gate.py:63)。⚠️ 这条封停的**理由**量的是画面坐标那批(「x5 归一化恒饱和」),米制这批是被**子串匹配顺带**封的(`is_quarantined` 按最长子串匹配,evidence_gate.py:202-208;实测 `is_quarantined('left_wrist_jitter_world')` 命中 `jitter`);unblock: M3。",
+      "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(evidence_gate.QUARANTINE['jitter'])。⚠️ 这条封停的**理由**量的是画面坐标那批(「x5 归一化恒饱和」),米制这批是被**子串匹配顺带**封的(`is_quarantined` 按最长子串匹配,evidence_gate.is_quarantined-208;实测 `is_quarantined('left_wrist_jitter_world')` 命中 `jitter`);unblock: M3。",
       "acceptance": "重构好 = ① 该列不再随帧率变;② 与画面坐标那批(除以肩宽后)会话内相关 > 0.9;③ 保持与画面的**裁剪框无关**(米制坐标由模型按人体尺度估出,裁剪框不变性是这一点的可测形式)。",
       "basis": "时间分母的口径由**本行定**(与 16 个画面坐标 jitter 同一口径:窗内真实秒数,不取 30 ÷ fps);窗长 30 由本行定为现行常量(gesture_analysis/config.py:105/119)。**不除肩宽**是 §4.5 规矩 1 的直接推论:米制坐标不在画面尺度里,再除一个画面尺度反而把它弄脏。"
     },
@@ -1531,7 +1531,7 @@
       "maturity": "B",
       "l0_output": "吐「米制逐轴标准差 ÷ 窗内秒数」这个率;「抖到什么程度算抖」的门限留给 L1。",
       "status": "pending",
-      "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(evidence_gate.py:63)。⚠️ 这条封停的**理由**量的是画面坐标那批(「x5 归一化恒饱和」),米制这批是被**子串匹配顺带**封的(`is_quarantined` 按最长子串匹配,evidence_gate.py:202-208;实测 `is_quarantined('left_wrist_jitter_world')` 命中 `jitter`);unblock: M3。",
+      "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(evidence_gate.QUARANTINE['jitter'])。⚠️ 这条封停的**理由**量的是画面坐标那批(「x5 归一化恒饱和」),米制这批是被**子串匹配顺带**封的(`is_quarantined` 按最长子串匹配,evidence_gate.is_quarantined-208;实测 `is_quarantined('left_wrist_jitter_world')` 命中 `jitter`);unblock: M3。",
       "acceptance": "重构好 = ① 该列不再随帧率变;② 与画面坐标那批(除以肩宽后)会话内相关 > 0.9;③ 保持与画面的**裁剪框无关**(米制坐标由模型按人体尺度估出,裁剪框不变性是这一点的可测形式)。",
       "basis": "时间分母的口径由**本行定**(与 16 个画面坐标 jitter 同一口径:窗内真实秒数,不取 30 ÷ fps);窗长 30 由本行定为现行常量(gesture_analysis/config.py:105/119)。**不除肩宽**是 §4.5 规矩 1 的直接推论:米制坐标不在画面尺度里,再除一个画面尺度反而把它弄脏。"
     },
@@ -1545,7 +1545,7 @@
       "maturity": "B",
       "l0_output": "吐「米制逐轴标准差 ÷ 窗内秒数」这个率;「抖到什么程度算抖」的门限留给 L1。",
       "status": "pending",
-      "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(evidence_gate.py:63)。⚠️ 这条封停的**理由**量的是画面坐标那批(「x5 归一化恒饱和」),米制这批是被**子串匹配顺带**封的(`is_quarantined` 按最长子串匹配,evidence_gate.py:202-208;实测 `is_quarantined('left_wrist_jitter_world')` 命中 `jitter`);unblock: M3。",
+      "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(evidence_gate.QUARANTINE['jitter'])。⚠️ 这条封停的**理由**量的是画面坐标那批(「x5 归一化恒饱和」),米制这批是被**子串匹配顺带**封的(`is_quarantined` 按最长子串匹配,evidence_gate.is_quarantined-208;实测 `is_quarantined('left_wrist_jitter_world')` 命中 `jitter`);unblock: M3。",
       "acceptance": "重构好 = ① 该列不再随帧率变;② 与画面坐标那批(除以肩宽后)会话内相关 > 0.9;③ 保持与画面的**裁剪框无关**(米制坐标由模型按人体尺度估出,裁剪框不变性是这一点的可测形式)。",
       "basis": "时间分母的口径由**本行定**(与 16 个画面坐标 jitter 同一口径:窗内真实秒数,不取 30 ÷ fps);窗长 30 由本行定为现行常量(gesture_analysis/config.py:105/119)。**不除肩宽**是 §4.5 规矩 1 的直接推论:米制坐标不在画面尺度里,再除一个画面尺度反而把它弄脏。"
     },
@@ -1559,7 +1559,7 @@
       "maturity": "B",
       "l0_output": "吐「米制逐轴标准差 ÷ 窗内秒数」这个率;「抖到什么程度算抖」的门限留给 L1。",
       "status": "pending",
-      "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(evidence_gate.py:63)。⚠️ 这条封停的**理由**量的是画面坐标那批(「x5 归一化恒饱和」),米制这批是被**子串匹配顺带**封的(`is_quarantined` 按最长子串匹配,evidence_gate.py:202-208;实测 `is_quarantined('left_wrist_jitter_world')` 命中 `jitter`);unblock: M3。",
+      "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(evidence_gate.QUARANTINE['jitter'])。⚠️ 这条封停的**理由**量的是画面坐标那批(「x5 归一化恒饱和」),米制这批是被**子串匹配顺带**封的(`is_quarantined` 按最长子串匹配,evidence_gate.is_quarantined-208;实测 `is_quarantined('left_wrist_jitter_world')` 命中 `jitter`);unblock: M3。",
       "acceptance": "重构好 = ① 该列不再随帧率变;② 与画面坐标那批(除以肩宽后)会话内相关 > 0.9;③ 保持与画面的**裁剪框无关**(米制坐标由模型按人体尺度估出,裁剪框不变性是这一点的可测形式)。",
       "basis": "时间分母的口径由**本行定**(与 16 个画面坐标 jitter 同一口径:窗内真实秒数,不取 30 ÷ fps);窗长 30 由本行定为现行常量(gesture_analysis/config.py:105/119)。**不除肩宽**是 §4.5 规矩 1 的直接推论:米制坐标不在画面尺度里,再除一个画面尺度反而把它弄脏。"
     },
@@ -1599,7 +1599,7 @@
       "maturity": "B",
       "l0_output": "吐「米制逐轴标准差 ÷ 窗内秒数」这个率;「抖到什么程度算抖」的门限留给 L1。",
       "status": "pending",
-      "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(evidence_gate.py:63)。⚠️ 这条封停的**理由**量的是画面坐标那批(「x5 归一化恒饱和」),米制这批是被**子串匹配顺带**封的(`is_quarantined` 按最长子串匹配,evidence_gate.py:202-208;实测 `is_quarantined('left_wrist_jitter_world')` 命中 `jitter`);unblock: M3。",
+      "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(evidence_gate.QUARANTINE['jitter'])。⚠️ 这条封停的**理由**量的是画面坐标那批(「x5 归一化恒饱和」),米制这批是被**子串匹配顺带**封的(`is_quarantined` 按最长子串匹配,evidence_gate.is_quarantined-208;实测 `is_quarantined('left_wrist_jitter_world')` 命中 `jitter`);unblock: M3。",
       "acceptance": "重构好 = ① 该列不再随帧率变;② 与画面坐标那批(除以肩宽后)会话内相关 > 0.9;③ 保持与画面的**裁剪框无关**(米制坐标由模型按人体尺度估出,裁剪框不变性是这一点的可测形式)。",
       "basis": "时间分母的口径由**本行定**(与 16 个画面坐标 jitter 同一口径:窗内真实秒数,不取 30 ÷ fps);窗长 30 由本行定为现行常量(gesture_analysis/config.py:105/119)。**不除肩宽**是 §4.5 规矩 1 的直接推论:米制坐标不在画面尺度里,再除一个画面尺度反而把它弄脏。"
     },
@@ -1613,7 +1613,7 @@
       "maturity": "B",
       "l0_output": "吐「米制逐轴标准差 ÷ 窗内秒数」这个率;「抖到什么程度算抖」的门限留给 L1。",
       "status": "pending",
-      "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(evidence_gate.py:63)。⚠️ 这条封停的**理由**量的是画面坐标那批(「x5 归一化恒饱和」),米制这批是被**子串匹配顺带**封的(`is_quarantined` 按最长子串匹配,evidence_gate.py:202-208;实测 `is_quarantined('left_wrist_jitter_world')` 命中 `jitter`);unblock: M3。",
+      "quarantine_ref": "jitter —— 经 x5 归一化恒饱和(evidence_gate.QUARANTINE['jitter'])。⚠️ 这条封停的**理由**量的是画面坐标那批(「x5 归一化恒饱和」),米制这批是被**子串匹配顺带**封的(`is_quarantined` 按最长子串匹配,evidence_gate.is_quarantined-208;实测 `is_quarantined('left_wrist_jitter_world')` 命中 `jitter`);unblock: M3。",
       "acceptance": "重构好 = ① 该列不再随帧率变;② 与画面坐标那批(除以肩宽后)会话内相关 > 0.9;③ 保持与画面的**裁剪框无关**(米制坐标由模型按人体尺度估出,裁剪框不变性是这一点的可测形式)。",
       "basis": "时间分母的口径由**本行定**(与 16 个画面坐标 jitter 同一口径:窗内真实秒数,不取 30 ÷ fps);窗长 30 由本行定为现行常量(gesture_analysis/config.py:105/119)。**不除肩宽**是 §4.5 规矩 1 的直接推论:米制坐标不在画面尺度里,再除一个画面尺度反而把它弄脏。"
     },
@@ -1682,8 +1682,8 @@
       "maturity": "C",
       "l0_output": "吐**未加能量门限**的 voiced f0 标准差(现状);门控同 `pitch_mean`,留给 L1/标定。⚠️ **零浊音帧(全静音)时本列留空、不再写 0**(2026-09-26 Task 5 按 `docs/superpowers/plans/2026-09-26-m3-0-l0-column-table.md:38` 改:`f0` 全 `nan`,该量无定义 —— 2026-09-26 使用者裁定 `f0_voiced` 上的**五个统计量一起改**,只修均值、留四个不修会让读的人无法判断这一支可不可信)。",
       "status": "pending",
-      "quarantine_ref": "pitch_variation —— 名单原文:「实际取的是 pitch_mean,名字与计算不符」(report_frontend/evidence_gate.py:80);unblock:「改名后」。⚠️ **这条封停理由现在已过期**:接线后 `voice_interaction/api/app.py:97-107` 把上游 `pitch_std` 映射进本列,实测全仓 interview 语音日志 45 条有真值的行里 `pitch_variation == pitch_mean` 的**一行都没有**(0/45,2026-09-26 复算)⟹ 它现在装的是 f0 标准差。是否解封归 M3.4。",
-      "acceptance": "① 与 `pitch_mean` 同批过门控;② 在真素材上复算本列与 `pitch_mean` 的相关,确认不是同一个量;③ 报告层对 `evidence_gate.py:80` 那条封停重新裁定(理由已过期);④ M3.4。"
+      "quarantine_ref": "pitch_variation —— 名单原文:「实际取的是 pitch_mean,名字与计算不符」(report_frontend/evidence_gate.QUARANTINE['pitch_variation']);unblock:「改名后」。⚠️ **这条封停理由现在已过期**:接线后 `voice_interaction/api/app.py:97-107` 把上游 `pitch_std` 映射进本列,实测全仓 interview 语音日志 45 条有真值的行里 `pitch_variation == pitch_mean` 的**一行都没有**(0/45,2026-09-26 复算)⟹ 它现在装的是 f0 标准差。是否解封归 M3.4。",
+      "acceptance": "① 与 `pitch_mean` 同批过门控;② 在真素材上复算本列与 `pitch_mean` 的相关,确认不是同一个量;③ 报告层对 `evidence_gate.QUARANTINE['pitch_variation']` 那条封停重新裁定(理由已过期);④ M3.4。"
     },
     {
       "column": "pitch_trend",
@@ -1709,7 +1709,7 @@
       "maturity": "B",
       "l0_output": "吐该段音频的 rms 均值本身;「能量高/低」的门限留给 L1,且本列**跨会话不可比**,必须先做会话内归一。",
       "status": "implemented",
-      "quarantine_ref": "energy_mean —— 「设备增益/距离代理,跨会话不可比」(report_frontend/evidence_gate.py:82);unblock:「M3 会话内归一」",
+      "quarantine_ref": "energy_mean —— 「设备增益/距离代理,跨会话不可比」(report_frontend/evidence_gate.QUARANTINE['energy_mean']);unblock:「M3 会话内归一」",
       "acceptance": "① 会话内归一落地后报告层不再把 `energy_mean` 当跨会话可比量(封停 :82 的 unblock 达成);② 归一化的原料 `energy_p10`/`energy_p90` 在同一次回答里都有值(实测 3 场正式素材 24 行:p10 0.0002~0.0169、p90 最大 0.2675);③ M3.4。",
       "basis": "**归一化栏写 `none` 的依据**:① §4.3:237 判「保」,原文没有要求归一;② §4.5:272 只给两条路 ——「按解剖尺度归一」或「显式输出为协变量」,而 rms 是麦克风增益/距离的代理,没有解剖尺度可除 ⟹ 本列走第二条路;它的封停 unblock 明写「M3 会话内归一」,那一步的原料是 `energy_p10`/`energy_p90` 两列(`下一步.md` §8.1:380 的原话:「p10/p90(会话内归一的原料)」)。③ **为什么判 B 不判 A**:A 的第②条要求「含归一化分母」,本列没有 —— 本行把「分母 = 无(原因见上)」这个决定写在这里。"
     },
@@ -1737,7 +1737,7 @@
       "maturity": "C",
       "l0_output": "吐按**现行能量门限**切出的停顿区间均值;门限值(`mean(rms) × 0.3`,:204)是写死且**无出处**的常数(§5.1:291 禁止 (a)),它只能来自标定集 ⟹ 本行判 C:先吐原始区间统计,门限留给标定。",
       "status": "pending",
-      "quarantine_ref": "pause_duration —— 「尾部静默被丢弃」(report_frontend/evidence_gate.py:81);unblock:「M3 修停顿检测」",
+      "quarantine_ref": "pause_duration —— 「尾部静默被丢弃」(report_frontend/evidence_gate.QUARANTINE['pause_duration']);unblock:「M3 修停顿检测」",
       "acceptance": "① 循环加收尾(音频以静音结尾时那段停顿进 `pause_intervals`);② 合成信号单测:造「语音 + 尾部 4 秒静音」的输入,断言 `pause_duration_max ≥ 4`(§1.2:55 的实测症状原文:「尾部 4s 静音报 0 次停顿」);③ 门限改由标定集给出;**④ 记一条缺口:L1 要的是停顿的**分布**(`pause_duration_p50/p90`,§5.4:358),而本列只出均值/最大值 —— 分布要不要在 L0 单独成列,归 M3.4**;⑤ M3.4。"
     },
     {
@@ -1750,8 +1750,8 @@
       "maturity": "C",
       "l0_output": "吐按现行能量门限切出的最长停顿;**「长停顿」的门限**(事件定义)与停顿判定门限都留给标定 ⟹ 判 C。",
       "status": "pending",
-      "quarantine_ref": "pause_duration —— 「尾部静默被丢弃」(report_frontend/evidence_gate.py:81);unblock:「M3 修停顿检测」",
-      "acceptance": "① 与 `pause_duration_mean` 同批加收尾;② 尾部静音合成信号上 `max ≥ 4` 秒;③ 门限来自标定集;④ M3.4。⚠️ 这条封停是按**键名子串**命中的(`pause_duration` 是 `pause_duration_max` 的子串,`is_quarantined` 见 evidence_gate.py:202-208)—— 命中是对的,但机制是子串而非逐列登记。"
+      "quarantine_ref": "pause_duration —— 「尾部静默被丢弃」(report_frontend/evidence_gate.QUARANTINE['pause_duration']);unblock:「M3 修停顿检测」",
+      "acceptance": "① 与 `pause_duration_mean` 同批加收尾;② 尾部静音合成信号上 `max ≥ 4` 秒;③ 门限来自标定集;④ M3.4。⚠️ 这条封停是按**键名子串**命中的(`pause_duration` 是 `pause_duration_max` 的子串,`is_quarantined` 见 evidence_gate.is_quarantined-208)—— 命中是对的,但机制是子串而非逐列登记。"
     },
     {
       "column": "pause_frequency",
