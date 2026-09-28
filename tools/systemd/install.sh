@@ -26,6 +26,9 @@ PY="${JX_PY:-$HOME/anaconda3/envs/jingxin/bin/python}"
 [ -x "$PY" ] || PY="$HOME/miniconda3/envs/jingxin/bin/python"
 REC="${JX_RECORDINGS:-$HOME/JingXin/recordings}"
 FE="${JX_FRONTEND:-$HOME/JingXin/frontend}"
+# ★ 机密(管理员密码等)**既不进仓库、也不写进 unit**:单独一个文件,权限 600。
+#   仓库是公开的,而 unit 由本脚本生成 ⟹ 密码写进任何一处都等于公开。
+ENV_FILE="${JX_ENV_FILE:-$HOME/JingXin/.env}"
 
 # ★ 用**所有**本机 IP,不只第一个 —— 多网卡机器上 `awk '{print $1}'` 可能取到
 #   Tailscale/VPN 那个,于是真正用来访问的 LAN IP 反而没放行(实测踩到)。
@@ -62,6 +65,7 @@ echo "仓库    : $REPO"
 echo "解释器  : $PY"
 echo "素材    : $REC"
 echo "前端    : $FE"
+echo "机密文件: $ENV_FILE"
 echo "node    : ${NODE_BIN:-★ 没找到}"
 echo "npm     : ${NPM_BIN:-★ 没找到}"
 echo "本机 IP  : ${LAN_IPS:-<取不到>}(都加进 CORS 了)"
@@ -97,6 +101,11 @@ Environment=PANEL_HOST=127.0.0.1
 Environment=JINGXIN_RECORDINGS_DIR=$REC
 Environment=JX_RECORDINGS=$REC
 Environment=PATH=$NODE_DIR:/usr/local/bin:/usr/bin:/bin
+# ★ 机密从**仓库外**读:`JX_ADMIN_PASSWORD` 这类值一写进仓库(或写进由本脚本
+#   生成的 unit)就等于公开 —— 两个仓都在公开账号下。
+#   前缀 `-` = **文件不在也照常启动**。那时素材浏览的管理员视图会回 503 并
+#   **点名**是哪个环境变量没设(不静默放行),其余功能照常。
+EnvironmentFile=-$ENV_FILE
 ExecStart=$*
 Restart=on-failure
 RestartSec=5
