@@ -769,7 +769,14 @@ async def submit_session_media(session_id: str, file: UploadFile = File(...)):
     if not data:
         raise HTTPException(status_code=400, detail="上传是空的 —— 没有可留存的录像")
 
-    rec = media_retention.retain_uploaded_video(sid, data, source="/session/media")
+    try:
+        rec = media_retention.retain_uploaded_video(sid, data, source="/session/media")
+    except media_retention.CameraAlreadyRetained as exc:
+        # **409**,不是 400 也不是 500:请求本身没毛病(字节是好的、id 是合法的),
+        # 是它与**目标当前状态**冲突 —— 本场已经有一份原生录像了,而那一份不可再生。
+        # 这个前提是"一次录制 = 一场会话"(前端每次「开始录制」铸新号);合法路径下
+        # 永远不该触发,一旦触发就说明上游把多次录制塞进了同一场,必须响亮。
+        raise HTTPException(status_code=409, detail=str(exc))
     if rec is None:
         # 两种"没存":留存被显式关掉 / 中途写失败。两者都**不许装成功** ——
         # 这个端点唯一的工作就是留存,静默 200 会让人以为素材存下了。

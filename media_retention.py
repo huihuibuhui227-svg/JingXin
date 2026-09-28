@@ -544,6 +544,21 @@ def retain_audio(session_id: str, kind: str, data: bytes, source: str = "",
 CAMERA_FILENAME = "camera.webm"
 
 
+class CameraAlreadyRetained(RuntimeError):
+    """本场已经有 `media/camera.webm` 了 —— 再传会把**已有的那份覆盖掉**。
+
+    为什么是**拒绝**而不是"覆盖 + 账本留痕":原始素材不可再生。本项目花整个 M2.6
+    留原始媒体,理由就是"分析代码必然有缺陷、算错了要能重算" —— 而被覆盖掉的那一份
+    没有第二次机会。账本留两行 sha 只能证明"曾经有过一份",**救不回字节**。
+
+    ★ 它成立的前提是调用方守着「**一次录制 = 一场会话**」。合法路径下这个异常
+    永远不该被触发;一旦触发,说明上游把多次录制塞进了同一场 —— 那正是要报出来的事。
+
+    2026-09-28 实盘:使用者在**一个页面里连录 9 个学生**,9 次上传挤进同一场,
+    前 8 份原生录像被原地覆盖,丢 2.1 GB。当时的实现正是"覆盖 + 账本留痕"。
+    """
+
+
 def retain_uploaded_video(session_id: str, data: bytes,
                           source: str = "") -> dict | None:
     """把前端 `MediaRecorder` 录的**原生音视频**原样存成 `media/camera.webm`。
@@ -553,8 +568,11 @@ def retain_uploaded_video(session_id: str, data: bytes,
     ⟹ 在 5 fps 下是伪测量),前端这一腿留的才是**帧率没被钉死的原生流**。
     两者不是冗余,是两件事。
 
-    **一个会话只有一个文件名** —— 第二次上传覆盖它。账本仍然一次一记,
-    所以"哪一份被覆盖过、当时是什么"有据可查(测试钉住了这一点)。
+    ★ **一个会话只许有一份 `camera.webm`;第二份会被拒绝**(`CameraAlreadyRetained`),
+    不是覆盖。前提是调用方守着「**一次录制 = 一场会话**」(前端每次「开始录制」铸新号)。
+    这个前提原来写的是"第二次上传覆盖它,账本留痕即可" —— **2026-09-28 实盘推翻了它**:
+    使用者的用法是**一个页面连录多个学生**,于是 9 次录制挤进同一场,
+    8 份原生录像被原地覆盖,丢了 2.1 GB —— 而账本那两行 sha 证明不了任何字节还在。
 
     `_prepare` 的探针传空元组:文件落在 `media/` 本身,没有 `media/camera/` 这一层。
     """
@@ -562,6 +580,15 @@ def retain_uploaded_video(session_id: str, data: bytes,
         return None
     sid = validate_session_id(session_id)
     with _session_lock(sid):
+        # ⚠️ 这个守卫必须在下面那个 `try` 的**外面**。放进去的话 `except Exception`
+        #    会把它当"写失败"吞成 degraded —— 于是"拒绝覆盖"变成静默降级,
+        #    正是它要消灭的那个形态。
+        target = resolve_recording_dir(sid) / MEDIA_SUBDIR / CAMERA_FILENAME
+        if target.exists():
+            raise CameraAlreadyRetained(
+                f"本场已经有 {MEDIA_SUBDIR}/{CAMERA_FILENAME} 了"
+                f"({target.stat().st_size} 字节)—— 拒绝覆盖。"
+                f"一份原生录像不可再生;要再录请开新的一场(前端每次「开始录制」会铸新号)。")
         if not _prepare(sid, "camera", probe_parts=()):
             return None
         try:
