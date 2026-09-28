@@ -25,6 +25,15 @@ OUTPUT_DIR = os.path.join(os.path.dirname(__file__), 'data', 'output')
 # 允许访问的子目录白名单
 ALLOWED_FOLDERS = {'face_expression', 'gesture_analysis', 'voice_interaction'}
 
+# 素材浏览页(`/api/recordings*`)。注册在这里而不是另起一个服务:它要发的
+# 是**磁盘上的文件**(录像 / 日志 / 帧),而 Flask 的 `send_file(conditional=True)`
+# 原生支持 Range 请求 —— 视频拖拽与断点续传都是白送的。另起一个服务就得自己写。
+# 报告落点也一并交给它,免得两处各算一遍。
+import recordings_browser
+
+app.config['OUTPUT_DIR'] = OUTPUT_DIR
+app.register_blueprint(recordings_browser.bp)
+
 # 报告**不写在子目录里** —— `report_generator` 把 `*_Assessment_Report_*.html`
 # 直接落在 OUTPUT_DIR 根下。而前端「报告列表」页请求的是文件夹名,于是它去找一个
 # 根本不存在的子目录 ⟹ 既不在 ALLOWED_FOLDERS 里(回 403)、目录也不存在
