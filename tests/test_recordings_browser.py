@@ -677,3 +677,42 @@ def test_report_count_reads_the_html_body(client, root, tmp_path, monkeypatch):
 
     recs = client.get("/api/recordings").get_json()["recordings"]
     assert recs[0]["report_count"] == 1, recs
+
+
+# ── 9. 作废之后不许再长出来(墓碑)─────────────────────────────────────────
+
+def test_a_purged_session_cannot_be_written_to_again(admin_client, root, log_csvs):
+    """★ 红法:去掉 `media_retention.assert_not_purged` 的一次调用。
+
+    实测(2026-09-28):作废删掉目录之后,又来了一次 `/session/<sid>/question`,
+    于是在录制根下留下一个**只含 `questions.jsonl` 的裸目录** —— 而素材列表显示的就是
+    盘上的东西,于是"已经删掉的一场"又挂在那里。删了就得是删了。
+    """
+    _make_session(root, _LABEL_DIR, face=1)
+    log_csvs(_SID)
+    assert admin_client.post(f"/api/recordings/{_SID}/purge",
+                             json={"confirm": _SID}).status_code == 200
+
+    assert mr.is_purged(_SID), "删完没留印记"
+    # 两条创建路径都要拒
+    with pytest.raises(ValueError, match="作废"):
+        import session_meta
+        session_meta._session_dir(_SID, create=True)
+    with pytest.raises(ValueError, match="作废"):
+        mr.recording_dir(_SID)
+
+
+def test_a_purged_session_no_longer_shows_in_the_list(client, root, admin_client, log_csvs):
+    """★ 红法:去掉 `_iter_sessions` 里 `if mr.is_purged(sid): continue`。
+
+    残骸(墓碑之前那次写入留下的)必须不再被列成一场。
+    """
+    _make_session(root, _LABEL_DIR, face=1)
+    log_csvs(_SID)
+    admin_client.post(f"/api/recordings/{_SID}/purge", json={"confirm": _SID})
+    # 手工造一个残骸(模拟"删除之后又被写了一次")
+    (root / _SID).mkdir(exist_ok=True)
+    (root / _SID / "questions.jsonl").write_text("{}", encoding="utf-8")
+
+    sids = [r["sid"] for r in client.get("/api/recordings").get_json()["recordings"]]
+    assert _SID not in sids, f"作废过的场次又出现在列表里:{sids}"

@@ -78,7 +78,47 @@ def validate_modality(modality: str) -> str:
     return modality
 
 
+# ── 墓碑:被「不留存 / 不同意录制」作废掉的场次 ────────────────────────────
+#
+# 为什么需要:作废会**删掉**场次目录,而**后续任何一次写入都会把那个 sid 的目录
+# 重新建出来**。2026-09-28 实测:删完之后又来了一次 `/session/<sid>/question`,
+# 于是在录制根下留下一个只含 `questions.jsonl` 的裸目录 —— 而素材列表显示的就是
+# 盘上的东西,于是"已经删掉的一场"又挂在那里。**"删了"与"看着删了"必须是一回事。**
+#
+# 印记是一个**空文件**。它不进素材列表(见 `recordings_browser._iter_sessions`),
+# 但让所有**创建**路径拒绝再写(见 `assert_not_purged` 的两个调用点)。
+TOMBSTONE_DIR_NAME = "_已作废"
+
+
+def tombstone_path(session_id: str) -> Path:
+    return root() / TOMBSTONE_DIR_NAME / validate_session_id(session_id)
+
+
+def is_purged(session_id: str) -> bool:
+    """这一场是不是被明确作废过。取值失败一律当**没作废**(读侧不该因它炸)。"""
+    try:
+        return tombstone_path(session_id).is_file()
+    except (ValueError, OSError):
+        return False
+
+
+def mark_purged(session_id: str) -> None:
+    p = tombstone_path(session_id)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("", encoding="utf-8")
+
+
+def assert_not_purged(session_id: str) -> None:
+    """**创建**素材前必须过这一关。两个调用点:`recording_dir` 与
+    `session_meta._session_dir(create=True)` —— 那是全仓仅有的两条创建路径。"""
+    if is_purged(session_id):
+        raise ValueError(
+            f"本场已被作废({session_id}):它的素材被明确删除过,不能再往里写。"
+            f"要重录请铸一个新号(一次录制 = 一场)。")
+
+
 def recording_dir(session_id: str) -> Path:
+    assert_not_purged(session_id)
     d = resolve_recording_dir(session_id)
     d.mkdir(parents=True, exist_ok=True)
     return d

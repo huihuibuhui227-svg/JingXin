@@ -65,8 +65,15 @@ def sources_disclosure(sources: Dict[str, Dict], target: Optional[str] = None) -
         if info["status"] == "loaded":
             lines.append(f"{label} · 已读入（{info['rows']} 行）")
         elif info["status"] == "unreadable":
+            # ⚠️ 措辞别冤枉文件。此前这句写的是"文件在，但读不出来：空文件或损坏",
+            #    而最常见的情形**根本不是损坏** —— 是这一场压根没有提交过回答
+            #    (从「实时分析」页录的那些就是:那条路没有题库、不提交回答,
+            #    语音模态因此结构上为空,交接日志 §8.1-4 记过)。两件事的处置完全不同:
+            #    一个是"设计如此",一个是"去查文件"。分不开就会让人去追一个不存在的故障。
             lines.append(f'<strong style="color:#A23B72;">{label} · 未读到数据</strong>'
-                         f'（文件在，但读不出来：空文件或损坏）')
+                         f'（日志文件在，但一行数据都没有。常见原因是本场'
+                         f'<strong>没有提交过逐题回答</strong> —— 例如从「实时分析」页录的，'
+                         f'那条路没有题库；若本场确实答过题，那才是文件损坏。）')
         else:
             lines.append(f"{label} · 缺失（本场没有这个模态的日志）")
 

@@ -100,4 +100,9 @@ def purge_session(session_id: str, *, logs_dir: str | os.PathLike | None = None)
 
     if removed["session_dir"] is None and not removed["logs"]:
         raise FileNotFoundError(f"没有这一场:{session_id}")
+    # ★ **删完要留印记**。不留的话,后续任何一次写入都会把这个 sid 的目录重新建出来
+    #   (2026-09-28 实测:删完之后又来了一次 `/question`,于是录制根下多了一个只含
+    #   `questions.jsonl` 的裸目录,而素材列表照常把它列成一场)。
+    mr.mark_purged(session_id)
+    removed["tombstone"] = True
     return removed

@@ -28,6 +28,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+import media_retention
 from media_retention import (validate_session_id,
                              resolve_recording_dir, label_dir_name,
                              rename_session_dir_to_label)
@@ -63,6 +64,9 @@ def _session_dir(session_id: str, *, create: bool) -> Path:
     transcript_store)必须共用同一套解析,否则一场会被劈成两个目录。
     """
     sid = validate_session_id(session_id)
+    if create:
+        # 与 `media_retention.recording_dir` 同一道守卫(全仓仅有的两条创建路径)。
+        media_retention.assert_not_purged(sid)
     d = resolve_recording_dir(sid)
     if create:
         d.mkdir(parents=True, exist_ok=True)

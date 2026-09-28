@@ -228,11 +228,16 @@ def _iter_sessions():
     if not root.is_dir():
         return
     for p in sorted(root.iterdir()):
-        if not p.is_dir() or p.name == TRASH_DIR_NAME:
+        if not p.is_dir() or p.name in (TRASH_DIR_NAME, mr.TOMBSTONE_DIR_NAME):
             continue
         sid = _dir_sid(p.name)
-        if sid is not None:
-            yield sid, p
+        if sid is None:
+            continue
+        # 作废过的场次不再列 —— 删除之后可能还有残骸被重建(墓碑挡的是**新的**写入,
+        # 而残骸是墓碑之前那次留下的)。"删了"与"看着删了"必须是一回事。
+        if mr.is_purged(sid):
+            continue
+        yield sid, p
 
 
 def _label_of(session_dir: Path) -> dict | None:
