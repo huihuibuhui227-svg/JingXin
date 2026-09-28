@@ -66,3 +66,31 @@ def test_illegal_session_id_is_400_and_writes_nothing(_isolated, bad):
         asyncio.run(voice_app.submit_session_media(session_id=bad, file=_FakeUpload(WEBM)))
     assert ei.value.status_code == 400
     assert not (_isolated.parent / "escape").exists()
+
+
+def test_second_upload_to_the_same_session_is_409(_isolated):
+    """★ 同一场再传一次 → **409**,而第一份**逐字节没动**。
+
+    **409 而不是 400/500** 是有意的:请求本身没毛病(字节是好的、id 合法),是它与
+    **目标当前状态**冲突 —— 本场已经有一份原生录像,而那一份不可再生。
+
+    为什么这条路必须响亮:2026-09-28 实盘,使用者在**一个页面里连录 9 个学生**,
+    9 次上传挤进同一场,前 8 份原生录像被**静默覆盖**,丢 2.1 GB。当时端点回的是
+    `200 OK` + `stored: true` —— 每一次覆盖都"成功"。
+
+    红法:把端点里那个 `except media_retention.CameraAlreadyRetained` 去掉
+    → 异常冒成 500,本测试红在 status_code。
+    """
+    from fastapi import HTTPException
+    first = asyncio.run(voice_app.submit_session_media(
+        session_id=SID, file=_FakeUpload(WEBM)))
+    assert first["stored"] is True
+    p = _isolated / SID / "media" / "camera.webm"
+    before = p.read_bytes()
+
+    with pytest.raises(HTTPException) as ei:
+        asyncio.run(voice_app.submit_session_media(
+            session_id=SID, file=_FakeUpload(WEBM + b"-second-half")))
+    assert ei.value.status_code == 409
+    assert "拒绝覆盖" in ei.value.detail
+    assert p.read_bytes() == before, "第一份必须逐字节没动"

@@ -20,7 +20,7 @@ import numpy as np
 from logging_config import setup_logging
 import media_retention
 import session_meta
-import session_meta
+import session_purge
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -270,6 +270,28 @@ class QuestionWindow(BaseModel):
     index: int        # 本场内的 0 基序号
     ask_start: float  # 推题那一刻
     ask_end: float    # **题问完那一刻**(不是回答提交时刻 —— 见下面端点)
+
+
+class SessionLabel(BaseModel):
+    """本场的「是谁的、第几场」标注(前端录制前弹窗填的那四项)。
+
+    四段都是**自由文本**,可以为空(空的那段不进标签)。中文原样收 —— 它落进
+    `label.json` 的一个 JSON 字段,**不是目录名、也不是日志文件名**,所以不受
+    `validate_session_id` 那套 ASCII 字符集闸的约束(那套闸拦的是路径名)。
+
+    为什么不做成 `session_id` 的一部分:报告侧只认
+    `_log_{YYYYMMDD}_{HHMMSS}[_{4位hex}]` 的文件名形态,塞进去会让每份日志都
+    匹配不上 ⟹ 报告一份都加载不到。详见 `session_meta` 的「本场标注」段。
+    """
+    serial: str = ""       # 场次序号(使用者自己定的口径)
+    name: str = ""         # 受试者姓名
+    student_id: str = ""   # 学号
+    department: str = ""   # 院系
+    # 本场征询结果(肖像 / 音频权)。`"full"` = 全都同意;`"audio_only"` = 只同意
+    # 声音(前端据此**根本不打开摄像头**)。空 = 没征询(老客户端 / 旧流程)。
+    # ⚠️ 取值由 `session_meta._consent` 校验,**未知值一律 400,不回落默认** ——
+    #    把拼错的当成"全同意"是最坏的方向。
+    consent: str = ""
 
 
 @app.get("/")
@@ -658,6 +680,61 @@ async def get_interview_evaluation():
         raise HTTPException(status_code=500, detail=f"获取评估结果失败: {str(e)}")
 
 
+@app.post("/session/{session_id}/label")
+async def submit_session_label(session_id: str, body: SessionLabel):
+    """记下本场的标注(姓名/学号/院系/场次序号),落会话根的 `label.json`。
+
+    为什么要有这个端点:标注得**存在服务器上** —— 换台电脑打开也查得到,而这
+    恰恰是 localStorage 顶不了的事(那是"在这台电脑上记得",不是"记下来了")。
+
+    路径参数带 `session_id` 与 `/session/{sid}/question`、`/session/{sid}/media`
+    同一形态:这一条路由的身份就是那个会话。
+
+    同一个会话再报一次 = **覆盖**(见 `session_meta.upsert_label`):标注是"这一场
+    是谁的",一个会话只有一个答案,而打错一个字必须能改。
+
+    非法 `session_id` / 四个字段全空 / 字段类型不对,都是**请求本身**的毛病 → 400
+    (不是 500):客户端得知道是它自己发错了,而不是服务器坏了。
+    """
+    try:
+        rec = session_meta.upsert_label(
+            session_id, serial=body.serial, name=body.name,
+            student_id=body.student_id, department=body.department,
+            consent=body.consent or None)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    # 把**拼好的**标签回给前端:界面显示的是这里算出来的那一个,不是前端自己拼的
+    # —— 拼法只允许有一处定义(`session_meta.compose_label`)。
+    return {"status": "success", "session_id": rec["session_id"],
+            "label": rec["label"], "fields": {k: rec[k] for k in
+                                              ("serial", "name", "student_id", "department")}}
+
+
+@app.post("/session/{session_id}/discard")
+async def discard_session(session_id: str):
+    """**真删本场**(「不留存 / 这是测试」与「不同意录制」那条路)。
+
+    ⚠️ **这个端点没有管理员密码**,是刻意的:录制页在录的时候**没有**管理员 token
+       (那是素材页的东西,而且 token 在 sessionStorage 里、按标签页隔离),而
+       "不留存"是录制结束时当场要做的动作。与同组的 `/session/{sid}/label`、
+       `/session/{sid}/question` 同一姿态 —— 那些本来就能改身份数据。
+       服务只绑 loopback、经 `tailscale serve` 发布,边界是 tailnet。
+       ⚠️ 这是使用者 2026-09-28 确认过的取舍,不是遗漏。
+
+    实现在 `session_purge.purge_session`(与面板那条 purge 端点**共用同一份**)——
+    删两处:场次目录 + `data/logs/` 里那三份 CSV。
+    """
+    try:
+        removed = session_purge.purge_session(session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"删除失败:{exc}")
+    return {"status": "success", "session_id": session_id, **removed}
+
+
 @app.post("/session/{session_id}/question")
 async def submit_session_question(session_id: str, body: QuestionWindow):
     """记一道题的提问窗口。`response_latency` 只此一途(spec §3.9 / §5.5)。
@@ -723,7 +800,14 @@ async def submit_session_media(session_id: str, file: UploadFile = File(...)):
     if not data:
         raise HTTPException(status_code=400, detail="上传是空的 —— 没有可留存的录像")
 
-    rec = media_retention.retain_uploaded_video(sid, data, source="/session/media")
+    try:
+        rec = media_retention.retain_uploaded_video(sid, data, source="/session/media")
+    except media_retention.CameraAlreadyRetained as exc:
+        # **409**,不是 400 也不是 500:请求本身没毛病(字节是好的、id 是合法的),
+        # 是它与**目标当前状态**冲突 —— 本场已经有一份原生录像了,而那一份不可再生。
+        # 这个前提是"一次录制 = 一场会话"(前端每次「开始录制」铸新号);合法路径下
+        # 永远不该触发,一旦触发就说明上游把多次录制塞进了同一场,必须响亮。
+        raise HTTPException(status_code=409, detail=str(exc))
     if rec is None:
         # 两种"没存":留存被显式关掉 / 中途写失败。两者都**不许装成功** ——
         # 这个端点唯一的工作就是留存,静默 200 会让人以为素材存下了。

@@ -13,6 +13,9 @@ from pathlib import Path
 from typing import Any
 
 from .session import NONE_SESSION
+# 目录名规则(含"存过标注就叫 `<标签>__<sid>`")只允许有一处定义,见下面
+# `recording_dir` 的说明。别名导入:本模块自己也有一个 `recording_dir`。
+from media_retention import recording_dir as _shared_recording_dir
 
 DEFAULT_ROOT = Path.home() / "shared" / "jingxin_recordings"          # D:\Shared\jingxin_recordings
 TRANSCRIPT_FILENAME = "transcript.json"        # spec §6.4:一个会话一个文件,累积写
@@ -84,6 +87,16 @@ def _root(root: str | Path | None) -> Path:
 
 
 def recording_dir(session_id: str, root: str | Path | None = None) -> Path:
+    """本场的录制目录。
+
+    ⚠️ 目录**名**不是死的:存过标注的场次叫 `<标签>__<sid>`(`media_retention`
+    的 `resolve_recording_dir`)。所以 `root=None`(生产那条路)时必须**委托给它**,
+    不能在这里按 `root()/<sid>` 自己算 —— 自己算的话,改过名的场次会被劈成两个
+    目录:`session.json` 写进旧的空目录、而帧写进新的,**两边都"成功"**。
+    `root` 显式给了的调用方(测试/工具)按老样子走,不受目录名规则影响。
+    """
+    if root is None:
+        return _shared_recording_dir(session_id)
     d = _root(root) / validate_session_id(session_id)
     d.mkdir(parents=True, exist_ok=True)
     return d

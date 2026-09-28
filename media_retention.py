@@ -78,10 +78,153 @@ def validate_modality(modality: str) -> str:
     return modality
 
 
+# ── 墓碑:被「不留存 / 不同意录制」作废掉的场次 ────────────────────────────
+#
+# 为什么需要:作废会**删掉**场次目录,而**后续任何一次写入都会把那个 sid 的目录
+# 重新建出来**。2026-09-28 实测:删完之后又来了一次 `/session/<sid>/question`,
+# 于是在录制根下留下一个只含 `questions.jsonl` 的裸目录 —— 而素材列表显示的就是
+# 盘上的东西,于是"已经删掉的一场"又挂在那里。**"删了"与"看着删了"必须是一回事。**
+#
+# 印记是一个**空文件**。它不进素材列表(见 `recordings_browser._iter_sessions`),
+# 但让所有**创建**路径拒绝再写(见 `assert_not_purged` 的两个调用点)。
+TOMBSTONE_DIR_NAME = "_已作废"
+
+
+def tombstone_path(session_id: str) -> Path:
+    return root() / TOMBSTONE_DIR_NAME / validate_session_id(session_id)
+
+
+def is_purged(session_id: str) -> bool:
+    """这一场是不是被明确作废过。取值失败一律当**没作废**(读侧不该因它炸)。"""
+    try:
+        return tombstone_path(session_id).is_file()
+    except (ValueError, OSError):
+        return False
+
+
+def mark_purged(session_id: str) -> None:
+    p = tombstone_path(session_id)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("", encoding="utf-8")
+
+
+def assert_not_purged(session_id: str) -> None:
+    """**创建**素材前必须过这一关。两个调用点:`recording_dir` 与
+    `session_meta._session_dir(create=True)` —— 那是全仓仅有的两条创建路径。"""
+    if is_purged(session_id):
+        raise ValueError(
+            f"本场已被作废({session_id}):它的素材被明确删除过,不能再往里写。"
+            f"要重录请铸一个新号(一次录制 = 一场)。")
+
+
 def recording_dir(session_id: str) -> Path:
-    d = root() / validate_session_id(session_id)
+    assert_not_purged(session_id)
+    d = resolve_recording_dir(session_id)
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+# ── 目录名带本场标注:`<标签>__<sid>`(使用者 2026-09-27 裁定)──────────────────
+#
+# 为什么 sid 必须留在目录名**尾部**:`session_id` 同时是 `data/logs/` 里三份日志的
+# 文件名,而报告侧的 `data_loader` 就按那个正则找日志。目录名可以改,但必须**还能从
+# sid 推出来** —— 否则下面那些 `root()/<sid>` 的调用点(media_retention /
+# transcript_store / session_meta / 重放工具)会集体失效,而失效的形态是
+# **素材静默写不进去**,本仓最贵的那一类。
+
+LABEL_DIR_SEP = "__"
+
+# 目录名的字节上限。文件系统是 255 字节,而中文在 UTF-8 里 3 字节/字 ——
+# 留出余量取 240。超了**拒**(见 `label_dir_name`),不悄悄不改名。
+DIR_NAME_MAX_BYTES = 240
+
+_UNSAFE_IN_PATH_COMPONENT = ("/", "\\", "\x00")
+
+
+def _safe_path_component(value: str, what: str) -> str:
+    """守卫:一段值要被拼进**目录名**,就得保证它自己不是路径。
+
+    ⚠️ 与 `validate_session_id` 同一类风险、同一类守卫。标注是**客户端可控**的
+    (走 HTTP 表单),而它现在会被拼成目录名 —— `../..` 之类的值能在录制根**之外**
+    建目录。放它进来等于把刚焊好的那道门撬开一个口子。
+    """
+    if not isinstance(value, str):
+        raise ValueError(f"{what} 必须是字符串,收到 {type(value).__name__}")
+    v = value.strip()
+    if not v:
+        raise ValueError(f"{what} 是空的 —— 空的当不了目录名的一段")
+    for ch in _UNSAFE_IN_PATH_COMPONENT:
+        if ch in v:
+            raise ValueError(f"{what} 里有路径分隔符或 NUL:{v!r} —— 它会被拼进目录名")
+    if v.startswith("."):
+        # 一并挡掉 `.` / `..` / `.hidden`
+        raise ValueError(f"{what} 不能以点开头:{v!r}(`.`/`..`/隐藏名都不行)")
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in v):
+        raise ValueError(f"{what} 里有控制字符:{v!r}")
+    return v
+
+
+def label_dir_name(label: str, session_id: str) -> str:
+    """`<标签>__<sid>`。标签本身过长/含路径分隔符时抛 `ValueError`(请求的毛病 → 400)。
+
+    标签里出现 `__` 不影响解析:`resolve_recording_dir` 是按**后缀** `__<sid>` 认的,
+    而 sid 唯一。
+    """
+    sid = validate_session_id(session_id)
+    comp = _safe_path_component(label, "本场标注")
+    name = f"{comp}{LABEL_DIR_SEP}{sid}"
+    n = len(name.encode("utf-8"))
+    if n > DIR_NAME_MAX_BYTES:
+        raise ValueError(
+            f"标注太长:与 session_id 拼成目录名后有 {n} 字节,超过上限 "
+            f"{DIR_NAME_MAX_BYTES}(文件系统是 255;中文 3 字节/字)—— 请写短一点")
+    return name
+
+
+def resolve_recording_dir(session_id: str) -> Path:
+    """定这一场的目录。**不建目录**(读侧不该有副作用)。
+
+    三条路,按顺序:
+    1. `root()/<sid>` 在 ⟹ 就用它。**历史素材(本轮之前那 56 场)照旧不动**,
+       没标的场次也走这条。
+    2. 否则找后缀 `__<sid>` 的目录 —— 那是存过标注、被改过名的。
+       sid 唯一 ⟹ 至多一个。
+    3. 都没有(这一场什么都还没落)⟹ 返回旧形态的路径,由调用方决定建不建。
+    """
+    sid = validate_session_id(session_id)
+    base = root()
+    legacy = base / sid
+    if legacy.is_dir():
+        return legacy
+    suffix = f"{LABEL_DIR_SEP}{sid}"
+    try:
+        for p in sorted(base.iterdir()):
+            if p.is_dir() and p.name.endswith(suffix):
+                return p
+    except (FileNotFoundError, NotADirectoryError):
+        pass          # 录制根都还不存在 ⟹ 走第 3 条
+    return legacy
+
+
+def rename_session_dir_to_label(session_id: str, label: str) -> Path:
+    """把这一场的目录改成 `<标签>__<sid>`。已经叫那个名就原样返回。
+
+    调用时机在 `session_meta.upsert_label` 里,即**开录之前**(标注存完才开录)
+    ⟹ 改名那一刻没有并发的写入方抢路径。
+    ⚠️ 「录完改标签」那次改名**可能**与在录的帧撞上:face/gesture 每个请求都重新
+    解析一次目录,所以撞上的是"刚解析完旧路径、目录就没了"那一瞬间 ——
+    那几帧会被留存层记成降级(`degraded_reasons`),不会静默。
+    """
+    sid = validate_session_id(session_id)
+    target = root() / label_dir_name(label, sid)
+    current = resolve_recording_dir(sid)
+    if current == target:
+        return current
+    if target.exists():
+        raise ValueError(f"目录名已被占用:{target.name}")
+    current.mkdir(parents=True, exist_ok=True)
+    os.replace(current, target)      # 同一个盘 ⟹ 原子
+    return target
 
 
 def media_dir(session_id: str, *parts: str) -> Path:
@@ -441,6 +584,21 @@ def retain_audio(session_id: str, kind: str, data: bytes, source: str = "",
 CAMERA_FILENAME = "camera.webm"
 
 
+class CameraAlreadyRetained(RuntimeError):
+    """本场已经有 `media/camera.webm` 了 —— 再传会把**已有的那份覆盖掉**。
+
+    为什么是**拒绝**而不是"覆盖 + 账本留痕":原始素材不可再生。本项目花整个 M2.6
+    留原始媒体,理由就是"分析代码必然有缺陷、算错了要能重算" —— 而被覆盖掉的那一份
+    没有第二次机会。账本留两行 sha 只能证明"曾经有过一份",**救不回字节**。
+
+    ★ 它成立的前提是调用方守着「**一次录制 = 一场会话**」。合法路径下这个异常
+    永远不该被触发;一旦触发,说明上游把多次录制塞进了同一场 —— 那正是要报出来的事。
+
+    2026-09-28 实盘:使用者在**一个页面里连录 9 个学生**,9 次上传挤进同一场,
+    前 8 份原生录像被原地覆盖,丢 2.1 GB。当时的实现正是"覆盖 + 账本留痕"。
+    """
+
+
 def retain_uploaded_video(session_id: str, data: bytes,
                           source: str = "") -> dict | None:
     """把前端 `MediaRecorder` 录的**原生音视频**原样存成 `media/camera.webm`。
@@ -450,8 +608,11 @@ def retain_uploaded_video(session_id: str, data: bytes,
     ⟹ 在 5 fps 下是伪测量),前端这一腿留的才是**帧率没被钉死的原生流**。
     两者不是冗余,是两件事。
 
-    **一个会话只有一个文件名** —— 第二次上传覆盖它。账本仍然一次一记,
-    所以"哪一份被覆盖过、当时是什么"有据可查(测试钉住了这一点)。
+    ★ **一个会话只许有一份 `camera.webm`;第二份会被拒绝**(`CameraAlreadyRetained`),
+    不是覆盖。前提是调用方守着「**一次录制 = 一场会话**」(前端每次「开始录制」铸新号)。
+    这个前提原来写的是"第二次上传覆盖它,账本留痕即可" —— **2026-09-28 实盘推翻了它**:
+    使用者的用法是**一个页面连录多个学生**,于是 9 次录制挤进同一场,
+    8 份原生录像被原地覆盖,丢了 2.1 GB —— 而账本那两行 sha 证明不了任何字节还在。
 
     `_prepare` 的探针传空元组:文件落在 `media/` 本身,没有 `media/camera/` 这一层。
     """
@@ -459,6 +620,15 @@ def retain_uploaded_video(session_id: str, data: bytes,
         return None
     sid = validate_session_id(session_id)
     with _session_lock(sid):
+        # ⚠️ 这个守卫必须在下面那个 `try` 的**外面**。放进去的话 `except Exception`
+        #    会把它当"写失败"吞成 degraded —— 于是"拒绝覆盖"变成静默降级,
+        #    正是它要消灭的那个形态。
+        target = resolve_recording_dir(sid) / MEDIA_SUBDIR / CAMERA_FILENAME
+        if target.exists():
+            raise CameraAlreadyRetained(
+                f"本场已经有 {MEDIA_SUBDIR}/{CAMERA_FILENAME} 了"
+                f"({target.stat().st_size} 字节)—— 拒绝覆盖。"
+                f"一份原生录像不可再生;要再录请开新的一场(前端每次「开始录制」会铸新号)。")
         if not _prepare(sid, "camera", probe_parts=()):
             return None
         try:

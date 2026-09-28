@@ -28,7 +28,10 @@ import time
 from pathlib import Path
 from typing import Any
 
-from media_retention import root as _recordings_root, validate_session_id
+import media_retention
+from media_retention import (validate_session_id,
+                             resolve_recording_dir, label_dir_name,
+                             rename_session_dir_to_label)
 
 QUESTIONS_FILENAME = "questions.jsonl"
 META_FILENAME = "meta.json"
@@ -55,9 +58,16 @@ def _session_dir(session_id: str, *, create: bool) -> Path:
 
     为什么不用 `media_retention.recording_dir`:那个函数**总是建目录**,
     于是"读一场根本不存在/没报过题的会话"会在盘上留下一个空会话目录。
+
+    目录**名**由 `media_retention.resolve_recording_dir` 定 —— 存过标注的场次叫
+    `<标签>__<sid>`,其余叫 `<sid>`。三处(本模块 / media_retention /
+    transcript_store)必须共用同一套解析,否则一场会被劈成两个目录。
     """
     sid = validate_session_id(session_id)
-    d = _recordings_root() / sid
+    if create:
+        # 与 `media_retention.recording_dir` 同一道守卫(全仓仅有的两条创建路径)。
+        media_retention.assert_not_purged(sid)
+    d = resolve_recording_dir(sid)
     if create:
         d.mkdir(parents=True, exist_ok=True)
     return d
@@ -169,6 +179,130 @@ def upsert_question(session_id: str, *, qid: str, index: int,
                        encoding="utf-8")
         os.replace(tmp, p)
     return rec
+
+
+# ---------------------------------------------------------------- 本场标注(label)
+
+LABEL_FILENAME = "label.json"
+
+# 单个字段的长度上限。依据:这个值会写进 JSON、并在界面上**原样渲染**,不设上限
+# 等于让一次粘贴事故把界面撑爆。120 远超真名/学号/院系的长度。
+LABEL_FIELD_MAX = 120
+
+
+def label_path(session_id: str) -> Path:
+    return _session_dir(session_id, create=False) / LABEL_FILENAME
+
+
+def _label_field(raw: Any, what: str) -> str:
+    """类型/长度守一道。抛 ValueError = **请求本身**的毛病(端点据此转 400)。"""
+    if not isinstance(raw, str):
+        raise ValueError(f"{what} 必须是字符串,收到 {type(raw).__name__}")
+    v = raw.strip()
+    if len(v) > LABEL_FIELD_MAX:
+        raise ValueError(f"{what} 超过 {LABEL_FIELD_MAX} 字符(收到 {len(v)} 字符)")
+    return v
+
+
+def _stamp_from_session_id(session_id: str) -> str:
+    """`YYYYMMDD_HHMMSS_xxxx` → `YYYYMMDD_HHMMSS`。"""
+    parts = session_id.split("_")
+    return "_".join(parts[:2]) if len(parts) >= 2 else session_id
+
+
+def compose_label(session_id: str, *, serial: str, name: str,
+                  student_id: str, department: str) -> str:
+    """把四个字段拼成给人看的标签(**格式只在这一处定义**)。
+
+    时间取自 `session_id` 自己那一段,**不取当前时刻**:报告端、日志文件名、录制
+    目录名全用 id 那一串,而标签是人拿来**对号**的 —— 它自己另取一个时刻,就会
+    出现"标签说 20:35、文件名说 20:33"这种对不上的场面。
+
+    留空的字段**整段不出现**(不留 `a--b` 那种孤零零的分隔符:"那里有个空字段"
+    与"没填"看着是两回事,实际是一回事)。
+    """
+    parts = [_stamp_from_session_id(session_id),
+             _label_field(serial, "场次序号"), _label_field(name, "姓名"),
+             _label_field(student_id, "学号"), _label_field(department, "院系")]
+    return "-".join(p for p in parts if p)
+
+
+# ── 本场征询结果(肖像 / 音频权)─────────────────────────────────────────
+#
+# `full`       = 摄像头 + 麦克风全开(默认的老做法)
+# `audio_only` = 只开麦克风,**根本不打开摄像头** ⟹ 这一场没有帧、没有原生录像,
+#                face / gesture 两个模态在报告里如实显示"未采集"
+#
+# 为什么它不是 `label` 的一部分、也不进目录名:目录名是"这一场是谁的",而同意与否
+# 不是身份 —— 把它拼进目录名会让同一场在改主意时被迫改名,而改名会与在录的帧抢路径
+# (`rename_session_dir_to_label` 的注释里记着这个坑)。
+CONSENT_VALUES = ("full", "audio_only")
+
+
+def _consent(value: str | None) -> str | None:
+    """守卫:未知取值一律拒。**不猜、不回落默认** —— 一个拼错的征询结果如果被静默
+    当成"全同意",那是最坏的方向(把没同意的人当成同意的人录)。"""
+    if value is None or value == "":
+        return None
+    if value not in CONSENT_VALUES:
+        raise ValueError(f"未知的征询结果:{value!r}(只允许 {CONSENT_VALUES})")
+    return value
+
+
+def upsert_label(session_id: str, *, serial: str, name: str,
+                 student_id: str, department: str,
+                 consent: str | None = None,
+                 recorded_at: float | None = None) -> dict:
+    """记下"这一场是谁的、第几场"。同一会话再报一次 = **覆盖**。
+
+    为什么是 upsert:标注是"这一场是谁的",一个会话只有一个答案;而**打错一个字
+    必须能改** —— 打错了就永久错了的字段,没人敢填。
+    为什么另存一份、而不是拼进 `session_id`:见 `tests/test_session_meta_label.py`
+    开头(报告侧的文件名契约 + 写侧只收 ASCII 的字符集闸)。
+    """
+    sid = validate_session_id(session_id)
+    fields = {"serial": _label_field(serial, "场次序号"),
+              "name": _label_field(name, "姓名"),
+              "student_id": _label_field(student_id, "学号"),
+              "department": _label_field(department, "院系")}
+    if not any(fields.values()):
+        # 全空 ⟹ 标签退化成那串 id,等于没标 —— 而标注的全部意义就是把它与别的
+        # 场次分开。拒掉,不存一份没有信息量的标注。
+        raise ValueError("标注四个字段全空 —— 那等于没标,请至少填一项")
+    consent = _consent(consent)
+    rec = {"session_id": sid,
+           "recorded_at_wall": float(recorded_at if recorded_at is not None else time.time()),
+           **fields,
+           "label": compose_label(sid, **fields)}
+    # 征询结果也落在这里 —— 它是"签字同意"的**证据**。只活在页面状态里的话,
+    # 事后**无法证明**这一场是经同意的,而这是一个拿真人做素材的系统。
+    # ⚠️ 没给就不写这个键:老记录(征询功能上线之前那批)保持原样,免得凭空多出
+    #    一个 `consent: null` 让人误以为"征询过、结果是空"。
+    if consent is not None:
+        rec["consent"] = consent
+    # 目录名要先验(**在写盘之前**):标签现在会被拼进录制目录名,而超长/含路径
+    # 分隔符的目录名是**请求本身**的毛病。先验就不会留下"标注存了、目录没改名"
+    # 这种各说各话的中间态。
+    label_dir_name(rec["label"], sid)
+    with _session_lock(sid):
+        p = _session_dir(sid, create=True) / LABEL_FILENAME
+        # 写临时文件再 replace(与 upsert_question 同一讲究:进程被杀不留半个文件)
+        tmp = p.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(rec, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(tmp, p)
+        # 存完标注就把目录改成 `<标签>__<sid>` —— 这样在盘上 lS 一眼就认得出这一场
+        # 是谁的(使用者要的"recording 里的命名就是我设置的那个")。
+        rename_session_dir_to_label(sid, rec["label"])
+    return rec
+
+
+def read_label(session_id: str) -> dict | None:
+    """没报过 = `None`(不是异常)。文件损坏则**原样抛** —— 与 `read_meta` 同一口径:
+    读不出来就是读不出来,不假装"没有标注"(那两者在收尾对账里是两回事)。"""
+    p = label_path(session_id)
+    if not p.exists():
+        return None
+    return json.loads(p.read_text(encoding="utf-8"))
 
 
 # ---------------------------------------------------------------- 阶段 A 元数据
