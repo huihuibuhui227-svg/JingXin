@@ -8,6 +8,7 @@ import asyncio
 import importlib
 
 import pytest
+from fastapi import HTTPException
 
 session_meta = importlib.import_module("session_meta")
 voice_app = importlib.import_module("voice_interaction.api.app")
@@ -63,3 +64,24 @@ def test_all_blank_label_is_400_not_500(_isolated):
                                         department="")))
     assert ei.value.status_code == 400
     assert not (_isolated / SID / "label.json").exists()
+
+
+def test_consent_round_trips_through_the_endpoint(_isolated):
+    """★ 红法:把端点里 `consent=body.consent or None` 那个参数去掉。
+
+    征询结果**必须能通过这个端点落盘** —— 它是前端唯一的上报口。少了这一句,
+    前端选「只同意声音」也照样存不进去,而界面上什么都不会报错。
+    """
+    r = _post(consent="audio_only")
+    assert r["status"] == "success", r
+    assert session_meta.read_label(SID)["consent"] == "audio_only"
+
+
+def test_an_unknown_consent_is_a_400_not_a_silent_default(_isolated):
+    """★ 红法:把 `session_meta._consent` 的拒绝改成回落 `full`。
+
+    回落 `full` 是**最坏的方向** —— 把"没同意"记成"全同意"。所以这里要 400。
+    """
+    with pytest.raises(HTTPException) as e:
+        _post(consent="yes")
+    assert e.value.status_code == 400

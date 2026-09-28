@@ -20,7 +20,7 @@ import numpy as np
 from logging_config import setup_logging
 import media_retention
 import session_meta
-import session_meta
+import session_purge
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -287,6 +287,11 @@ class SessionLabel(BaseModel):
     name: str = ""         # 受试者姓名
     student_id: str = ""   # 学号
     department: str = ""   # 院系
+    # 本场征询结果(肖像 / 音频权)。`"full"` = 全都同意;`"audio_only"` = 只同意
+    # 声音(前端据此**根本不打开摄像头**)。空 = 没征询(老客户端 / 旧流程)。
+    # ⚠️ 取值由 `session_meta._consent` 校验,**未知值一律 400,不回落默认** ——
+    #    把拼错的当成"全同意"是最坏的方向。
+    consent: str = ""
 
 
 @app.get("/")
@@ -694,7 +699,8 @@ async def submit_session_label(session_id: str, body: SessionLabel):
     try:
         rec = session_meta.upsert_label(
             session_id, serial=body.serial, name=body.name,
-            student_id=body.student_id, department=body.department)
+            student_id=body.student_id, department=body.department,
+            consent=body.consent or None)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     # 把**拼好的**标签回给前端:界面显示的是这里算出来的那一个,不是前端自己拼的
@@ -702,6 +708,31 @@ async def submit_session_label(session_id: str, body: SessionLabel):
     return {"status": "success", "session_id": rec["session_id"],
             "label": rec["label"], "fields": {k: rec[k] for k in
                                               ("serial", "name", "student_id", "department")}}
+
+
+@app.post("/session/{session_id}/discard")
+async def discard_session(session_id: str):
+    """**真删本场**(「不留存 / 这是测试」与「不同意录制」那条路)。
+
+    ⚠️ **这个端点没有管理员密码**,是刻意的:录制页在录的时候**没有**管理员 token
+       (那是素材页的东西,而且 token 在 sessionStorage 里、按标签页隔离),而
+       "不留存"是录制结束时当场要做的动作。与同组的 `/session/{sid}/label`、
+       `/session/{sid}/question` 同一姿态 —— 那些本来就能改身份数据。
+       服务只绑 loopback、经 `tailscale serve` 发布,边界是 tailnet。
+       ⚠️ 这是使用者 2026-09-28 确认过的取舍,不是遗漏。
+
+    实现在 `session_purge.purge_session`(与面板那条 purge 端点**共用同一份**)——
+    删两处:场次目录 + `data/logs/` 里那三份 CSV。
+    """
+    try:
+        removed = session_purge.purge_session(session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"删除失败:{exc}")
+    return {"status": "success", "session_id": session_id, **removed}
 
 
 @app.post("/session/{session_id}/question")

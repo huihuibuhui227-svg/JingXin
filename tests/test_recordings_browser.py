@@ -31,13 +31,14 @@ import app as panel
 
 
 _SID = "20260928_212130_5b10"
+_OTHER_SID = "20260928_180131_8102"
 _LABEL_DIR = f"18-赵六-2021004-物理学院__{_SID}"
 
 # 未授权那次响应里**允许**出现的键。多一个就是泄露 —— 用"允许清单"而不是
 # "禁止清单":禁止清单会随着新字段的加入静默失效,允许清单不会。
 _UNAUTH_RECORD_KEYS = {
     "sid", "is_none_bucket", "has_video", "video_bytes",
-    "frames", "modified", "degraded",
+    "frames", "modified", "degraded", "report_count",
 }
 
 # 身份字段的探针。任何一个出现在未授权响应里(哪怕藏在字符串里)都算红。
@@ -47,12 +48,35 @@ _IDENTITY_PROBES = ("赵六", "2021004", "物理学院", "student_id", "departme
 
 @pytest.fixture
 def root(tmp_path, monkeypatch):
-    """一个隔离的录制根。`media_retention.root()` 每次都读环境变量 ⟹ 直接设就行。"""
+    """一个隔离的录制根。`media_retention.root()` 每次都读环境变量 ⟹ 直接设就行。
+
+    ⚠️ **`LOGS_DIR` 也必须指到 tmp**。`purge` 会真删 `data/logs/` 里的 CSV,而
+       `app.config['LOGS_DIR']` 默认指着**仓库里那个真目录** —— 不换掉的话,
+       跑一次测试就等于拿真日志练手。本仓有一条 `test_log_isolation.py` 守着
+       同一类事,这里是它的第二个入口。
+    """
     r = tmp_path / "recordings"
     r.mkdir()
     monkeypatch.setenv("JINGXIN_RECORDINGS_DIR", str(r))
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    monkeypatch.setitem(panel.app.config, "LOGS_DIR", str(logs))
     mr._reset_for_tests()
     return r
+
+
+@pytest.fixture
+def log_csvs(tmp_path):
+    """造三份日志 CSV 用的目录(与 `root` 里的那个是同一个 tmp)。"""
+    def _make(sid: str, prefixes=("face_au_log", "gesture_emotion_log",
+                                   "interview_emotion_log")):
+        out = []
+        for p in prefixes:
+            f = tmp_path / "logs" / f"{p}_{sid}.csv"
+            f.write_text("session_id,timestamp\n" + sid + ",1\n", encoding="utf-8")
+            out.append(f)
+        return out
+    return _make
 
 
 def _make_session(root: Path, dir_name: str, *, video=b"", face=0, gesture=0,
@@ -482,6 +506,98 @@ def test_preview_ready_goes_stale_when_the_video_is_replaced(admin_client, root)
     assert admin_client.get(f"/api/recordings/{_SID}").get_json()["preview_ready"] is False
 
 
+# ── 7. purge:真删(只给"刚录完、明确说不要"那条路)──────────────────────
+
+def test_purge_removes_both_the_session_dir_and_the_log_csvs(admin_client, root, log_csvs):
+    """★ 红法:把 `_log_csvs` 那一段从 purge 里去掉(只删目录)。
+
+    **两处都要删**。少删日志,报告层就会看到"有日志没素材"这种半截状态 ——
+    而它看起来只是一场没采到的会话,不是"这一场被作废了"。
+    """
+    d = _make_session(root, _LABEL_DIR, video=b"v" * 10, face=3)
+    logs = log_csvs(_SID)
+    assert all(p.is_file() for p in logs)
+
+    r = admin_client.post(f"/api/recordings/{_SID}/purge", json={"confirm": _SID})
+    assert r.status_code == 200, r.get_json()
+    body = r.get_json()
+    assert body["session_dir"] == _LABEL_DIR, body
+    assert len(body["logs"]) == 3, body
+
+    assert not d.exists(), "场次目录还在"
+    assert not any(p.exists() for p in logs), "日志 CSV 还在"
+
+
+def test_purge_leaves_everything_else_alone(admin_client, root, log_csvs, tmp_path):
+    """★ 红法:把 `_resolve_sid` 换成 `mr.root() / sid`(少了正则与根内校验)。
+
+    真删是最不可逆的那一步,所以这条钉的是**没被删的东西**:隔壁那一场、以及
+    录制根本身。少了上面那句守卫,`sid` 就能一路爬出去。
+    """
+    keep = _make_session(root, f"18-赵六-2021004-物理学院__{_OTHER_SID}", face=1)
+    _make_session(root, _LABEL_DIR, face=1)
+    other_log = tmp_path / "logs" / f"face_au_log_{_OTHER_SID}.csv"
+    other_log.write_text("x", encoding="utf-8")
+    log_csvs(_SID)
+
+    admin_client.post(f"/api/recordings/{_SID}/purge", json={"confirm": _SID})
+
+    assert keep.is_dir(), "把隔壁那一场也删了"
+    assert other_log.is_file(), "把隔壁那一场的日志也删了"
+    assert root.is_dir(), "把录制根本身删了"
+
+
+def test_purge_needs_the_sid_typed_back(admin_client, root, log_csvs):
+    """★ 红法:去掉 confirm 那一段。"""
+    d = _make_session(root, _LABEL_DIR)
+    log_csvs(_SID)
+
+    r = admin_client.post(f"/api/recordings/{_SID}/purge", json={"confirm": "nope"})
+    assert r.status_code == 400
+    assert d.is_dir(), "确认没过就动手了"
+
+
+def test_purge_refuses_the_none_bucket(admin_client, root):
+    """★ 红法:去掉 `if sid == NONE_BUCKET` 那一段。
+
+    NONE 桶里是**所有没带 session_id 的请求**的素材,不属于任何一场。
+    「本场作废」只会对着刚铸的号说,不可能是它 —— 允许删它等于给了一个
+    一次删掉整个无主素材堆的按钮。
+    """
+    (root / rb.NONE_BUCKET).mkdir()
+    r = admin_client.post(f"/api/recordings/{rb.NONE_BUCKET}/purge",
+                          json={"confirm": rb.NONE_BUCKET})
+    assert r.status_code == 400, r.get_json()
+    assert (root / rb.NONE_BUCKET).is_dir()
+
+
+def test_purge_still_clears_the_logs_when_the_dir_is_already_gone(admin_client, root, log_csvs):
+    """★ 红法:目录不存在时直接回 404 并 `return`。
+
+    目录可能已经没了(手工删过、或上一轮删了一半),而日志还在。那正是最需要
+    被清掉的情形 —— 早退会留下"有日志没素材"。
+    """
+    log_csvs(_SID)
+    r = admin_client.post(f"/api/recordings/{_SID}/purge", json={"confirm": _SID})
+
+    assert r.status_code == 200, r.get_json()
+    assert len(r.get_json()["logs"]) == 3
+    assert not (root / _LABEL_DIR).exists()
+
+
+def test_purge_is_admin_only_and_refuses_traversal(client, root, monkeypatch):
+    """★ 红法:给 purge 去掉 `@_admin_required()`。"""
+    monkeypatch.setenv(rb.ADMIN_PASSWORD_ENV, "s3cret")
+    _make_session(root, _LABEL_DIR)
+    assert client.post(f"/api/recordings/{_SID}/purge", json={"confirm": _SID}).status_code == 401
+
+    tok = client.post("/api/admin/login", json={"password": "s3cret"}).get_json()["token"]
+    for bad in ("..", "../../etc", "a/b"):
+        r = client.post(f"/api/recordings/{bad}/purge", json={"confirm": bad},
+                        headers={"Authorization": f"Bearer {tok}"})
+        assert r.status_code in (400, 404), f"{bad} → {r.status_code}"
+
+
 def test_every_sensitive_endpoint_refuses_without_a_token(client, root, monkeypatch):
     """★ 红法:给任何一个端点去掉 `@_admin_required`。
 
@@ -495,6 +611,7 @@ def test_every_sensitive_endpoint_refuses_without_a_token(client, root, monkeypa
                  f"/api/recordings/{_SID}/file?name=label.json"):
         assert client.get(path).status_code == 401, path
     assert client.post(f"/api/recordings/{_SID}/trash", json={"confirm": _SID}).status_code == 401
+    assert client.post(f"/api/recordings/{_SID}/purge", json={"confirm": _SID}).status_code == 401
 
 
 def test_media_endpoints_also_accept_the_token_in_the_query(client, root, monkeypatch):
@@ -536,3 +653,27 @@ def test_sensitive_endpoints_say_503_when_no_password_is_configured(client, root
         r = client.get(path)
         assert r.status_code == 503, path
         assert rb.ADMIN_PASSWORD_ENV in r.get_json()["error"]
+
+
+# ── 8. 报告索引:读的是**正文**,不是文件名 ───────────────────────────────
+
+def test_report_count_reads_the_html_body(client, root, tmp_path, monkeypatch):
+    """★ 红法:把 `_sids_in_report` 里的 `SID_IN_TEXT` 换回 `SID_PAT`。
+
+    `SID_PAT` 带 `^…$` 锚点 —— 它是给 `fullmatch`("这个字符串整体是不是一个 sid")
+    用的。拿它去 `findall` 扫一份 HTML,**一个都找不到**:锚点要求匹配落在整份文档的
+    首尾。2026-09-28 实测踩到,而它的表现**不是报错** —— 是"所有场次都没有报告",
+    看起来像"报告确实没生成"。同一个 sid、两个模式,一个命中一个不命中。
+
+    为什么报告只能读正文:报告文件名是**生成时刻**(`Research_Assessment_Report_
+    <YYYYMMDD_HHMMSS>.html`),不含 sid。
+    """
+    out = tmp_path / "output"
+    out.mkdir()
+    monkeypatch.setitem(panel.app.config, "OUTPUT_DIR", str(out))
+    (out / "Research_Assessment_Report_20260928_120000.html").write_text(
+        f"<html><body><p>本报告描述的是 {_SID} 这一场。</p></body></html>", encoding="utf-8")
+    _make_session(root, _LABEL_DIR)
+
+    recs = client.get("/api/recordings").get_json()["recordings"]
+    assert recs[0]["report_count"] == 1, recs

@@ -121,3 +121,48 @@ def test_reading_a_session_that_never_reported_has_no_side_effect(_isolated):
     """读侧**不建目录**:读一场没报过标注的会话不该在盘上留下空会话目录。"""
     assert session_meta.read_label("20260101_000000_aaaa") is None
     assert not (_isolated / "20260101_000000_aaaa").exists()
+
+
+# ── 本场征询结果(肖像 / 音频权)──────────────────────────────────────────
+#
+# 为什么它要落盘:同意与否只活在页面状态里的话,事后**无法证明**这一场是经同意的,
+# 而这是一个拿真人脸和声音做素材的系统。"签过字"与"没签过字"在盘上必须长得不一样。
+
+def test_consent_lands_in_label_json(_isolated):
+    _write(consent="audio_only")
+    assert session_meta.read_label(SID)["consent"] == "audio_only"
+
+
+def test_consent_does_not_leak_into_the_label_or_the_directory_name(_isolated):
+    """★ 红法:把 `consent` 塞进 `compose_label(...)` 的参数里。
+
+    标签是"这一场**是谁的**",同意与否**不是身份**。拼进去会同时坏两件事:
+    目录名多一段看不懂的后缀,而且受试者改主意时要改名 —— 改名会与在录的帧抢路径
+    (`rename_session_dir_to_label` 的注释里记着这个坑)。
+    """
+    rec = _write(consent="audio_only")
+    assert "audio_only" not in rec["label"], rec["label"]
+    assert "audio_only" not in session_meta.label_path(SID).parent.name
+
+
+def test_unknown_consent_is_rejected_not_defaulted(_isolated):
+    """★ 红法:把 `_consent` 改成"不认识就当 None"(或当 `full`)。
+
+    ⚠️ 回落到 `full` 是**最坏的方向** —— 那等于把没同意的人当成同意的人录下来
+    并且留存。宁可 400 让调用方改对。
+    """
+    with pytest.raises(ValueError, match="征询"):
+        _write(consent="yes")
+    with pytest.raises(ValueError, match="征询"):
+        _write(consent="FULL")          # 大小写不同也算未知,不悄悄归一化
+
+
+def test_a_label_without_consent_has_no_consent_key(_isolated):
+    """★ 红法:把 `if consent is not None:` 改成无条件写 `rec["consent"] = consent`。
+
+    老记录(征询功能上线之前那批)必须保持原样。凭空多一个 `consent: null`
+    会让人读成"征询过、结果是空",而真相是"那时候还没有这道流程"。
+    """
+    rec = _write()
+    assert "consent" not in rec
+    assert "consent" not in session_meta.read_label(SID)

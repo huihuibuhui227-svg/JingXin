@@ -32,6 +32,10 @@ ALLOWED_FOLDERS = {'face_expression', 'gesture_analysis', 'voice_interaction'}
 import recordings_browser
 
 app.config['OUTPUT_DIR'] = OUTPUT_DIR
+# 日志落点也交给它:`purge`(真删)要连同 `data/logs/` 里那三份 CSV 一起删,
+# 少删一处就会留下"有日志没素材"的半截状态。同样只在这里定义一次。
+LOGS_DIR = os.path.join(os.path.dirname(__file__), 'data', 'logs')
+app.config['LOGS_DIR'] = LOGS_DIR
 app.register_blueprint(recordings_browser.bp)
 
 # 报告**不写在子目录里** —— `report_generator` 把 `*_Assessment_Report_*.html`

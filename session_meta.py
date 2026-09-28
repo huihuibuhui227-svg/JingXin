@@ -223,8 +223,31 @@ def compose_label(session_id: str, *, serial: str, name: str,
     return "-".join(p for p in parts if p)
 
 
+# ── 本场征询结果(肖像 / 音频权)─────────────────────────────────────────
+#
+# `full`       = 摄像头 + 麦克风全开(默认的老做法)
+# `audio_only` = 只开麦克风,**根本不打开摄像头** ⟹ 这一场没有帧、没有原生录像,
+#                face / gesture 两个模态在报告里如实显示"未采集"
+#
+# 为什么它不是 `label` 的一部分、也不进目录名:目录名是"这一场是谁的",而同意与否
+# 不是身份 —— 把它拼进目录名会让同一场在改主意时被迫改名,而改名会与在录的帧抢路径
+# (`rename_session_dir_to_label` 的注释里记着这个坑)。
+CONSENT_VALUES = ("full", "audio_only")
+
+
+def _consent(value: str | None) -> str | None:
+    """守卫:未知取值一律拒。**不猜、不回落默认** —— 一个拼错的征询结果如果被静默
+    当成"全同意",那是最坏的方向(把没同意的人当成同意的人录)。"""
+    if value is None or value == "":
+        return None
+    if value not in CONSENT_VALUES:
+        raise ValueError(f"未知的征询结果:{value!r}(只允许 {CONSENT_VALUES})")
+    return value
+
+
 def upsert_label(session_id: str, *, serial: str, name: str,
                  student_id: str, department: str,
+                 consent: str | None = None,
                  recorded_at: float | None = None) -> dict:
     """记下"这一场是谁的、第几场"。同一会话再报一次 = **覆盖**。
 
@@ -242,10 +265,17 @@ def upsert_label(session_id: str, *, serial: str, name: str,
         # 全空 ⟹ 标签退化成那串 id,等于没标 —— 而标注的全部意义就是把它与别的
         # 场次分开。拒掉,不存一份没有信息量的标注。
         raise ValueError("标注四个字段全空 —— 那等于没标,请至少填一项")
+    consent = _consent(consent)
     rec = {"session_id": sid,
            "recorded_at_wall": float(recorded_at if recorded_at is not None else time.time()),
            **fields,
            "label": compose_label(sid, **fields)}
+    # 征询结果也落在这里 —— 它是"签字同意"的**证据**。只活在页面状态里的话,
+    # 事后**无法证明**这一场是经同意的,而这是一个拿真人做素材的系统。
+    # ⚠️ 没给就不写这个键:老记录(征询功能上线之前那批)保持原样,免得凭空多出
+    #    一个 `consent: null` 让人误以为"征询过、结果是空"。
+    if consent is not None:
+        rec["consent"] = consent
     # 目录名要先验(**在写盘之前**):标签现在会被拼进录制目录名,而超长/含路径
     # 分隔符的目录名是**请求本身**的毛病。先验就不会留下"标注存了、目录没改名"
     # 这种各说各话的中间态。

@@ -31,6 +31,7 @@ import hmac
 import os
 import re
 import secrets
+import shutil
 import subprocess
 import threading
 import time
@@ -39,6 +40,8 @@ from pathlib import Path
 from flask import Blueprint, current_app, jsonify, request, send_file
 
 import media_retention as mr
+import session_purge
+from session_purge import NONE_BUCKET, SID_IN_TEXT, SID_PAT
 
 bp = Blueprint("recordings", __name__)
 
@@ -46,10 +49,8 @@ bp = Blueprint("recordings", __name__)
 # 而写死在前端更糟:那样绕过前端直接打接口就进去了。
 ADMIN_PASSWORD_ENV = "JX_ADMIN_PASSWORD"
 
-# 铸出来的 sid 形态:`YYYYMMDD_HHMMSS_xxxx`。**比 `mr.validate_session_id` 严** ——
-# 那个是给写侧用的(要放行 `NONE` 之类),浏览侧只认真正的场次。
-SID_PAT = re.compile(r"^\d{8}_\d{6}_[0-9a-f]{4}$")
-NONE_BUCKET = "NONE"
+# sid 形态与 `NONE` 桶名**从 `session_purge` 复用** —— 真删那条路也要认它俩,
+# 两处各定义一份就会分叉,而分叉的形态是"一处放行、一处拒绝"。
 
 TRASH_DIR_NAME = "_回收站"
 PREVIEW_DIR_NAME = "preview"
@@ -302,7 +303,8 @@ def _degraded_reasons_cached(sid: str, session_dir: Path) -> list[str]:
     return list(reasons)
 
 
-def _record(sid: str, session_dir: Path, *, admin: bool) -> dict:
+def _record(sid: str, session_dir: Path, *, admin: bool,
+            report_counts: dict[str, int] | None = None) -> dict:
     """一场的**公开**记录。
 
     ⚠️ 加字段前先问两件事:
@@ -313,6 +315,7 @@ def _record(sid: str, session_dir: Path, *, admin: bool) -> dict:
     """
     video = session_dir / "media" / CAMERA_NAME
     has_video = video.is_file()
+    report_counts = report_counts if report_counts is not None else {}
     reasons = _degraded_reasons_cached(sid, session_dir)
     rec = {
         "sid": sid,
@@ -322,6 +325,9 @@ def _record(sid: str, session_dir: Path, *, admin: bool) -> dict:
         "frames": _count_frames(session_dir),
         "modified": session_dir.stat().st_mtime,
         "degraded": len(reasons),
+        # 有几份报告。**不是身份** ⟹ 未授权也给 —— "哪几场还没出报告"
+        # 是排产问题,不是隐私问题。
+        "report_count": report_counts.get(sid, 0),
     }
     if admin:
         rec["dir_name"] = session_dir.name
@@ -338,29 +344,61 @@ def _output_dir() -> Path:
     return Path(configured) if configured else (Path(__file__).parent / "data" / "output")
 
 
+def _logs_dir() -> Path:
+    """日志落点(与报告同一讲究:单一来源是 `app.py` 的配置)。"""
+    configured = current_app.config.get("LOGS_DIR")
+    return Path(configured) if configured else (Path(__file__).parent / "data" / "logs")
+
+
+def _sids_in_report(f: Path) -> list[str]:
+    """一份报告 HTML 里出现的所有 sid(**按 (路径, mtime, size) 缓存**)。
+
+    报告文件名是**生成时刻**、不含 sid,所以 sid→报告 只能读内容;而列一次表要问
+    所有报告,不缓存就等于每次翻页把几十份 HTML 全读一遍。
+    """
+    try:
+        st = f.stat()
+    except OSError:
+        return []
+    key = (str(f), st.st_mtime_ns, st.st_size)
+    with _REPORT_INDEX_LOCK:
+        hit = _REPORT_INDEX.get(key)
+    if hit is not None:
+        return hit
+    try:
+        text = f.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    # 扫正文要用**不带锚点**的那个 —— 见 `session_purge.SID_IN_TEXT` 的说明。
+    sids = sorted(set(SID_IN_TEXT.findall(text)))
+    with _REPORT_INDEX_LOCK:
+        _REPORT_INDEX[key] = sids
+    return sids
+
+
+def _all_report_counts() -> dict[str, int]:
+    """`sid → 报告份数`。**一个 sid 可能有多份**(同一场跑过几遍)。"""
+    d = _output_dir()
+    if not d.is_dir():
+        return {}
+    counts: dict[str, int] = {}
+    for f in sorted(d.glob("*Assessment_Report*.html")):
+        for sid in _sids_in_report(f):
+            counts[sid] = counts.get(sid, 0) + 1
+    return counts
+
+
 def _reports_for(sid: str) -> list[dict]:
     d = _output_dir()
     if not d.is_dir():
         return []
     hits = []
     for f in sorted(d.glob("*Assessment_Report*.html")):
-        try:
-            st = f.stat()
-        except OSError:
-            continue
-        key = (str(f), st.st_mtime_ns, st.st_size)
-        with _REPORT_INDEX_LOCK:
-            sids = _REPORT_INDEX.get(key)
-        if sids is None:
+        if sid in _sids_in_report(f):
             try:
-                text = f.read_text(encoding="utf-8", errors="replace")
+                hits.append({"name": f.name, "modified": f.stat().st_mtime})
             except OSError:
                 continue
-            sids = sorted(set(SID_PAT.findall(text)))
-            with _REPORT_INDEX_LOCK:
-                _REPORT_INDEX[key] = sids
-        if sid in sids:
-            hits.append({"name": f.name, "modified": st.st_mtime})
     hits.sort(key=lambda x: x["modified"], reverse=True)
     return hits
 
@@ -447,9 +485,11 @@ def login():
 @bp.get("/api/recordings")
 def list_recordings():
     admin = _is_admin()
+    # **一次**建好 sid→报告数 的映射(缓存过),不要让每一行各扫一遍报告目录。
+    report_counts = _all_report_counts()
     recs, total_video, total_frames, trash = [], 0, 0, 0
     for sid, d in _iter_sessions():
-        rec = _record(sid, d, admin=admin)
+        rec = _record(sid, d, admin=admin, report_counts=report_counts)
         total_video += rec["video_bytes"]
         total_frames += sum(rec["frames"].values())
         recs.append(rec)
@@ -588,3 +628,26 @@ def recording_trash(sid: str):
 
     os.replace(d, target)          # 同一个盘 ⟹ 原子,不会出现"删了一半"
     return jsonify({"moved_to": str(target.relative_to(root)), "sid": sid})
+
+
+@bp.post("/api/recordings/<sid>/purge")
+@_admin_required()
+def recording_purge(sid: str):
+    """**真删,没有回收站。** 实现在 `session_purge.purge_session`(与语音服务那条
+    入口共用同一份 —— 见那个模块的说明)。
+
+    这一条是给**管理员接口**用的(带密码);录制页在「不留存」那条路上走的是
+    语音服务的 `/session/{sid}/discard` —— 因为录制的时候没有管理员 token。
+    """
+    body = request.get_json(silent=True) or {}
+    if (body.get("confirm") or "").strip() != sid:
+        return jsonify({"error": f"要把 sid 照抄一遍才执行(收到 {body.get('confirm')!r})"}), 400
+    try:
+        removed = session_purge.purge_session(sid, logs_dir=current_app.config.get("LOGS_DIR"))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except FileNotFoundError as e:
+        return jsonify({"error": str(e)}), 404
+    except OSError as e:
+        return jsonify({"error": f"删除失败:{e}"}), 500
+    return jsonify({"purged": sid, **removed})
