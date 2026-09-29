@@ -9,8 +9,8 @@
 #   JX_PY=/usr/bin/python3 JX_RECORDINGS=/data/jx bash tools/start_all.sh
 #
 # ── 变量 ────────────────────────────────────────────────────────────────
-#   JX_PY            本仓解释器(默认 ~/miniconda3/envs/jingxin/bin/python)
-#   JX_FRONTEND      前端仓目录(默认 ~/JingXin-frontend)
+#   JX_PY            本仓解释器(自动探 ~/anaconda3/envs/jingxin 与 ~/miniconda3/envs/jingxin)
+#   JX_FRONTEND      前端仓目录(默认探 ~/JingXin/frontend 与 ~/JingXin-frontend)
 #   JX_RECORDINGS    录制根(默认 ~/shared/jingxin_recordings)
 #   JX_FACE_FRAME    face 验收用的图片(**默认从最近的会话取,不往仓库塞真人帧**)
 #   JX_GESTURE_FRAME gesture 验收用的图片(同上)
@@ -21,13 +21,49 @@
 #    docs/下一步.md)。验收脚本要的是"一张真脸/一只手/一段真人语音",
 #    那就从**已经录好的会话目录**里取 —— 换机器时带一目录素材即可。
 
-JX_PY="${JX_PY:-$HOME/miniconda3/envs/jingxin/bin/python}"
-JX_RECORDINGS="${JX_RECORDINGS:-$HOME/shared/jingxin_recordings}"
+# ── 解释器:两个常见位置都试 ────────────────────────────────────────────
+# ⚠️ 此前默认写死 `~/miniconda3/envs/jingxin/bin/python`,而**服务器上那个 env 在
+#    `~/anaconda3/`** ⟹ `tools/start_all.sh` 在这台机器上五个服务一个都起不来
+#    (命令不存在,`setsid` 起的进程当场死,而端口探测只看"有没有在听")。
+#    2026-09-27 实测踩到。这里按 install.sh 的老办法:优先 anaconda3,回退 miniconda3,
+#    两个都没有就保持原值(让调用方自己报错,不静默换一个不存在的路径)。
+if [ -z "${JX_PY:-}" ]; then
+  for __cand in "$HOME/anaconda3/envs/jingxin/bin/python" \
+                "$HOME/miniconda3/envs/jingxin/bin/python"; do
+    [ -x "$__cand" ] && { JX_PY="$__cand"; break; }
+  done
+  JX_PY="${JX_PY:-$HOME/miniconda3/envs/jingxin/bin/python}"
+  unset __cand
+fi
+
+# ── 录制根:先看仓库里那个,再回退老的 ~/shared ────────────────────────
+# 服务器上素材落在 `~/JingXin/recordings/`(systemd unit 里也是这么设的);
+# 而老笔记本上还在 `~/shared/jingxin_recordings/`。两个都探,别让"路径变了"变成静默空目录。
+if [ -z "${JX_RECORDINGS:-}" ]; then
+  if [ -d "$HOME/JingXin/recordings" ]; then
+    JX_RECORDINGS="$HOME/JingXin/recordings"
+  else
+    JX_RECORDINGS="$HOME/shared/jingxin_recordings"
+  fi
+fi
 # REPO:优先用调用方已算好的,否则从本文件位置推(本文件在 <repo>/tools/ 下)
 if [ -z "${REPO:-}" ]; then
   REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fi
-export REPO JX_PY JX_RECORDINGS
+
+# ── 前端仓:本仓**不含**前端,它是隔壁一个独立仓 ────────────────────────
+# ⚠️ 此前只有 start_all.sh 里写死 `$HOME/JingXin-frontend`,而服务器上前端在
+#    `~/JingXin/frontend` ⟹ 那一行 `cd` 失败,前端静默起不来。定义收到这里,
+#    与 systemd/install.sh 的 `$HOME/JingXin/frontend` 对齐。
+if [ -z "${JX_FRONTEND:-}" ]; then
+  for __cand in "$HOME/JingXin/frontend" "$HOME/JingXin-frontend"; do
+    [ -d "$__cand" ] && { JX_FRONTEND="$__cand"; break; }
+  done
+  JX_FRONTEND="${JX_FRONTEND:-$HOME/JingXin/frontend}"
+  unset __cand
+fi
+
+export REPO JX_PY JX_RECORDINGS JX_FRONTEND
 
 __jx_latest_session() {
   # 取 JX_RECORDINGS 下**名字最新**的会话目录(排除 NONE 与 _试跑)

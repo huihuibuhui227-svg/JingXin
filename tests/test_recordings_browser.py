@@ -19,6 +19,7 @@
 """
 
 import hashlib
+import re
 import subprocess
 import json
 from pathlib import Path
@@ -481,7 +482,16 @@ def test_a_failed_remux_says_why(tmp_path):
     #    "把 stderr 整段吞掉、只留 `str(CalledProcessError)`" 的变异体**照样绿**。
     #    (这正是本仓记过的那个形态:断言用了裸词,而别处本来就有那个词。)
     assert "Invalid data found" in msg, f"没带上 ffmpeg 的原话:{msg}"
-    assert "183" in msg, f"没带上退出码:{msg}"
+    # ⚠️ **退出码的具体数值不可断言**。这里原先是 `assert "183" in msg`,
+    #    而 183 只是**写这个测试那台机器上那个 ffmpeg 版本**的返回码:
+    #    2026-09-28 在服务器上实测,同样的输入 ffmpeg 4.4.2 返回的是 **1**
+    #    ⟹ 这条断言红在一个**与代码无关**的原因上,而且它会把
+    #    `test_assert_coverage.py::test_no_assert_is_dead` 一起带红(内层套件红了
+    #    它就红)。这与本仓记过的「散文里的数会静默过期」是同一个毛病:
+    #    把一个**环境相关的读数**写死进了断言。
+    #    要钉的是「**退出码有没有被带出来**」,所以断言格式,不断言数值。
+    assert re.search(r"ffmpeg 退出 \d+:", msg), \
+        f"没带上退出码(格式应为 `ffmpeg 退出 <码>:`):{msg}"
 
 
 def test_preview_ready_goes_stale_when_the_video_is_replaced(admin_client, root):

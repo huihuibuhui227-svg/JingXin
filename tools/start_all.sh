@@ -11,13 +11,20 @@
 set -u
 source "$(dirname "${BASH_SOURCE[0]}")/jx_env.sh"
 PY="$JX_PY"
-UP=()   ; SKIP=()
+UP=()   ; SKIP=() ; BAD=()
 
 up() { (echo > /dev/tcp/127.0.0.1/$1) 2>/dev/null; }
 
 start() {  # start <port> <desc> <cwd> <cmd...>
   local port=$1 desc=$2 cwd=$3; shift 3
   if up "$port"; then SKIP+=("$desc(:$port)"); return; fi
+  # ⚠️ 工作目录**先验**。此前是 `( cd "$cwd" && setsid ... )`,而 `cd` 失败时整个子 shell
+  #    静默退出 —— 脚本照样把它记进「已启动」,人以为起来了、其实什么都没起。
+  #    2026-09-27 实测:`$HOME/JingXin-frontend` 不存在,前端就是这么静默没起来的。
+  if [ ! -d "$cwd" ]; then
+    BAD+=("$desc(:$port) 工作目录不存在:$cwd")
+    return
+  fi
   # ★ 必须 `setsid`:否则这些服务留在**调用方的进程组**里 —— 终端一 Ctrl-Z、
   #   或被父进程清理时,它们会变成 T 态(端口在听却不回话,看着像崩溃)甚至直接死。
   #   2026-09-27 实测:不带 setsid 时,起完的五个服务在父 shell 退出后全部消失。
@@ -68,10 +75,11 @@ start 8001 "voice   " "$REPO" $PY -m voice_interaction.api.app
 start 8000 "face    " "$REPO" $PY -m face_expression.api.app
 start 8002 "gesture " "$REPO" $PY -m gesture_analysis.api.app
 start 5000 "面板    " "$REPO" $PY app.py
-start 5173 "前端    " "${JX_FRONTEND:-$HOME/JingXin-frontend}" npm run dev "${FE_ARGS[@]:-}"
+start 5173 "前端    " "$JX_FRONTEND" npm run dev "${FE_ARGS[@]:-}"
 
 for s in "${SKIP[@]:-}"; do [ -n "$s" ] && echo "  已在跑,跳过: $s"; done
 for s in "${UP[@]:-}";   do [ -n "$s" ] && echo "  已启动:       $s"; done
+for s in "${BAD[@]:-}";  do [ -n "$s" ] && echo "  ★ 没起:$s"; done
 
 echo
 echo "── 等就绪(gesture 要 ~11s:加载两个模型)──"

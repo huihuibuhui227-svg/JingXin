@@ -73,6 +73,12 @@ echo
 
 emit() {  # emit <名字> <描述> <工作目录> <可执行> <参数...>
   local name=$1 desc=$2 wd=$3; shift 3
+  # ⚠️ 这个 heredoc **不能**改成 `<<'EOF'` —— 下面要用 `$desc` / `$wd` / `$CORS` /
+  #    `$REC` / `$NODE_DIR` / `$*` 展开。代价是:**注释里的反引号会被当成命令替换**。
+  #    2026-09-27 踩到:`tailscale serve`、`JINGXIN_RECORDINGS_DIR` 这些写在注释里
+  #    的词被 sh 真的执行了(命令不存在 ⟹ 展开成空),于是**生成出来的 unit 文件注释
+  #    里变量名整段消失**,变成「经  发布时」「·  ——」这种读不通的句子。
+  #    修法是**把反引号逐个转义成 \`**,不是给定界符加引号。新增注释时同样要转义。
   cat <<EOF
 [Unit]
 Description=$desc
@@ -84,26 +90,26 @@ Type=simple
 WorkingDirectory=$wd
 Environment=PYTHONUNBUFFERED=1
 Environment=CORS_ORIGINS=$CORS
-# ★ 绑 **127.0.0.1** 而不是 0.0.0.0 —— 经 `tailscale serve` 发布时这是必须的:
+# ★ 绑 **127.0.0.1** 而不是 0.0.0.0 —— 经 \`tailscale serve\` 发布时这是必须的:
 #   服务若占了 tailscale IP 上的同一个端口,tailscaled 的 TLS 监听器会
-#   `bind: address already in use`(**只在它自己的 journal 里报,静默重试**),
+#   \`bind: address already in use\`(**只在它自己的 journal 里报,静默重试**),
 #   于是 https://<host>.ts.net:<port> 永远通不了。2026-09-27 实测踩到。
 #   改成 loopback 之后:tailscale serve 转发到 127.0.0.1 ✓,
 #   SSH 隧道也打 127.0.0.1 ✓,两条路都成立。
 Environment=JX_BIND=127.0.0.1
 Environment=PANEL_HOST=127.0.0.1
 # ⚠️ **两个名字都要设,而且不能只设一个**:
-#   · `JINGXIN_RECORDINGS_DIR` —— **服务代码真正读的那个**(media_retention.py:48
+#   · \`JINGXIN_RECORDINGS_DIR\` —— **服务代码真正读的那个**(media_retention.py:48
 #     与 transcript_store 共用;不设就退回默认 ~/shared/jingxin_recordings)
-#   · `JX_RECORDINGS` —— 本仓 tools/ 里那些脚本用的名字
+#   · \`JX_RECORDINGS\` —— 本仓 tools/ 里那些脚本用的名字
 #   2026-09-27 实测踩到:只设了后者 ⟹ 服务**静默**写进了默认目录,
-#   而 `~/JingXin/recordings/` 一直空着(看起来像"没存进去")。
+#   而 \`~/JingXin/recordings/\` 一直空着(看起来像"没存进去")。
 Environment=JINGXIN_RECORDINGS_DIR=$REC
 Environment=JX_RECORDINGS=$REC
 Environment=PATH=$NODE_DIR:/usr/local/bin:/usr/bin:/bin
-# ★ 机密从**仓库外**读:`JX_ADMIN_PASSWORD` 这类值一写进仓库(或写进由本脚本
+# ★ 机密从**仓库外**读:\`JX_ADMIN_PASSWORD\` 这类值一写进仓库(或写进由本脚本
 #   生成的 unit)就等于公开 —— 两个仓都在公开账号下。
-#   前缀 `-` = **文件不在也照常启动**。那时素材浏览的管理员视图会回 503 并
+#   前缀 \`-\` = **文件不在也照常启动**。那时素材浏览的管理员视图会回 503 并
 #   **点名**是哪个环境变量没设(不静默放行),其余功能照常。
 EnvironmentFile=-$ENV_FILE
 ExecStart=$*
