@@ -23,6 +23,10 @@ try:
     # 路径一律走这个后台 helper(I1)。本模块自身 import 期不碰 mediapipe ——
     # `face_expression.pipeline.detector` 的 mediapipe import 在工厂函数体内。
     from face_expression.pipeline.detector import close_detached
+    # 帧取景（2026-10-03）。`framing` 模块只 import typing、不碰 mediapipe
+    # ⟹ 顶层导入安全（不破坏下面那句「import 期不碰 mediapipe」的约束）。
+    from face_expression.pipeline.framing import CROP_LADDER as CROP_LADDER_LOCAL
+    from face_expression.pipeline.framing import apply_crop, probe_crop
 except ImportError as e:
     logger.error(f"导入失败: {e}")
     logger.error("请确保已正确安装 face_expression 模块")
@@ -59,6 +63,81 @@ def _clock_for(session_id: str) -> SessionClock:
     return session_clocks[session_id]
 
 
+# ── 帧取景（2026-10-03）─────────────────────────────────────────────
+# 44 场里有 23 场的面部检出率是 0.0%。根因不是代码坏、也不是画面差，是 mediapipe
+# **正面人脸检测器对「脸占画面的比例」敏感**：实测留存帧未裁切 0/60，
+# **中央裁切放大后 60/60**。详见 `face_expression/pipeline/framing.py`。
+#
+# ⚠️ **这确实会改变采集到的数据。** 裁切后与全画幅的差异实测是 190 列里 142 列
+#    （`bs_*` 是模型直接输出、对分辨率敏感；`*_trend` 是滚动窗口、单帧微扰会传播）
+#    ⟹ **裁切录的新场次与「全画幅录制」的老场次不能直接混用**（尤其做标定时）。
+#
+# 两道安全垫：
+#   1. **留存存的永远是原始帧**：`retain_frame` 在裁切**之前**执行，存的是上传的
+#      原始字节 ⟹ 全画幅一直在盘上，随时可用 `tools/jx_backfill_face.py` 重提取；
+#   2. **一场只决定一次、在第一帧**，整场固定 —— 逐帧变取景会污染 `*_trend`，
+#      比任何单一取景都坏。
+#
+# 不想要就 `JX_FACE_FRAMING=off`，行为**逐字节回到从前**。
+session_framing: dict = {}      # sid -> 该场已定的取景名（"full" / "center50" / …）
+_FACE_FRAMING_ENABLED = os.environ.get("JX_FACE_FRAMING", "on").strip().lower() \
+    not in ("off", "0", "false", "no")
+FACE_FRAMING_MANIFEST = os.path.join(LOGS_DIR, ".face_live_framing.json")
+
+
+def _framing_for(session_id: str, image_bgr, timestamp_ms: int):
+    """决定这一场的取景，返回裁切框（`None` = 全画幅）。**一场只决定一次。**
+
+    只在**第一帧**做阶梯探测（那时受试者一般已坐定）。探测全失败就保持全画幅，
+    不逐帧重试、也不中途换取景 —— 剩下的交给离线回填，它有多帧可以探测。
+    """
+    if not _FACE_FRAMING_ENABLED:
+        return None
+    if session_id in session_framing:                 # 已决定过：直接用，不再探测
+        return dict(CROP_LADDER_LOCAL).get(session_framing[session_id])
+
+    name, crop, stat = "full", None, {}
+    try:
+        name, crop, stat = probe_crop([image_bgr], [timestamp_ms], probe_n=1)
+        if name == "none":                            # 全失败 ⟹ 全画幅，不记成 "none"
+            name, crop = "full", None
+    except Exception as e:                            # 探测失败绝不能拖垮采集
+        logger.warning("取景探测失败，本场按全画幅处理: %s", e)
+        name, crop = "full", None
+
+    session_framing[session_id] = name
+    logger.info("会话 %s 取景定为 %s", session_id, name)
+    try:
+        _record_framing(session_id, name, stat)
+    except Exception as e:
+        logger.warning("取景决策写清单失败（不影响采集）: %s", e)
+    return crop
+
+
+def _record_framing(session_id: str, name: str, stat: dict) -> None:
+    """把取景决策落到盘上供事后审计。
+
+    为什么不写进 CSV：本仓要求每列在 `l0_columns.json` 登记，而
+    `tests/test_face_blendshapes.py` 还钉着 `bs_` 必须 52 列 ⟹ **不加列**，
+    改记旁挂清单（与离线回填的 `.face_backfill_manifest.json` 同一思路）。
+    """
+    import json as _json
+
+    data = {}
+    if os.path.exists(FACE_FRAMING_MANIFEST):
+        try:
+            with open(FACE_FRAMING_MANIFEST, encoding="utf-8") as f:
+                data = _json.load(f) or {}
+        except Exception:
+            data = {}
+    data[session_id] = {"crop": name, "probe": stat,
+                        "decided_at_wall": time.time(), "source": "live"}
+    tmp = FACE_FRAMING_MANIFEST + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        _json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, FACE_FRAMING_MANIFEST)
+
+
 _fps_warned: set[str] = set()
 
 
@@ -92,6 +171,7 @@ def _reset_session(session_id: str) -> bool:
         close_detached(pipeline)  # 删之前先放掉探测器的 native 句柄(spec §6.3);5.0s → 后台(I1)
         session_loggers.pop(session_id, None)
     session_clocks.pop(session_id, None)
+    session_framing.pop(session_id, None)   # 取景状态与管线同生命周期
     return existed
 
 # 会话 id 直接进日志文件名（`face_au_log_{session_id}.csv`），而它是客户端可控的
@@ -181,6 +261,7 @@ def get_or_create_pipeline(session_id: str) -> VideoPipeline:
         close_detached(pipeline)  # 必须显式关:tasks 探测器持 native 句柄(spec §6.3);5.0s → 后台(I1)
         session_loggers.pop(sid, None)
         session_clocks.pop(sid, None)
+        session_framing.pop(sid, None)      # 取景状态与管线同生命周期
         logger.info(f"清理过期会话: {sid}")
 
     # 获取或创建新会话
@@ -277,8 +358,6 @@ async def analyze_frame(
 
             logger.info(f"图片加载成功: {image.shape}")
 
-            image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
             # 获取或创建 VideoPipeline
             pipeline = get_or_create_pipeline(session_id)
             timestamp_ms = _clock_for(session_id).stamp_ms()
@@ -287,9 +366,15 @@ async def analyze_frame(
             media_retention.retain_frame(session_id, "face", contents,
                                          declared_ts=timestamp_ms, source="/analyze")
 
-            # 处理帧
+            # 取景：整场只决定一次，必要时中央裁切放大（见 `_framing_for` 的说明）。
+            # ⚠️ 顺序要紧：**放在 `retain_frame` 之后** —— 留存必须是上传的原始帧，
+            #    与取景决策无关；这样全画幅永远留在盘上，随时可离线重提取。
+            crop = _framing_for(session_id, image, timestamp_ms)
+
+            # 处理帧（`crop` 为 None 时 apply_crop 原样返回 ⟹ 全画幅路径零行为变化）
             result_obj, mesh_results, features_dict = pipeline.process_frame(
-                image_rgb, timestamp_ms)
+                cv2.cvtColor(apply_crop(image, crop), cv2.COLOR_BGR2RGB),
+                timestamp_ms)
 
             # 将帧数据写入 CSV 日志（供 report_frontend 批量读取）
             if session_id in session_loggers:
