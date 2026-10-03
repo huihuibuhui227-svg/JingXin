@@ -218,3 +218,66 @@ def test_ledger_sig_is_stable_when_nothing_changes(tmp_path):
     """
     (tmp_path / "retention.face.jsonl").write_text('{"kind":"frame"}\n', encoding="utf-8")
     assert bf.ledger_sig(tmp_path) == bf.ledger_sig(tmp_path)
+
+
+# ──────────────────────────────────────────────────────────────
+# _segments：★ 时间戳回退 = 活跑 /reset 过 ⟹ 必须换新管线
+# ──────────────────────────────────────────────────────────────
+
+def _frames(ts_list):
+    """只关心时间戳，路径给 None（`_segments` 不看路径）。"""
+    return [(None, t) for t in ts_list]
+
+
+def test_segments_monotonic_is_one_segment():
+    """全程递增 ⟹ 只有一段（常规场次不该被切开）。
+
+    这条红了 ⟹ 单调的场次也被切碎，每段重建管线，白花时间且滚动特征被反复重置。
+    """
+    segs = bf._segments(_frames([0, 100, 200, 300]))
+    assert len(segs) == 1
+    assert segs[0] == [0, 1, 2, 3]
+
+
+def test_segments_splits_at_a_timestamp_regression():
+    """★ 核心：时间戳回退处必须切开。
+
+    实测 `..._1320` 是**两段录制拼起来的**（帧 491 处时钟从 611829 归零到 0）。
+    活跑在 `/reset` 时把 `SessionClock` 和 `VideoPipeline` 一起 pop 了，所以能过；
+    重放若不换管线，mediapipe 抛 "timestamp_ms 回退"，而守卫的"上一次"会永远停在
+    回退前那个值 ⟹ **回退点之后所有帧全被跳过**（实测丢了 612/1491 行）。
+
+    这条红了 ⟹ 又回到"一条管线喂到底"，那场会静默丢 40% 的行。
+    """
+    segs = bf._segments(_frames([0, 100, 200, 0, 100, 200]))
+    assert len(segs) == 2, f"应当在归零处切开，实得 {segs}"
+    assert segs[0] == [0, 1, 2]
+    assert segs[1] == [3, 4, 5]
+
+
+def test_segments_treats_equal_timestamps_as_a_cut():
+    """相等也算回退（mediapipe 要求**严格**递增，不是不递减）。
+
+    这条红了 ⟹ 撞值的两帧会被喂成非法序列，第二帧起报错。
+    """
+    segs = bf._segments(_frames([0, 100, 100, 200]))
+    assert len(segs) == 2
+    assert segs[0] == [0, 1]
+    assert segs[1] == [2, 3]
+
+
+def test_segments_handles_multiple_resets():
+    """多次重置 ⟹ 多段。"""
+    segs = bf._segments(_frames([0, 10, 0, 10, 0, 10]))
+    assert len(segs) == 3
+
+
+def test_segments_never_loses_a_frame():
+    """★ 所有帧都必须落在某一段里 —— 段划分不许吞帧。
+
+    这条红了 ⟹ 丢行（本轮修的正是这个形态）。
+    """
+    ts = [0, 100, 200, 0, 100, 0, 50, 900]
+    segs = bf._segments(_frames(ts))
+    flat = [i for seg in segs for i in seg]
+    assert flat == list(range(len(ts))), f"帧序号不完整: {flat}"

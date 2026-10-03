@@ -60,6 +60,17 @@ CROP_LADDER: Tuple[Tuple[str, Optional[Tuple[float, float, float, float]]], ...]
 #: 探针帧数：按场次定取景时，每级试多少帧。
 PROBE_FRAMES = 12
 
+#: ★ 加码帧数：**第一轮一帧都没检到**时才用这个密度重探一遍。
+#:
+#: ⚠️ **更正（2026-10-03，实测后改）**：我原先写这条是为了救 `..._253a` / `..._816f`
+#: （探针 0/12，整场却有 22~25%），但**实测加码到 36 帧仍然是全 0** —— 它不是这两场
+#: 的解法。真正解决它们的是 `tools/jx_backfill_face.py` 里的**逐级整场实测兜底**
+#: （探针说什么都没检到 ⟹ 逐级整场重放、用真实检出率裁决）。
+#:
+#: 这条加码仍然保留，因为"一帧都没检到"时多采几帧**没有坏处**、能减少偶然漏检；
+#: 但它**不是**可靠的补救，不要指望它。
+PROBE_FRAMES_ESCALATED = 36
+
 #: 探针通过线：这一级至少这么多帧检出才算可用。
 #: 取 1/3 而不是 1 —— 只中 1 帧的取景在整场上多半还是废的。
 PROBE_MIN_HIT_RATIO = 1.0 / 3.0
@@ -83,6 +94,69 @@ def apply_crop(image: Any, crop: Optional[Sequence[float]]) -> Any:
     x0, y0, x1, y1 = crop
     # 用 int() 截断而不是 round()：边界只许往里收，不许越界。
     return image[int(h * y0):int(h * y1), int(w * x0):int(w * x1)]
+
+
+def spread_indices(total: int, n: int) -> list[int]:
+    """★ 在 `[0, total)` 上**均匀铺开**取 `n` 个下标，**必定含首尾**。
+
+    ⚠️ 为什么不能直接取前 n 帧（2026-10-03 实测踩到）：录制开始时受试者往往
+    **还没坐下**。探针只看前 12 帧 ⟹ 看到的是空房间 ⟹ 判定"整条阶梯都检不到"
+    ⟹ 整场被误判成救不回来。实测三场就是这么被冤枉的：
+
+    | 场次 | 前 12 帧 | 均匀 12 帧 |
+    |---|---|---|
+    | `..._afb2` | 全 0/12 | **center40 = 8/12** |
+    | `..._90e7` | 全 0/12 | 最高 2/12 |
+    | `..._1320` | 全 0/12 | 最高 3/12 |
+
+    而**真正没救**的三场（空房间 / 全黑帧 / 脸被水瓶挡）在两种采样下**都**是
+    全 0 —— 换采样位置**没有降低门槛**，只是不再冤枉人。
+
+    含首尾是有意的：首帧能反映"开场就坐定"的场次，末帧能反映"人后来才入座"
+    的场次，两头都不丢。
+    """
+    if n <= 0:
+        return []
+    if total <= n:
+        return list(range(total))
+    if n == 1:
+        return [0]
+    return sorted({round(i * (total - 1) / (n - 1)) for i in range(n)})
+
+
+def best_below_bar(
+    stat: dict,
+    *,
+    ladder: Iterable = CROP_LADDER,
+    min_hits: int = 2,
+) -> Optional[Tuple[str, Optional[Tuple[float, float, float, float]]]]:
+    """`probe_crop` 判"none"之后，看有没有一级**值得让整场重放来裁决**。
+
+    为什么需要（2026-10-03 实测）：`PROBE_MIN_HIT_RATIO = 1/3` 是一条**绝对线**，
+    但探针只有 12 帧、只是个**代理**，而整场重放是更准的裁判。实测 `..._1320`：
+    全画幅 0/12、`center50` 3/12（25%，相对它自己 6% 的基线是 **4 倍**）——
+    绝对线把这种"明显更强但没跨线"的取景挡掉了，而它其实值得一试。
+
+    判据刻意保守：
+    - `hits >= min_hits`：至少 2 帧命中。只中 1 帧多半是偶然，不值得为它重放整场；
+    - `hits > hits_full`：**必须强于全画幅**。这是防"硬凑"的关键 ——
+      全阶梯都是 0 的场次（空房间/全黑帧）在这里直接返回 None，不会被硬塞一个裁切。
+
+    返回 `(名字, 裁切框)`，或 `None`（确实不值得试）。**是否采纳仍由整场重放的
+    "不比原来差"来裁决**，本函数只负责"要不要给它一次机会"。
+    """
+    hits = {t["crop"]: t["hits"] for t in (stat or {}).get("tried", [])
+            if isinstance(t, dict) and "hits" in t}
+    if not hits:
+        return None
+    full = hits.get("full", 0)
+    cands = [(h, name) for name, h in hits.items() if name != "full"]
+    if not cands:
+        return None
+    h, name = max(cands)
+    if h >= min_hits and h > full:
+        return name, dict(ladder).get(name)
+    return None
 
 
 def probe_crop(

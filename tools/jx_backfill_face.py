@@ -177,8 +177,112 @@ def ledger_frames(sess_dir: Path) -> list[tuple[Path, int]]:
     return out
 
 
+def _measure(frames, sid: str, crop) -> tuple[int, int]:
+    """整场重放，**只数检出、不落盘**。返回 `(可处理帧数, 检出帧数)`。
+
+    这是唯一可信的度量。探针只有十几帧，实测在少数场次上会**假阴性**：
+    `..._afb2` 探针各级都是 0/12，而整场重放 `center40` = **68.1%**；
+    `..._1320` 探针 3/12，整场 `center50` = **45.4%**。
+    所以"探针说什么都没检到"**不能**当作"救不了"的结论，必须实测。
+
+    ★ 与真正的重放一样，**时间戳回退处要换新管线**（那是活跑 `/reset` 过的地方）。
+    不换的话回退点之后所有帧都会被 mediapipe 拒掉 ⟹ 测出来的分母是错的
+    （实测 `..._1320` 会从 1491 帧缩到 879 帧）。
+    """
+    import cv2
+    from face_expression.pipeline.framing import apply_crop, is_detected
+    from face_expression.pipeline.video_pipeline import VideoPipeline
+
+    pipe = None
+    last_ts = None
+    tot = hit = 0
+    for seg in _segments(frames):
+        pipe = VideoPipeline(session_id=f"measure_{sid}")   # 段边界换新管线（见 _segments）
+        for i in seg:
+            p, ts = frames[i]
+            im = cv2.imread(str(p))
+            if im is None:
+                continue
+            last_ts = ts
+            img = apply_crop(im, crop)
+            try:
+                feats = pipe.process_frame(cv2.cvtColor(img, cv2.COLOR_BGR2RGB), ts)[2] or {}
+            except Exception:
+                continue
+            tot += 1
+            if is_detected(feats):
+                hit += 1
+    return tot, hit
+
+
+def _segments(frames) -> list[list[int]]:
+    """把台账按**时间戳回退**切成若干单调段。
+
+    回退 = 活跑在这里 `/reset` 过（`SessionClock.reset()` 与 `_reset_session` 把时钟
+    和管线一起 pop）⟹ 那是一个**新录制段**。跨段采样会把回退的时间戳喂给 mediapipe，
+    于是回退点之后的帧全被拒掉（实测 `..._1320` 两段拼接，帧 491 处时钟归零）。
+    """
+    segs, cur, last = [], [], None
+    for i, (_, ts) in enumerate(frames):
+        if last is not None and ts <= last:
+            segs.append(cur)
+            cur = []
+        cur.append(i)
+        last = ts
+    if cur:
+        segs.append(cur)
+    return segs
+
+
+def _probe_with(frames, n: int):
+    """探一遍取景阶梯，采样**按段分摊、全场铺开**。
+
+    返回 `(名字, 裁切框, 统计)`，或 `None`（一帧都读不出来）。
+    统计里带 `sampled`（实际采样到的下标），便于事后复核对不对。
+
+    为什么按段分摊：跨 `/reset` 采样会喂出回退的时间戳（mediapipe 直接拒），
+    所以每一段内部各自均匀取点，总帧数仍控制在 `n` 左右。
+    """
+    import cv2
+    from face_expression.pipeline.framing import probe_crop, spread_indices
+
+    segs = _segments(frames)
+    # 按段长度比例分配名额，至少给每段 1 个
+    total = len(frames)
+    idx: list[int] = []
+    for seg in segs:
+        k = max(1, round(n * len(seg) / total)) if total else 1
+        local = spread_indices(len(seg), k)
+        idx.extend(seg[j] for j in local)
+    idx = sorted(set(idx))
+
+    imgs, ts = [], []
+    for i in idx:
+        p, t = frames[i]
+        im = cv2.imread(str(p))
+        if im is not None:
+            imgs.append(im)
+            ts.append(t)
+    if not imgs:
+        return None
+    name, crop, stat = probe_crop(imgs, ts)
+    stat["sampled"] = idx
+    stat["segments"] = len(segs)
+    return name, crop, stat
+
+
+def _all_hits_zero(stat: dict) -> bool:
+    """阶梯每一级都是 0 命中吗？—— 用来决定要不要加码重探。
+
+    只在"什么都没检到"时加码：有可能是采样整段落在检出簇之间（检出成簇），
+    也有可能是画面里真的没有脸。加码能把这两种情况分开（真没有 ⟹ 加码后仍是 0）。
+    """
+    hits = [t["hits"] for t in (stat or {}).get("tried", []) if isinstance(t, dict) and "hits" in t]
+    return bool(hits) and max(hits) == 0
+
+
 def backfill_one(sess_dir: Path, *, dry_run: bool = False, force: bool = False,
-                 uniform: bool = False) -> dict:
+                 uniform: bool = False, brute: bool = False) -> dict:
     """处理一场。返回结果字典（含 `status`）。
 
     `uniform=True` 时走「统一协议重跑」：**不论现在检出率多少都重提取**，
@@ -190,7 +294,10 @@ def backfill_one(sess_dir: Path, *, dry_run: bool = False, force: bool = False,
     """
     import cv2
 
-    from face_expression.pipeline.framing import apply_crop, is_detected, probe_crop, PROBE_FRAMES
+    from face_expression.pipeline.framing import (
+        CROP_LADDER, PROBE_FRAMES, PROBE_FRAMES_ESCALATED, apply_crop,
+        best_below_bar, is_detected,
+    )
     from face_expression.pipeline.video_pipeline import VideoPipeline
     from face_expression.utils.logger import DataLogger
 
@@ -214,24 +321,66 @@ def backfill_one(sess_dir: Path, *, dry_run: bool = False, force: bool = False,
     if not frames:
         return {"session": sid, "status": "skip", "why": "账本里没有可用的留存帧"}
 
-    # ── 1. 探测取景（只用前 PROBE_FRAMES 帧，内存安全）
-    probe_imgs, probe_ts = [], []
-    for p, ts in frames[:PROBE_FRAMES]:
-        im = cv2.imread(str(p))
-        if im is not None:
-            probe_imgs.append(im)
-            probe_ts.append(ts)
-    if not probe_imgs:
+    # ── 1. 探测取景（两级）
+    # ★ 采样必须**全场均匀铺开**，不能取前 N 帧。实测：录制开始时受试者常常还没
+    #   坐下，取前 12 帧看到的是**空房间** ⟹ 整场被误判成"救不回来"。
+    #   `..._afb2` 就是被这么冤枉的：前 12 帧全 0/12，均匀 12 帧 center40 = 8/12。
+    #   真正没救的场次（空房间/全黑帧）在两种采样下**都是 0** ⟹ 换采样没有降低门槛。
+    probed = _probe_with(frames, PROBE_FRAMES)
+    if probed is None:
         return {"session": sid, "status": "skip", "why": "留存帧解不出来"}
+    name, crop, stat = probed
 
-    name, crop, stat = probe_crop(probe_imgs, probe_ts)
-    del probe_imgs
+    # ★ 加码：12 帧**一帧都没检到**时，可能是采样整段落在检出簇之间（检出成簇）。
+    #   实测 `..._253a` 整场 25%、`..._816f` 22%，而 12 帧均匀探针各级都是 0/12。
+    #   只在全 0 时加码 ⟹ 常规场次不付这份代价。
+    if name == "none" and _all_hits_zero(stat) and len(frames) > PROBE_FRAMES:
+        again = _probe_with(frames, PROBE_FRAMES_ESCALATED)
+        if again is not None and not _all_hits_zero(again[2]):
+            name, crop, stat = again
+            stat["escalated"] = PROBE_FRAMES_ESCALATED
+            stat["escalated_from"] = PROBE_FRAMES_ESCALATED // PROBE_FRAMES
+
+    below_bar = False
     if name == "none":
-        # 探测全失败有**两种**完全不同的原因，报错必须分开说 —— 否则会让人去查
-        # 朝向/遮挡，而真实原因可能是"帧太少"或"本来就达标、根本不用管"。
+        # 绝对线（1/3）没跨过，但**明显强于全画幅**的取景仍值得让整场重放来裁决 ——
+        # 12 帧探针只是代理，整场重放才是更准的裁判。实测 `..._1320`：全画幅 0/12、
+        # center50 3/12（相对它自己 6% 的基线是 4 倍），绝对线把它挡掉了。
+        picked = best_below_bar(stat)
+        if picked is not None:
+            name, crop = picked
+            below_bar = True                       # 标记：结果由重放的"不比原来差"裁决
+
+    # ── 1b. ★ 兜底：探针**一帧都没检到**时，不许就此下"救不了"的结论，逐级实测。
+    # 探针只有十几帧，实测会**假阴性**，而且错得很厉害：
+    #   · `..._afb2`   探针各级 0/12  ⟹ 整场重放 center40 = **68.1%**（0.7% 起）
+    #   · `..._1320`   探针最高 3/12  ⟹ 整场重放 center50 = **45.4%**（6.0% 起）
+    # 只有真·没救的场次（空房间 `..._35e1`、大段全黑 `..._3d8f`）实测也确实是 0，
+    # 所以这一步**不会**把"没测到"写成"测到了"。
+    if name == "none" and brute and not dry_run:
+        ladder = []
+        for rname, rcrop in CROP_LADDER:
+            t, h = _measure(frames, sid, rcrop)
+            ladder.append({"crop": rname, "frames": t, "hits": h,
+                           "rate": round(h / t, 4) if t else 0.0})
+        best = max(ladder, key=lambda r: r["rate"])
+        stat["brute"] = ladder
+        if best["rate"] > before + 0.02:
+            name = best["crop"]
+            crop = dict(CROP_LADDER)[name]
+            below_bar = True                       # 由真实检出率裁决，不由探针
+            detail = "  ".join("{}={:.0%}".format(r["crop"], r["rate"]) for r in ladder)
+            print(f"    · 探针什么都没检到，但逐级整场实测：{detail} ⟹ 取 {name}",
+                  file=sys.stderr)
+
+    if name == "none":
+        # 探测全失败有**几种**完全不同的原因，报错必须分开说 —— 否则会让人去查
+        # 朝向/遮挡，而真实原因可能是"帧太少"、"本来就达标"、或"画面里根本没有人"。
         # 2026-10-03 实测踩到：`20260928_230839_87c9` 台账只有 3 帧、检出率却是
         # **100%**（早已达标），却被报成"整条取景阶梯都检不到"，白读成一场失败。
-        n_probe = len(probe_ts)
+        hits = {t["crop"]: t["hits"] for t in stat.get("tried", []) if "hits" in t}
+        n_probe = stat.get("probed", 0)
+        hits = {t["crop"]: t["hits"] for t in stat.get("tried", []) if "hits" in t}
         if before >= HEALTHY_AT_OR_ABOVE:
             return {"session": sid, "status": "ok", "detection_before": round(before, 4),
                     "why": f"本来就达标（检出 {before:.0%}），未改动；"
@@ -243,8 +392,10 @@ def backfill_one(sess_dir: Path, *, dry_run: bool = False, force: bool = False,
                            f"（不足 {PROBE_FRAMES} 帧）—— 样本太少，未必是真检不到，"
                            f"保持原样（不要硬凑）", "probe": stat}
         return {"session": sid, "status": "failed", "detection_before": round(before, 4),
-                "why": f"整条取景阶梯都检不到（{n_probe} 帧探针、检出 {before:.0%}），"
-                       f"保持原样（不要硬凑）", "probe": stat}
+                "why": f"整条取景阶梯都检不到（{n_probe} 帧均匀探针、各级命中 "
+                       f"{hits or '—'}、检出 {before:.0%}）。**全阶梯都是 0 ⟹ 画面里"
+                       f"多半根本没有可检的脸**（人不在场 / 全黑帧 / 被遮挡），"
+                       f"不是取景问题，保持原样（不要硬凑）", "probe": stat}
     if crop is None and not (force or uniform):
         return {"session": sid, "status": "ok", "detection_before": round(before, 4),
                 "why": "全画幅探针就能检出 —— 说明该场日志与留存帧不一致，先查这个再说",
@@ -252,31 +403,49 @@ def backfill_one(sess_dir: Path, *, dry_run: bool = False, force: bool = False,
 
     if dry_run:
         return {"session": sid, "status": "dry-run", "detection_before": round(before, 4),
-                "crop": name, "probe": stat}
+                "crop": name, "below_bar": below_bar, "probe": stat}
 
-    # ── 2. 重放：新 pipeline + 新 logger，逐帧喂 declared_ts
+    # ── 2. 重放：逐帧喂 declared_ts
+    # ★ 时间戳**回退 = 活跑在这里 /reset 过**（`SessionClock.reset()` 与
+    #   `_reset_session` 把时钟和管线一起 pop）⟹ 必须**换新管线**。
+    #   不换的话 mediapipe 抛 "timestamp_ms 回退"，而守卫的"上一次"会永远停在回退前
+    #   那个值，**该帧之后的所有帧全部被跳过** —— 实测 `..._1320` 因此丢了
+    #   612/1491 行（那场是两段录制拼起来的，帧 491 处时钟归零）。
+    #   换新管线也符合活跑语义：滚动窗口类特征本来就该在新段重新起算。
     tmp_csv = out_csv.with_suffix(".csv.rebuilding")
     if tmp_csv.exists():
         tmp_csv.unlink()
     lg = DataLogger(log_type="video", session_id=sid)
     lg.log_file = str(tmp_csv)            # 显式改路径（app.py 也这么做）
 
-    pipe = VideoPipeline(session_id=sid)
+    pipe = None
+    last_ts = None
+    segments = 0
     written = detected = 0
-    for p, ts in frames:
-        im = cv2.imread(str(p))
-        if im is None:
-            continue
-        img = apply_crop(im, crop)
-        try:
-            feats = pipe.process_frame(cv2.cvtColor(img, cv2.COLOR_BGR2RGB), ts)[2] or {}
-        except Exception as e:
-            print(f"    ✗ 第 {written} 帧抛异常: {type(e).__name__}: {e}", file=sys.stderr)
-            continue
-        lg.log(feats)
-        written += 1
-        if is_detected(feats):
-            detected += 1
+    for seg in _segments(frames):
+        # ★ 每段一个新管线：段边界就是活跑 `/reset` 过的地方。
+        #   不换的话 mediapipe 抛 "timestamp_ms 回退"，守卫的"上一次"会永远停在回退前
+        #   那个值，**该帧之后的所有帧全部被跳过** —— 实测 `..._1320`（两段录制拼接，
+        #   帧 491 处时钟归零）因此丢了 612/1491 行。换新管线也符合活跑语义：
+        #   滚动窗口类特征本来就该在新段重新起算。
+        pipe = VideoPipeline(session_id=sid)
+        segments += 1
+        for i in seg:
+            p, ts = frames[i]
+            im = cv2.imread(str(p))
+            if im is None:
+                continue
+            last_ts = ts
+            img = apply_crop(im, crop)
+            try:
+                feats = pipe.process_frame(cv2.cvtColor(img, cv2.COLOR_BGR2RGB), ts)[2] or {}
+            except Exception as e:
+                print(f"    ✗ 第 {written} 帧抛异常: {type(e).__name__}: {e}", file=sys.stderr)
+                continue
+            lg.log(feats)
+            written += 1
+            if is_detected(feats):
+                detected += 1
 
     after = detection_rate(tmp_csv)
     if uniform:
@@ -306,7 +475,10 @@ def backfill_one(sess_dir: Path, *, dry_run: bool = False, force: bool = False,
     return {"session": sid, "status": "rebuilt" if uniform else "backfilled",
             "detection_before": round(before, 4), "detection_after": round(after, 4),
             "crop": name, "crop_box": crop, "frames": written,
-            "detected": detected, "backup": str(bak), "probe": stat}
+            "detected": detected, "backup": str(bak), "probe": stat,
+            # 探针没跨过绝对线、是靠"明显强于全画幅 ⟹ 交给整场重放裁决"进来的。
+            # 记下来便于审计：这些场次的取景依据比常规的弱一档。
+            "below_bar": below_bar}
 
 
 def main() -> int:
@@ -322,6 +494,12 @@ def main() -> int:
     ap.add_argument("--pending", action="store_true",
                     help="只处理**台账变过**的场次（例行回填用）。新录完一场跑这个："
                          "几秒到几分钟，不必全量重跑。指纹记在清单的 ledger_sig 里")
+    ap.add_argument("--brute", action="store_true",
+                    help="探针一帧都没检到时，逐级**整场重放**用真实检出率裁决"
+                         "（探针会假阴性：实测 ..._afb2 探针 0/12，整场 center40 = 68.1%%）。"
+                         "--uniform / --pending 默认开启")
+    ap.add_argument("--no-brute", action="store_true",
+                    help="关掉上面的兜底实测（探针说没检到就直接判失败）")
     ap.add_argument("--force", action="store_true",
                     help="连「半有半无」与已达标的场次也重跑（⚠️ 会改变既有数据，慎用）")
     args = ap.parse_args()
@@ -389,6 +567,9 @@ def main() -> int:
         ap.print_help()
         return 2
 
+    # 兜底实测：uniform / pending 默认开（协议的一部分），显式 --no-brute 可关
+    use_brute = (args.brute or args.uniform or args.pending) and not args.no_brute
+
     # 台账指纹：写清单时记下，供下次 `--pending` 比对
     sig_by_sid = {d.name.split("__")[-1]: ledger_sig(d) for d in sessions}
 
@@ -399,7 +580,8 @@ def main() -> int:
         t0 = time.time()
         try:
             r = backfill_one(d, dry_run=args.dry_run, force=args.force,
-                             uniform=args.uniform or args.pending)
+                             uniform=args.uniform or args.pending,
+                             brute=use_brute)
         except Exception as e:
             r = {"session": d.name, "status": "error", "why": f"{type(e).__name__}: {e}"}
         r["seconds"] = round(time.time() - t0, 1)
@@ -408,6 +590,7 @@ def main() -> int:
                "rebuilt": "✓", "failed": "✗", "error": "✗"}.get(r["status"], "?")
         print(f"    {tag} {r['status']}: {r.get('why') or ''}"
               f"{('  取景=' + r['crop']) if r.get('crop') else ''}"
+              f"{'  ⚠探针未跨绝对线（重放裁决）' if r.get('below_bar') else ''}"
               f"{('  ' + format(r['detection_before'], '.0%') + '→' + format(r['detection_after'], '.0%')) if r.get('detection_after') is not None else ''}"
               f"  ({r['seconds']}s)")
 
