@@ -99,7 +99,7 @@ def test_every_implemented_row_really_is_produced():
 #     `au15_mouth_down` 也是 blocked+活列，但它的登记是「解封前本列**只吐原始量**」
 #     ⟹ `blocked` 在这里**不**等于"不许产出"。所以下面两条是**例外，不是常态**。
 #
-# 三条路（停算 / 保持现状 / 拿内参）的代价见 `docs/下一步.md`「丙、11」。
+# 三条路（停算 / 保持现状 / 拿内参）的代价见 `docs/下一步.md`「丙、16」。
 _BLOCKED_BUT_STILL_PRODUCED = ("head_yaw", "head_pitch")
 
 #: 登记里表示**禁止产出**的措辞。注意只扫**表**里的 `l0_output`/`acceptance`，
@@ -185,6 +185,37 @@ def test_allowlist_entries_carry_a_reason_and_a_target():
     for a in l0.load()["legacy_allowlist"]:
         assert a.get("why", "").strip(), f"{a.get('column')} 缺 why"
         assert a.get("planned", "").strip(), f"{a.get('column')} 缺 planned"
+
+
+def test_schema_metadata_does_not_swallow_allowlist_text():
+    """★ 顶层元数据的散文不许把**条目字段的值**整段吞进去。
+
+    这是"用脚本改这份 JSON"最常见的**事故形态**:想改某一条的 `planned`,写成
+    `整份文本.replace(旧值, 新值)` —— 而**旧值在文件里第一次出现的位置不是那一条**
+    (例如 `"M3.2 删列"` 先出现在 `_provisional_note` 里),于是新值被塞进了元数据,
+    而**目标条目一个字都没改**。
+
+    不是假想 —— 2026-10-03 实测踩到,而且**连犯三次**(`focus_score` / `tension_score` /
+    `gaze_deviation` 三条的 `planned` 全没落上,`_schema._provisional_note` 从 351 字符
+    涨到 819)。**当时测试全绿**:`_provisional_note` 是自由散文,而 `planned` 只要非空即可。
+
+    判据:`_schema` 的序列化文本里不许出现任何 `why`/`planned` 的值(≥8 字符的,短值偶然命中
+    不算)。红法:把任一条 `planned`(或 `why`)整段粘进 `_schema` 的散文 ⟹ 红。
+    """
+    import json
+
+    doc = l0.load()
+    blob = json.dumps(doc.get("_schema", {}), ensure_ascii=False)
+    offenders = []
+    for a in doc.get("legacy_allowlist", []):
+        for field in ("why", "planned"):
+            v = str(a.get(field, "")).strip()
+            if len(v) >= 8 and v in blob:
+                offenders.append(f"{a.get('column')}.{field}")
+    assert not offenders, (
+        "`_schema` 的散文里混进了白名单条目的字段值:\n  " + "\n  ".join(offenders)
+        + "\n—— 多半是改 JSON 时用了整份文本的 replace,而旧值第一次出现的位置不是那条。"
+          "请改成**定位到条目区间**再替换,并核对目标条目真的改了。")
 
 
 def test_schema_errors_is_empty_on_the_shipped_file():

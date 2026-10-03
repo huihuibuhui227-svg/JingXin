@@ -205,9 +205,9 @@ _STILL_QUARANTINED = (
     ("face_tension_score_mean", "10 个参数全无出处的加权合成;eye_closure 占 0.2 却是死权重"
                                "(eye_closed_sec 真实数据 97%~99.7% 为 0);~72% 的量来自"
                                "没落盘的滚动窗口 *_volatility"),
-    ("face_gaze_direction_y", "恒负(三场 max −0.087/−0.132/−0.098)"),
-    ("face_gaze_deviation_mean", "与 gaze_direction_y 同族冗余"),
-    ("face_gaze_stability_mean", "由被封停的 gaze_deviation 派生"),
+    ("face_gaze_direction_y", "解剖常量:四场高质量素材中位 −0.16~−0.195、std 仅 0.017~0.046"),
+    ("face_gaze_deviation_mean", "y 分量主导:实测与 |gaze_direction_y| 的相对差仅 1.3%~7.7%"),
+    ("face_gaze_stability_mean", "仍派生自被封停的 gaze_deviation(槽已改指 gaze_direction_x_std,特征键本身没改)"),
     ("voice_interview_interview_speech_ratio_mean", "自指阈值,三场 24/24 行恒 1.0"),
     ("face_blink_rate_per_min_mean", "60 s 滚动窗,1.06 s 帧间隔下量的是采样格"),
     ("face_eye_closed_sec_mean", "与 is_blink 冗余(判定门 ear<0.18 几乎不触发)"),
@@ -559,13 +559,25 @@ _DEAD_MECHANISMS = (
 
 
 def _fold_dashes(s: str) -> str:
-    """把三种减号折成 ASCII 连字符 —— 否则「r=−0.994」写个全角减号就能绕过钉子。
+    """把四种减号折成 ASCII 连字符,并**去掉所有空白**。
 
     这类"换个长得像的字符就绕过"是措辞类钉子的通病:钉的是**意思**,所以比较前先归一。
+
+    ⚠️ **2026-10-03 补去空白**:此前只折减号,于是死短语 `r=-0.994` 与文本里的
+    `r = −0.994`(等号两边带空格)**不匹配** —— 一个空格就能绕过这条守卫。
+    实测 `l0_columns.json` 的 `gaze_deviation.why` 正是这么漏掉的。
     """
+    import re
+
     for ch in ("−", "–", "—", "－"):
         s = s.replace(ch, "-")
-    return s
+    return re.sub(r"\s+", "", s)
+
+
+#: 白名单 `why` 里**允许**保留死短语的情形:它是在**引述旧说法**,旁边已经写了更正。
+#: 本仓的规矩是「更正必须能引述旧说法」⟹ 一律禁止引述反而会让历史读不通。
+#: 所以判据取**正向**:引用了死短语,就必须同时带上一个"已经处理过"的标记。
+_CORRECTION_MARKERS = ("更正", "已修", "修复消失", "已被推翻", "不再", "已删")
 
 
 def test_no_quarantine_reason_describes_a_removed_mechanism():
@@ -573,6 +585,7 @@ def test_no_quarantine_reason_describes_a_removed_mechanism():
     想解封的人找不到该修什么,而想审查的人以为这条还封得有理。
 
     红法:把任一条已经死掉的机制写回任一条 `Quarantine.reason`(或新增一条拿它当理由的封停)⟹ 立刻红。
+    (去空白归一后,现有理由里 0 命中 ⟹ 收紧比较不会误伤。)
     """
     from report_frontend.evidence_gate import QUARANTINE
 
@@ -582,6 +595,98 @@ def test_no_quarantine_reason_describes_a_removed_mechanism():
     assert not offenders, (
         "封停理由仍在描述已被删除/已修复的机制:"
         + "; ".join(f"{k} 的理由含「{phrase}」" for k, _r, phrase in offenders))
+
+
+def test_allowlist_whys_quote_dead_mechanisms_only_with_a_correction():
+    """★ 同一条纪律要管到 `legacy_allowlist.why` —— 那里此前**没有任何守卫**。
+
+    实测踩到(2026-10-03):`gaze_deviation.why` 一直引用着「组内 r = −0.994」,
+    而本仓 `_DEAD_MECHANISMS` 里明明记着那个数**已被实测推翻**(r = −0.71/−0.42/−0.06)。
+    读白名单的人会拿一个**已知不成立**的数当删除依据。
+
+    为什么不能像封停理由那样一律禁止:白名单的 `why` **本来就是引述 §4.1 原文**
+    (如「§4.1:191 依据栏原文:…」),而本仓规矩是「更正必须能**引述**旧说法」。
+    所以判据取**正向**:引用了死短语,就必须同时带一个"已经处理过"的标记
+    (`_CORRECTION_MARKERS`)。
+
+    红法:① 往任一条 `why` 里加一个死短语而不写更正 ⟹ 红;
+    ② 把 `gaze_deviation.why` 里那段更正删掉 ⟹ 红;
+    ③ 把 `_fold_dashes` 的"去空白"去掉、并把更正文本写成带空格的形式 ⟹ 红。
+    """
+    import importlib
+
+    l0 = importlib.import_module("l0_columns")
+    doc = l0.load()
+    offenders = []
+    for a in doc.get("legacy_allowlist", []):
+        why = _fold_dashes(str(a.get("why", "")))
+        hit = [p for p in _DEAD_MECHANISMS if _fold_dashes(p) in why]
+        if hit and not any(m in str(a.get("why", "")) for m in _CORRECTION_MARKERS):
+            offenders.append(f"{a.get('column')}: 含「{'/'.join(hit)}」但没有更正标记")
+    assert not offenders, (
+        "这些白名单条目的 why 引用了**已被推翻的机制**却没写更正:\n  "
+        + "\n  ".join(offenders)
+        + "\n—— 要么删掉那个依据,要么留着它并写明「更正:…已不成立」。")
+
+
+# ── 仍指向「待删列」的槽(已知、待在该维度内重新分配权重) ─────────────────────
+# 槽位表(`research_mapper.mapping_rules`)与 L0 表/白名单是**两处独立维护**的登记,
+# 会漂:列说要删,槽却还指着它,而两边都没人发现。
+# 系统性扫描(2026-10-03)查出 **3 个**,合计权重 0.8 —— `speech_ratio` 与 `focus_score`
+# 都是先有守卫、后被它抓出来的(后者还是因为把 `planned` 从含糊的「M3.2」写明成「删列」)。
+# 两个都要在**各自维度内**重新分配权重。**不能**改指同一个测量 —— 那会「数两遍」,
+# 而 `fluency_proxy` 正是因此被永久封停的。处置见 `docs/下一步.md`「丙、17」。
+_SLOTS_ON_DOOMED_COLUMNS = (
+    ("logical_thinking", "focus_score"),          # w=0.3「面部专注度」,列是 head_yaw 的 3 值分箱
+    ("stress_resilience", "gaze_deviation"),      # w=0.2「视线偏差」,列已是解剖常量
+    ("communication_fluency", "speech_ratio"),    # w=0.3「有效说话占比」,列自指阈值恒 1.0
+)
+
+
+def _doomed_columns() -> set:
+    """白名单里 `planned` 含「删列」的列名。"""
+    import importlib
+
+    l0 = importlib.import_module("l0_columns")
+    return {a["column"] for a in l0.load().get("legacy_allowlist", [])
+            if "删列" in str(a.get("planned", ""))}
+
+
+def test_no_slot_points_at_a_column_marked_for_deletion():
+    """★ 槽位表与 L0 表是**两处独立维护**的登记 —— 列说要删、槽却还指着它,两边都没人发现。
+
+    判据:白名单里标了「删列」的列,不许再被任何槽当关键词 ——
+    除非显式登记进 `_SLOTS_ON_DOOMED_COLUMNS`(= 已知、待重新分配权重)。
+
+    红法(**两个方向**):
+    - 有人**新**让一个槽指向待删列 ⟹ 红;
+    - 有人删掉了那个槽、或把列从待删名单里移走 ⟹ 红,要求同步这份名单。
+    """
+    from report_frontend.research_mapper import ResearchCapabilityMapper
+
+    doomed = _doomed_columns()
+    rules = ResearchCapabilityMapper().mapping_rules
+    pending = set(_SLOTS_ON_DOOMED_COLUMNS)
+
+    offenders = []
+    for dim, spec in rules.items():
+        for ind in spec.get("indicators", []):
+            kw = ind[0]
+            if kw in doomed and (dim, kw) not in pending:
+                offenders.append(f"{dim}.{kw}(w={ind[1]})")
+    assert not offenders, (
+        "这些槽仍指向**已标记删列**的列:\n  " + "\n  ".join(offenders)
+        + "\n—— 要么在该维度内重新分配权重(不能改指同一测量,那会数两遍),"
+          "要么把它登记进 `_SLOTS_ON_DOOMED_COLUMNS` 并写清为什么、归哪个里程碑。")
+
+    for dim, kw in _SLOTS_ON_DOOMED_COLUMNS:
+        keys = [i[0] for i in rules.get(dim, {}).get("indicators", [])]
+        assert kw in keys, (
+            f"{dim}.{kw} 已经不在了 —— 若已重新分配过权重,请把它从 "
+            f"`_SLOTS_ON_DOOMED_COLUMNS` 划掉")
+        assert kw in doomed, (
+            f"{kw} 不再被标记待删 —— 那本名单的处置要跟着改(要么留列、要么换依据)")
+
 
 
 def test_eye_contact_is_released_now_that_the_consumer_is_fixed():
