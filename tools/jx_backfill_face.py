@@ -371,10 +371,17 @@ def main() -> int:
         args.all = True
         man = json.loads(MANIFEST.read_text(encoding="utf-8")) if MANIFEST.is_file() else {}
         before = len(sessions)
+        # 没有既有 face 日志的场次**永远处理不了**（没东西可重提取），先摘掉 ——
+        # 否则它们每条都没有清单条目，于是每次 `--pending` 都被算成"变过"，
+        # 输出永远报"8 场变过"却什么都不做。例行命令的计数必须可信，否则没人看。
+        sessions = [d for d in sessions
+                    if (LOG_DIR / f"face_au_log_{d.name.split('__')[-1]}.csv").is_file()]
+        n_nolog = before - len(sessions)
         sessions = [d for d in sessions
                     if man.get(d.name.split("__")[-1], {}).get("ledger_sig") != ledger_sig(d)]
+        tail = f"（另有 {n_nolog} 场没有既有 face 日志，无从重提取，已排除）" if n_nolog else ""
         print(f"例行回填：{before} 场里 {len(sessions)} 场自上次处理后变过，"
-              f"其余指纹一致已跳过\n")
+              f"其余指纹一致已跳过{tail}\n")
         if not sessions:
             print("没有需要处理的场次。")
             return 0
