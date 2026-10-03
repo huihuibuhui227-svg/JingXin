@@ -94,6 +94,11 @@ Environment=CORS_ORIGINS=$CORS
 #   SSH 隧道也打 127.0.0.1 ✓,两条路都成立。
 Environment=JX_BIND=127.0.0.1
 Environment=PANEL_HOST=127.0.0.1
+# 取景协议(2026-10-03 定):活跑**不做裁切**,原始全画幅进留存;取景改由离线
+# \`tools/jx_backfill_face.py --uniform\` 用同一套探针事后统一决定
+# (探针能看整段、能试完整档梯,比活跑只看第 1 帧准)。
+# 必须与 \`tools/start_all.sh\` 里那一行一致,否则换启动方式行为就分叉。
+Environment=JX_FACE_FRAMING=off
 # ⚠️ **两个名字都要设,而且不能只设一个**:
 #   · \`JINGXIN_RECORDINGS_DIR\` —— **服务代码真正读的那个**(media_retention.py:48
 #     与 transcript_store 共用;不设就退回默认 ~/shared/jingxin_recordings)

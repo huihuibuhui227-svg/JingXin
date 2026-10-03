@@ -13,6 +13,23 @@ source "$(dirname "${BASH_SOURCE[0]}")/jx_env.sh"
 PY="$JX_PY"
 UP=()   ; SKIP=() ; BAD=()
 
+# ── 取景协议(2026-10-03 定)────────────────────────────────────────────
+# `JX_FACE_FRAMING=off` = **活跑不做裁切**,原始全画幅进留存;取景改由离线
+# `tools/jx_backfill_face.py --uniform` 用**同一套探针**事后统一决定。
+#
+# 为什么活跑要关掉:
+#   ① 留存帧**永远是全画幅**(`retain_frame` 收的是原始上传字节),所以关掉
+#      不损失任何可回溯性;反过来,活跑裁切会让**当场**的 CSV 与留存帧不同源。
+#   ② 活跑只能**用第 1 帧**探一次就定死整场;离线探针能看整段、能试完整档梯
+#      (full → center50 → center40 → center30),选得更准。
+#   ③ 已实测:面部检出 0 的场次,原因是 MediaPipe 正脸检测器对**人脸占画面
+#      比例**敏感(同一段留存帧:全画幅 0/60,中央裁 60/60)。这类判断离线做
+#      一次就够,不必在录制时用不可逆的方式抢着做。
+#   ④ 关掉后与旧行为**逐字节一致**(crop=None 时 apply_crop 原样返回图像),
+#      所以这不是引入新风险,是回到已知状态。
+# 详见 docs/素材体检_2026-10-03.md §2。
+export JX_FACE_FRAMING="${JX_FACE_FRAMING:-off}"
+
 up() { (echo > /dev/tcp/127.0.0.1/$1) 2>/dev/null; }
 
 start() {  # start <port> <desc> <cwd> <cmd...>
