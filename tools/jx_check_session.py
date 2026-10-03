@@ -18,10 +18,47 @@ import subprocess
 import sys
 from pathlib import Path
 
-REC_ROOT = Path.home() / "shared" / "jingxin_recordings"
-LOG_DIR = Path.home() / "jingxin"
+def _first_dir(*cands: Path) -> Path:
+    """按候选顺序取第一个存在的目录;都不存在则返回第一个(报错时看得出期望值)。
+
+    ⚠️ 为什么要有这个(2026-10-03 实测):本文件此前把素材根与仓库根**写死**成
+    `~/shared/jingxin_recordings` 与 `~/jingxin`。换到服务器上以后:
+      · 素材实际在 `~/JingXin/recordings`(26 场新素材),写死那处只剩 5 场旧素材
+        ⟹ **新素材完全在审计视野外**;
+      · 仓库实际在 `~/JingXin/jingxin`,写死的 `~/jingxin` 不存在
+        ⟹ 每一场都判「收尾对账 跑不起来」,而且**有 face 日志的场次也报「日志 0 行」**
+        (它去错的地方找)。**审计工具自己的路径漂移会产出假失败** —— 比不审计更坏。
+    这是本仓第三次踩同一个坑(`jx_env.sh`、`start_all.sh` 的前端目录,再到此处),
+    ⟹ 一律按候选探测。可用 `JX_RECORDINGS` / `JX_REPO` 覆盖。
+    """
+    for c in cands:
+        if c.is_dir():
+            return c
+    return cands[0]
+
+
+_HOME = Path.home()
+REC_ROOT = Path(os.environ.get("JX_RECORDINGS")
+                or _first_dir(_HOME / "JingXin" / "recordings",
+                              _HOME / "shared" / "jingxin_recordings"))
+LOG_DIR = Path(os.environ.get("JX_REPO")
+               or _first_dir(_HOME / "JingXin" / "jingxin", _HOME / "jingxin"))
 # 解释器:可用 JX_PY 覆盖(换机器时必改的一项)
-PY = Path(os.environ.get("JX_PY", Path.home() / "miniconda3" / "envs" / "jingxin" / "bin" / "python"))
+def _first_py(*cands: Path) -> Path:
+    """按候选顺序取第一个存在的解释器(见下方 _first_dir 的说明)。
+
+    ⚠️ 本机实际是 `~/anaconda3/envs/jingxin`,而此处写死过 `~/miniconda3/...`
+    ⟹ 每一场都判「收尾对账 跑不起来: [Errno 2] .../miniconda3/...」。
+    """
+    for c in cands:
+        if c.is_file():
+            return c
+    return cands[0]
+
+
+PY = Path(os.environ["JX_PY"]) if os.environ.get("JX_PY") else _first_py(
+    Path.home() / "anaconda3" / "envs" / "jingxin" / "bin" / "python",
+    Path.home() / "miniconda3" / "envs" / "jingxin" / "bin" / "python")
 
 EXPECTED_QUESTIONS = 8   # §8.4 第 1 条:题库上限
 MIN_ANSWERS = 5          # §8.4 第 1 条:语音族/密度族门槛 5
@@ -85,10 +122,34 @@ def _ffprobe_codecs(path: Path) -> list[str]:
         return [f"<ffprobe 失败: {e}>"]
 
 
-def check(sid: str) -> tuple[list[Row], dict]:
-    d = REC_ROOT / sid
+def _session_id(d: Path) -> str:
+    """目录名 → **真** session_id(拼日志文件名要用它)。
+
+    ⚠️ 新素材的目录名形如
+    `20260929_195403-2-姬欣怡-261640123-投资学__20260929_195403_040b`,
+    而**真 session_id 是 `__` 之后那段**(`20260929_195403_040b`)。
+    此前直接拿目录名当 sid ⟹ 拼出
+    `face_au_log_20260929_195403-2-姬欣怡-...__20260929_195403_040b.csv`,
+    这个文件当然不存在,于是**明明有 face 日志的场次也被报成「日志 0 行」**。
+    优先读 `label.json`(它写着权威 session_id),再退回按 `__` 切。
+    """
+    lp = d / "label.json"
+    if lp.is_file():
+        try:
+            sid = json.loads(lp.read_text(encoding="utf-8")).get("session_id")
+            if sid:
+                return str(sid)
+        except Exception:
+            pass
+    return d.name.split("__")[-1] if "__" in d.name else d.name
+
+
+def check(dir_name: str) -> tuple[list[Row], dict]:
+    d = REC_ROOT / dir_name
     rows: list[Row] = []
-    facts: dict = {"sid": sid, "dir": str(d)}
+    # 用真 session_id 去拼日志/台账文件名;目录名只用来定位目录。
+    sid = _session_id(d)
+    facts: dict = {"sid": sid, "dir_name": dir_name, "dir": str(d)}
 
     if not d.is_dir():
         return [Row("会话目录", False, f"不存在: {d}")], facts
