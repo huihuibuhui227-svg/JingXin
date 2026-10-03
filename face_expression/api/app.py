@@ -72,16 +72,33 @@ def _clock_for(session_id: str) -> SessionClock:
 #    （`bs_*` 是模型直接输出、对分辨率敏感；`*_trend` 是滚动窗口、单帧微扰会传播）
 #    ⟹ **裁切录的新场次与「全画幅录制」的老场次不能直接混用**（尤其做标定时）。
 #
-# 两道安全垫：
-#   1. **留存存的永远是原始帧**：`retain_frame` 在裁切**之前**执行，存的是上传的
-#      原始字节 ⟹ 全画幅一直在盘上，随时可用 `tools/jx_backfill_face.py` 重提取；
-#   2. **一场只决定一次、在第一帧**，整场固定 —— 逐帧变取景会污染 `*_trend`，
-#      比任何单一取景都坏。
-#
-# 不想要就 `JX_FACE_FRAMING=off`，行为**逐字节回到从前**。
+# ★★ **默认关闭（2026-10-03 定的取景协议）** ★★
+#   活跑**不裁切**（默认 `off`），原始全画幅进留存；取景改由**离线**探针
+#   `tools/jx_backfill_face.py --uniform` 事后统一决定。理由：
+#     ① **留存帧永远是原始上传字节**（`retain_frame` 在裁切之前执行），所以关掉
+#        不损失任何可回溯性；反过来，活跑裁切会让**当场**的 CSV 与留存帧不同源；
+#     ② 活跑只能**用第 1 帧**探一次就定死整场；离线探针能看整段、能试完整条阶梯
+#        （full → center50 → center40 → center30），选得更准；
+#     ③ 关掉时 `apply_crop` 对 `None` **原样返回图像** ⟹ 行为**逐字节回到从前**，
+#        不是引入新风险，是回到已知状态。
+#   ⟹ 全语料的取景由**同一套程序**产出，"所有场次同一套取景协议"才成立。
+#   要恢复活跑裁切：`JX_FACE_FRAMING=on`。
+#   两处启动配置（`tools/start_all.sh`、`tools/systemd/install.sh`）也显式写了
+#   `off` —— 与这里的默认值同向，避免"换启动方式行为就分叉"。
 session_framing: dict = {}      # sid -> 该场已定的取景名（"full" / "center50" / …）
-_FACE_FRAMING_ENABLED = os.environ.get("JX_FACE_FRAMING", "on").strip().lower() \
-    not in ("off", "0", "false", "no")
+FACE_FRAMING_DEFAULT = "off"    # ★ 默认关闭，见上面那段协议说明
+
+
+def _env_flag(name: str, default: str) -> bool:
+    """读一个布尔型环境变量。`off` / `0` / `false` / `no`（不分大小写）为假，其余为真。
+
+    提出来是为了**默认值可测**：`_FACE_FRAMING_ENABLED` 在导入时就固定了，
+    想验"环境变量没设时取景是关的"就得能单独调用这段解析逻辑。
+    """
+    return os.environ.get(name, default).strip().lower() not in ("off", "0", "false", "no")
+
+
+_FACE_FRAMING_ENABLED = _env_flag("JX_FACE_FRAMING", FACE_FRAMING_DEFAULT)
 FACE_FRAMING_MANIFEST = os.path.join(LOGS_DIR, ".face_live_framing.json")
 
 

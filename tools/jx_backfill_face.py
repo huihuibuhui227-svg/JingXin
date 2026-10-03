@@ -97,10 +97,54 @@ def detection_rate(csv_path: Path) -> float | None:
         rows = list(csv.DictReader(f))
     if not rows:
         return 0.0
-    ok = sum(1 for r in rows
-             if any((v or "").strip() not in ("", "None")
-                    for k, v in r.items() if k not in _CSV_SKIP))
+    ok = 0
+    for r in rows:
+        vals = {k: (v or "").strip() for k, v in r.items() if k not in _CSV_SKIP}
+        # 防御：现有 215 份 CSV 里 `no_face` **一次都没出现过**（"无脸"的表示法是整行留空），
+        # 所以下面这一跳在当前素材上是 no-op。但哪天有人开始写 `no_face` 哨兵值，
+        # "有非空值"这个判据就会把无脸行算成检出 ⟹ 检出率**静默虚高**。
+        # 判据与 `face_expression.pipeline.framing.is_detected` 对齐：no_face 不算检出。
+        if vals.get("dominant_emotion") == "no_face":
+            continue
+        if any(v not in ("", "None") for v in vals.values()):
+            ok += 1
     return ok / len(rows)
+
+
+def ledger_sig(sess_dir: Path) -> list | None:
+    """台账的"指纹"（`mtime` + 字节数）—— 用来判断这场**自上次处理后有没有变**。
+
+    例行回填（`--pending`）靠它把"全量重跑"降成"只处理新录的 / 还在追加的"：
+    44 场全量重跑约半小时，每晚跑一次不现实；比指纹只 stat 两个数，几毫秒。
+    台账一变（新录一场、或某场还在追加帧）指纹就变 ⟹ 会被重新处理。
+    """
+    led = sess_dir / "retention.face.jsonl"
+    if not led.is_file():
+        return None
+    st = led.stat()
+    return [int(st.st_mtime), int(st.st_size)]
+
+
+def backup_path(out_csv: Path) -> Path:
+    """给一份要顶掉的 CSV 选备份名 —— **首个备份永不覆盖**。
+
+    此前是直接 `shutil.move(out_csv, out_csv + ".predrop.bak")`，无条件盖掉同名备份。
+    而 `--uniform` 会对**已经补过一次**的场次再跑一遍，于是 `.predrop.bak` 里那份
+    "回填前的原始 CSV"（检出 0.1% 的那份，是"0.1% → 93%"这个结论**唯一的物证**）
+    会被回填后的结果顶掉。2026-10-03 复查时发现。
+
+    现在往后找第一个空位：`.csv.predrop.bak` 永远是最初那份，再跑落 `.csv.predrop.1.bak`，
+    再跑落 `.2.bak`…… 谁也不丢。
+    """
+    bak = out_csv.with_suffix(".csv.predrop.bak")
+    if not bak.exists():
+        return bak
+    i = 1
+    while True:
+        alt = out_csv.with_suffix(f".csv.predrop.{i}.bak")
+        if not alt.exists():
+            return alt
+        i += 1
 
 
 def ledger_frames(sess_dir: Path) -> list[tuple[Path, int]]:
@@ -133,8 +177,17 @@ def ledger_frames(sess_dir: Path) -> list[tuple[Path, int]]:
     return out
 
 
-def backfill_one(sess_dir: Path, *, dry_run: bool = False, force: bool = False) -> dict:
-    """补一场。返回结果字典（含 `status`）。"""
+def backfill_one(sess_dir: Path, *, dry_run: bool = False, force: bool = False,
+                 uniform: bool = False) -> dict:
+    """处理一场。返回结果字典（含 `status`）。
+
+    `uniform=True` 时走「统一协议重跑」：**不论现在检出率多少都重提取**，
+    好让全部场次由**同一套程序**产出（协议 = "每场探测定取景"，不是说都用同一个裁切框）。
+    接受条件是「不比原来差」，不是「必须跨过某条线」。
+
+    > 前提已验证：拿今天的代码重提取一场全画幅正常的场次，与当场活跑的 CSV
+    > **逐格相等**（84 列 × 38 帧，0 处差异）⟹ 重跑是**保真**的，不丢当场记录的值。
+    """
     import cv2
 
     from face_expression.pipeline.framing import apply_crop, is_detected, probe_crop, PROBE_FRAMES
@@ -147,14 +200,15 @@ def backfill_one(sess_dir: Path, *, dry_run: bool = False, force: bool = False) 
     before = detection_rate(out_csv)
     if before is None:
         return {"session": sid, "status": "skip", "why": "没有既有 face 日志"}
-    if before >= HEALTHY_AT_OR_ABOVE and not force:
-        return {"session": sid, "status": "ok", "detection_before": round(before, 4),
-                "why": f"检出率 {before:.0%} ≥ {HEALTHY_AT_OR_ABOVE:.0%}，全画幅可用，不碰"}
-    if before > BACKFILL_IF_RATE_AT_MOST and not force:
-        # "半有半无"：动了会改掉已经正常的那部分 ⟹ 只报告，不自动动。
-        return {"session": sid, "status": "partial", "detection_before": round(before, 4),
-                "why": f"检出率 {before:.0%} 属于「半有半无」——裁切会改掉已正常的那部分，"
-                       f"不自动补（要动加 --force，并想清楚代价）"}
+    if not uniform:
+        if before >= HEALTHY_AT_OR_ABOVE and not force:
+            return {"session": sid, "status": "ok", "detection_before": round(before, 4),
+                    "why": f"检出率 {before:.0%} ≥ {HEALTHY_AT_OR_ABOVE:.0%}，全画幅可用，不碰"}
+        if before > BACKFILL_IF_RATE_AT_MOST and not force:
+            # "半有半无"：裁切会改掉已经正常的那部分 ⟹ 补录模式下只报告，不自动动。
+            return {"session": sid, "status": "partial", "detection_before": round(before, 4),
+                    "why": f"检出率 {before:.0%} 属于「半有半无」——裁切会改掉已正常的那部分，"
+                           f"不自动补（要动加 --force，或用 --uniform 统一重跑）"}
 
     frames = ledger_frames(sess_dir)
     if not frames:
@@ -173,9 +227,25 @@ def backfill_one(sess_dir: Path, *, dry_run: bool = False, force: bool = False) 
     name, crop, stat = probe_crop(probe_imgs, probe_ts)
     del probe_imgs
     if name == "none":
+        # 探测全失败有**两种**完全不同的原因，报错必须分开说 —— 否则会让人去查
+        # 朝向/遮挡，而真实原因可能是"帧太少"或"本来就达标、根本不用管"。
+        # 2026-10-03 实测踩到：`20260928_230839_87c9` 台账只有 3 帧、检出率却是
+        # **100%**（早已达标），却被报成"整条取景阶梯都检不到"，白读成一场失败。
+        n_probe = len(probe_ts)
+        if before >= HEALTHY_AT_OR_ABOVE:
+            return {"session": sid, "status": "ok", "detection_before": round(before, 4),
+                    "why": f"本来就达标（检出 {before:.0%}），未改动；"
+                           f"探针在 {n_probe} 帧里一帧都没检出，样本太少，不作为失败计",
+                    "probe": stat}
+        if n_probe < PROBE_FRAMES:
+            return {"session": sid, "status": "failed", "detection_before": round(before, 4),
+                    "why": f"整条取景阶梯都检不到，但只有 {n_probe} 帧可探"
+                           f"（不足 {PROBE_FRAMES} 帧）—— 样本太少，未必是真检不到，"
+                           f"保持原样（不要硬凑）", "probe": stat}
         return {"session": sid, "status": "failed", "detection_before": round(before, 4),
-                "why": "整条取景阶梯都检不到，保持原样（不要硬凑）", "probe": stat}
-    if crop is None and not force:
+                "why": f"整条取景阶梯都检不到（{n_probe} 帧探针、检出 {before:.0%}），"
+                       f"保持原样（不要硬凑）", "probe": stat}
+    if crop is None and not (force or uniform):
         return {"session": sid, "status": "ok", "detection_before": round(before, 4),
                 "why": "全画幅探针就能检出 —— 说明该场日志与留存帧不一致，先查这个再说",
                 "probe": stat}
@@ -209,24 +279,31 @@ def backfill_one(sess_dir: Path, *, dry_run: bool = False, force: bool = False) 
             detected += 1
 
     after = detection_rate(tmp_csv)
-    good = (after is not None and after >= ACCEPT_MIN_RATE
-            and after >= before + ACCEPT_MIN_GAIN)
+    if uniform:
+        # 统一重跑：只要**不比原来差**就接受。探针取的是检出最多的那级，
+        # 所以正常情况下 after ≥ before（全画幅那批会原样重现 ⟹ 逐格相等）。
+        good = after is not None and after >= before - 0.02
+    else:
+        good = (after is not None and after >= ACCEPT_MIN_RATE
+                and after >= before + ACCEPT_MIN_GAIN)
     if not good:
         tmp_csv.unlink(missing_ok=True)
         return {"session": sid, "status": "failed", "detection_before": round(before, 4),
                 "detection_after": None if after is None else round(after, 4),
-                "why": f"重放后 {after if after is None else f'{after:.0%}'} 不满足接受条件"
-                       f"（需 ≥{ACCEPT_MIN_RATE:.0%} 且比原值高 ≥{ACCEPT_MIN_GAIN:.0%}），"
-                       f"旧文件保持原样", "crop": name}
+                "why": (f"重放后 {after if after is None else f'{after:.0%}'} 比原来"
+                        f"（{before:.0%}）还差，旧文件保持原样" if uniform else
+                        f"重放后 {after if after is None else f'{after:.0%}'} 不满足接受条件"
+                        f"（需 ≥{ACCEPT_MIN_RATE:.0%} 且比原值高 ≥{ACCEPT_MIN_GAIN:.0%}），"
+                        f"旧文件保持原样"), "crop": name}
 
-    # ── 3. 备份旧文件再换上去
+    # ── 3. 备份旧文件再换上去（选名规则见 `backup_path`）
     LOG_DIR.mkdir(parents=True, exist_ok=True)
-    bak = out_csv.with_suffix(".csv.predrop.bak")
+    bak = backup_path(out_csv)
     if out_csv.exists():
         shutil.move(str(out_csv), str(bak))
     shutil.move(str(tmp_csv), str(out_csv))
 
-    return {"session": sid, "status": "backfilled",
+    return {"session": sid, "status": "rebuilt" if uniform else "backfilled",
             "detection_before": round(before, 4), "detection_after": round(after, 4),
             "crop": name, "crop_box": crop, "frames": written,
             "detected": detected, "backup": str(bak), "probe": stat}
@@ -239,6 +316,12 @@ def main() -> int:
     ap.add_argument("--all", action="store_true", help="补全部低检出场次")
     ap.add_argument("--list", action="store_true", help="只列出哪些场次该补")
     ap.add_argument("--dry-run", action="store_true", help="只探测定取景，不写文件")
+    ap.add_argument("--uniform", action="store_true",
+                    help="统一协议重跑：不论现有检出率多少都重提取，让全部场次由同一套"
+                         "程序产出（协议 = 每场探测定取景）。前提已验证：重跑是保真的")
+    ap.add_argument("--pending", action="store_true",
+                    help="只处理**台账变过**的场次（例行回填用）。新录完一场跑这个："
+                         "几秒到几分钟，不必全量重跑。指纹记在清单的 ledger_sig 里")
     ap.add_argument("--force", action="store_true",
                     help="连「半有半无」与已达标的场次也重跑（⚠️ 会改变既有数据，慎用）")
     args = ap.parse_args()
@@ -279,9 +362,28 @@ def main() -> int:
               f"正常门槛 {HEALTHY_AT_OR_ABOVE:.0%}")
         return 0
 
+    if args.uniform:
+        args.all = True                      # uniform 天然是全量
+    if args.pending:
+        # ── 例行回填：只处理台账指纹与清单里记的不一致的场次
+        # 指纹缺失（清单是这版工具之前写的）一律当作"变过"⟹ 保守地重跑一次，
+        # 跑完指纹就补上了，之后每次都是几毫秒的比对。
+        args.all = True
+        man = json.loads(MANIFEST.read_text(encoding="utf-8")) if MANIFEST.is_file() else {}
+        before = len(sessions)
+        sessions = [d for d in sessions
+                    if man.get(d.name.split("__")[-1], {}).get("ledger_sig") != ledger_sig(d)]
+        print(f"例行回填：{before} 场里 {len(sessions)} 场自上次处理后变过，"
+              f"其余指纹一致已跳过\n")
+        if not sessions:
+            print("没有需要处理的场次。")
+            return 0
     if not (args.all or args.session):
         ap.print_help()
         return 2
+
+    # 台账指纹：写清单时记下，供下次 `--pending` 比对
+    sig_by_sid = {d.name.split("__")[-1]: ledger_sig(d) for d in sessions}
 
     print(f"处理 {len(sessions)} 场 → 日志目录 {LOG_DIR}\n")
     results = []
@@ -289,13 +391,14 @@ def main() -> int:
         print(f"[{i}/{len(sessions)}] {d.name[:52]}", flush=True)
         t0 = time.time()
         try:
-            r = backfill_one(d, dry_run=args.dry_run, force=args.force)
+            r = backfill_one(d, dry_run=args.dry_run, force=args.force,
+                             uniform=args.uniform or args.pending)
         except Exception as e:
             r = {"session": d.name, "status": "error", "why": f"{type(e).__name__}: {e}"}
         r["seconds"] = round(time.time() - t0, 1)
         results.append(r)
         tag = {"ok": "·", "skip": "·", "partial": "⚠", "dry-run": "?", "backfilled": "✓",
-               "failed": "✗", "error": "✗"}.get(r["status"], "?")
+               "rebuilt": "✓", "failed": "✗", "error": "✗"}.get(r["status"], "?")
         print(f"    {tag} {r['status']}: {r.get('why') or ''}"
               f"{('  取景=' + r['crop']) if r.get('crop') else ''}"
               f"{('  ' + format(r['detection_before'], '.0%') + '→' + format(r['detection_after'], '.0%')) if r.get('detection_after') is not None else ''}"
@@ -306,12 +409,16 @@ def main() -> int:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         old = json.loads(MANIFEST.read_text(encoding="utf-8")) if MANIFEST.is_file() else {}
         for r in results:
-            if r["status"] in ("backfilled", "failed"):
+            if r["status"] in ("backfilled", "rebuilt", "failed"):
                 old[r["session"]] = {k: v for k, v in r.items() if k != "probe"}
+                # 记台账指纹 ⟹ 下次 `--pending` 只挑变过的（见 ledger_sig）
+                sig = sig_by_sid.get(r["session"])
+                if sig is not None:
+                    old[r["session"]]["ledger_sig"] = sig
         MANIFEST.write_text(json.dumps(old, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"\n清单已写入 {MANIFEST}")
 
-    n_ok = sum(1 for r in results if r["status"] == "backfilled")
+    n_ok = sum(1 for r in results if r["status"] in ("backfilled", "rebuilt"))
     n_fail = sum(1 for r in results if r["status"] in ("failed", "error"))
     n_partial = sum(1 for r in results if r["status"] == "partial")
     print(f"\n{'─'*60}\n补成功 {n_ok}   失败 {n_fail}   半有半无(未动) {n_partial}   "

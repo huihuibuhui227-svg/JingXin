@@ -10,8 +10,9 @@
   留存之前，这条测试仍然全绿，因为两个变量互不影响。真正值得钉的「先留存后处理」
   在下面那条。）
 - ★ **先留存、后处理**：处理抛异常时素材不能丢（这是 `retain_frame` 那句注释的本意）。
-- **`JX_FACE_FRAMING=off` 必须逐字节回到从前**：不能用"默认关"蒙混，
-  要能真的关掉。
+- **取景默认关闭**（2026-10-03 定的协议）：环境变量没设时活跑**不裁切**，
+  取景交给离线探针统一决定；`JX_FACE_FRAMING=on` 能把活跑裁切装回去。
+  两条路都要能真的走通（"默认关"不能靠蒙混，要能真的关掉、也能真的开起来）。
 - **一场只决定一次**：逐帧探测既慢又会污染 `*_trend`（滚动窗口）。
 - **探测失败不能拖垮采集**：取景是优化，不该让端点 500。
 - **`/reset` 要清掉取景状态**：否则下一次同 id 的会话会继承上一场的取景。
@@ -216,6 +217,48 @@ def test_full_frame_is_untouched_when_probe_says_full(env, monkeypatch):
 # ──────────────────────────────────────────────────────────────
 # 开关与决策次数
 # ──────────────────────────────────────────────────────────────
+
+def test_framing_is_off_by_default(monkeypatch):
+    """★ 环境变量**没设**时，取景是关的 —— 这是 2026-10-03 定的取景协议。
+
+    协议：活跑不裁切（原始全画幅进留存），取景由离线
+    `tools/jx_backfill_face.py --uniform` 用同一套探针统一决定 ⟹ 全语料同一套协议。
+
+    这条红了 ⟹ 默认值被改回 `on`，"直接跑 python -m face_expression.api.app"
+    这条启动路径就会偷偷裁切，与经 `start_all.sh` / systemd 启动的行为分叉，
+    "所有场次同一套取景协议"当场不成立。
+    """
+    monkeypatch.delenv("JX_FACE_FRAMING", raising=False)
+    assert face_app.FACE_FRAMING_DEFAULT == "off", "默认值不是 off"
+    # 直接调生产代码里那段解析逻辑（导入时的 `_FACE_FRAMING_ENABLED` 已经固定，改不了）
+    assert face_app._env_flag("JX_FACE_FRAMING", face_app.FACE_FRAMING_DEFAULT) is False
+
+
+def test_framing_can_be_turned_back_on(monkeypatch):
+    """`JX_FACE_FRAMING=on` 能把活跑裁切装回去（保留这个逃生口）。
+
+    这条红了 ⟹ 开启路径坏了（想恢复活跑裁切时会发现开关失效）。
+    """
+    monkeypatch.setenv("JX_FACE_FRAMING", "on")
+    assert face_app._env_flag("JX_FACE_FRAMING", face_app.FACE_FRAMING_DEFAULT) is True
+
+
+@pytest.mark.parametrize("val", ["off", "OFF", "0", "false", "False", "no", " no "])
+def test_framing_env_falsey_spellings(monkeypatch, val):
+    """`off` 的几种写法都得认（含大小写与首尾空格）。
+
+    这条红了 ⟹ 有人写成 `JX_FACE_FRAMING=False` 却仍然在裁切。
+    """
+    monkeypatch.setenv("JX_FACE_FRAMING", val)
+    assert face_app._env_flag("JX_FACE_FRAMING", "on") is False
+
+
+@pytest.mark.parametrize("val", ["on", "ON", "1", "true", "yes"])
+def test_framing_env_truthy_spellings(monkeypatch, val):
+    """`on` 的几种写法都得认。"""
+    monkeypatch.setenv("JX_FACE_FRAMING", val)
+    assert face_app._env_flag("JX_FACE_FRAMING", "off") is True
+
 
 def test_framing_off_disables_cropping_entirely(env, monkeypatch):
     """`JX_FACE_FRAMING=off` 必须真的关掉 —— 而且**一次探测都不做**。"""
