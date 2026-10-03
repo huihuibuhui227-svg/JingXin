@@ -2,7 +2,7 @@
   "_schema": {
     "version": "1.0.0",
     "_provisional": true,
-    "_provisional_note": "`version` 与 `_provisional` 说的是**两件事**,不是一个矛盾:`version` 管**文件结构契约**(顶层有哪几个键、逐行有 `fields` 那 11 个字段 —— 结构一变才升)，`_provisional` 管**定义本身的成熟度**(逐列的定义/口径还归 M3.2/3/4 重定)。**转正式的条件**:M3.5 收尾(报告对齐 + 阈值重登记、三模态逐列定义冻结)时把 `_provisional` 改成 `false`;若那时 `fields` 也动过,`version` 一并升 `2.0.0`,否则保持 `1.0.0`。在此之前 `version: 1.0.0` **不代表定义已定稿** —— 2026-09-26 整支复核 Minor 12 的裁定。",
+    "_provisional_note": "`version` 与 `_provisional` 说的是**两件事**,不是一个矛盾:`version` 管**文件结构契约**(顶层有哪几个键、逐行有 `fields` 那 11 个字段 —— 结构一变才升)，`_provisional` 管**定义本身的成熟度**(逐列的定义/口径还归 与兄弟条目 tension_score / tension_level 一致:**M3.2 删列**;若先拿到相机内参,则 head_yaw 解封、改用连续 yaw 替代这个分箱(见 head_yaw 的 acceptance)/3/4 重定)。**转正式的条件**:M3.5 收尾(报告对齐 + 阈值重登记、三模态逐列定义冻结)时把 `_provisional` 改成 `false`;若那时 `fields` 也动过,`version` 一并升 `2.0.0`,否则保持 `1.0.0`。在此之前 `version: 1.0.0` **不代表定义已定稿** —— 2026-09-26 整支复核 Minor 12 的裁定。",
     "basis": "M3.0 spec(2026-09-26)。列定义来自 2026-09-21 特征重构设计 §4 的处置表 + 2026-09-26 的逐行核实。",
     "fields": ["column", "modality", "definition", "source", "normalization",
                "unit", "maturity", "l0_output", "status", "quarantine_ref", "acceptance"]
@@ -94,7 +94,7 @@
     {
       "column": "focus_score",
       "modality": "face",
-      "why": "3 个硬编码取值,99.7% 恒 0.3(QUARANTINE 已封停)",
+      "why": "3 值分箱(0.3/0.5/0.8),不是测量 —— 实测四场高质量素材可被 (head_yaw, blink_rate_per_min) **100% 精确重构**(零额外信息);且 **99% 恒 0.3**(f98d 314/314、5b10 343/343、2e84 962/971、8102 6597/6619),根因是 head_yaw 有 **~+0.35 常量偏移**(四场中位 +0.287~+0.371)而分箱阈值是 0.03/0.08 ⟹ 0.8 那档结构性不可达。更深一层:head_yaw 自身登记为「不实现、不近似」(真 3D 头姿需相机内参,本项目没有)⟹ 不该靠调阈值救(那是拟合分布),也不该靠 2D 近似救(登记明令禁止)。evidence_gate.QUARANTINE['focus_score'] 已封停。",
       "planned": "M3.2"
     },
     {

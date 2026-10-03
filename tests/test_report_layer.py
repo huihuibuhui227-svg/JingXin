@@ -200,7 +200,8 @@ _RELEASED = (
 
 # 仍须封停:它们的理由**现在仍然成立**,或已被改写成当前真实的机制。逐个给理由。
 _STILL_QUARANTINED = (
-    ("face_focus_score_mean", "3 个硬编码取值 {0.3,0.5,0.8},2b11 恒 0.3"),
+    ("face_focus_score_mean", "head_yaw 的 3 值分箱(零额外信息,实测 100% 可重构),"
+                              "且 99% 恒 0.3(head_yaw 有 ~+0.35 常量偏移,而阈值是 0.03/0.08)"),
     ("face_tension_score_mean", "伪合成 + 5 项里 eye_closure 恒 0"),
     ("face_gaze_direction_y", "恒负(三场 max −0.087/−0.132/−0.098)"),
     ("face_gaze_deviation_mean", "与 gaze_direction_y 同族冗余"),
@@ -228,6 +229,65 @@ def test_the_released_keys_are_released_and_the_rest_are_not():
         )
     for key, why in _STILL_QUARANTINED:
         assert is_quarantined(key) is not None, f"{key} 不再被封停,而它仍然满足 G4 口径:{why}"
+
+
+def _focus_score(yaw: float, blink_rate: float = 0.0) -> float:
+    """直接调生产方的那个分箱函数(它不碰 self,所以传 None 即可,不必建管线)。"""
+    from types import SimpleNamespace
+
+    from face_expression.pipeline.video_pipeline import VideoPipeline
+
+    au = SimpleNamespace(head_yaw=yaw, blink_rate_per_min=blink_rate)
+    return VideoPipeline._calculate_focus_score(None, au)
+
+
+def test_focus_score_is_only_a_three_value_bin_of_head_yaw():
+    """★ `focus_score` **不是测量** —— 它是 `head_yaw` 的 3 值分箱,零额外信息。
+
+    实测(四场高质量素材 f98d/2e84/8102/5b10):该列可被
+    (`head_yaw`, `blink_rate_per_min`) **100% 精确重构** —— 一帧不差。
+    它是 core 槽、权重 0.3,名字叫「面部专注度」,而实际只编码了"歪没歪头"这一件事,
+    且歪没歪的判据本身来自一个登记为「不实现、不近似」的 2D 近似。
+
+    红法:把返回改成连续量(例如真按 yaw 线性映射)⟹ 本测试红 —— 那时**必须同时**
+    处理 `head_yaw` 的登记(它是 blocked),否则就是拿一个未实现的列去喂一个 core 槽。
+    """
+    vals = {_focus_score(y, b)
+            for y in (-0.5, -0.09, -0.08, -0.05, -0.03, -0.02, 0.0, 0.02, 0.03, 0.05, 0.09, 0.5)
+            for b in (0.0, 29.9, 30.0, 60.0)}
+    assert vals == {0.3, 0.5, 0.8}, f"取值不再是那 3 个(变成连续量了?):{sorted(vals)}"
+
+
+def test_focus_score_ignores_blink_rate_in_practice():
+    """`blink_rate < 30` 这个条件在真实数据上形同虚设 —— 于是它只由 yaw 决定。
+
+    实测四场:0.8 那档要求 `|yaw| < 0.03`,而四场 `head_yaw` 中位是 **+0.287~+0.371**,
+    最小值也才 −0.27 ⟹ **一帧都进不去**。
+
+    红法:把 blink_rate 的条件改成真正会命中的门 ⟹ 本测试红(说明分箱的输入变了,
+    那时 `focus_score` 的封停理由也要跟着改)。
+    """
+    assert _focus_score(0.0, blink_rate=0.0) == 0.8          # 只有同时 |yaw|<0.03 才给 0.8
+    assert _focus_score(0.0, blink_rate=100.0) != 0.8, (
+        "blink_rate 的条件没生效 —— 那分箱连 `blink_rate` 都不看了")
+
+
+def test_focus_score_collapses_to_one_value_at_the_real_head_yaw_offset():
+    """★ 钉住**实测的塌缩**:真实素材的 `head_yaw` 全部落进"偏头"那一档。
+
+    四场中位 +0.287 / +0.343 / +0.366 / +0.371 ⟹ 全部 > 0.08 ⟹ `focus_score` 恒 0.3。
+    实测占比:f98d **314/314**、5b10 **343/343**、2e84 962/971、8102 6597/6619。
+
+    为什么要钉一个"错"的行为:这是**防有人靠调阈值把它修好看** ——
+    把 0.08 挪到 0.4 能让它"有变化",但那是拿本数据集的分布凑参数,
+    正是 RecruitView 许可与本仓硬约束禁止的事。真要修,得先让 `head_yaw` 有真 3D
+    (需相机内参,而项目没有内参来源)。
+
+    红法:把阈值改成能容纳 +0.35 的值 ⟹ 本测试红(那时请先读 `head_yaw` 的 acceptance)。
+    """
+    for yaw in (0.287, 0.343, 0.366, 0.371):        # 四场实测中位
+        assert _focus_score(yaw) == 0.3, (
+            f"yaw={yaw} 不再塌到 0.3 —— 阈值被调过?那要先处理 head_yaw 的登记(它是 blocked)")
 
 
 def test_the_released_jitter_keys_really_reach_the_score():
