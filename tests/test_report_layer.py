@@ -202,7 +202,9 @@ _RELEASED = (
 _STILL_QUARANTINED = (
     ("face_focus_score_mean", "head_yaw 的 3 值分箱(零额外信息,实测 100% 可重构),"
                               "且 99% 恒 0.3(head_yaw 有 ~+0.35 常量偏移,而阈值是 0.03/0.08)"),
-    ("face_tension_score_mean", "伪合成 + 5 项里 eye_closure 恒 0"),
+    ("face_tension_score_mean", "10 个参数全无出处的加权合成;eye_closure 占 0.2 却是死权重"
+                               "(eye_closed_sec 真实数据 97%~99.7% 为 0);~72% 的量来自"
+                               "没落盘的滚动窗口 *_volatility"),
     ("face_gaze_direction_y", "恒负(三场 max −0.087/−0.132/−0.098)"),
     ("face_gaze_deviation_mean", "与 gaze_direction_y 同族冗余"),
     ("face_gaze_stability_mean", "由被封停的 gaze_deviation 派生"),
@@ -288,6 +290,95 @@ def test_focus_score_collapses_to_one_value_at_the_real_head_yaw_offset():
     for yaw in (0.287, 0.343, 0.366, 0.371):        # 四场实测中位
         assert _focus_score(yaw) == 0.3, (
             f"yaw={yaw} 不再塌到 0.3 —— 阈值被调过?那要先处理 head_yaw 的登记(它是 blocked)")
+
+
+def _tension(au4=0.0, au23=0.0, eye_closed_sec=0.0, smile_vol=None, volatilities=None,
+             emotion=None):
+    """调生产方的那个合成器 —— 纯计算,不加载模型。"""
+    from face_expression.core.analysis.tension_engine import TensionEngine
+    from face_expression.models.features import AUFeatures, TemporalStats
+
+    data = {}
+    if smile_vol is not None:
+        data["au12_smile_volatility"] = smile_vol
+    for name, v in (volatilities or {}).items():
+        data[f"{name}_volatility"] = v
+    au = AUFeatures(au4_frown=au4, au23_lip_compression=au23, eye_closed_sec=eye_closed_sec)
+    return TensionEngine().compute(au, TemporalStats(data=data), emotion_vector=emotion)
+
+
+def test_tension_score_is_a_hand_weighted_composite_golden_value():
+    """★ 金标准:把 `tension_engine.py` 里那 **10 个无依据参数**逐个钉住。
+
+    手算(参数全部取自源码,这段就是推导过程):
+      au4  项 0.25 × min(0.5 × 1.3, 1) = 0.1625
+      au23 项 0.25 × min(0.2 × 1.3, 1) = 0.065
+      eye_closed = min(1.0 / 2.0, 1) = 0.5 ⟹ × 0.2 = 0.1
+      smile_vol 0.15 × min(0.4 × 1.5, 1) = 0.09
+      expression_instability 0.15 × min(0.4 × 1.5, 1) = 0.09
+      base = 0.5075 ⟹ round 3 = **0.508**
+
+    情绪加成那笔(`× 0.4`)单列一条,否则金标准里 `emotion_vector=None` 会让它**没人钉**:
+      再给 `emotion_vector={"anxiety": 0.5}` ⟹ `boost = max(...) = 0.5`,
+      `base = 0.5075 + 0.5 × 0.4 = 0.7075` ⟹ round 3 = **0.708**
+
+    为什么用金标准、而不是"在测试里把公式重算一遍":重算等于把公式抄进测试,
+    两边一起错照样绿。金标准钉的是**任何一个参数被改动都会红** ——
+    而这正是本切片要防的"调权重凑好看"。
+
+    红法(逐条反向复现实测):动 .25 权重 ⟹ 红;`eye_closed_sec/2.0` → `/1.0` ⟹ 红;
+    **eye_closure 的 0.2 挪走 ⟹ 只有本测试红**(饱和测试那里 `eye_closed_sec=0`,不受影响);
+    动 ×0.4 的情绪加成 ⟹ 红。
+    """
+    r = _tension(au4=0.5, au23=0.2, eye_closed_sec=1.0, smile_vol=0.4)
+    assert abs(r.tension_score - 0.508) < 5e-4, (
+        f"金标准变了:{r.tension_score} —— 若是有意重定权重,请先读 "
+        f"`evidence_gate.QUARANTINE['tension_score']`:那些权重没有物理依据,"
+        f"重定只能靠标定集(而 M5 的两个前置都卡着)")
+    assert r.tension_level == "medium"
+
+    # 情绪加成那一笔(×0.4)—— 单独钉,别让它在 `emotion_vector=None` 的样例里漏掉
+    r2 = _tension(au4=0.5, au23=0.2, eye_closed_sec=1.0, smile_vol=0.4,
+                  emotion={"anxiety": 0.5})
+    assert abs(r2.tension_score - 0.708) < 5e-4, f"情绪加成的 ×0.4 动过?:{r2.tension_score}"
+
+
+def test_tension_score_has_a_hardcoded_nonzero_floor():
+    """★ 全零输入也拿 **0.045**,不是 0 —— 来自硬编码默认 `expression_instability = 0.3`。
+
+    手算:其余四项全 0,只剩 `0.15 × 0.3 = 0.045`。
+    这个地板是真缺陷形态:**"没有任何信号"的会话会拿到一个非零的紧张度**,
+    而读报告的人无从知道这 0.045 是个常量。
+
+    红法:把 `expression_instability = 0.3  # 默认非零值` 改成 0.0 ⟹ 红 ——
+    注意那是**允许**的方向,改了请一并更新本测试与封停理由。
+    """
+    r = _tension()                      # 全 0 + TemporalStats(data={})
+    assert abs(r.tension_score - 0.045) < 1e-9, f"地板变了:{r.tension_score}"
+    assert r.tension_level == "low"
+
+
+def test_tension_score_eye_closure_weight_is_unreachable_in_real_data():
+    """★ 钉住那个**死权重**:`eye_closure` 占 0.2,而真实数据里它几乎恒 0。
+
+    实测四场高质量素材 `eye_closed_sec` 的非零帧:9/314、109/971、751/6619、19/343
+    ⟹ **97%~99.7% 的帧那一项是 0**(判定门 `avg_ear < 0.18` 几乎不触发)。
+    于是 `eye_closed_sec = 0` 时,其余四项**全部饱和也只有 0.8**。
+
+    ⚠️ **牙齿的确切范围**(反向复现实测,我第一版把这里写错了,更正留在此处):
+    - 本测试钉的是**那 0.8 这个上限**,即四个**可达**权重之和 ——
+      改动 .25/.25/.15/.15 中任一个 ⟹ 本测试**红**;
+    - 但**把 eye_closure 的 0.2 挪走,本测试不红**(这里 `eye_closed_sec = 0`,
+      权重乘的仍是 0)⟹ 那条由 `..._golden_value` 负责(它取 `eye_closed_sec = 1.0`,
+      0.2 会贡献 0.1)。**"0.2 是死权重"这个结论**由两件事合起来支撑:
+      本测试的 0.8 上限 + 上面那组实测非零率 + 金标准钉住 0.2 本身。
+    """
+    r = _tension(au4=1.0, au23=1.0, eye_closed_sec=0.0,
+                 smile_vol=1.0, volatilities={"au4_frown": 1.0})
+    assert abs(r.tension_score - 0.8) < 1e-9, (
+        f"`eye_closed_sec = 0` 时的可达上限不再是 0.8:{r.tension_score} —— "
+        f"那四个可达权重动过?")
+    assert r.tension_sources["eye_closure"] == 0.0
 
 
 def test_the_released_jitter_keys_really_reach_the_score():
