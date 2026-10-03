@@ -84,6 +84,72 @@ def test_every_implemented_row_really_is_produced():
     assert not bad, f"表里标了已实现、日志里却没有:{bad}"
 
 
+# ── 登记写着「不实现、不近似」、而代码**还在产出**的列 ────────────────────────
+# 这是**已知且待裁定的矛盾**（使用者 2026-10-03 裁定：先守住，与 M4/M5 一起收），
+# **不是疏忽**。列在这里是为了让它**有人看得见**：任一侧动了就必须同时动另一侧。
+#
+# 背景（逐条可复核）:
+#   · `l0_columns.json` 里 head_yaw / head_pitch 的 status=blocked，acceptance 写
+#     「取得相机内参前**本列不实现、不近似** —— 绝不用 `face_width` 归一化的 2D 近似糊过去」；
+#   · 而 `au_calculator.py` 仍在算那个 2D 近似 `(lm[1].x − 双颊中点.x) ÷ face_width`，
+#     并写进 `DataLogger.fieldnames`（face CSV 92 列之一）；
+#   · 实测四场高质量素材 head_yaw 中位 **+0.287~+0.371**（常量偏移）；core 槽
+#     `focus_score`（权重 0.3）就挂在这上面，见 `evidence_gate.QUARANTINE['focus_score']`。
+#   · **对照**：兄弟列 `head_roll` 写着同一句话，而它**确实没产出**；
+#     `au15_mouth_down` 也是 blocked+活列，但它的登记是「解封前本列**只吐原始量**」
+#     ⟹ `blocked` 在这里**不**等于"不许产出"。所以下面两条是**例外，不是常态**。
+#
+# 三条路（停算 / 保持现状 / 拿内参）的代价见 `docs/下一步.md`「丙、11」。
+_BLOCKED_BUT_STILL_PRODUCED = ("head_yaw", "head_pitch")
+
+#: 登记里表示**禁止产出**的措辞。注意只扫**表**里的 `l0_output`/`acceptance`，
+#: 不扫 `legacy_allowlist.why` —— 白名单的 why 里出现这些词是**引用别人的禁令**
+#: （如 `focus_score` 的 why 引了 head_yaw 那句），扫它只会造出假红。
+_NEGATED_PRODUCTIONS = ("未实现", "不实现", "不近似")
+
+
+def test_declared_not_implemented_columns_are_flagged_if_the_code_still_produces_them():
+    """★ 守「表说一套、代码做一套」。
+
+    登记里带**否定式声明**（"不实现/不近似"）的列，**不许**出现在活列里 ——
+    除非它被显式登记进 `_BLOCKED_BUT_STILL_PRODUCED`（= 已知、待裁定的矛盾）。
+
+    红法(**两个方向都要红**，这正是本测试的要点):
+    - 有人**新**造出一处这样的矛盾 ⟹ 红（要求他写下为什么、归哪个里程碑）；
+    - 有人**停算**了 head_yaw/head_pitch，或把它们标成 implemented ⟹ 红
+      （那时要同步改登记，并从名单里划掉）。
+    """
+    live = _live_columns()
+    doc = l0.load()
+
+    offenders = []
+    for c in doc["columns"]:
+        blob = " ".join(str(c.get(k, "")) for k in ("l0_output", "acceptance"))
+        if not any(n in blob for n in _NEGATED_PRODUCTIONS):
+            continue
+        if c["column"] not in live.get(c["modality"], []):
+            continue                      # 声明不实现、也确实没产出 ⟹ 一致
+        if c["column"] not in _BLOCKED_BUT_STILL_PRODUCED:
+            offenders.append(f"{c['modality']}.{c['column']}")
+    assert not offenders, (
+        "这些列的登记里写着「不实现/不近似」，而 logger 仍在产出它们:\n  "
+        + "\n  ".join(offenders)
+        + "\n—— 要么停算（并同步改登记），要么把它加进 "
+          "`_BLOCKED_BUT_STILL_PRODUCED` 并写清为什么、归哪个里程碑。"
+          "别让「表说一套、代码做一套」无声存在。")
+
+    tabled = {(c["column"], c["modality"]): c for c in doc["columns"]}
+    for col in _BLOCKED_BUT_STILL_PRODUCED:
+        row = tabled.get((col, "face"))
+        assert row is not None, f"{col} 已不在表里 —— 那就不该留在本名单里"
+        assert row["status"] == "blocked", (
+            f"{col} 被标成 {row['status']} —— 但真 3D 头姿还没落地（需相机内参，"
+            f"而项目没有内参来源）⟹ 标 implemented 就是编一个内参")
+        assert col in live["face"], (
+            f"{col} 已经不在活列里了（停算了？）⟹ 请把登记改成「已停算」，"
+            f"并把它从 `_BLOCKED_BUT_STILL_PRODUCED` 划掉")
+
+
 def test_live_contract_matches_the_real_log_contract():
     """★ 红法:往任一 logger 的 `fieldnames` 加一列(或删一列)而不更新 `live_contract` ⟹ 必须红。
 
