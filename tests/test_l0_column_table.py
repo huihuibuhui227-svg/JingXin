@@ -909,22 +909,22 @@ def test_text_columns_are_derived_from_the_producers_not_copied(monkeypatch):
         "不是从产出方推出来的")
 
 
-def test_the_iris_rows_do_not_claim_eye_contact_can_be_released():
-    """★ 本表原先写着「eye_contact 封停可解(它的 unblock 就是这 4 列)」—— 那句话是**错的**。
+def test_the_iris_rows_record_both_corrections_and_the_release():
+    """★ 这 4 行的 acceptance 走过**两轮更正**,两轮都必须留着。
 
-    错在**只核了生产方**:这 4 列确实按 unblock 改成了眼内相对坐标(平移不变),
-    但 `eye_contact` 这个**槽**还依赖消费方 —— `report_frontend/feature_engine.py` 的
-    eye_contact 口径仍是「到画面中心 (0.5,0.5) 的距离」。实测:iris 的平均距离 ≈ 0.83–0.86
-    ⟹ `max(0, 1 − 2d)` **恒 0.0**,而且没有 `_std` 伴随列(G2 退回 fail-open)⟹
-    解封等于把「没测到」当成「测到 0」按权重 0.3 写进 confidence_level。
+    第一轮(2026-09-27):原写「eye_contact 封停可解(它的 unblock 就是这 4 列)」是**错的**
+    —— 只核了生产方;消费方 `report_frontend/feature_engine.py` 仍按「到画面中心 (0.5,0.5)
+    的距离」算,特征恒 0.0。当时判据是「封停仍在」。
+    第二轮(2026-10-03):**消费方已改对,该槽已解封** —— 真原点 0 / 只取水平分量 /
+    按物理量程剔除虹膜跑出睑裂的坏帧 / 补齐 `_std`(G2)与 `_sample_size`(G3)。
 
-    这正是本仓已定性 5 次的「验证跑错了对象」:验收对象选在了**自己能改的那一半**上。
+    为什么两轮都要留:本仓纪律 2「散文里的话会静默过期」。只留最新那轮,读的人就看不到
+    「这句话已经错过一次」,于是会再犯一次"只核一半"的错。更正必须能**引述**旧说法 ⟹
+    判据全部取**正向**(该说的话在不在),不取"某句话不在"的黑名单
+    —— 黑名单会被自己引用的更正句误伤(本测试第一版就是这么红的)。
 
-    ⚠️ 判据全部取**正向**(该说的话在不在),不取"某句话不在"的黑名单 ——
-    黑名单会被自己引用的更正句误伤(本测试第一版就是这么红的):更正必须能**引述**旧说法。
-
-    红法(三条各自独立):把「封停仍在」改成「封停可解」/ 删掉「更正」这个标记 /
-    删掉消费方那半句 ⟹ 立刻红;把封停条目放行(生产方明明没修完消费方)⟹ 第四条红。
+    红法(各自独立):删掉第一轮的「更正」⟹ 红;删掉第二轮的解封记录 ⟹ 红;
+    把封停条目又加回去 ⟹ 最后一条红。
     """
     from report_frontend.evidence_gate import is_quarantined
 
@@ -934,10 +934,13 @@ def test_the_iris_rows_do_not_claim_eye_contact_can_be_released():
         assert "更正" in acc, (
             f"{col} 的 acceptance 没有把「原来那句封停可解」标记为更正 —— "
             f"不标的话,下一个人读到的是一句**已经错过一次**的话")
-        assert "封停仍在" in acc, (
-            f"{col} 的 acceptance 没有明说封停**仍在** —— 生产方修好不等于这个槽能进分")
+        assert "封停可解" in acc, (
+            f"{col} 的 acceptance 不再**引述**旧说法 —— 读的人看不到这句错过一次:{acc[:160]}")
         assert ("消费" in acc or "feature_engine" in acc), (
-            f"{col} 的 acceptance 必须点名**消费方**这一侧,否则读的人会以为改完这 4 列就完事:{acc[:120]}")
+            f"{col} 的 acceptance 必须点名**消费方**这一侧,否则读的人会以为改完这 4 列就完事:{acc[:160]}")
+        assert "解封" in acc, (
+            f"{col} 的 acceptance 没有记录第二轮更正(消费方已改对 ⟹ 该槽已解封):{acc[:160]}")
 
-    assert is_quarantined("face_eye_contact_ratio") is not None, (
-        "eye_contact 被封停条目放行了 —— 但消费方的口径没改,特征恒 0.0")
+    assert is_quarantined("face_eye_contact_ratio") is None, (
+        "eye_contact 又被封停了 —— 但消费方口径已改对、`_std`/`_sample_size` 已补齐,"
+        "它自己写的那个 unblock 条件已达成")

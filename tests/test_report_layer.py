@@ -122,8 +122,10 @@ def test_slot_level_quarantine_covers_spec_5_3():
     """
     from report_frontend.evidence_gate import is_quarantined
 
+    # ⚠️ 2026-10-03 本表**再缩一项**:`face_eye_contact_ratio` 已解封
+    #    (消费方口径改对 + 补齐 `_std`/`_sample_size`),见 `_RELEASED`。
     for key in ("face_gaze_stability_mean", "face_micro_exp_au_name_au7_freq",
-                "voice_research_research_speech_ratio_mean", "face_eye_contact_ratio"):
+                "voice_research_research_speech_ratio_mean"):
         assert is_quarantined(key) is not None, f"{key} 未被封停"
 
 
@@ -147,7 +149,8 @@ def test_all_slot_level_quarantine_keys_are_pinned():
     """
     from report_frontend.evidence_gate import is_quarantined
 
-    for entry in ("gaze_stability", "au7_freq", "speech_ratio", "eye_contact"):
+    # ⚠️ 2026-10-03 `eye_contact` 解封后从本表移出(它是本组最后一条被解封的)。
+    for entry in ("gaze_stability", "au7_freq", "speech_ratio"):
         assert is_quarantined(entry) is not None, f"{entry} 未被封停"
 
 
@@ -174,6 +177,16 @@ def test_all_slot_level_quarantine_keys_are_pinned():
 #   · pitch_variation 理由「实际取的是 pitch_mean,名字与计算不符」
 #     ⟹ 特征 `interview_pitch_variation_mean` = 33.494/167.076/105.664,与日志列
 #       pitch_variation 逐值相等、与 pitch_mean 相等的行 0/8(三场)。
+#   · eye_contact     理由「**消费方**未随生产方改 ⟹ 特征恒 0.0,且无 _std 伴随列
+#       (G2 在此退回 fail-open)」
+#     ⟹ 2026-10-03 把消费方改对:原点用**眼内相对坐标的真原点 0**(不再是到画面中心
+#       (0.5,0.5) 的距离)、只取水平分量(x 静息位 ≈ 0;y 静息位 −0.15~−0.20 是解剖
+#       偏移,无可标定零点)、按物理量程 (1−虹膜直径/睑裂宽)/2 ≈ 0.305 剔除虹膜跑出
+#       睑裂的坏帧,并补齐 G2 要的 `face_eye_contact_ratio_std` 与 G3 要的
+#       `face_eye_contact_ratio_sample_size` —— 当年点名的那个 fail-open 洞堵上了。
+#       四场高质量素材(f98d/2e84/8102/5b10)实测该特征 0.62~0.96,**不再恒 0**;
+#       改前四场 99.7%~99.9% 的帧恒 0。
+#       判据仍是 G4 自己的口径("它自己写的那个理由不成立"),不是"这个量有用"。
 _RELEASED = (
     ("face_symmetry_score_mean", "symmetry_score"),
     ("gesture_left_hand_jitter_mean", "jitter"),
@@ -182,11 +195,11 @@ _RELEASED = (
     ("gesture_left_hand_fist_status_mean", "fist_status"),
     ("face_micro_exp_au_name_au4_freq", "au4_freq"),
     ("voice_interview_interview_pitch_variation_mean", "pitch_variation"),
+    ("face_eye_contact_ratio", "eye_contact"),
 )
 
 # 仍须封停:它们的理由**现在仍然成立**,或已被改写成当前真实的机制。逐个给理由。
 _STILL_QUARANTINED = (
-    ("face_eye_contact_ratio", "生产方改了、消费方没改 ⟹ 现口径恒 0"),
     ("face_focus_score_mean", "3 个硬编码取值 {0.3,0.5,0.8},2b11 恒 0.3"),
     ("face_tension_score_mean", "伪合成 + 5 项里 eye_closure 恒 0"),
     ("face_gaze_direction_y", "恒负(三场 max −0.087/−0.132/−0.098)"),
@@ -420,58 +433,128 @@ def test_no_quarantine_reason_describes_a_removed_mechanism():
         + "; ".join(f"{k} 的理由含「{phrase}」" for k, _r, phrase in offenders))
 
 
-def test_eye_contact_stays_quarantined_and_its_reason_names_the_consumer():
-    """★ 本任务最重要的一条钉子:`eye_contact` 的 unblock 条件(「M3 改眼内相对坐标」)**已达成**,
-    但**不许解封** —— 因为改的是**生产方**,消费方没跟着改。
+def test_eye_contact_is_released_now_that_the_consumer_is_fixed():
+    """★ 2026-10-03:`eye_contact` **已解封** —— 本测试是当年那条「不许解封」钉子的**接班**。
 
-    `feature_engine._extract_face_features` 仍按 `sqrt((x−0.5)² + (y−0.5)²)` 算「到画面中心的
-    距离」,而 iris 四列现在是**眼内相对坐标**(会话均值 ≈ −0.016 / −0.051 / −0.021,不是 0.5 附近)
-    ⟹ 平均距离 ≈ 0.83–0.86,`max(0, 1 − 2d)` **恒为 0.0**,而且这个 0.0 没有 `_std` 伴随列,
-    G2 退回 fail-open ⟹ 解封后它会以**权重 0.3**把「没测到」当成「测到了 0」写进 confidence_level。
+    历史留着(更正必须能**引述**旧说法,否则读的人对不上):
+    原钉子写「`eye_contact` 的 unblock 条件(改眼内相对坐标)**已达成**,但**不许解封**
+    —— 因为改的是**生产方**,消费方没跟着改」。那时 `feature_engine` 仍按
+    `sqrt((x−0.5)²+(y−0.5)²)` 算「到画面中心的距离」⟹ 特征恒 0.0,且无 `_std`
+    (G2 退回 fail-open)⟹ 解封等于把「没测到」当成「测到 0」按权重 0.3 写进 confidence_level。
 
-    这正是 G1/G2/G3 三关**没有**替我们把关的那一处:三关全过(G1 有值 0.0 / G2 无 std 不拦 /
-    G3 落到模态行数)。所以 G4 是这里唯一的防线,而理由必须说清是**消费方**的问题。
+    2026-10-03 **消费方已改对**(见下一条),四项一并补齐:真原点 0 / 只取水平分量 /
+    按物理量程剔除坏帧 / `_std` 与 `_sample_size` ⟹ 解封条件真正达成,条目已从封停名单删除。
     """
-    from report_frontend.evidence_gate import QUARANTINE, is_quarantined
+    from report_frontend.evidence_gate import is_quarantined
 
-    q = is_quarantined("face_eye_contact_ratio")
-    assert q is not None, (
-        "eye_contact 被解封了 —— 但特征是 `face_eye_contact_ratio` 恒 0.0(实测三场),"
-        "解封等于把「没测到」当成「测到 0」按权重 0.3 写进 confidence_level"
+    assert is_quarantined("face_eye_contact_ratio") is None, (
+        "eye_contact 又被封停了 —— 若消费方口径退化(例如又按画面中心算),它的特征会重新恒 0,"
+        "那时才该重新封停"
     )
-    reason = q.reason
-    assert ("消费" in reason or "feature_engine" in reason), (
-        f"eye_contact 的封停理由必须点名**消费方**(生产方已修好,问题在 feature_engine 仍按"
-        f"画面中心算距离),现在写的是:{reason!r}"
+    assert ("face_eye_contact_ratio", "eye_contact") in _RELEASED, (
+        "解封证据必须登记在 `_RELEASED` 里 —— 判据是「它自己写的那个理由不成立」,"
+        "不是「我们觉得这个量挺有用」"
     )
-    assert "iris 图像坐标" not in reason, (
-        f"理由仍停在被修好的生产方那一侧 —— 读的人会去改已经改对的地方:{reason!r}"
+
+
+def test_eye_contact_consumer_uses_the_eye_relative_origin():
+    """★ 消费方口径:**iris 四列的真原点是 0**(虹膜在眼内偏了多少),不是画面中心 0.5。
+
+    fixture 沿用被替换掉的那条钉子,便于逐值对照。同样这 6 个数:
+    旧口径 `max(0, 1 − 2·√((x−0.5)²+(y−0.5)²))` **恒 0.0**;
+    新口径给出 0.7705 —— 因为 iris 四列量的是"虹膜在眼内偏了多少",不是"脸在画面哪儿"。
+
+    红法(三条各自独立):
+    - 把原点改回 0.5 ⟹ 值塌回 ~0,本测试红;
+    - 把 y 也算进来 ⟹ 被 y 的解剖偏移(−0.15~−0.20)拉低,本测试红;
+    - 去掉 `_std` / `_sample_size` ⟹ 后两条断言红(G2/G3 会退回 fail-open)。
+    """
+    import math
+
+    import pandas as pd
+
+    from report_frontend.feature_engine import PsychologicalFeatureEngine
+
+    df = pd.DataFrame({"left_iris_x": [-0.20, -0.02, 0.13], "left_iris_y": [-0.16, -0.14, -0.12],
+                       "right_iris_x": [-0.01, 0.01, 0.05], "right_iris_y": [-0.18, -0.16, -0.15]})
+    feats = PsychologicalFeatureEngine({"face": df}).extract_all_features()["face"]
+
+    bound = (1.0 - 11.7 / 30.0) / 2.0          # = 0.305,见 feature_engine 里的推导
+    xs = [0.20, 0.02, 0.13, 0.01, 0.01, 0.05]  # 两眼的 |iris_x|
+    expect = sum(1.0 - x / bound for x in xs) / len(xs)
+    got = feats["face_eye_contact_ratio"]
+    assert abs(got - expect) < 1e-6, f"手算 {expect:.4f},实得 {got}"
+
+    # 旧口径在同样的输入上恒 0 —— 这就是被修掉的那个 bug(取左眼第 1 帧为例)
+    old = max(0.0, 1.0 - 2 * math.hypot(-0.20 - 0.5, -0.16 - 0.5))
+    assert old == 0.0, "旧口径的复现写错了"
+    assert got > 0.5, f"正视前方的一组值不该得低分:{got}"
+
+    # G2(非常量)要 `_std`;G3(样本够)要 `_sample_size` —— 缺任一个都会静默 fail-open
+    assert feats["face_eye_contact_ratio_std"] > 0, "缺 _std ⟹ G2 退回 fail-open"
+    assert feats["face_eye_contact_ratio_sample_size"] == len(xs), (
+        "缺 _sample_size ⟹ G3 落到模态行数,门槛就只是一枚橡皮图章"
     )
-    assert QUARANTINE["eye_contact"].unblock, "解封条件不能被清空(那是给人看的下一步)"
 
 
-def test_the_eye_contact_consumer_is_still_frame_centred():
-    """上一条钉子的**机制依据**:眼内相对坐标喂进去,`face_eye_contact_ratio` 恒 0。
+def test_eye_contact_drops_physically_impossible_iris_frames():
+    """★ 第二个坑:虹膜跑出睑裂的坏帧必须剔除,否则均值被拖垮。
 
-    这是特征,不是断言「应该这样」—— 它记录**当前**消费方的行为,好让"哪天消费方改成眼内
-    口径了"这件事有人看得见(那时本测试变红,eye_contact 才该真的解封)。
+    生产方 `(虹膜中心 − 眼中心) ÷ 眼宽` 在**眼宽分母塌缩**(landmark 失败)时会吐
+    物理上不可能的值 —— 四场高质量素材实测量级可达 ±3.9,占 0.00%~0.29%。
+    占比虽小,但**一个 ±4 就能把 30 个正常帧的均值从 0.90 拉到 0.87**,而且它进的是
+    「眼神接触」这种人看人话的槽,不该由 landmark 抖动决定。
+
+    红法:去掉 `_IRIS_MAX_HORIZONTAL_EXCURSION` 那个 if ⟹ 本测试红
+    (`_sample_size` 会多 1,均值被拉低)。
     """
     import pandas as pd
 
     from report_frontend.feature_engine import PsychologicalFeatureEngine
 
-    # 眼内相对坐标的真实量级(重放三场实测:左眼 x ∈ [−0.36, 1.31],y ∈ [−0.5, 0.2])
-    df = pd.DataFrame({"left_iris_x": [-0.20, -0.02, 0.13], "left_iris_y": [-0.16, -0.14, -0.12],
-                       "right_iris_x": [-0.01, 0.01, 0.05], "right_iris_y": [-0.18, -0.16, -0.15]})
+    ok = [0.03] * 30                     # 30 帧正常:虹膜几乎居中
+    df = pd.DataFrame({"left_iris_x": ok + [4.0],          # 1 帧坏值(虹膜"跑出眼眶")
+                       "right_iris_x": [None] * 31})
     feats = PsychologicalFeatureEngine({"face": df}).extract_all_features()["face"]
 
-    assert feats["face_eye_contact_ratio"] == 0.0, (
-        f"face_eye_contact_ratio 不再是恒 0({feats['face_eye_contact_ratio']})—— "
-        f"若消费方改成了眼内口径,eye_contact 的解封条件才真正达成"
+    assert feats["face_eye_contact_ratio_sample_size"] == 30, "坏帧被算进了样本量"
+    bound = (1.0 - 11.7 / 30.0) / 2.0
+    assert abs(feats["face_eye_contact_ratio"] - (1.0 - 0.03 / bound)) < 1e-6, (
+        f"坏帧影响了均值:{feats['face_eye_contact_ratio']}"
     )
-    assert "face_eye_contact_ratio_std" not in feats, (
-        "本列现在有 _std 伴随列了 —— G2 不再 fail-open,本钉子的前提变了"
-    )
+
+
+def test_the_released_eye_contact_really_reaches_the_score():
+    """★ 解封必须**真的改变打分** —— 否则它只是一次无声的表改动
+    (本仓已 5 次栽在"验证跑错了对象")。
+
+    端到端(特征 → 四关 → 打分):给一个四关都过的 face 特征,断言 eye_contact
+    出现在 `confidence_level` 的 `evidence_chain` 里,且用的是**它自己的** `n_valid`
+    ——刻意让 628 ≠ 模态行数 321,这样"退回到模态行数"会被抓住。
+
+    实测(2026-10-03,场 `..._f98d` 走完整链路):
+      raw 0.8298 / normalized 0.83 / contribution 0.249(权重 0.3)/ n_valid 628 / std 0.1357
+      ⟹ 并计入 `positive_factors`。
+
+    红法:把封停条目加回去 / 去掉 `_sample_size` 或 `_std` / 把值改回恒 0 ⟹ 红。
+    """
+    from report_frontend.research_mapper import ResearchCapabilityMapper
+
+    feats = {"face": {
+        "face_eye_contact_ratio": 0.83,
+        "face_eye_contact_ratio_std": 0.14,           # G2:会话内非常量
+        "face_eye_contact_ratio_sample_size": 628,    # G3:它**自己**的样本量
+        "_n_rows": 321.0,                             # 模态行数,故意与上面不同
+    }}
+    dims = ResearchCapabilityMapper().map_features_to_scores(feats)["dimensions"]
+    chains = [e for d in dims.values() for e in d.get("evidence_chain", [])]
+    hit = next((e for e in chains if e["feature"] == "face_eye_contact_ratio"), None)
+    assert hit is not None, (
+        f"eye_contact 没进 evidence_chain(仍在缺口里?):{[e['feature'] for e in chains]}")
+    assert hit["n_valid"] == 628, (
+        f"用的不是它自己的样本量(回落到了模态行数?):{hit['n_valid']}")
+    assert hit["std"] > 0, "G2 没拿到 `_std` ⟹ 非常量这一关形同虚设"
+    assert hit["contribution"] > 0, "贡献为 0 ⟹ 没真的进分"
 
 
 def test_question_index_is_not_dropped():

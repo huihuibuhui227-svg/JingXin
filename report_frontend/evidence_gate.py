@@ -111,11 +111,15 @@ QUARANTINE: dict[str, Quarantine] = {
     "gaze_stability": Quarantine("由被封停的 gaze_deviation 派生", "M3 修 gaze_direction_x"),
     "au7_freq": Quarantine("au7 + avg_ear 恒等 1.0,与 au4 互补", "M3"),
     "speech_ratio": Quarantine("自指阈值,87.9% 恰为 1.0", "M3 真 VAD"),
-    "eye_contact": Quarantine(
-        "**消费方**未随生产方改:iris 四列已改为眼内相对坐标,而 "
-        "feature_engine 的 eye_contact 口径仍是「到画面中心 (0.5,0.5) 的距离」"
-        "⟹ 实测 face_eye_contact_ratio 恒 0.0(三场),且无 _std 伴随列 "
-        "(G2 在此退回 fail-open,挡不住)", "M3 改 feature_engine 的 eye_contact 口径"),
+    # ✅ 2026-10-03 **解封 `eye_contact`**(本组余 5 条)。它自己写的 unblock
+    #    (「M3 改 feature_engine 的 eye_contact 口径」)已达成,而且这次是
+    #    **连消费方一起验过**的 —— 当年栽的正是"只核了生产方那一半":
+    #      · 消费方改用它真正的原点 **0**(iris 四列是**眼内相对坐标**,不是图像坐标);
+    #      · 只取水平分量(x 静息位 ≈ 0;y 静息位 −0.15~−0.20 是解剖偏移,无可标定零点);
+    #      · 剔除虹膜跑出睑裂的坏帧(物理量程 (1−D/W)/2 ≈ 0.305);
+    #      · 补上 G2 要的 `_std` 与 G3 要的 `_sample_size` —— 当年封停理由点名过
+    #        「无 `_std` 伴随列,G2 在此退回 fail-open」,那个洞现在堵上了。
+    #    逐条证据(四场高质量素材实测)见 `tests/test_report_layer.py` 的 `_RELEASED`。
     # 永久封停:unblock 是给人看的显示文本,逻辑判断一律用 permanent 字段。
     # 不要用 unblock == "永不" 反推 —— 字符串是显示层,不是逻辑层。
     # ★ 这两条此前写成 `upper_body_head_tilt` / `shoulder_is_calibrated` —— 那是
