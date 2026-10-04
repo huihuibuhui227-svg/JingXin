@@ -1281,16 +1281,18 @@ def test_observed_interval_is_session_derived():
     for claim in ("百分位", "优于", "Top", "分位"):
         assert claim not in html, f"报告出现人群位置表述:{claim}"
 
-    # 无 _mean 后缀的键:同一个 _std 取法,`<键>_std` 那条分支
-    # ⚠️ 这是**合成 fixture**(T6 审查结论):生产键里没有「有 _std 兄弟姐妹、却没有 _mean」
-    #    的形态,故这条分支对真实数据目前不起作用。保留只为钉住取法本身 —— 日后真有人
-    #    写出这种键时,别才发现它静默拿不到标准差。
-    bare = {"face": {"face_energy": 0.5, "face_energy_std": 0.1, "_n_rows": 100.0}}
+    # 无 `_mean` 后缀的键:同一个 `_std` 取法,`<键>_std` 那条分支。
+    # ⚠️ 2026-10-04 改用它:`energy` 槽(原来的 fixture 挂靠点)已删。
+    #    而 `eye_contact` 是**真实键形态** —— `feature_engine` 产出的就是
+    #    `face_eye_contact_ratio` + `face_eye_contact_ratio_std`(没有 `_mean`)⟹
+    #    这条分支**真的有生产用例**,不再是"只为钉取法本身"的合成 fixture。
+    bare = {"face": {"eye_contact_ratio": 0.83, "eye_contact_ratio_std": 0.07,
+                     "_n_rows": 100.0}}
     dim = ResearchCapabilityMapper().map_features_to_scores(bare)["dimensions"]["confidence_level"]
-    ev = next(e for e in dim["evidence_chain"] if e["human_name"] == "语音能量")
-    assert ev["feature"] == "face_energy", f"钉的键变了:{ev['feature']}"
-    assert ev["observed_interval"] == [0.4, 0.6], (
-        f"不带 _mean 的键没取到伴随标准差:{ev['observed_interval']}"
+    ev = next(e for e in dim["evidence_chain"] if e["human_name"] == "眼神接触比例")
+    assert ev["feature"] == "face_eye_contact_ratio", f"钉的键变了:{ev['feature']}"
+    assert ev["std"] == 0.07 and ev["observed_interval"], (
+        f"不带 _mean 的键没取到伴随标准差:{ev['std']} / {ev['observed_interval']}"
     )
 
 

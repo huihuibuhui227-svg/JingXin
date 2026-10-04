@@ -155,7 +155,7 @@ def test_hand_slot_uses_the_normalised_palm_opening():
     那个合成(jitter − fist 罚 + spread 奖)里唯一未被封停、且 B3 已补上归一化
     (÷ 掌长)的分量就是张开度。
     """
-    assert _slot("confidence_level", "left_hand_spread") == (0.3, True)
+    assert _slot("confidence_level", "left_hand_spread") == (0.375, True)
     dim = _run({"gesture": {"left_hand_spread_mean": 1.37,
                             "left_hand_spread_std": 0.42,
                             "left_hand_spread_sample_size": 14,
@@ -169,7 +169,7 @@ def test_shoulder_slot_uses_shrug_level_with_relaxation_polarity():
     槽的构念是**肩部放松度**,耸肩程度是同一部位的反向量;旧列是
     jitter + shrug 的确定性函数,分量各自已入槽。
     """
-    assert _slot("confidence_level", "shrug_level") == (0.2, False)
+    assert _slot("confidence_level", "shrug_level") == (0.25, False)
     relaxed = _run({"gesture": {"shrug_level_mean": 0.0, "shrug_level_std": 0.05,
                                 "_n_rows": 300.0}})["confidence_level"]
     assert "gesture_shrug_level_mean" in _chain(relaxed)

@@ -192,14 +192,18 @@ MUTATIONS: tuple[Mutation, ...] = (
         "备份选名退回「无条件用同一个后缀」⟹ 跑第二遍就把最初那份原始日志顶掉"
         "(与 face 回填那条同形;当年那份 `.predrop.bak` 正是这么丢的)"),
     Mutation(
-        "tests/test_dimension_live_weight.py::test_registered_dead_weight_matches_reality",
+        # ⚠️ 2026-10-04:原来挂在 `test_registered_dead_weight_matches_reality` 上,但
+        #    `energy` 槽删掉之后**没有真实用例**能触发这条判据了(唯一双向子串才命中的就是
+        #    它)⟹ 那个 nodeid 不再变红,机制会报「变异之后仍然绿」。改挂到
+        #    `_quarantine_key_for` 自己的**直接单元测试**上 —— 钉的是同一个函数。
+        "tests/test_dimension_live_weight.py::test_the_quarantine_lookup_catches_a_longer_registry_key",
         "tests/test_dimension_live_weight.py",
         "    hits = [q for q in QUARANTINE if q == kw or q in kw or kw in q]",
         "    hits = [q for q in QUARANTINE if q == kw]",
         "⚠️ 同「守护卫自己」那一类例外:封停查找退回**等值** ⟹ `energy`(封停键 "
-        "`energy_mean` 更长)抓不到 ⟹ `confidence_level` 死权重 0.2 → 0.0。"
-        "⭐ 这是「封停键比槽关键词长」那个洞的**唯一**对照 —— "
-        "它与 `test_report_layer.py` 那条「待删列」守卫是同型洞的镜像(那边是关键词更短)"),
+        "`energy_mean` 更长)抓不到。⭐ 这是「封停键比槽关键词长」那个洞的**唯一**对照 —— "
+        "它与 `test_report_layer.py` 那条「待删列」守卫是同型洞的镜像(那边是关键词更短)。"
+        "⚠️ 挂到单元测试而不是死权重表,是因为 `energy` 槽已删 ⟹ 死权重表那边没有用例了"),
     Mutation(
         "tests/test_l1_sample_size.py::test_the_sparse_gaze_column_carries_its_own_sample_size",
         "report_frontend/feature_engine.py",

@@ -91,7 +91,7 @@ def test_structured_report_still_answers_when_the_target_has_no_logs(client):
     assert got == declared, (
         f"端点报的槽数 {got} 与槽位表声明的 {declared} 不符 —— "
         f"覆盖率的分母必须数全**声明**的槽(包括永不可能过门的那些,那是刻意的)")
-    assert declared == 15, (
+    assert declared == 14, (
         f"槽位表的声明槽总数从 15 变成了 {declared}。若是有意改动(加/删槽),"
         f"请一并同步:`docs/下一步.md`「丙、17 / 丙、18」的两张表、"
         f"`tests/test_dimension_live_weight.py` 的 `_DEAD_WEIGHT`、"
