@@ -151,6 +151,29 @@ MUTATIONS: tuple[Mutation, ...] = (
         '    "pitch": 10,',
         "同一改(门槛单位错配)由**另一条独立判据**也抓住 —— 两条守卫各自都能红,"
         "不是一条在替另一条背书"),
+    Mutation(
+        "tests/test_voice_replay_contract.py::test_the_row_shape_is_the_contract",
+        "voice_interaction/utils/logger.py",
+        '            "voiced_prob_mean": prosody_data.get("voiced_prob_mean"),',
+        '            "voiced_prob": prosody_data.get("voiced_prob_mean"),',
+        "把 `build_row` 里一个列的键**改名**(列名与键名不一致是重放腿最典型的漂法)⟹ "
+        "形状守卫抓。⚠️ 真实后果是**静默**的:`DictWriter(fieldnames=...)` 遇到对不上的键"
+        "会把那一列写成空,不报错 —— 所以这条必须钉在**形状**上,不能只钉集合"),
+    Mutation(
+        "tests/test_voice_replay_contract.py::test_contract_is_partitioned_into_written_and_registered_not_written",
+        "voice_interaction/utils/replay_contract.py",
+        '    "is_valid": "活路径恒写 True',
+        '    "is_valid_X": "活路径恒写 True',
+        "把 `is_valid` 从「重放写不出」的登记里划掉 ⟹ 契约 32 列不再被不重不漏地划分,"
+        "守卫抓(新版 `VoiceLogger` 加一列而没人归类时,红的也是这一条)"),
+    Mutation(
+        "tests/test_voice_replay_contract.py::test_arrival_wall_uses_the_raw_record_not_the_converted_one",
+        "voice_interaction/utils/replay_contract.py",
+        '        if rec.get("kind") == "raw" and rec.get("seq") == seq:',
+        '        if rec.get("kind") == "converted" and rec.get("seq") == seq:',
+        "把到达时刻从 **raw** 记录改成 **converted** 记录 ⟹ `reaction_time` 会系统性偏晚"
+        "150~283 ms(实测),而那个偏差在一个 1~65 秒量级的量上**看不出来** —— "
+        "⭐ 这是 甲-4 那次实测定位出来的坑,只有这条变异守着它"),
 )
 
 
