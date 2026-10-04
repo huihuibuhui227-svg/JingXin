@@ -116,8 +116,14 @@ def test_real_voice_log_column_reaches_the_report():
     assert ev is not None, f"日志列没进证据链:{dim['evidence_gaps']}"
     # 均值 42.5/12 = 3.5417 → 会话内均值;满量程每百字 10 个 → 0.3542 → 四舍五入 0.35
     assert ev["raw_value"] == round(sum(values) / len(values), 4)
-    assert ev["normalized_score"] == 0.35, (
-        f"折算量程不对(旧量程 0.02 会饱和到 1.0):{ev['normalized_score']}"
+    # ⚠️ 2026-10-04:折算值不再经 payload 观察(`normalized_score` 随评分层摘除),
+    #    改成**直接问登记的折算因子** —— 那本来就是这个量唯一的来源。
+    from report_frontend.evidence_gate import normalize_value
+    # ⚠️ 取整不能省:payload 里那个字段当初是 `round(final_val, 2)`,而登记表的原始
+    #    折算值是 0.35417 —— 直接相等会红在"少了那次取整"上,不是量程错了。
+    assert round(normalize_value(ev["raw_value"], "connective_density"), 2) == 0.35, (
+        f"折算量程不对(旧量程 0.02 会饱和到 1.0):"
+        f"{normalize_value(ev['raw_value'], 'connective_density')}"
     )
 
 

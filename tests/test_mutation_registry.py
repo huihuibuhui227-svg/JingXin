@@ -230,6 +230,14 @@ MUTATIONS: tuple[Mutation, ...] = (
         "G2 的输入退回「只有伴随 `_std` 才判」⟹ 键自身是离散度时(`gaze_direction_x_std`)"
         "G2 **静默跳过**。实测:全语料 278 个过门槽里 **29 个**都落在这一条上,"
         "而报告里看不出这 29 次 G2 没执行"),
+    Mutation(
+        "tests/test_report_layer.py::test_the_payload_carries_no_scoring_keys_at_all",
+        "report_frontend/research_mapper.py",
+        '        return {\n            "dimensions": dimension_results,',
+        '        return {\n            "total_score": None,\n            "dimensions": dimension_results,',
+        "把评分类的键加回 payload(`total_score`,哪怕值是 `None`)⟹ 守卫抓。"
+        "⭐ 这条钉的是「**键不存在**」而非「值为 None」:值为 None 的字段会被下一个人填上,"
+        "而 2026-10-04 之前 `total_score` 正是以「只为 API 稳定保留」的名义躺在那里的"),
 )
 
 

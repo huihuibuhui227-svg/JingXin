@@ -237,7 +237,11 @@ class ReportGenerator:
         否则那些缺口只能靠顶层的汇总段兜底,而汇总段的所有条目都已被逐维列表
         覆盖过一遍(evidence_gaps 就是各维缺口的并集),同一批字符串会被打印两次。
         """
-        if dim["score"] is None:
+        # ⚠️ 分支判据 2026-10-04 由 `dim["score"] is None` 改成 `not dim["evidence_chain"]`
+        #    —— payload 里的点分已摘除(见 `research_mapper` 返回处那段注释)。
+        #    两者**等价**:`score` 为 None 当且仅当该维一个槽都没过门,而那正是
+        #    `evidence_chain` 为空。判据从"有没有分"改成"有没有证据",本来也更贴本仓的主张。
+        if not dim["evidence_chain"]:
             gaps = "".join(f"<li>{g}</li>" for g in dim.get("evidence_gaps", []))
             return f"""
             <h3>{dim['display_name']}</h3>
@@ -309,19 +313,9 @@ class ReportGenerator:
         basis_html = (f"<ul>{basis_items}</ul>" if basis_items
                       else "<p>本次会话没有指标通过证据门。</p>")
 
-        evidence_html_list = []
-        for key, path in chart_paths.get('evidence', {}).items():
-            dim_name = result['dimensions'][key]['display_name']
-            ev_html = get_chart_iframe(path, "400")
-            # 此处曾有「🧠 判推」框,渲染 result['dimensions'][key]['narrative']。
-            # 该字段的产出方(template 填空式推断)已随 spec §5.4 一并删除,
-            # 且报告本就不该给判推 —— 故整框移除,只留证据图。
-            evidence_html_list.append(f"""
-            <div class="card">
-                <h3>🔍 {dim_name} - 证据链</h3>
-                <div class="chart-container">{ev_html}</div>
-            </div>
-            """)
+        # 证据链贡献度图已随评分层摘除(见 `visualizer.generate_all_charts` 里的说明)——
+        # 逐槽的诚实呈现是下面那些维度块里的表(原始值 + 区间 + 有效样本量 + 置信度)。
+        # `chart_paths['evidence']` 现在恒为空(见 `generate_all_charts`),不再进 HTML。
 
         html = f"""
         <!DOCTYPE html>
@@ -387,7 +381,12 @@ class ReportGenerator:
                 </div>
 
                 <h2>🔍 分维度证据链</h2>
-                {''.join(evidence_html_list)}
+                <!-- 这里原来是逐维度的「证据链贡献度」图(每维一张卡)。
+                     2026-10-04 随评分层一起摘除 —— 那些图的 x 轴是 `contribution`
+                     (折算值 × 槽权重),即"对**维度分**的贡献",而维度分与复合分
+                     已从 payload 整层删掉(理由见 `research_mapper` 返回处那段注释)。
+                     逐槽的诚实呈现是上面「分维度证据链」那几张表里的
+                     原始值 + 本场观测区间 + 有效样本量 + 置信度。 -->
 
                 <footer style="text-align:center; margin-top:50px; color:#888;">
                     JingXin Multi-modal Assessment System | Auto-Generated Report

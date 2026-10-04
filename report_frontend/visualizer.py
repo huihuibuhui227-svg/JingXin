@@ -117,44 +117,6 @@ class ReportVisualizer:
         fig = self._build_radar_figure(result)
         return self._save_fig(fig, "radar_chart")
 
-    def create_evidence_bar_chart(self, result: Dict[str, Any], dimension_key: str) -> str:
-        """创建证据链条形图并保存"""
-        if dimension_key not in result['dimensions']:
-            return ""
-
-        data = result['dimensions'][dimension_key]
-        evidence = data['evidence_chain']
-
-        labels, contributions, colors, hover_texts = [], [], [], []
-
-        for item in evidence:
-            if item['raw_value'] is None: continue
-            labels.append(item['human_name'])
-            contrib = item['contribution']
-            contributions.append(contrib)
-
-            if contrib > 0:
-                colors.append(self.colors['success']); status = "正向"
-            elif contrib < 0:
-                colors.append(self.colors['danger']); status = "负向"
-            else:
-                colors.append(self.colors['info']); status = "中性"
-
-            hover_texts.append(
-                f"<b>{item['human_name']}</b><br>贡献：{contrib:.3f} ({status})<br>原始值：{item['raw_value']}<extra></extra>")
-
-        fig = go.Figure(go.Bar(y=labels, x=contributions, orientation='h', marker_color=colors, hovertext=hover_texts,
-                               hoverinfo='text'))
-        fig.update_layout(
-            title=dict(text=f"🔍 [{data['display_name']}] 证据链贡献度", font=dict(family=self.font_family, size=16)),
-            xaxis_title="贡献值", yaxis_title="指标",
-            yaxis=dict(tickfont=dict(family=self.font_family)),
-            height=max(300, len(labels) * 40), margin=dict(l=150, r=20, t=60, b=20)
-        )
-        fig.add_vline(x=0, line_dash="dash", line_color="gray")
-
-        return self._save_fig(fig, f"evidence_{dimension_key}")
-
     def create_gaze_plot_from_df(self, df_face: pd.DataFrame) -> Optional[str]:
         """M3 之前不生成眼动图。
 
@@ -183,13 +145,12 @@ class ReportVisualizer:
         charts['radar'] = self.create_capability_radar(result)
         print(f"   📈 已保存：雷达图 -> {charts['radar']}")
 
-        # 2. 证据链图 (每个维度一个)
+        # 2. 证据链图 —— **已删除(2026-10-04)**。
+        #    它 x 轴画的是 `contribution`(折算值 × 槽权重),即"对**维度分**的贡献";
+        #    而维度分与复合分已从 payload 整层摘除 ⟹ 那张图的参照物不存在了,
+        #    留着就是在报告里印一个**没有指涉**的数。逐槽的诚实呈现是那张表
+        #    (原始值 + 本场观测区间 + 有效样本量),`report_generator` 一直在渲染它。
         charts['evidence'] = {}
-        for key in result['dimensions'].keys():
-            path = self.create_evidence_bar_chart(result, key)
-            if path:
-                charts['evidence'][key] = path
-                print(f"   📈 已保存：[{key}] 证据图 -> {path}")
 
         # 3. 眼动图 —— M3 前恒为 None(spec §5.5),故不再区分"有/无数据"两种分支
         charts['gaze'] = self.create_gaze_plot_from_df(df_face)

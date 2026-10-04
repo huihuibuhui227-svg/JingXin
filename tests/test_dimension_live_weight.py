@@ -23,13 +23,17 @@
 于是"这个维度声明的证据"与"它实际能拿到的证据"是**两个数**,而后者此前**没有任何地方记着**。
 2026-10-03 实测(四场高质量素材的同一套表):
 
-| 维度(显示名) | 维度权重 | **死权重** | 可达 |
-|---|---|---|---|
-| 话语结构特征 | 0.25 | **0.0** | 1.0 |
-| 情境行为稳定性 | 0.25 | **0.0** | 1.0 |
-| **沟通表达流畅度** | **0.20** | **5/7 ≈ 0.714** | **2/7 ≈ 0.286** |
-| 行为表现活跃度 | 0.15 | **0.2** | 0.8 |
-| 作答过程特征 | 0.15 | **0.0** | 1.0 |
+| 维度(显示名) | **死权重** | 可达 |
+|---|---|---|
+| 话语结构特征 | **0.0** | 1.0 |
+| 情境行为稳定性 | **0.0** | 1.0 |
+| **沟通表达流畅度** | **5/7 ≈ 0.714** | **2/7 ≈ 0.286** |
+| 行为表现活跃度 | **0.2** | 0.8 |
+| 作答过程特征 | **0.0** | 1.0 |
+
+⚠️ **原来的「维度权重」那一列已删**(2026-10-04):跨维度权重表 `dimension_weights`
+随复合分一起从 payload 摘除了(理由见下面那段"陷阱已摘除")。本表现在只说
+**每一维自己**有多少声明证据是活的 —— 那件事与"维度之间怎么加权"无关。
 
 ⟹ **2026-10-03 之前**沟通表达流畅度 **80%** 的声明证据是死的(全仓最糟);
 删掉 `speech_ratio` 槽、余下按原比例重归一之后降到 **5/7 ≈ 0.714**
@@ -65,22 +69,28 @@
 
 ## 这张表还牵出一个陷阱(登记,但本轮**不改**)
 
-`total_score` 的聚合只按"**有没有分**"归一:
+## 那个陷阱**已经不存在了**(2026-10-04 摘除,不是修好)
+
+它原来是:`total_score` 的聚合只按"有没有分"归一
 
     den = sum(dimension_weights[k] for k, d in ... if d["score"] is not None)
 
-⟹ 一个**只有 2/7 个槽撑着**的维度(`communication_fluency`)与一个**可达 0.8** 的维度,
-拿**一样重**的权重。于是在复合分里,声明证据死掉 5/7 的那个维度(0.20)比
-可达 0.8 的 `confidence_level`(0.15)**权重更大**。
+⟹ 一个**只有 2/7 个槽撑着**的维度与一个可达 0.8 的维度拿**一样重**的权重,于是复合分里
+声明证据死掉 5/7 的那个维度比全活的维度**权重更大**。
 
-**本轮不改**:`total_score` / `total_level` 明确标注"只为 API 稳定保留、报告层一个字都不渲染"
-(`research_mapper.py` 的三处注释 + spec §5.4 :157-158),而**被展示的那一层**是 `coverage`
-(报"过门 N/M 个槽 + 逐指标实测区间 + 置信度上限",实测是诚实的)。
-改复合权重是**构念决策**,且要重新登记,不该顺手做。详见 `docs/下一步.md`「丙、18」。
+**处置是"整层摘除"而不是"改口径"**:`total_score` / `total_level` / 逐维度 `score` / `level`
+/ `dimension_weights` 一起从 payload 里删掉了。理由不是"那个聚合算错了",而是**它不该存在**
+—— 见 `research_mapper` 返回处那段注释(未标定标尺 + 分母不是常数 + 它是对人的复合判定),
+以及 `tests/test_report_layer.py::test_the_payload_carries_no_scoring_keys_at_all` 那条守卫。
+实测过的现形:场 `9b2b` 剔掉一个**假过门**之后 `stress_resilience` 反而 59.35 → 94.68。
+
+⟹ 本文件保留的是那张表的**另一件事**:**每一维自己**有多少声明证据是死的。
+那件事仍然重要(它决定"这一维能说什么"),只是不再与任何加权有关。
 """
 from __future__ import annotations
 
 import importlib
+from pathlib import Path
 
 import pytest
 
@@ -262,30 +272,31 @@ def test_every_dimension_declares_full_slot_weight():
 
 @pytest.mark.parametrize("dim", sorted(_DEAD_WEIGHT))
 def test_thin_dimensions_are_flagged_not_silently_weighted(dim):
-    """★ 死权重超过一半的维度,它的 `dimension_weights` **必须**在登记里被点名。
+    """★ 死权重超过一半的维度必须**有人看得见** —— 而且要在文档里被点名。
 
-    这条钉的是那个**陷阱**:`total_score` 的聚合只按"有没有分"归一
-    (`den = sum(dimension_weights[k] ... if score is not None)`)⟹
-    **只有 2/7 个槽撑着的维度与可达 0.8 的维度拿一样重**,于是复合分里
-    `communication_fluency`(0.20,可达 2/7 ≈ 0.286)比 `confidence_level`(0.15,可达 **0.8**)
-    权重还大 —— 对比仍然成立,只是后者**不是**"全活"(2026-10-04 起它自己也有 0.2 死)。
+    ⚠️ 2026-10-04 **这条测试的意义变了**。它原来钉的是那个陷阱(薄维度与全活维度
+    在复合分里拿一样重)。复合分连同跨维度权重已**整层摘除**,陷阱随之消失 ⟹
+    本测试保留的是它的**另一半**用途:**薄维度不能被静默当成与全活维度同等可信**。
 
-    本轮**不改**该聚合(它是明确不渲染的遗留字段,而展示层 `coverage` 是诚实的);
-    但"哪个维度是薄的"必须**有人看得见**,不能将来哪天有人重新渲染 `total_score` 时
-    才发现。详见 `docs/下一步.md`「丙、18」。
+    现在的判据落到**可见性**上,两条都是机器可查的:
+      ① 薄维度必须在本文件的 `_DEAD_WEIGHT` 里登记(**并写出为什么**);
+      ② 它的**显示名必须出现在 `docs/下一步.md`** —— "有人看得见"这句话要么能被验证,
+         要么就只是一句声明。
 
-    红法(实测):把某个薄维度的死权重登记值改小到一半以下 ⟹ 红(它不再被当"薄"的)。
+    红法(实测):把某个薄维度的显示名改掉、不同步文档 ⟹ 第 ② 条红;
+    把某个薄维度的死权重登记值改小到一半以下 ⟹ 本条跳过(它不再被当"薄"的),
+    而 `test_registered_dead_weight_matches_reality` 会因为新值不匹配而红。
     """
-    from report_frontend.research_mapper import ResearchCapabilityMapper
-
     _display, dead, why = _DEAD_WEIGHT[dim]
-    weights = ResearchCapabilityMapper().dimension_weights
     if dead < 0.5:
         pytest.skip(f"{dim} 死权重 {dead} < 0.5,不属于「薄」的那批")
-    assert dim in weights, f"{dim} 不在 dimension_weights 里 —— 那 aggregate 时取不到权重"
-    assert weights[dim] > 0, (
-        f"{dim} 的维度权重是 0 —— 那它死权重再多也影响不到复合分,"
-        f"本登记该相应说明(为什么: {why})")
+    assert why.strip(), f"{dim} 是薄维度却没有登记理由 —— 薄必须有人看得见"
+    assert _display.strip(), f"{dim} 没有显示名"
+
+    docs = (Path(__file__).resolve().parents[1] / "docs" / "下一步.md").read_text(encoding="utf-8")
+    assert _display in docs, (
+        f"薄维度「{_display}」没有被 `docs/下一步.md` 点名 —— "
+        f"「哪个维度是薄的」必须有人看得见,而不是只躺在测试文件里")
 
 
 def test_the_quarantine_lookup_catches_a_longer_registry_key():

@@ -4,14 +4,69 @@ from pathlib import Path
 
 from report_frontend.research_mapper import ResearchCapabilityMapper
 
+#: payload 里**不许存在**的评分类键(2026-10-04 整层摘除)。
+#:
+#: 它们都是"**未标定标尺上对人的判定**":复合点分、五档评语、逐维度点分与档位、
+#: 跨维度权重,以及更早删掉的模板评语与百分位。摘除的理由见 `research_mapper`
+#: 返回处那段注释 —— 一句话:本仓要宣称的是「结构化行为记录 + 低置信度特质提示」,
+#: 不是「心理识别结论」(spec §5.4 :157-158 / §5.6)。
+_FORBIDDEN_SCORING_KEYS = (
+    "total_score", "total_level",        # 复合点分 / 五档评语
+    "score", "level",                    # 逐维度点分 / 档位
+    "dimension_weights",                 # 跨维度权重(唯一用途就是上面那个复合分)
+    # 逐槽的折算/汇总输出(2026-10-04 与上面那批一起摘除)——
+    # `status`(强支撑/弱支撑/中性)与 `positive/negative_factors` 是**在未标定标尺上
+    # 贴的判定标签**,与档位同一类物种;`normalized_score`/`contribution`/`weight` 是
+    # 那条链的中间量。它们唯一被渲染的地方是「证据链贡献度」柱状图,而那张图的参照物
+    # (维度分)已不存在,故图与字段一并摘除。
+    "normalized_score", "contribution", "status", "direction", "weight",
+    "positive_factors", "negative_factors",
+    "narrative", "simple_narrative",     # 模板填空式评语(更早删除)
+    "percentile",                        # 百分位(没有真实常模时不得输出)
+)
+
+
+def _scoring_keys(obj, path: str = "") -> list:
+    """递归找出 payload 里所有评分类的键,带路径(便于定位)。"""
+    found: list = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            here = f"{path}.{k}" if path else str(k)
+            if k in _FORBIDDEN_SCORING_KEYS:
+                found.append(here)
+            found += _scoring_keys(v, here)
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            found += _scoring_keys(v, f"{path}[{i}]")
+    return found
+
+
+def test_the_payload_carries_no_scoring_keys_at_all():
+    """★ 2026-10-04:评分类的键**整层摘除** —— 一个都不许回来。
+
+    **为什么钉"键不存在"而不是"值为 None"**:值为 `None` 的字段会被下一个人填上
+    (今天之前 `total_score` 就是"只为 API 稳定保留"地躺在那里),而键不存在时,
+    重新引入必须**显式**改代码 + 改本测试。
+
+    红法(实测):在 `research_mapper` 的返回值里加回 `"total_score": None` ⟹ 本条红。
+    已登记成变异。
+    """
+    for feats in ({}, _MIXED, _LOW):
+        r = ResearchCapabilityMapper().map_features_to_scores(feats)
+        bad = _scoring_keys(r)
+        assert bad == [], f"payload 里出现了评分类的键(未标定标尺上对人的判定):{bad}"
+
 
 def test_zero_input_produces_no_scores():
-    """spec §6.1:零输入必须不再产出分数。基线是 47.08。"""
+    """spec §6.1 + 2026-10-04:零输入必须不产出**任何**分数/档位。基线曾是 47.08。
+
+    摘除之后判据变成"评分类的键不存在"(见 `_scoring_keys`),而不再是"它是 None"。
+    """
     r = ResearchCapabilityMapper().map_features_to_scores({})
 
-    assert r["total_score"] is None
+    assert _scoring_keys(r) == [], f"payload 里仍有评分类的键:{_scoring_keys(r)}"
     for key, dim in r["dimensions"].items():
-        assert dim["score"] is None, f"{key} 零输入却仍出分"
+        assert not dim["evidence_chain"], f"{key} 零输入却仍有证据链"
         assert dim["confidence"] == "无", f"{key} 置信度应为无"
     assert r["evidence_gaps"], "必须给出 evidence_gaps"
 
@@ -117,12 +172,10 @@ def test_confidence_can_be_none_and_low():
     assert tuple(confidence_from(n, 4) for n in range(5)) == ("无", "低", "中", "中", "中")
 
 
-def test_dimension_weights_sum_to_one():
-    """spec §5.3:comm 维度权重和曾为 1.4。"""
-    m = ResearchCapabilityMapper()
-    for dim_key, rule in m.mapping_rules.items():
-        total = sum(w for _, w, _, _, _ in rule["indicators"])
-        assert abs(total - 1.0) < 1e-9, f"{dim_key} 权重和为 {total}"
+# ⚠️ 2026-10-04 **已移**除名为 `test_dimension_weights_sum_to_one` 的那条:它守的是跨维度权重和为 1
+#    (`self.dimension_weights`),而那张表已随复合分一起摘除。同一件事(**维度内**槽权重
+#    和为 1)由 `tests/test_dimension_live_weight.py::test_every_dimension_declares_full_slot_weight`
+#    更严格地守着,所以这里不另立一份。
 
 
 def test_slot_level_quarantine_covers_spec_5_3():
@@ -890,8 +943,11 @@ def test_the_released_eye_contact_really_reaches_the_score():
     ——刻意让 628 ≠ 模态行数 321,这样"退回到模态行数"会被抓住。
 
     实测(2026-10-03,场 `..._f98d` 走完整链路):
-      raw 0.8298 / normalized 0.83 / contribution 0.249(权重 0.3)/ n_valid 628 / std 0.1357
-      ⟹ 并计入 `positive_factors`。
+      raw 0.8298 / n_valid 628 / std 0.1357。
+    ⚠️ 2026-10-04:原来还断言 `normalized_score 0.83` 与 `contribution 0.249`(并入
+    `positive_factors`)—— 那三个字段随评分层一起摘除了(见 `research_mapper` 返回处
+    那段注释)。**"它真的进了报告"这条判据没有变**:过门 ⟺ 出现在 `evidence_chain` 里,
+    而 `evidence_chain` 正是渲染层逐槽出表的那批数据。
 
     红法:把封停条目加回去 / 去掉 `_sample_size` 或 `_std` / 把值改回恒 0 ⟹ 红。
     """
@@ -911,7 +967,11 @@ def test_the_released_eye_contact_really_reaches_the_score():
     assert hit["n_valid"] == 628, (
         f"用的不是它自己的样本量(回落到了模态行数?):{hit['n_valid']}")
     assert hit["std"] > 0, "G2 没拿到 `_std` ⟹ 非常量这一关形同虚设"
-    assert hit["contribution"] > 0, "贡献为 0 ⟹ 没真的进分"
+    # "真的进了报告" = 它在 `evidence_chain` 里(上面已断言),而 `evidence_chain`
+    # 正是渲染层逐槽出表用的那批数据 —— 不再需要一个折算后的分数来证明。
+    assert set(hit) == {"feature", "human_name", "raw_value", "n_valid", "std",
+                        "observed_interval"}, (
+        f"evidence_chain 的字段集变了(评分类字段不该回来):{sorted(hit)}")
 
 
 def test_question_index_is_not_dropped():
@@ -1107,14 +1167,16 @@ def test_report_renders_no_candidate_rating():
     一个都到不了渲染层 —— 用零证据 fixture 的断言在改动前后都通过(空断言)。
     """
     result = ResearchCapabilityMapper().map_features_to_scores(_MIXED)
-    assert result["total_level"] in _LEVEL_WORDS, "fixture 没走进五档评语,本测试退化为空断言"
+    # 前提:_MIXED 必须真的走出"有证据"这条路 —— 否则只扫得到"无证据"那几句(空断言)。
+    # 以前这里靠 `total_level in _LEVEL_WORDS` 当前提;档位摘除后改用**覆盖数**,
+    # 那本来也更贴本仓的主张。
+    assert result["coverage"]["n_passed"] > 0, "fixture 无过门槽,本测试退化为空断言"
 
     html = _rendered_html(result, _MIXED)
 
     for word in _LEVEL_WORDS:
         assert word not in html, f"报告仍把档位评语渲染成对人的评级:{word}"
     assert "综合行为观测评分" not in html, "报告仍把未标定标尺上的点分当评分渲染"
-    assert str(result["total_score"]) not in html, "报告仍渲染点分数值"
 
     # 正向断言:否则"把整段都删掉"也能让本测试通过
     assert "观测区间" in html, "聚合呈现缺区间(spec §5.6:区间 + 置信度 + 依据)"
@@ -1128,7 +1190,7 @@ def test_zero_value_scored_session_renders_no_verdict():
     与 `_MIXED`(100.0 / 卓越)合起来覆盖点分的两端;只测高分端会漏掉低分端。
     """
     result = ResearchCapabilityMapper().map_features_to_scores(_LOW)
-    assert result["total_level"] == "待提升", "fixture 没走进「待提升」档,本测试退化为空断言"
+    assert result["coverage"]["n_passed"] > 0, "fixture 无过门槽,本测试退化为空断言"
 
     html = _rendered_html(result, _LOW)
 
@@ -1144,7 +1206,7 @@ def test_scored_dimension_follows_spec_5_4_shape_and_carries_5_6_caveat():
     """
     result = ResearchCapabilityMapper().map_features_to_scores(_MIXED)
     dim = result["dimensions"]["logical_thinking"]
-    assert dim["score"] is not None, "fixture 未出分,本测试退化为空断言"
+    assert dim["evidence_chain"], "fixture 该维度没有过门槽,本测试退化为空断言"
 
     html = _rendered_html(result, _MIXED)
 
@@ -1161,7 +1223,7 @@ def test_deep_analysis_summary_has_no_point_score_or_level():
     from report_frontend.report_generator import ReportGenerator
 
     result = ResearchCapabilityMapper().map_features_to_scores(_MIXED)
-    assert result["total_level"] in _LEVEL_WORDS, "fixture 没走进五档评语,本测试退化为空断言"
+    assert result["coverage"]["n_passed"] > 0, "fixture 无过门槽,本测试退化为空断言"
 
     html = ReportGenerator()._generate_deep_text_analysis(_MIXED, result)
 
@@ -1173,14 +1235,15 @@ def test_deep_analysis_summary_has_no_point_score_or_level():
 def test_radar_plots_coverage_not_scores():
     """spec §5.4/§5.6:雷达图的半径不得再是维度点分。
 
-    `_MIXED` 下 logical_thinking 的维度分是 100.0(未标定标尺上的复合点分),
-    而它的覆盖数是 1/4 —— 半径若回到 `dim['score']`,r 里会出现 100.0 → 本测试变红。
+    `_MIXED` 下 logical_thinking 的覆盖数是 1/4 —— 半径若回到 `dim['score']`,r 里会出现
+    100.0 → 本测试变红。⚠️ 2026-10-04 起 `dim['score']` **已不存在**(整层摘除),
+    所以"回到点分"这件事在类型上也不可能了;本测试仍然守着"半径就是过门槽数"
+    这条**正向**断言(否则"整张图删掉"也能通过)。
     """
     from report_frontend.visualizer import ReportVisualizer
 
     result = ResearchCapabilityMapper().map_features_to_scores(_MIXED)
-    assert result["dimensions"]["logical_thinking"]["score"] == 100.0, \
-        "fixture 未出分,本测试退化为空断言"
+    assert result["coverage"]["n_passed"] > 0, "fixture 无过门槽,本测试退化为空断言"
 
     fig = ReportVisualizer(output_dir="/tmp")._build_radar_figure(result)
     raw = list(fig.data[0].r)
@@ -1252,8 +1315,8 @@ def test_deep_analysis_has_no_banned_words():
     from report_frontend.report_generator import ReportGenerator
 
     result = ResearchCapabilityMapper().map_features_to_scores(_MIXED)
-    # 断言 fixture 真的走出了分路径 —— 否则本测试退化为只扫无证据文案
-    assert result["total_score"] is not None, "fixture 未出分,本测试退化为空断言"
+    # 断言 fixture 真的有证据可渲染 —— 否则本测试退化为只扫无证据文案
+    assert result["coverage"]["n_passed"] > 0, "fixture 无过门槽,本测试退化为空断言"
     html = ReportGenerator()._generate_deep_text_analysis(_MIXED, result)
 
     for word in BANNED:
@@ -1261,20 +1324,22 @@ def test_deep_analysis_has_no_banned_words():
 
 
 def test_deep_analysis_handles_none_scores():
-    """score 为 None 的维度不得参与排序/取最大值,且仍要渲染成"证据不足"。
+    """**没有证据**的维度不得参与排序/取最大值,且仍要渲染成"证据不足"。
 
-    ⚠️ fixture 必须是 _MIXED:零证据输入会让 total_score 直接为 None,
-    根本走不到 max(..., key=CONF_ORDER.get) 那一行,本测试就守不住它。
-    _MIXED 下 logical_thinking 出分、其余 4 维为 None,两条路径同时被走到。
+    ⚠️ 2026-10-04:判据由"`score is None`"改成"`evidence_chain` 为空" —— 两者等价
+    (没有过门槽 ⟺ 没有分),而点分本身已摘除。
+    ⚠️ fixture 必须是 _MIXED:零证据输入会让**每一维**都空,走不到
+    `max(..., key=CONF_ORDER.get)` 那一行;`_MIXED` 下 logical_thinking 有证据、
+    其余 4 维为空,两条路径同时被走到。
     """
     from report_frontend.report_generator import ReportGenerator
 
     result = ResearchCapabilityMapper().map_features_to_scores(_MIXED)
     html = ReportGenerator()._generate_deep_text_analysis(_MIXED, result)
 
-    assert result["total_score"] is not None, "fixture 未出分,本测试守不住 conf_cap 那一行"
-    assert any(d["score"] is None for d in result["dimensions"].values()), \
-        "fixture 无 None 维度,本测试守不住'证据不足'渲染"
+    assert result["coverage"]["n_passed"] > 0, "fixture 无过门槽,本测试守不住 conf_cap 那一行"
+    assert any(not d["evidence_chain"] for d in result["dimensions"].values()), \
+        "fixture 无'无证据'维度,本测试守不住'证据不足'渲染"
     assert "证据不足" in html
 
 
@@ -1287,7 +1352,7 @@ def test_no_hardcoded_gaze_claim():
     from report_frontend.report_generator import ReportGenerator
 
     result = ResearchCapabilityMapper().map_features_to_scores(_MIXED)
-    assert result["total_score"] is not None, "fixture 未出分,本测试退化为空断言"
+    assert result["coverage"]["n_passed"] > 0, "fixture 无过门槽,本测试退化为空断言"
     html = ReportGenerator()._generate_deep_text_analysis(_MIXED, result)
     assert "未出现异常的回避行为" not in html
     assert "如外科医生般" not in html

@@ -292,13 +292,14 @@ class ResearchCapabilityMapper:
             }
         }
 
-        self.dimension_weights = {
-            "logical_thinking": 0.25,
-            "stress_resilience": 0.25,
-            "communication_fluency": 0.20,
-            "confidence_level": 0.15,
-            "cognitive_efficiency": 0.15
-        }
+        # ⚠️ **这里曾有 `self.dimension_weights`(2026-10-04 摘除)**。
+        # 它的**唯一**用途就是把五个维度分加权成 `total_score`;那个复合分连同逐维度
+        # 点分/档位一起摘掉了(理由见 `map_features_to_scores` 返回处那段注释)。
+        # 摘掉而不留"仅供说明"的副本,是因为**留着就会被汇总** —— 一份看着像权重的数据
+        # 放在那里,下一个人重新加总它只是时间问题。
+        #
+        # 各维度**内部**的槽权重仍然保留(在 `mapping_rules[...]["indicators"]` 里)——
+        # 那个权重是**维度内**的池化,与"跨维度加权成一个人的总分"是两件事。
 
     def map_features_to_scores(self, features: Dict[str, Any]) -> Dict[str, Any]:
         print("\n⚖️ 正在执行行为指标映射...")
@@ -331,11 +332,7 @@ class ResearchCapabilityMapper:
 
         for dim_key, rule_config in self.mapping_rules.items():
             indicators = rule_config["indicators"]
-            weighted_sum = 0.0
-            total_weight = 0.0
             evidence_chain = []
-            positive_factors = []
-            negative_factors = []
             inference_data = {}
             # 这两个必须声明在维度循环内 —— 声明在方法级会让 5 个维度共用一个列表,
             # 证据缺口串味(Ruling 2)。
@@ -408,60 +405,38 @@ class ResearchCapabilityMapper:
             # 本维缺口并入顶层
             all_evidence_gaps.extend(dim_gaps)
 
-            # 4. 计算 —— 只有过门的指标参与加权
+            # 4. 逐槽组装证据 —— **不再有"折算/加权/贡献"这一步**(2026-10-04 摘除)。
+            #
+            # 这里原来是:`_dynamic_normalize(原始值)` → `final_val`(0–1)→ × 槽权重 →
+            # `contribution` → 维内加权和 → 维度 `score` → `total_score`。
+            # 整条链的**唯一终点**就是那个复合分,所以它们一起摘了(理由见返回处那段注释)。
+            # `normalized_score` / `contribution` / `status`(强支撑/弱支撑/中性)/
+            # `direction` / `weight` / `positive_factors` / `negative_factors` 全部随之删除 ——
+            # 注意 `status` 与那两个 factors 是**在未标定标尺上贴的判定标签**,与档位同一类物种。
+            # ⚠️ 摘它们**不是**因为"算错了":是那个标尺没有标定样本能给背书(§5.5)。
+            #
+            # `_dynamic_normalize` 与 `evidence_thresholds.json` 的 `scale_factors` 登记表
+            # **保留但已无消费方** —— 它们是「乙、7 标定债」那一条的对象,删不删是另一个决定。
             for keyword, weight, is_positive, human_name, matched_val, matched_key, std, n_valid in matched:
-                normalized_val = self._dynamic_normalize(matched_val, keyword)
-
-                if is_positive:
-                    final_val = normalized_val
-                else:
-                    final_val = 1.0 - normalized_val
-
-                final_val = max(0.0, min(1.0, final_val))
-                contribution = final_val * weight
-
-                # 调试输出
-                if keyword in ['tension_score', 'jitter', 'gaze_stability']:
-                    print(
-                        f"         🧮 {human_name}: 原始={matched_val:.2f}, 因子={final_val:.2f}, 贡献=+{contribution:.3f}")
-
-                weighted_sum += contribution
-                total_weight += weight
-
-                status = "✅ 强支撑" if final_val > 0.7 else "⚠️ 弱支撑" if final_val < 0.4 else "➖ 中性"
-
-                # 只留原始值供调试;百分位已随杜撰基线一并删除(spec §5.5:
+                # 只留原始值供审查;百分位已随杜撰基线一并删除(spec §5.5:
                 # 没有真实常模就不输出百分位)
                 inference_data[keyword] = {"val": matched_val}
 
-                evidence_item = {
+                evidence_chain.append({
                     "feature": matched_key,
                     "human_name": human_name,
                     "raw_value": round(matched_val, 4),
-                    "normalized_score": round(final_val, 2),
-                    "contribution": round(contribution, 3),
-                    "status": status,
-                    "direction": "正向" if is_positive else "反向",
-                    "weight": weight,
                     # spec §5.4 的「值 + 有效样本量 + 置信度 + evidence_gaps」需要样本量;
                     # 区间只由本场会话自己的测量构成(spec §5.5/§5.6)。
                     "n_valid": n_valid,
                     "std": _as_float(std),
                     "observed_interval": _observed_interval(matched_val, std),
-                }
-                evidence_chain.append(evidence_item)
+                })
 
-                if final_val > 0.65:
-                    positive_factors.append(human_name)
-                elif final_val < 0.35:
-                    negative_factors.append(human_name)
-
-            # 5. 无任何指标过门 → 不出分,只出缺口(spec §5.1 硬规则)
+            # 5. 无任何指标过门 → 不出缺口之外的东西(spec §5.1 硬规则)
             if not matched:
                 dimension_results[dim_key] = {
                     "display_name": rule_config["name"],
-                    "score": None,
-                    "level": "证据不足",
                     "evidence_chain": [],
                     "evidence_gaps": dim_gaps,
                     "confidence": "无",
@@ -471,21 +446,23 @@ class ResearchCapabilityMapper:
                 continue
 
             confidence = confidence_from(len(matched), len(indicators))
-            score = round(max(0.0, min(100.0, weighted_sum / total_weight * 100)), 2)
-            level = self._get_level(score)
 
             # 说明:此处曾产出 narrative / simple_narrative(模板填空式评语),
             # 已随 `_generate_deep_inference` 一并删除(spec §5.4:不解读、不推断)。
             # 报告层改为直接渲染证据状态,不再有可填空的句子。
+            #
+            # ⚠️ **这里曾产出 `score` 与 `level`(2026-10-04 摘除)**。理由不是"它们算错了",
+            # 而是"它们是错的一类东西":一个维度分是**未标定标尺上的复合点分**,
+            # 档位是对人的评语 —— 而本仓要宣称的是「结构化行为记录 + 低置信度特质提示」。
+            # 它们**一个字都不渲染**(见 `report_generator` 与前端 `ReportViewer` 的引用),
+            # 却随时可能被下一个渲染者接上,所以从 payload 里摘掉。
+            # 逐维度的呈现改用 `matched_indicators`(过门 N/M)+ `confidence` +
+            # `evidence_chain`(原始值 / 区间 / 样本量)+ `evidence_gaps`。
             dimension_results[dim_key] = {
                 "display_name": rule_config["name"],
                 "description": rule_config["description"],
                 "algorithm": rule_config["algorithm"],
-                "score": score,
-                "level": level,
                 "evidence_chain": evidence_chain,
-                "positive_factors": positive_factors,
-                "negative_factors": negative_factors,
                 "evidence_gaps": dim_gaps,
                 "confidence": confidence,
                 "matched_indicators": f"{len(matched)}/{len(indicators)}",
@@ -496,30 +473,27 @@ class ResearchCapabilityMapper:
             print(f"   ✅ [{rule_config['name']}] 过门指标 {len(matched)}/{len(indicators)}，"
                   f"置信度：{confidence}")
 
-        # 总分 —— 只在有维度过门时产出;一个都没有时 total_score 为 None(spec §6.1)
-        valid = [d for d in dimension_results.values() if d["score"] is not None]
-        if not valid:
-            final_total = None
-        else:
-            num = sum(d["score"] * self.dimension_weights[k]
-                      for k, d in dimension_results.items() if d["score"] is not None)
-            den = sum(self.dimension_weights[k]
-                      for k, d in dimension_results.items() if d["score"] is not None)
-            final_total = round(num / den, 2)
-
+        # ⚠️ **这里曾算出 `total_score` / `total_level`(2026-10-04 摘除,连同
+        # `dimension_weights`)。** 不是说那个聚合"算错了" —— 是**它不该存在**:
+        #   · 本仓没有标定样本(§5.5 禁一切人群参照区间;M5 被许可 + 伦理审查卡死)
+        #     ⟹ 权重是**声明的**,那个 0–100 是未标定标尺上的数;
+        #   · 它的**分母不是常数**:实测 53 场里"有分的维度数"是 0/2/3/5 四种
+        #     ⟹ 它一直在拿**不同维度子集**互相比较;
+        #   · 它是**对人的复合判定**,而本仓要宣称的是「结构化行为记录 +
+        #     低置信度特质提示」(spec §5.4 :157-158 / §5.6 就是这个意思)。
+        # 实测过的现形:场 `9b2b` 剔掉一个**假过门**之后,`stress_resilience`
+        # 反而 59.35 → 94.68 —— 每次诚实性修复都可能把复合分推高,然后被人读成结论。
+        #
+        # 呈现层**唯一**的来源是 `coverage`:过门槽 + 原始值 + 本场观测区间 +
+        # 有效样本量 + 置信度上限(见 `_coverage`)。
         coverage = self._coverage(dimension_results)
 
         return {
-            "total_score": final_total,
-            "total_level": self._get_level(final_total) if final_total is not None else "证据不足",
             "dimensions": dimension_results,
-            # ⚠️ total_score / total_level 只为 API 稳定保留:它们是**未标定标尺**上的
-            # 复合点分与五档评语,报告层一个字都不渲染(spec §5.4 :157-158 / §5.6)。
-            # 聚合呈现改用 coverage(覆盖事实 + 逐指标实测区间 + 置信度上限)。
             "coverage": coverage,
             "summary_narrative": NO_COMPOSITE_STATEMENT,
             "evidence_gaps": all_evidence_gaps,
-            "model_metadata": {"version": "JingXin-Mapper-v11-EvidenceGate",
+            "model_metadata": {"version": "JingXin-Mapper-v12-NoComposite",
                                "timestamp": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")}
         }
 
@@ -565,18 +539,6 @@ class ResearchCapabilityMapper:
         `evidence_thresholds.json`;本方法保留只为既有调用点稳定,体内不得再出现裸常量。
         """
         return normalize_value(val, keyword)
-
-    def _get_level(self, score: float) -> str:
-        if score >= 90:
-            return "卓越"
-        elif score >= 80:
-            return "优秀"
-        elif score >= 70:
-            return "良好"
-        elif score >= 60:
-            return "合格"
-        else:
-            return "待提升"
 
     def _fuzzy_match(self, keyword: str, all_features: Dict[str, Any]):
         """按关键词在扁平化特征里找第一个数值指标。
