@@ -277,6 +277,22 @@ def load_thresholds(path: Optional[Path] = None) -> dict:
     return data
 
 
+def threshold_family_for(key: str) -> Optional[str]:
+    """`key` 落在哪个**阈值族**上(按最长子串);没有族返回 `None`。
+
+    单独抽出来是因为**族名本身**也是审查对象 —— G3 的门槛必须与该族的 `n_valid`
+    **单位**同量纲(`evidence_thresholds.json` 的 `n_valid_units`:frame / answer),
+    而"单位"是按**族**登记的。`_threshold_for` 只回值、回不了族,于是
+    `tests/test_dimension_live_weight.py` 那条守卫没法判断"这个槽拿到的门槛是不是
+    帧级的"。**匹配语义只有这一处实现**(子串 + 最长优先,与 `is_quarantined` /
+    `scale_factor_for` 同一套),`_threshold_for` 也走它 —— 不许再抄第二份。
+    """
+    data = load_thresholds()
+    k = key.lower()
+    matched = [name for name in data["thresholds"] if name in k]
+    return max(matched, key=len) if matched else None
+
+
 def _threshold_for(key: str) -> int:
     """按**最长**子串匹配阈值,与 is_quarantined 用同一套规则。
 
@@ -285,13 +301,11 @@ def _threshold_for(key: str) -> int:
     而不是自己登记的 2。同模块内两套匹配规则是缺陷。
     """
     data = load_thresholds()
-    thresholds = data["thresholds"]
-    k = key.lower()
-    matched = [name for name in thresholds if name in k]
-    if not matched:
+    fam = threshold_family_for(key)
+    if fam is None:
         # 默认值也来自 JSON —— 不得写成裸常量(spec §5.1)
         return int(data["_default_n_valid"])
-    return thresholds[max(matched, key=len)]
+    return data["thresholds"][fam]
 
 
 def scale_factor_for(key: str) -> dict:

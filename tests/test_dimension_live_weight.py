@@ -8,7 +8,17 @@
 * **封停**:`evidence_gate.QUARANTINE` 命中 ⟹ G4 永远拦(如 `focus_score`);
 * **无生产者**:在 `research_mapper.NO_PRODUCER` 里 ⟹ G1 永远过不了
   (如 `fluency_score`,全系统没有任何代码在算它);
+* **门槛结构性不可达(单位错配)**:G3 的门槛拿的是**帧级**默认(10),而这个槽是
+  **每段回答一个样本**(题库每场 **8 题**)⟹ 答满全场也过不了(实测 `pitch_variation`);
 * **指向待删列**:`l0_columns.json` 白名单里标了「删列」的列(如 `speech_ratio`)。
+
+⭐ **第三条是 2026-10-03 才补进本表的,它的教训值得单独读**:前三条判据都只看
+「这个槽有没有**路**」,第三条看的是「这条路**走得通吗**」。它漏掉时的症状
+**长得像"数据不够"** —— 报告写「语调变化: 有效样本不足」,读的人会去多答几题,
+而多答也不行(题库只有 8 题)。实测:在唯一一场有语音数据的会话(`..._95a8`)上,
+`communication_fluency` 唯一那个看起来活的槽 `pitch_variation` 被 G3 永久拦下,
+**本表当时登记的死权重 5/7 是错的,真值 7/7**。补上判据 + 修好门槛单位之后,
+那个维度才第一次真的出货(0/3「证据不足」→ 1/3,score 51.39,confidence 低)。
 
 于是"这个维度声明的证据"与"它实际能拿到的证据"是**两个数**,而后者此前**没有任何地方记着**。
 2026-10-03 实测(四场高质量素材的同一套表):
@@ -71,7 +81,10 @@ _DEAD_WEIGHT = {
                           "全活 —— 2026-10-03 删掉 gaze_deviation 槽之后"),
     "communication_fluency": ("沟通表达流畅度", 5 / 7,
                               "fluency_score 无生产者(4/7) + pause_duration 封停(1/7);"
-                              "2026-10-03 删掉 speech_ratio 槽后按比例重归一"),
+                              "2026-10-03 删掉 speech_ratio 槽后按比例重归一。"
+                              "⚠️ 另 2/7 的 pitch_variation **直到同日都是被 G3 结构性挡住的**"
+                              "(pitch 族门槛还是帧级 10,而本列每段回答一个样本、题库每场 8 题"
+                              "⟹ 实测 n_valid=8 < 10),修好门槛单位后才真的算活 —— 见「甲、2」"),
     "confidence_level": ("行为表现活跃度", 0.0, "全活 —— 2026-10-03 解封 eye_contact 的直接结果"),
     "cognitive_efficiency": ("作答过程特征", 0.0,
                              "全活 —— 2026-10-03 删掉 au7_freq(0.3)与 blink_rate(0.2)"
@@ -82,8 +95,40 @@ _DEAD_WEIGHT = {
 _EPS = 1e-9
 
 
+def _threshold_unreachable(kw: str) -> bool:
+    """这个槽的门槛是不是**结构性不可达**(单位错配)。
+
+    判据只用登记数据:`evidence_thresholds.json` 的 `n_valid_units[族] == "answer"`
+    (一行 = 一段回答;题库每场 **8 题**)而门槛又 **≥ `_default_n_valid`**(帧级默认 10)
+    ⟹ 答满全场也过不了 G3。族名用生产侧的 `threshold_family_for` 取 —— **不许在这里
+    再抄一份子串匹配**,那正是这个洞的成因(关键词与真实键不是一个字符串)。
+
+    ⚠️ 为什么这条必须进死权重表:它的**症状长得像"数据不够"**。实测 `pitch_variation`
+    在唯一一场有语音数据的会话上被 G3 拦下,报告写的是「语调变化: 有效样本不足」——
+    读的人会去多答几题,而多答也不行(题库只有 8 题)。修掉之前,本表把 communication_fluency
+    死权重登记成 5/7,而**真值是 7/7**。
+    """
+    from report_frontend.evidence_gate import load_thresholds, threshold_family_for
+
+    fam = threshold_family_for(kw)
+    if fam is None:
+        return False
+    data = load_thresholds()
+    return (data["n_valid_units"].get(fam) == "answer"
+            and data["thresholds"][fam] >= data["_default_n_valid"])
+
+
 def _dead_weight_of(spec: dict) -> tuple:
-    """返回 `(死权重, [死掉的槽...])`。"""
+    """返回 `(死权重, [死掉的槽...])`。
+
+    四个判据,顺序 = 一个"若它真能拿到数据"的槽被拦下的可能性,从最不可能改变到最可能:
+    封停 / 无生产者 / **门槛结构性不可达** / 指向待删列。
+
+    ⚠️ **每个槽只计一次**(权重不会重复计入),所以"先判哪个"不影响那个**数**;
+    它只影响 `why` 里写的**归因**。归因顺序按"最贴近真实拦截点"排:一个同时被封停
+    又门槛不可达的槽(如 `energy`),它剩下的拦路虎是封停(G3 修好后 G4 才是它报的
+    那个原因),所以封停排前面。
+    """
     from report_frontend.evidence_gate import is_quarantined
     from report_frontend.research_mapper import NO_PRODUCER
 
@@ -103,6 +148,8 @@ def _dead_weight_of(spec: dict) -> tuple:
             reason = "封停"
         elif kw in NO_PRODUCER:
             reason = "无生产者"
+        elif _threshold_unreachable(kw):
+            reason = "门槛结构性不可达(单位错配)"
         elif kw in doomed:
             reason = "指向待删列"
         if reason:

@@ -3,6 +3,7 @@ import pytest
 
 from report_frontend.evidence_gate import (
     Check,
+    _threshold_for,
     confidence_from,
     gate,
     is_quarantined,
@@ -51,16 +52,26 @@ class TestG2FromStd:
 
 class TestG3EnoughSamples:
     # ⚠️ 不能用 blink_* 系列:阈值 20 只由 "blink" 产出,而所有含 blink 的键都在封停
-    # 名单里,会被 G4 拦下 —— 该边界用任何未被封停的键都测不到。改用 pitch(阈值 10,
-    # pitch_median 未被封停)。
+    # 名单里,会被 G4 拦下 —— 该边界用任何未被封停的键都测不到。改用 pitch
+    # (`pitch_median` 未被封停)。
+    #
+    # ⚠️ 2026-10-03:这两个数**原来是写死的 9 / 10**(`pitch` 当时的阈值是 10)——
+    #    甲-2 把 `pitch` 改成 5 之后它们就红了。红得好:它俩测的是「**门槛两侧**的行为」,
+    #    与那个具体数字无关。现在从登记表推导,门槛再改也不会让这条测试失效,
+    #    而它要钉的东西(差一个就拦、刚好就放)一个字都没少。
+    _T = _threshold_for("pitch_median")
 
     def test_below_threshold_fails(self):
-        c = gate("pitch_median", 120.0, 9, values=[1.0, 2.0])
+        c = gate("pitch_median", 120.0, self._T - 1, values=[1.0, 2.0])
         assert c.ok is False
         assert c.gate_name == "G3"
 
     def test_at_threshold_passes(self):
-        assert gate("pitch_median", 120.0, 10, values=[1.0, 2.0]).ok is True
+        assert gate("pitch_median", 120.0, self._T, values=[1.0, 2.0]).ok is True
+
+    def test_the_boundary_is_not_vacuous(self):
+        """门槛必须 >1,否则「差一个就拦」这条边界测的是 0 —— 与 G1「无值」撞车。"""
+        assert self._T > 1, f"pitch 族门槛退化成了 {self._T}"
 
 
 class TestG4NotProxy:
@@ -181,6 +192,82 @@ class TestThresholds:
 
         assert _threshold_for("pause_duration_mean") == 2
         assert _threshold_for("au12_smile_mean") == 30
+
+    def test_threshold_family_lookup_is_the_single_implementation(self):
+        """取族名与取门槛值必须是**同一套**匹配 —— 否则两处会漂。
+
+        `threshold_family_for` 是 2026-10-03 抽出来的:死权重那条守卫要判
+        「这个槽拿到的门槛是不是帧级的」,而"单位"是按**族**登记的,所以它必须拿到
+        **族名**。抽的时候刻意让 `_threshold_for` 也走它 —— 一个匹配规则一处实现。
+        """
+        from report_frontend.evidence_gate import _threshold_for, threshold_family_for
+
+        for key in ("face_au4_frown_mean", "pause_duration_mean", "some_unregistered"):
+            fam = threshold_family_for(key)
+            data = load_thresholds()
+            expected = (data["thresholds"][fam] if fam else data["_default_n_valid"])
+            assert _threshold_for(key) == expected, f"{key} 的族名与门槛值不是同一套匹配算的"
+
+
+def test_answer_level_families_are_not_gated_by_the_frame_level_default():
+    """★ 门槛的**单位**必须与指标的**单位**同量纲 —— 甲-2 那一类缺陷的守卫。
+
+    (⚠️ 刻意写成**模块级函数**而不是 `TestThresholds` 的方法:`tests/test_mutation_registry.py`
+    用 `nodeid.partition("::")[2]` 去 `def test_...` 里找定义,类方法那个 `Class::method`
+    形式它认不出 —— 而这条必须有变异实测。)
+
+    为什么需要它:`_default_n_valid` = 10 是**帧级**列设的(一场几百帧,10 很容易过),
+    而语音日志 **一行 = 一段回答**(题库每场 **8 题** ⟹ 答满全场也才 8 段)。
+    帧级门槛被 answer 级指标继承 ⟹ `8 < 10` **结构性不可达** ⟹ 该指标永远显示
+    「有效样本不足」。一个永不达标的门槛**不是**"更严的诚实门",它等价于该指标
+    永久不可用 —— 而它长得跟"数据不够"一模一样,所以不测就看不出来。
+
+    实证(`density`/`n_chars`/`reaction_time` 三族 2026-10-03 已修,`pitch`/`energy`
+    当时**漏改**):`communication_fluency` 唯一那个看起来活的槽 `pitch_variation`
+    实测被 G3 永久拦下 —— 场 `20260927_212143_95a8` 有效样本 **8 < 阈值 10**,
+    整个维度 **0/3**。
+
+    红法(**已实测**,两条变异都登记在 `tests/test_mutation_registry.py`):
+    - 把 `thresholds.pitch` 改回 10 ⟹ 第一条断言红(10 不小于帧级默认),
+      且**另一条独立判据**也红 —— `tests/test_dimension_live_weight.py` 的死权重
+      5/7 → 7/7;
+    - 往 `n_valid_units` 里新增一个 `answer` 族但不给门槛/依据 ⟹ 也红。
+    """
+    from report_frontend.evidence_gate import load_thresholds
+
+    data = load_thresholds()
+    thresholds, units = data["thresholds"], data["n_valid_units"]
+    default = data["_default_n_valid"]
+
+    # ① 登记在 thresholds 里的族必须都有单位 —— 单位只能显式写,不许靠"没写就当 frame"
+    #    (那条兜底是给**未登记**的键用的,不是给已登记的族用的)
+    missing_units = [f for f in thresholds if f not in units]
+    assert not missing_units, (
+        f"这些阈值族没写 n_valid 单位:{missing_units} —— "
+        f"`n_valid_units` 是「门槛单位」这件事的唯一登记处,漏写等于让下一条断言失去对象")
+
+    answer_fams = [f for f, u in units.items() if u == "answer"]
+    assert answer_fams, "一个 answer 族都没有 —— 那这条测试退化成空断言"
+    bad = [f"{f}: 门槛 {thresholds[f]} ≥ 帧级默认 {default}"
+           for f in answer_fams if thresholds[f] >= default]
+    assert not bad, (
+        "这些族是**每段回答一个样本**,却拿着帧级门槛 —— 结构性不可达"
+        "(题库每场 8 题,答满也才 8 段):\n  " + "\n  ".join(bad))
+
+    # ② answer 族必须有依据登记:门槛是**改过**的数,改动必须留下理由
+    unanswered = [f for f in answer_fams if f not in data["_thresholds_basis"]]
+    assert not unanswered, (
+        f"这些 answer 族的门槛没有依据登记:{unanswered} —— "
+        f"门槛是临时值,依据必须逐族写在 `_thresholds_basis` 里(spec §5.1)。"
+        f"⚠️ frame 族那 4 个(blink/gaze/au/head_pose)是本仓**已知欠账**,"
+        f"只对 answer 族强制 —— 因为只有 answer 族有「单位错配」这一类缺陷。")
+
+    # ③ 把 甲-2 的那次修复本身钉住:数改了没有依据不行,依据写错也不行
+    assert thresholds["pitch"] == 5, (
+        "`pitch` 族是**每段回答一个样本**,门槛必须是 5(≈ 半场答题量);"
+        "退回帧级默认 10 ⟹ `pitch_variation` 被 G3 永久拦下")
+    assert "_provisional" in data["_thresholds_basis"]["pitch"], (
+        "`pitch` 的门槛是临时值,依据条目必须带 `_provisional`")
 
 
 class TestGateOrder:

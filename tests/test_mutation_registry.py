@@ -135,6 +135,22 @@ MUTATIONS: tuple[Mutation, ...] = (
         "把 2026-10-03 删掉的 `au7_freq` **加回来** ⟹ 死权重 0.0 → 0.3,登记表抓。"
         "⭐ 这是那个「名字推不出源列」的洞的**唯一兜底**:`au7_freq` → `micro_exp_au_name` "
         "在名字上没有任何公共子串,守卫看不见它 —— 能挡住它复活的只有这张死权重登记表"),
+    Mutation(
+        "tests/test_dimension_live_weight.py::test_registered_dead_weight_matches_reality",
+        "report_frontend/evidence_thresholds.json",
+        '    "pitch": 5,',
+        '    "pitch": 10,',
+        "把 `pitch` 族的门槛退回**帧级默认 10** ⟹ 每段回答一个样本的 `pitch_variation` "
+        "结构性不可达(n_valid 8 < 10),该维死权重 5/7 → **7/7**。"
+        "⭐ 这是死权重表里「门槛单位错配」那条判据**唯一的正向对照** —— "
+        "2026-10-03 之前没有它,本表把 communication_fluency 登记成 5/7 而真值是 7/7"),
+    Mutation(
+        "tests/test_evidence_gate.py::test_answer_level_families_are_not_gated_by_the_frame_level_default",
+        "report_frontend/evidence_thresholds.json",
+        '    "pitch": 5,',
+        '    "pitch": 10,',
+        "同一改(门槛单位错配)由**另一条独立判据**也抓住 —— 两条守卫各自都能红,"
+        "不是一条在替另一条背书"),
 )
 
 
