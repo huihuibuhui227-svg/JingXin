@@ -174,6 +174,20 @@ MUTATIONS: tuple[Mutation, ...] = (
         "把到达时刻从 **raw** 记录改成 **converted** 记录 ⟹ `reaction_time` 会系统性偏晚"
         "150~283 ms(实测),而那个偏差在一个 1~65 秒量级的量上**看不出来** —— "
         "⭐ 这是 甲-4 那次实测定位出来的坑,只有这条变异守着它"),
+    Mutation(
+        "tests/test_backfill_voice.py::test_existing_rows_are_never_overwritten",
+        "tools/jx_backfill_voice.py",
+        "    if have:                       # 有活行 ⟹ 一行都不动(本工具不覆盖)",
+        "    if False:                      # 有活行 ⟹ 一行都不动(本工具不覆盖)",
+        "把语音回填的「有活行就跳过」去掉 ⟹ 它会开始**覆盖活跑写下的行**。"
+        "补出来的与活跑的**同形同名**,看文件分不出来 —— 所以这条必须红"),
+    Mutation(
+        "tests/test_backfill_voice.py::test_backup_ladder_never_clobbers",
+        "tools/jx_backfill_voice.py",
+        "    if not bak.exists():\n        return bak",
+        "    if True:\n        return bak",
+        "备份选名退回「无条件用同一个后缀」⟹ 跑第二遍就把最初那份原始日志顶掉"
+        "(与 face 回填那条同形;当年那份 `.predrop.bak` 正是这么丢的)"),
 )
 
 
