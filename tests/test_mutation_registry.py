@@ -222,6 +222,14 @@ MUTATIONS: tuple[Mutation, ...] = (
         "    for suffix in ():",
         "查法退回「只认 `<基名>_mean` 的兄弟键」⟹ 槽消费的是 `_std` 时(如 "
         "`gaze_direction_x_std`「视线稳定性」)查不到同列已登记的样本量"),
+    Mutation(
+        "tests/test_l1_sample_size.py::test_a_dispersion_key_uses_its_own_value_for_g2",
+        "report_frontend/research_mapper.py",
+        "                chk = gate(found_key, found_val, n_valid=n_valid, std=g2_std)",
+        "                chk = gate(found_key, found_val, n_valid=n_valid, std=std)",
+        "G2 的输入退回「只有伴随 `_std` 才判」⟹ 键自身是离散度时(`gaze_direction_x_std`)"
+        "G2 **静默跳过**。实测:全语料 278 个过门槽里 **29 个**都落在这一条上,"
+        "而报告里看不出这 29 次 G2 没执行"),
 )
 
 

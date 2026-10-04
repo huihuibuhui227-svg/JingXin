@@ -1,5 +1,5 @@
 # tests/test_l1_sample_size.py
-"""**L1 样本量**:每个统计量必须带自己的有效样本量(G3 与报告都读它)。
+"""**L1 元数据**:样本量(G3 与报告读它)+ G2 的伴随量。
 
 ## 为什么需要
 
@@ -24,6 +24,14 @@
    **完全不产出**;现在都产出。
 3. `_indicator_sample_size` 以前只认 `<基名>_mean` 的兄弟键;槽消费的是 `_std` 时
    (如 `gaze_direction_x_std`)查不到同列已登记的样本量 ⟹ 现在**剥掉统计量后缀再查一次**。
+
+## 同族的第二处:G2 的**伴随量**
+
+G2 是四关里唯一问「本次会话内**有没有变化**」的。它的输入是"伴随的 `_std`";而
+`face_gaze_direction_x_std`(槽「视线稳定性」)**自己就是离散度**,没有伴随量 ⟹ G2
+**静默跳过**(实测:全语料 278 个过门槽里 **29 个**)。它自己的值就是那个答案
+(`std == 0` ⟺ 序列恒定)⟹ 现在 G2 用它自己的值,**但区间仍留空**
+(`val ± 2·val` 没意义)。见本文件最后两条测试。
 
 ## 本文件怎么测(不依赖 `data/`)
 
@@ -135,3 +143,60 @@ def test_the_fallback_would_have_been_wrong_here(feats):
     assert own == _SPARSE and modality_rows == _N
     assert modality_rows >= 10 > own, (
         "本测试的前提是「模态行数跨过门槛而真样本量没有」—— 合成数据的形状变了?")
+
+
+# ── 同族的第二处:L1 元数据里的"G2 伴随量" ─────────────────────────────
+def test_a_dispersion_key_uses_its_own_value_for_g2():
+    """★ 键**自身就是离散度**时,G2 必须用它自己的值判"有没有变化",不许静默跳过。
+
+    实例:槽「视线稳定性」取的键就是 `face_gaze_direction_x_std`。它**没有**"伴随的
+    `_std`"(去查 `..._std_std` 是查不到的),于是 G2 —— 唯一问"本次会话内**有没有变化**"
+    的那一关 —— **被静默跳过**。实测:全语料 278 个过门槽里 **29 个**都落在这一条上。
+
+    语义上并不含糊:G2 问的是"底层序列是不是常量",而这个键**就是那个序列的标准差**
+    ⟹ `std == 0` ⟺ 序列恒定。所以用它自己的值当判据是对的。
+    ⚠️ 但**区间不能拿它** —— `val ± 2·val` 是个没意义的区间,所以区间仍留空(如实)。
+
+    红法(实测):把 `research_mapper` 里的 `std=g2_std` 换回 `std=std` ⟹ 本条红
+    (值 0 那一支不再被 G2 拒绝)。
+    """
+    from report_frontend.research_mapper import ResearchCapabilityMapper
+
+    def gaps_for(value: float) -> list[str]:
+        feats = {"face": {"gaze_direction_x_std": value,
+                          "gaze_direction_x_sample_size": 50,
+                          "gaze_direction_x_mean": 0.5,
+                          "_n_rows": 50}}
+        res = ResearchCapabilityMapper().map_features_to_scores(feats)
+        return res["dimensions"]["logical_thinking"]["evidence_gaps"]
+
+    # 有变化(>0)⟹ 过 G2,该槽进证据链
+    ok = ResearchCapabilityMapper().map_features_to_scores(
+        {"face": {"gaze_direction_x_std": 0.0946, "gaze_direction_x_sample_size": 50,
+                  "gaze_direction_x_mean": 0.5, "_n_rows": 50}})
+    chain = ok["dimensions"]["logical_thinking"]["evidence_chain"]
+    assert any(e["feature"] == "face_gaze_direction_x_std" for e in chain), (
+        f"值 >0 时该槽没进证据链:{chain}")
+
+    # 底层序列恒定(值恰为 0)⟹ G2 必须拦下,并说「本次会话内无变化」
+    g = gaps_for(0.0)
+    assert any("无变化" in x for x in g), (
+        f"值恰为 0(std==0 ⟺ 序列恒定)时 G2 没有拦下 —— 说明它仍被静默跳过:gaps={g}")
+
+
+def test_the_interval_stays_empty_for_a_dispersion_key():
+    """区间**仍然留空** —— 不许拿"它自己的值"当伴随离散度去算 `val ± 2·val`。
+
+    这条与上一条成对:上一条要求 G2 用它的值,**这一条禁止区间用它**。
+    少了这条,一个"顺手也把区间填上"的改法会把 `[−0.09, 0.28]` 这种区间印进报告。
+    """
+    from report_frontend.research_mapper import ResearchCapabilityMapper
+
+    res = ResearchCapabilityMapper().map_features_to_scores(
+        {"face": {"gaze_direction_x_std": 0.0946, "gaze_direction_x_sample_size": 50,
+                  "gaze_direction_x_mean": 0.5, "_n_rows": 50}})
+    ev = next(e for e in res["dimensions"]["logical_thinking"]["evidence_chain"]
+              if e["feature"] == "face_gaze_direction_x_std")
+    assert ev["std"] is None and ev["observed_interval"] is None, (
+        f"离散度键的 std/区间应当是空的(没有独立的伴随量):std={ev['std']} "
+        f"interval={ev['observed_interval']}")

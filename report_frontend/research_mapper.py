@@ -362,10 +362,17 @@ class ResearchCapabilityMapper:
                         dim_gaps.append(f"{human_name}: 未采集到对应数据")
                     continue
 
-                # 伴随的 _std 用于 G2(常量判定);模态行数用于 G3(样本量)。
-                # 取法两种都试:真实数据的列形如 `<基名>_mean` + `<基名>_std`,而有些
-                # 键(如 face_eye_contact_ratio)没有 _mean 后缀 —— 只查前者会让
-                # 这些键**静默**拿不到标准差:G2 退回 fail-open,区间也失去变异信息。
+                # 伴随的 _std 用于 G2(常量判定)与"本场观测区间";模态行数用于 G3。
+                # 取法**三种**(第三种 2026-10-04 补):
+                #   ① `<基名>_mean` 的兄弟 `<基名>_std>` —— 常态;
+                #   ② `<键>_std` —— 给没有 `_mean` 后缀的键(如 `face_eye_contact_ratio`);
+                #   ③ **本键自己就是离散度**(`found_key` 以 `_std` 结尾,实例
+                #      `face_gaze_direction_x_std`「视线稳定性」)⟹ 它**没有**"伴随的 std",
+                #      而 G2 问的恰恰是"底层序列有没有变化",对这个键那个答案**就是它的值**
+                #      (`std == 0` ⟺ 序列恒定)。
+                #      ⟹ **G2 拿它的值当判据,但区间不能拿**(`val ± 2·val` 是个没意义的区间)
+                #      ⟹ 区间仍留空(如实)。修前它是**静默 fail-open**:全语料 278 个过门槽里
+                #      **29 个**都落在这一条上,而报告里看不出这 29 次 G2 没执行。
                 std = None
                 for std_key in (
                     (found_key[:-len("_mean")] + "_std") if found_key.endswith("_mean") else None,
@@ -374,6 +381,9 @@ class ResearchCapabilityMapper:
                     if std_key and std_key in all_features:
                         std = all_features[std_key]
                         break
+                # G2 的输入与"区间用的 std"是**两个东西**:前者可以在键自身是离散度时
+                # 退而用它的值,后者不行。
+                g2_std = std if std is not None else (found_val if found_key.endswith("_std") else None)
                 modality = next((m for m in n_rows_by_modality if found_key.startswith(m + "_")), None)
                 # 样本量优先取**该指标自己**的 `<基名>_sample_size`(特征引擎按 dropna
                 # 后真正带值的行数产出),取不到才退回模态行数 —— 理由见
@@ -382,7 +392,7 @@ class ResearchCapabilityMapper:
                 if n_valid is None:
                     n_valid = int(n_rows_by_modality.get(modality, 0))
 
-                chk = gate(found_key, found_val, n_valid=n_valid, std=std)
+                chk = gate(found_key, found_val, n_valid=n_valid, std=g2_std)
                 if not chk.ok:
                     # ⚠️ 只准用 user_message。chk.reason 含维护者文案(封停理由等),
                     # 而 dim_gaps 会被渲染进报告的"证据缺口"一节 —— 直接用会外泄内部信息。
