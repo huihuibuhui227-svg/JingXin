@@ -44,7 +44,7 @@ def test_frown_slot_measures_brow_furrow_geometrically():
     `au4_freq` 想量的构念就是**皱眉**,而它是「从 micro_exp 字符串解析出的垃圾匹配」;
     `au4_frown` 是同一构念的真几何量。
     """
-    assert _slot("logical_thinking", "au4_frown") == (0.1, True)
+    assert _slot("logical_thinking", "au4_frown") == (0.14285714285714285, True)
     dim = _run({"face": {"au4_frown_mean": 0.32, "au4_frown_std": 0.01,
                          "_n_rows": 300.0}})["logical_thinking"]
     assert "face_au4_frown_mean" in _chain(dim), "皱眉槽没有指到几何量"
@@ -71,7 +71,7 @@ def test_tension_slot_uses_real_lip_compression():
     槽的构念原文就是「眉间收缩与**唇部压缩**」;旧列是硬编码权重的伪合成,
     5 个分量里 eye_closure 恒 0。au23 是唇部压缩的真几何量。
     """
-    assert _slot("stress_resilience", "au23_lip_compression") == (0.3, True)
+    assert _slot("stress_resilience", "au23_lip_compression") == (0.375, True)
     dim = _run({"face": {"au23_lip_compression_mean": 0.05,
                          "au23_lip_compression_std": 0.01,
                          "_n_rows": 300.0}})["stress_resilience"]
@@ -100,7 +100,7 @@ def test_gaze_stability_slot_uses_variation_of_the_real_gaze_column():
     稳定性 = 视线的**不变程度**,会话内标准差是它的直接测法;旧列量的是被 y 分量
     (解剖常量,gaze_direction_y 自身亦被封停)主导的那个向量的抖动。
     """
-    assert _slot("logical_thinking", "gaze_direction_x_std") == (0.2, False)
+    assert _slot("logical_thinking", "gaze_direction_x_std") == (0.2857142857142857, False)
     dim = _run({"face": {"gaze_stability_mean": 0.96,
                          "gaze_direction_x_mean": 0.0, "gaze_direction_x_std": 0.07,
                          "_n_rows": 300.0}})["logical_thinking"]
@@ -130,7 +130,7 @@ def test_jitter_slot_uses_a_covered_framing_free_limb_jitter():
     两边同时喂:命中的必须是腕那一列(纯子串匹配下旧 keyword 也能命中新列,
     只喂新列的钉子是假的)。
     """
-    assert _slot("stress_resilience", "left_wrist_jitter_world") == (0.3, False)
+    assert _slot("stress_resilience", "left_wrist_jitter_world") == (0.375, False)
     dim = _run({"gesture": {"left_hand_jitter_mean": 0.0009, "left_hand_jitter_std": 0.001,
                             "left_wrist_jitter_world_mean": 0.0011,
                             "left_wrist_jitter_world_std": 0.0012,

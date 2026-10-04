@@ -99,15 +99,18 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         "tests/test_dimension_live_weight.py::test_every_dimension_declares_full_slot_weight",
         "report_frontend/research_mapper.py",
-        '("gaze_direction_x_std", 0.2, False,',
+        '("gaze_direction_x_std", 0.2857142857142857, False,',
         '("gaze_direction_x_std", 0.3, False,',
         "维度内槽权重和不再等于 1 ⟹ 死权重那个数就不可比了"),
     Mutation(
         "tests/test_report_layer.py::test_no_slot_points_at_a_column_marked_for_deletion",
-        "l0_columns.json",
-        '"planned": "**M3.2 删列**。⚠️ 删之前必须先处理',
-        '"planned": "M3.2 再议。⚠️ 删之前必须先处理',
-        "把 `gaze_deviation` 从待删名单里移走 ⟹ 而槽还指着它,守卫抓"),
+        "report_frontend/research_mapper.py",
+        '                    ("symmetry_score", 0.25, True, "面部对称性", "support"),',
+        '                    ("gaze_deviation", 0.2, False, "视线偏差", "core"),\n'
+        '                    ("symmetry_score", 0.25, True, "面部对称性", "support"),',
+        "把 `gaze_deviation` 槽**加回**到它指向的待删列上 ⟹ 守卫抓"
+        "(⚠️ 原登记是「把列移出待删名单」,那条 2026-10-03 删槽后**已失效** —— "
+        "槽都不是槽了,移不移名单守卫都不管;换成本条)"),
 )
 
 

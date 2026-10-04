@@ -120,8 +120,23 @@ class ResearchCapabilityMapper:
                 "algorithm": "加权线性组合 + 认知负荷推断",
                 "indicators": [
                     # 2026-09-27 列对账(逐槽,判据 = **同构念的更好测法**,不是"能过门"):
-                    ("connective_density", 0.4, True, "连接词密度", "core"),
-                    ("focus_score", 0.3, True, "面部专注度", "core"),
+                    #
+                    # ★ 2026-10-03 **删掉 `focus_score` 槽**(原 w=0.3,「面部专注度」):
+                    #   它指向的列已被标记 **M3.2 删列** —— 实测可被 `head_yaw` **100%
+                    #   精确重构**(零额外信息),且 **99% 恒 0.3**(因为 `head_yaw` 有
+                    #   ~+0.35 常量偏移,而分箱阈值是 0.03/0.08 ⟹ 0.8 那档结构性不可达)。
+                    #   而 `head_yaw` 自身登记为「不实现、不近似」⟹ **没有诚实的替代测法**
+                    #   可改指(改指 `gaze_direction_x_std` 会与本维已有的那个槽数两遍)
+                    #   ⟹ 只能删槽。
+                    #
+                    # 余下三个槽 ×1/0.7(原 0.4/0.2/0.1,和 0.7)。
+                    # ★ **保持比例**是有意的,不是凑数:维度分只按「**过门**槽」的权重归一
+                    #   (`weighted_sum / total_weight`,`total_weight` 只累加过门的那些),
+                    #   所以按比例缩放**不改变任何分数**。实测两场:维度分、`total_score`、
+                    #   `level`、`confidence`、`matched_indicators` 的**分子**、`passed_slots`
+                    #   内容全部逐字相同;变的只有权重本身、`contribution`(按权重派生)
+                    #   与 `matched_indicators` 的**分母**(4→3)/`coverage.n_slots`(20→17)。
+                    ("connective_density", 0.5714285714285714, True, "连接词密度", "core"),
                     # `gaze_stability` → `gaze_direction_x_std`(会话内标准差)。
                     # 旧列是 1/(1+std(gaze_deviation)),而 gaze_deviation 的 y 分量
                     # (gaze_direction_y)是解剖常量、自身也被封停 ⟹ 它量的是那个常量的
@@ -129,14 +144,14 @@ class ResearchCapabilityMapper:
                     # 判「保」的 gaze_direction_x)的会话内标准差。那条封停自己写的解封
                     # 条件就是「M3 修 gaze_direction_x」。
                     # ⚠️ 方向随之翻:std 越大 = 越不稳 = 越糟 ⟹ is_positive 由 True 改 False。
-                    ("gaze_direction_x_std", 0.2, False,
+                    ("gaze_direction_x_std", 0.2857142857142857, False,
                      "视线稳定性 (视线水平偏移的会话内标准差)", "core"),
                     # `au4_freq` → `au4_frown`:同一个构念(**皱眉**)的真几何量。
                     # 旧槽想量皱眉,而它匹配到的是「从 micro_exp 字符串解析出的垃圾」;
                     # au4_frown = 双眉内侧点距 ÷ 眼距,是比值本身。
                     # ⚠️ 方向随之翻:眉内距**越小**眉越皱(越糟)⟹ 旧槽的 False 会让
                     # 「越皱得分越高」,故改 True(值越大=越不皱=越好)。
-                    ("au4_frown", 0.1, True, "皱眉 (双眉内侧点距 ÷ 眼距)", "support"),
+                    ("au4_frown", 0.14285714285714285, True, "皱眉 (双眉内侧点距 ÷ 眼距)", "support"),
                 ]
             },
             "stress_resilience": {
@@ -148,15 +163,22 @@ class ResearchCapabilityMapper:
                     # → `au23_lip_compression`:槽的构念原文就是「眉间收缩与**唇部压缩**」,
                     # 而这是唇部压缩的真几何量(唇红厚 ÷ 面部轮廓高,§4.1:172 判「重构」)。
                     # ⚠️ 方向:唇红**越薄** = 压得越紧 = 越糟 ⟹ 值越大越好,is_positive 改 True。
-                    ("au23_lip_compression", 0.3, True,
+                    ("au23_lip_compression", 0.375, True,
                      "唇部压缩 (唇红厚 ÷ 面部轮廓高)", "core"),
                     # `jitter` → `left_wrist_jitter_world`:换的不是"能过门的抖动",
                     # 是**量得到的**抖动 —— 旧 keyword 首命中的 left_hand_jitter 在
                     # 三场里 null=286/430/441(缺席 95%/79%/77%,会话内只有 6 个不同取值),
                     # 而腕的世界坐标三场 null=0/3/1、且是米制(取景无关)。
-                    ("left_wrist_jitter_world", 0.3, False, "腕部抖动 (米/秒)", "core"),
-                    ("gaze_deviation", 0.2, False, "视线偏差", "core"),
-                    ("symmetry_score", 0.2, True, "面部对称性", "support"),
+                    ("left_wrist_jitter_world", 0.375, False, "腕部抖动 (米/秒)", "core"),
+                    # ★ 2026-10-03 **删掉 `gaze_deviation` 槽**(原 w=0.2,「视线偏差」):
+                    #   该列已被标记 **M3.2 删列** —— 它就是
+                    #   `√(gaze_direction_x² + gaze_direction_y²)`,而 `gaze_direction_y` 是
+                    #   **解剖常量**(四场高质量素材中位 −0.16~−0.195、std 仅 0.017~0.046),
+                    #   实测它与 `|gaze_direction_y|` 的相对差只有 **1.3%~7.7%**
+                    #   ⟹ 量的基本就是那个常量。而 `gaze_direction_x` 的登记里**明令**
+                    #   「L1 不许再把 gaze_deviation 从别处派生回来」⟹ 只能删槽。
+                    #   余下三个槽 ×1/0.8(原 0.3/0.3/0.2,和 0.8);保持比例的理由同上。
+                    ("symmetry_score", 0.25, True, "面部对称性", "support"),
                 ]
             },
             "communication_fluency": {
@@ -164,10 +186,23 @@ class ResearchCapabilityMapper:
                 "description": "观测语音韵律与停顿相关的可测量。",
                 "algorithm": "韵律特征与停顿分析",
                 "indicators": [
-                    ("fluency_score", 0.4, True, "语音流畅度", "core"),
-                    ("speech_ratio", 0.3, True, "有效说话占比", "core"),
-                    ("pitch_variation", 0.2, True, "语调变化", "support"),
-                    ("pause_duration", 0.1, False, "平均停顿时长", "support"),
+                    # ★ 2026-10-03 **删掉 `speech_ratio` 槽**(原 w=0.3,「有效说话占比」):
+                    #   该列已被标记 **M3.2 删列** —— 它的判定门是**自指**的
+                    #   (`rms > mean(rms)×k`),而自指门让量**尺度不变** ⟹ 它测的是能量分布的
+                    #   *形状*,不是"这个人说了多久";实测 **87.9% 的帧恰为 1.0**。
+                    #   正面修法要**真 VAD**(封停条目自己写的 unblock 就是「M3 真 VAD」,
+                    #   而那是生产方工作、不在报告层射程内)⟹ 只能删槽。
+                    #
+                    # 余下三个槽 ×1/0.7(原 0.4/0.2/0.1,和 0.7);保持比例的理由同上。
+                    # ⚠️ **如实记:删完之后本维仍很薄** —— 余下三个里
+                    #   `fluency_score` **全系统无产出方**(`NO_PRODUCER`)、
+                    #   `pause_duration` 封停(**卡标定集**,M3.1 已裁定跳过)⟹
+                    #   真正能过门的只有 `pitch_variation`(0.2857)。
+                    #   这是**已知且已登记**的状态,见 `docs/下一步.md`「甲、3」:
+                    #   换列治不了,要动生产方。
+                    ("fluency_score", 0.5714285714285714, True, "语音流畅度", "core"),
+                    ("pitch_variation", 0.2857142857142857, True, "语调变化", "support"),
+                    ("pause_duration", 0.14285714285714285, False, "平均停顿时长", "support"),
                 ]
             },
             "confidence_level": {

@@ -27,7 +27,9 @@ def test_mapper_indicator_is_renamed_and_matches_new_key():
     assert "连接词密度" in names
     # 权重/方向/重要性不随改名变 —— 元组形状 (keyword, weight, is_positive, human_name, importance)
     renamed = next(ind for ind in rule["indicators"] if ind[0] == "connective_density")
-    assert renamed == ("connective_density", 0.4, True, "连接词密度", "core")
+    # ⚠️ 2026-10-03 权重由 0.4 改为 0.5714285714285714:本维删掉 `focus_score` 槽后,
+    #    余下三个按原比例重归一(0.4/0.7)。名字/方向/重要性**没变**,这正是本条要钉的。
+    assert renamed == ("connective_density", 0.5714285714285714, True, "连接词密度", "core")
 
 
 def test_feature_engine_has_no_second_definition_of_the_metric():

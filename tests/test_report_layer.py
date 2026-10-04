@@ -20,19 +20,21 @@ def test_no_fake_resume_fallback():
     """spec §5.3:假简历兜底与 BASELINE_FILL 必须不可达。
 
     ⚠️ 原版用零输入 fixture,证据链为空 → 循环零断言,对任何实现都通过。
-    改为喂一个只让 1 个槽过门的输入,断言 matched 恰为 1/4 且缺口为 3。
-    若 BASELINE_FILL 回归,缺失的 3 个槽会被填空 → matched 变 4/4 → 本测试变红。
+    改为喂一个只让 1 个槽过门的输入,断言 matched 恰为 1/3 且缺口为 2。
+    若 BASELINE_FILL 回归,缺失的那 2 个槽会被填空 → matched 变 3/3 → 本测试变红。
     Task 6 换键(connective_density)后实测该 fixture 输出:score=0.5 / conf=低 /
-    matched=1/4 / 缺口 3 —— 0.05(每百字)在新量程 10 下归一为 0.005,故分数不再是
+    matched=1/3 / 缺口 2 —— 0.05(每百字)在新量程 10 下归一为 0.005,故分数不再是
     旧量程下的 100.0;本测试断言的是 matched 与缺口,两者不受换键影响。
+    ⚠️ **2026-10-03 分母由 4 改 3**:本维删掉了 `focus_score` 槽(它指向的列已标记
+    M3.2 删列,且可被 `head_yaw` 100% 重构)⟹ 声明槽数 4 → 3。缺口同步 3 → 2。
     """
     feats = {"voice_research": {"connective_density_mean": 0.05,
                                 "connective_density_std": 0.01,
                                 "_n_rows": 100.0}}
     dim = ResearchCapabilityMapper().map_features_to_scores(feats)["dimensions"]["logical_thinking"]
 
-    assert dim["matched_indicators"] == "1/4", "缺失槽被填充(BASELINE_FILL 回归?)"
-    assert len(dim["evidence_gaps"]) == 3
+    assert dim["matched_indicators"] == "1/3", "缺失槽被填充(BASELINE_FILL 回归?)"
+    assert len(dim["evidence_gaps"]) == 2
     for ev in dim["evidence_chain"]:
         # 裸键名是假简历兜底的签名;带模态前缀才是真测量
         assert ev["feature"] != "connective_density", "裸键名 = 假简历兜底的签名"
@@ -40,23 +42,27 @@ def test_no_fake_resume_fallback():
         assert "代理" not in ev["feature"]
 
 
-def test_quarantined_columns_are_rejected():
+def test_quarantined_columns_never_reach_the_chain_nor_slip_past_the_gate():
     """spec §5.2:封停列即使有值也不得进入证据链。
 
     ⚠️ 原版只喂封停列 → 全部被拒 → 链为空 → 循环零断言。
     改为同时喂一个干净列让链非空,再断言封停列不在其中。
-    若 G4 被移除,focus_score 会进链 → 本测试变红。
 
-    ⚠️ 2026-09-27 换过两轮取样槽,记下来免得下次又踩:
-    第一版用 `symmetry_score` —— 它**已被解封**(理由「未除人脸尺度,近常量,取景代理」
-    经实测推翻)⟹ 再拿它当"封停列"的样本,本测试就在断言一件已经变了的事;
-    第二版用 `tension_score` —— 它仍封停,但同日槽位表重做了(`tension_score` 不再是
-    stress_resilience 的槽)⟹ 喂进去也匹配不到那个槽。现用**仍封停且仍是槽**的
-    `gaze_deviation`(理由「与 gaze_direction_y 同族冗余」仍成立)。
-    它属 stress_resilience,而该维四个槽**都没有数据**、链必为空,
-    故不能靠"链里没有它"来钉(那恒真)。改为断它**出现在证据缺口里** ——
-    若删掉它的封停条目且喂入该列,它会进链、缺口里便不再有它 → 本测试变红。
-    控制器实测:stress_resilience 链=0、缺口=4、缺口含「眉间收缩与唇部压缩」。
+    ⚠️ **这个测试的"取样对象"已经被换过三轮,记下来免得下次又踩**:
+    ① `symmetry_score` —— 它**已被解封**,再拿它当"封停列"就是在断言一件已经变了的事;
+    ② `tension_score` —— 仍封停,但同日槽位表重做,它不再是 `stress_resilience` 的槽;
+    ③ `gaze_deviation` —— 曾"仍封停且仍是槽",于是改成断它**出现在证据缺口里**。
+
+    ★ **2026-10-03 第四次:这次不给它换第五个样本,而是改成不依赖槽位表的判据。**
+    原因是那天把 `focus_score` / `gaze_deviation` / `speech_ratio` 三个槽**整个删了**
+    (它们指向待删列)。槽都没了,"链里没有它"就**恒真**、缺口里也不会有它 ——
+    再钉下去只是在断言空话。所以本测试改为钉两件**仍然成立且各自可被单一改动弄红**的事:
+
+    ① **端到端**:所有维度的证据链里都不许出现那两个封停列(链由喂进去的
+       `connective_density` 撑非空,避免空断言);
+    ② **兜底**:`gate()` 仍把这两个列名判给 **G4** —— 删槽之后这条是防
+       "将来有人加回一个匹配它们的槽"(主防线已移到槽位表,
+       由 `test_no_slot_points_at_a_column_marked_for_deletion` 守着)。
     """
     feats = {"voice_research": {"connective_density_mean": 0.05,
                                 "connective_density_std": 0.01,
@@ -68,14 +74,21 @@ def test_quarantined_columns_are_rejected():
                       "_n_rows": 100.0}}
     dims = ResearchCapabilityMapper().map_features_to_scores(feats)["dimensions"]
 
-    lt = dims["logical_thinking"]
-    assert lt["evidence_chain"], "证据链为空 —— 本测试退化为空断言"
-    for ev in lt["evidence_chain"]:
-        assert "focus_score" not in ev["feature"]
+    # ① 端到端
+    chain_features = [ev["feature"] for d in dims.values() for ev in d["evidence_chain"]]
+    assert chain_features, "所有证据链都是空的 —— 本测试会退化成空断言"
+    for col in ("focus_score", "gaze_deviation"):
+        hit = [f for f in chain_features if col in f]
+        assert not hit, f"封停列「{col}」进了证据链:{hit}"
 
-    sr = dims["stress_resilience"]
-    assert sr["evidence_chain"] == [], "封停列进了链"
-    assert any("视线偏差" in g for g in sr["evidence_gaps"]), "视线偏差槽未被处理"
+    # ② 兜底:直接问闸门,别靠"链里没有它"
+    from report_frontend.evidence_gate import gate
+
+    for key in ("face_focus_score_mean", "face_gaze_deviation_mean"):
+        chk = gate(key, 0.3, n_valid=300, std=0.05)
+        assert (not chk.ok) and chk.gate_name == "G4", (
+            f"{key} 没被 G4 拦住({chk.gate_name}: {chk.reason})—— "
+            f"删槽之后这道兜底是唯一的防线,将来有人加回一个匹配它的槽时全靠它")
 
 
 def test_confidence_can_be_none_and_low():
@@ -410,7 +423,8 @@ def test_the_released_jitter_keys_really_reach_the_score():
                          "gesture_left_wrist_jitter_world_std": 0.002,
                          "_n_rows": 300.0}}
     sr = ResearchCapabilityMapper().map_features_to_scores(feats)["dimensions"]["stress_resilience"]
-    assert sr["matched_indicators"] == "1/4", (
+    # ⚠️ 2026-10-03 分母由 4 改 3:本维删掉了 `gaze_deviation` 槽(它指向待删列)⟹ 声明槽数 4 → 3。
+    assert sr["matched_indicators"] == "1/3", (
         f"解封的 jitter 列仍未进分(实得 {sr['matched_indicators']}),缺口:{sr['evidence_gaps']}")
 
 
@@ -634,13 +648,17 @@ def test_allowlist_whys_quote_dead_mechanisms_only_with_a_correction():
 # 会漂:列说要删,槽却还指着它,而两边都没人发现。
 # 系统性扫描(2026-10-03)查出 **3 个**,合计权重 0.8 —— `speech_ratio` 与 `focus_score`
 # 都是先有守卫、后被它抓出来的(后者还是因为把 `planned` 从含糊的「M3.2」写明成「删列」)。
-# 两个都要在**各自维度内**重新分配权重。**不能**改指同一个测量 —— 那会「数两遍」,
-# 而 `fluency_proxy` 正是因此被永久封停的。处置见 `docs/下一步.md`「丙、17」。
-_SLOTS_ON_DOOMED_COLUMNS = (
-    ("logical_thinking", "focus_score"),          # w=0.3「面部专注度」,列是 head_yaw 的 3 值分箱
-    ("stress_resilience", "gaze_deviation"),      # w=0.2「视线偏差」,列已是解剖常量
-    ("communication_fluency", "speech_ratio"),    # w=0.3「有效说话占比」,列自指阈值恒 1.0
-)
+#
+# ★ **2026-10-03 三个都已做掉,故本名单现在是空的**。处置 = **删槽 + 余下按原比例重归一**,
+#   依据:维度分只按「**过门**槽」的权重归一(`weighted_sum / total_weight`),
+#   所以按比例缩放**不改变任何分数**。实测两场端到端比对:分数 / level / confidence /
+#   观测区间 / 原始值 / 样本量 / `passed_slots` / `total_score` **一处都没变**,
+#   变的只有权重、`contribution`、`matched_indicators` 的**分母**与 `coverage.n_slots`。
+#   为什么"重归一"而不是"改指别的测量":改指同一测量会**数两遍**,而 `fluency_proxy`
+#   正是因此被永久封停的;改指别的构念则需要一套新的依据(本仓不许凭空给)。
+#   ⚠️ 名单**非空**就意味着"有一处槽仍指着待删列、且是已知的" —— 那是**临时状态**。
+#   处置理由与影响见 `docs/下一步.md`「丙、17」。
+_SLOTS_ON_DOOMED_COLUMNS: tuple = ()
 
 
 def _doomed_columns() -> set:
@@ -1051,7 +1069,8 @@ def test_scored_dimension_follows_spec_5_4_shape_and_carries_5_6_caveat():
         assert token in html, f"出分维度缺 {token}(spec §5.4 / §5.6)"
     assert "归一值" not in html, "维度表仍在渲染未标定标尺上的归一化点分"
     # 缺口仍要逐维列出(spec §5.4 的 evidence_gaps)
-    assert len(dim["evidence_gaps"]) == 3 and "未过门的指标" in html
+    # ⚠️ 2026-10-03 缺口由 3 改 2:logical_thinking 删掉了 `focus_score` 槽 ⟹ 声明槽数 4 → 3。
+    assert len(dim["evidence_gaps"]) == 2 and "未过门的指标" in html
 
 
 def test_deep_analysis_summary_has_no_point_score_or_level():

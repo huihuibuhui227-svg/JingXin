@@ -77,8 +77,11 @@ def test_structured_report_still_answers_when_the_target_has_no_logs(client):
     assert body["status"] == "success", body
     assert body["session_id"] == _SID, "空数据时反而说不出描述的是哪一场"
     assert body["result"]["coverage"]["n_passed"] == 0, body["result"]["coverage"]
-    # 分母也要钉住(复审 Minor 4):"0 / 20" 里的 20 是可回归的
-    assert body["result"]["coverage"]["n_slots"] == 20, body["result"]["coverage"]
+    # 分母也要钉住(复审 Minor 4) —— 它是可回归的。
+    # ⚠️ 2026-10-03 由 20 改为 17:删掉了三个"指向待删列"的槽
+    #    (`focus_score` / `gaze_deviation` / `speech_ratio`,见 docs/下一步.md「丙、17」)。
+    #    这个数**变准了**:原先把"永不可能过门"的槽也算进总槽数,系统性低估覆盖率。
+    assert body["result"]["coverage"]["n_slots"] == 17, body["result"]["coverage"]
     assert all(v["status"] == "missing"
                for k, v in body["sources"].items() if k != "none_bucket"), body["sources"]
 
