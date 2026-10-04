@@ -8,7 +8,7 @@ import warnings
 import json
 
 from .evidence_gate import (check_g4_not_proxy, confidence_from, gate,
-                            normalize_value, user_message)
+                            user_message)
 
 warnings.filterwarnings('ignore')
 
@@ -428,7 +428,9 @@ class ResearchCapabilityMapper:
             # ⚠️ 摘它们**不是**因为"算错了":是那个标尺没有标定样本能给背书(§5.5)。
             #
             # `_dynamic_normalize` 与 `evidence_thresholds.json` 的 `scale_factors` 登记表
-            # **保留但已无消费方** —— 它们是「乙、7 标定债」那一条的对象,删不删是另一个决定。
+            # **当晚也一并删掉了** —— 它们唯一的作用就是喂这条链,留着就是一把
+            # **没有消费方、又本就没有依据**的尺子(理由见 `evidence_gate` 里那段注释)。
+            # ⟹ 「乙、7 标定债」随之**作废**(没有分数就不需要标尺)。
             for keyword, weight, is_positive, human_name, matched_val, matched_key, std, n_valid in matched:
                 # 只留原始值供审查;百分位已随杜撰基线一并删除(spec §5.5:
                 # 没有真实常模就不输出百分位)
@@ -544,13 +546,8 @@ class ResearchCapabilityMapper:
             "passed_slots": passed_slots,
         }
 
-    def _dynamic_normalize(self, val: float, keyword: str) -> float:
-        """按登记表把原始值折到 0–1(spec §5.1)。
-
-        实现全部搬进 `evidence_gate.normalize_value` —— 满量程、分箱边界一律读
-        `evidence_thresholds.json`;本方法保留只为既有调用点稳定,体内不得再出现裸常量。
-        """
-        return normalize_value(val, keyword)
+    # ⚠️ 2026-10-04 **删掉 `_dynamic_normalize`**(它只是 `evidence_gate.normalize_value`
+    #    的转发)。折算层整体已删,理由见 `evidence_gate` 里那段注释。
 
     def _fuzzy_match(self, keyword: str, all_features: Dict[str, Any]):
         """按关键词在扁平化特征里找第一个数值指标。

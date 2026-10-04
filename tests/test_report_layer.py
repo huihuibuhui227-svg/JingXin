@@ -1041,100 +1041,20 @@ BANNED = ["焦虑", "紧张", "压力", "抗压", "情绪稳定", "说谎", "诚
           "录用", "人格", "心理画像", "常模"]
 
 
-# --- I2:折算因子必须在 evidence_thresholds.json 登记(spec §5.1) ---
-
-# (slot 关键词, JSON 内的补丁路径, 补丁值, 输入原始值, 期望归一值)
-# 期望值按**打补丁后的登记值**手工推算:若某族又被写回代码里的裸常量,
-# 该行的期望值不会出现(例如 density 会恒为 1.0 而不是 0.05)。
-_SCALE_CASES = [
-    ("connective_density", ("scale_factors", "density", "full_scale"), 1.0, 0.05, 0.05),
-    ("jitter", ("scale_factors", "jitter", "full_scale"), 0.4, 0.1, 0.25),
-    ("gaze_deviation", ("scale_factors", "deviation", "full_scale"), 0.4, 0.1, 0.25),
-    # 2026-09-26:关键词随语音日志的列名改成 `n_chars`(先前是 text_avg_length),
-    # 量程表的键跟着改 —— 键与关键词必须同名,否则这条登记静默失效。
-    ("n_chars", ("scale_factors", "n_chars", "full_scale"), 60.0, 30.0, 0.5),
-    ("energy", ("scale_factors", "energy", "full_scale"), 0.002, 0.001, 0.5),
-    ("pitch_variation", ("scale_factors", "pitch_variation", "full_scale"), 40.0, 20.0, 0.5),
-    ("fluency_score", ("scale_factors", "score", "percent_divisor"), 50.0, 20.0, 0.4),
-    # pause 分箱用合成键 pause_seconds:真实词表里唯一含 pause 的键是 pause_duration,
-    # 而它同时含 ratio,按 legacy 归因走恒等族(见下方 shadowing 测试)。
-    ("pause_seconds", ("scale_factors", "pause", "above_span"), 1.0, 4.0, 1.0),
-    ("pause_seconds", ("scale_factors", "pause", "below_value"), 0.25, 0.3, 0.25),
-    ("blink_rate", ("_default_scale_factor", "full_scale"), 100.0, 50.0, 0.5),
-    # 恒等族(ratio/freq/stability/contact)也必须来自登记表:整个族换成 full_scale 后
-    # 半径语义变了,输出必须跟着变(1.0 → 0.5),否则说明该族是代码里的分支常量。
-    ("speech_ratio", ("scale_factors", "ratio"),
-     {"kind": "full_scale", "full_scale": 2.0,
-      "basis_kind": "legacy_arbitrary", "basis": "测试探针"}, 1.0, 0.5),
-]
+# ⚠️ 2026-10-04 **已移**除折算层那一组钉子(`_SCALE_CASES` + 三条测试):
+#   · 已移 `test_scale_factors_are_registered_not_hardcoded`
+#   · 已移 `test_pause_duration_is_shadowed_by_the_ratio_family`
+#   · 已移 `test_every_registered_scale_factor_declares_a_basis`
+#   它们守的都是 `evidence_thresholds.json` 的 `scale_factors` 登记表,而那张表已随
+#   评分层**整层摘除**(见 `docs/下一步.md`「甲、22」)—— **没有分数就不需要标尺**。
+#   同一天已移的还有本文件末尾那条 `test_the_jitter_scale_factor_is_a_registered_calibration_debt`
+#   (它的期望值全都来自 `normalize_value`)。⚠️ 那条带走了一个**真实的发现**,记在这里:
+#   它证明过「**G1~G4 全都只看原始列,没有任何一关看归一后的值**」⟹ 一个因子选错
+#   (`jitter` 的 `full_scale` 是旧单位遗留)就能造出一个**四关全过却零信息**的槽
+#   (实测归一后恒 ≈0.99)。那是「丙、9」。**折算层删掉之后这个洞按构消失** ——
+#   没有折算,就没有"因子错了而门看不见"这回事。
 
 
-def test_scale_factors_are_registered_not_hardcoded(tmp_path, monkeypatch):
-    """spec §5.1:临时值不得写成代码里的裸常量。
-
-    逐族把 evidence_thresholds.json 里的登记值改掉,`_dynamic_normalize` 的输出必须随之
-    改变。任何一族被硬编码回代码里,该族那一行就会拿到打补丁前的值 → 本测试变红。
-    """
-    import json
-
-    from report_frontend import evidence_gate
-
-    data = json.loads(evidence_gate._THRESHOLD_FILE.read_text(encoding="utf-8"))
-    probe = tmp_path / "evidence_thresholds.json"
-
-    for keyword, path, value, raw, expected in _SCALE_CASES:
-        node = data
-        for part in path[:-1]:
-            node = node[part]
-        node[path[-1]] = value
-        probe.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-        monkeypatch.setattr(evidence_gate, "_THRESHOLD_FILE", probe)
-
-        got = ResearchCapabilityMapper()._dynamic_normalize(raw, keyword)
-        assert abs(got - expected) < 1e-9, (
-            f"{keyword} 的归一化没跟着登记值变:期望 {expected},实际 {got}"
-            f" —— 该族的因子可能被写回了代码里的裸常量"
-        )
-
-
-def test_pause_duration_is_shadowed_by_the_ratio_family():
-    """pause_duration 撞名留档 —— spec §8.2 #2 把这条标为「待查」,本轮实测结案。
-
-    实测(旧实现的 if 链 与 本实现的最长匹配,两者一致):`'ratio' in 'pause_duration'`
-    为真,而恒等族在旧 if 链里排在 pause 之前 → pause_duration 走的是**恒等**分支,
-    0.5–3.0s 的分箱从未执行过。spec §8.2 说"不含 ratio、走 pause 分支"是**记错了**。
-
-    本测试把 legacy 行为钉住(改它要动登记表,且应带 M5 依据):
-    若有人把 pause 族调到 ratio 之前,pause_duration 的归一化随之改变 → 本测试变红。
-    """
-    from report_frontend.evidence_gate import scale_factor_for
-
-    assert "ratio" in "pause_duration" and "pause" in "pause_duration", "撞名的前提变了"
-    assert scale_factor_for("pause_duration")["kind"] == "identity", \
-        "pause_duration 的归因变了 —— legacy 走的是恒等族(0.5–3.0s 分箱从未执行)"
-    # 合成键 pause_seconds 不含 ratio,才能走到登记的分箱(真实词表里没有这样的键)
-    assert scale_factor_for("pause_seconds")["kind"] == "pause_bins"
-
-
-def test_every_registered_scale_factor_declares_a_basis():
-    """spec §5.1:登记项必须声明依据;没有依据的必须显式写 legacy_arbitrary,不得留空。"""
-    from report_frontend.evidence_gate import load_thresholds
-
-    data = load_thresholds()
-    assert data["scale_factors"], "折算因子未登记"
-    kinds = {"definitional", "physical", "legacy_arbitrary"}
-    for name, spec in data["scale_factors"].items():
-        assert spec.get("basis"), f"{name} 未声明依据"
-        assert spec["basis_kind"] in kinds, f"{name} 的 basis_kind 未登记:{spec['basis_kind']}"
-    default = data["_default_scale_factor"]
-    assert default.get("basis") and default["basis_kind"] in kinds
-
-# 混合 fixture:让 logical_thinking 真的出分(1/4 槽过门),其余 4 维仍为 score=None。
-# 叙事层里禁止词与硬编码句原本住在**出分路径**上,零证据输入会在组合那几句之前
-# 就短接掉 —— 用零证据 fixture 的测试因此对改动前后都通过(本计划已栽过八次)。
-# 本 fixture 让三条叙事层测试同时走到出分路径与无证据路径。
-# 键名与量程同源:真实日志列 connective_density 经 feature_engine 的通用数值路径
-# 产出 _mean/_std,量程是「每百字 10 个」—— 10.0 正好落在满量程上(分数饱和端)。
 _MIXED = {"voice_research": {"connective_density_mean": 10.0,
                              "connective_density_std": 1.0,
                              "_n_rows": 100.0}}
@@ -1469,31 +1389,3 @@ def test_the_released_slots_still_pass_the_other_three_gates():
             f"解封动作把别的关一起松掉了")
 
 
-def test_the_jitter_scale_factor_is_a_registered_calibration_debt():
-    """★ 解封 `jitter` 之后**必须**留下这条:该槽在当前产出上等于一个常量。
-
-    登记因子 `scale_factors.jitter.full_scale = 0.2` 是旧单位(val×5)的遗留,
-    而 B3 把列改成了「÷ 肩宽 ÷ 窗内真实秒数」⟹ 米制抖动 raw ≈ 0.001~0.002,
-    比旧量程小约 200 倍 ⟹ 归一后 ≈0.006、**反向翻向后恒 ≈0.99**。
-    四关**都不看归一后的值**(它们看的是原始列),所以这个槽四关全过却零信息。
-
-    这条钉子把"标定债"变成可被看见的东西:**M5 重登记该因子时它会红**,
-    那时把期望值改成新因子下的实测值即可 —— 而不是让这个洞静默存在。
-
-    红法:有人把 `full_scale` 改成与新单位相称的值(那正是该做的,届时更新本测试),
-    或把 `normalize_value` 改成先看归一值再判常量。
-    """
-    from report_frontend.evidence_gate import normalize_value, scale_factor_for
-
-    sf = scale_factor_for("gesture_left_wrist_jitter_world_mean")
-    assert sf["basis_kind"] == "legacy_arbitrary", (
-        f"jitter 族的依据类别变了({sf['basis_kind']})—— 若已按自采分布重登记,"
-        f"请连同下面这两个期望值一起更新")
-
-    # 三场重放的米制腕部抖动会话均值
-    for raw in (0.0011, 0.0013, 0.0018):
-        nv = normalize_value(raw, "gesture_left_wrist_jitter_world_mean")
-        assert nv < 0.01, f"raw={raw} 的归一值不再是近 0({nv})—— 因子似乎已重登记"
-        assert (1.0 - nv) > 0.98, (
-            f"raw={raw} 反向翻向后不再是近满值({1.0 - nv})—— "
-            f"若因子已标定,把这条钉子的期望值改成新实测值")

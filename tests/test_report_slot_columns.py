@@ -6,12 +6,13 @@
 
   1. **槽接到了哪一列**(结构级:keyword/权重/方向)+ 行为级:喂该列 ⇒ 它进证据链;
   2. **方向**(原始值往哪边走 = 更好)—— 换了列就换了量纲,方向错了会**静默**把
-     「更糟」算成「更好」;
-     ⚠️ **2026-10-04 这条的观测点变了**:以前从 payload 的 `normalized_score` 看,
-     而那个字段随评分层一起摘除了(见 `research_mapper` 返回处那段注释)。
-     方向的两处来源本来就只有**折算因子**(`evidence_gate.normalize_value`,读
-     `evidence_thresholds.json` 的族因子)与**声明的方向位**(`mapping_rules` 第三元
-     `is_positive`),现在直接问这两处,不再从 payload 中转一手;
+     「更糟」算成「更好」。
+     ⚠️ **2026-10-04 这条只剩"声明的方向位"这一个可观测量**:方向数值比较需要
+     **折算层**,而它已随评分层整层摘除(见「甲、22」)。
+     于是那四条"喂两个原始值、比归一结果"的钉子**一并删除** —— 判据本身还在,
+     只是改成**结构级**:每题那一对里的 `_slot(dim, kw) == (权重, is_positive)`
+     就是方向声明,而它的语义依据写在各自的 docstring 里(眉内距越小越皱……)。
+     折算层删掉也意味着**方向再也无法被算反** —— 那个洞按构消失;
   3. **旧列不再被这个槽命中** —— 喂新旧两列,**同一份输入**里只能进新的那一列。
 
 ⚠️ 第 3 条必须两边都喂。`_fuzzy_match` 是**返回第一个命中的键**的纯子串匹配,只喂
@@ -32,25 +33,6 @@ def _run(feats):
 
 def _chain(dim):
     return {ev["feature"]: ev for ev in dim["evidence_chain"]}
-
-
-def _better(dim_key, keyword, raw_smaller, raw_larger) -> float:
-    """原始值从 `raw_smaller` 变到 `raw_larger` 时,这个槽是变好还是变糟(>0 为变好)。
-
-    走的就是**登记的那两处来源**:`normalize_value`(族折算因子)+ `is_positive`(方向位)
-    —— 与摘除前的 `normalized_score` 是**同一个算式**,只是不再绕 payload。
-    ⚠️ `normalize_value` 现在**已无消费方**(评分层摘除后),保留它是「乙、7 标定债」
-    那一条的对象;本函数测的是**那份登记自洽**(换列时方向没被弄反)。
-    """
-    from report_frontend.evidence_gate import normalize_value
-
-    _weight, pos = _slot(dim_key, keyword)
-
-    def val(raw: float) -> float:
-        n = normalize_value(raw, keyword)
-        return max(0.0, min(1.0, n if pos else 1.0 - n))
-
-    return val(raw_larger) - val(raw_smaller)
 
 
 def _slot(dim_key, keyword):
@@ -74,16 +56,6 @@ def test_frown_slot_measures_brow_furrow_geometrically():
     assert "face_au4_frown_mean" in _chain(dim), "皱眉槽没有指到几何量"
 
 
-def test_frown_slot_points_the_right_way_for_a_distance_measure():
-    """方向钉子:au4_frown 是**距离比** —— 值越小眉越皱(越糟)。
-
-    沿用旧槽的 `is_positive=False`(越大越糟)会让眉越皱得分越高。
-    """
-    assert _better("logical_thinking", "au4_frown", 0.05, 0.45) > 0, \
-        "眉内距越大(=越不皱)必须越好;反了就是把「更糟」算成「更好」"
-
-
-# ------------------------------------------------- 张力 / 唇部压缩(真几何量)
 def test_tension_slot_uses_real_lip_compression():
     """`tension_score`(伪合成)→ `au23_lip_compression`(唇红厚 ÷ 面部轮廓高),0.3 不变。
 
@@ -97,13 +69,6 @@ def test_tension_slot_uses_real_lip_compression():
     assert "face_au23_lip_compression_mean" in _chain(dim)
 
 
-def test_tension_slot_points_the_right_way_for_lip_red_thickness():
-    """方向钉子:唇红**越薄** = 压得越紧 = 越糟 ⟹ 值越大得分越高。"""
-    assert _better("stress_resilience", "au23_lip_compression", 0.02, 0.12) > 0, \
-        "唇红越厚(=越没压)必须越好"
-
-
-# ---------------------------------------------------------- 视线稳定性 / 抖动
 def test_gaze_stability_slot_uses_variation_of_the_real_gaze_column():
     """`gaze_stability`(1/(1+std(gaze_deviation)),派生自被封停的列)→
     `gaze_direction_x_std`(视线水平偏移在会话内的标准差),0.2、反向。
@@ -119,12 +84,6 @@ def test_gaze_stability_slot_uses_variation_of_the_real_gaze_column():
     chain = _chain(dim)
     assert "face_gaze_direction_x_std" in chain
     assert "face_gaze_stability_mean" not in chain, "槽还在用派生列"
-
-
-def test_gaze_stability_slot_is_inverse_in_the_spread():
-    """方向钉子:视线越散(std 越大)= 越不稳 = 越糟。"""
-    assert _better("logical_thinking", "gaze_direction_x_std", 0.02, 0.8) < 0, \
-        "视线越散必须越糟(方向位是 is_positive=False)"
 
 
 def test_jitter_slot_uses_a_covered_framing_free_limb_jitter():
@@ -173,8 +132,6 @@ def test_shoulder_slot_uses_shrug_level_with_relaxation_polarity():
     relaxed = _run({"gesture": {"shrug_level_mean": 0.0, "shrug_level_std": 0.05,
                                 "_n_rows": 300.0}})["confidence_level"]
     assert "gesture_shrug_level_mean" in _chain(relaxed)
-    assert _better("confidence_level", "shrug_level", 0.0, 0.9) < 0, \
-        "耸肩越厉害(=越不放松)必须越糟(方向位是 is_positive=False)"
 
 
 # ------------------------------------------------------------------ 不变量

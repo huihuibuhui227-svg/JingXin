@@ -116,36 +116,17 @@ def test_real_voice_log_column_reaches_the_report():
     assert ev is not None, f"日志列没进证据链:{dim['evidence_gaps']}"
     # 均值 42.5/12 = 3.5417 → 会话内均值;满量程每百字 10 个 → 0.3542 → 四舍五入 0.35
     assert ev["raw_value"] == round(sum(values) / len(values), 4)
-    # ⚠️ 2026-10-04:折算值不再经 payload 观察(`normalized_score` 随评分层摘除),
-    #    改成**直接问登记的折算因子** —— 那本来就是这个量唯一的来源。
-    from report_frontend.evidence_gate import normalize_value
-    # ⚠️ 取整不能省:payload 里那个字段当初是 `round(final_val, 2)`,而登记表的原始
-    #    折算值是 0.35417 —— 直接相等会红在"少了那次取整"上,不是量程错了。
-    assert round(normalize_value(ev["raw_value"], "connective_density"), 2) == 0.35, (
-        f"折算量程不对(旧量程 0.02 会饱和到 1.0):"
-        f"{normalize_value(ev['raw_value'], 'connective_density')}"
-    )
+    # ⚠️ 2026-10-04:这里原有一条"折算到 0.35"的断言。折算层随评分层整层摘除
+    #   (见「甲、22」)⟹ 那一句连同它的对象一起删掉。本测试**留下的是主断言**:
+    #   语音日志的列 → 特征引擎 → 证据门 → 报告的证据链,这条链还在。
 
 
-def test_density_scale_matches_the_per_hundred_definition():
-    """量程必须跟着定义走:新定义是**每百字连接词数**(典型 0–10),不是旧的 0–1 比率。
-
-    红在:改名前 density 族登记的是 `full_scale: 0.02`(旧公式「命中数÷字符数」的量程),
-    于是 5.0(每百字 5 个)会被当成 0.02 满量程而**饱和**到 1.0,取不到 0.5;
-    旧量程下这个指标任何真实取值都恒等于 1.0,等于没有量尺。
-    """
-    from report_frontend.evidence_gate import scale_factor_for
-
-    spec = scale_factor_for("connective_density_mean")
-    assert spec["kind"] == "full_scale", f"density 族不再是满量程型:{spec['kind']}"
-    assert spec["full_scale"] == 10.0, (
-        f"density 满量程未随定义更新:{spec['full_scale']}(旧公式的量程是 0.02)"
-    )
-
-    mapper = ResearchCapabilityMapper()
-    assert mapper._dynamic_normalize(5.0, "connective_density_mean") == 0.5, \
-        "每百字 5 个应落在量程中点"
-    assert mapper._dynamic_normalize(10.0, "connective_density_mean") == 1.0
+# ⚠️ 2026-10-04 **已移**除 `test_density_scale_matches_the_per_hundred_definition`:
+#   它守的是 density 族的**折算满量程**(`scale_factors.density.full_scale`),而那张表已随
+#   评分层整层摘除(见「甲、22」)。它记录的那件事——"量程必须跟着定义走,旧 0–1 比率量程会让
+#   每百字密度恒饱和到 1.0"——**随折算层一起失去对象**:现在没有任何地方把原始值折成 0–1。
+#   「density 族有自己的样本量门槛」那条钉子(`test_density_has_its_own_n_valid_threshold`)
+#   **仍然有效并保留**:门槛属于 G3,与折算无关。
 
 
 def test_density_has_its_own_n_valid_threshold():

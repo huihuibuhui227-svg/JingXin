@@ -1,7 +1,7 @@
 {
-  "_version": "0.3.2-provisional",
+  "_version": "0.3.3-provisional",
   "_provisional": true,
-  "_note": "临时阈值。依据=物理下限,非标定值。M5 标定到位后必须替换,替换即新模型版本(spec §5.1)。",
+  "_note": "临时阈值。依据=物理下限,非标定值。M5 标定到位后必须替换,替换即新模型版本(spec §5.1)。⚠️ 2026-10-04:**折算因子族(`scale_factors`)已整段删除** —— 那条链(原始值→折算→加权→维度分→复合分)已从 payload 摘除,见 `docs/下一步.md`「甲、22」。本文件现在只承载 G3 的**阈值层**(thresholds / n_valid_units / _default_n_valid)。",
   "_units": "n_valid 的单位随指标而定:frames 或 segments。机器可读的逐族单位在 `n_valid_units` —— G3 的门槛**必须与该族自己的单位同量纲**,拿帧级门槛去卡「每段回答一个样本」的指标就是单位错配(甲-2)。",
   "_default_n_valid": 10,
   "thresholds": {
@@ -58,93 +58,6 @@
     "speech": {
       "basis": "该族覆盖 `speech_ratio` 等**每段回答一个样本**的列,登记 2。⚠️ 与 `pause` 同样是空转的门槛:列 `speech_ratio` 已标 M3.2 删列、引用它的槽也已删(见「丙、17」)⟹ 现在没有任何指标会走到这一族。登记理由同上(维持不变量),不代表有标定依据。",
       "_provisional": true
-    }
-  },
-  "_scale_factors_note": "报告层的量纲折算因子:把指标原始值折到 0–1。原为 research_mapper._dynamic_normalize 里的裸常量(×50 / ×5 / ×250 / ÷30 / ÷80 与 pause 分箱),违反 spec §5.1「临时值不得写成代码里的裸常量」,故逐族登记在此。basis_kind 的含义:definitional = 定义性(如比率天然落在 0–1)/ physical = 物理下限 / legacy_arbitrary = 历史遗留,无物理或定义依据 —— 登记只为让它可被审查与替换,不代表它有依据。",
-  "_scale_factors_basis_note": "legacy_arbitrary 各族的诚实读法:它们是未标定标尺上的历史满量程取值。它们不再决定报告里任何一句对人的表述(点分与档位已停止渲染),仅影响 payload 里的复合分与证据图上的相对贡献。M5 标定或 M4 指标层重定义后逐族替换。",
-  "_default_scale_factor": {
-    "kind": "full_scale",
-    "full_scale": 10.0,
-    "basis_kind": "legacy_arbitrary",
-    "basis": "未登记族的兜底满量程,沿用旧实现 val/10。无物理或定义依据。"
-  },
-  "scale_factors": {
-    "score": {
-      "kind": "identity_or_percent",
-      "percent_divisor": 100.0,
-      "basis_kind": "definitional",
-      "basis": "score 族是 0–100 分制字段;>1 时按 /100 折算,≤1 时视为已是 0–1。"
-    },
-    "freq": {
-      "kind": "identity",
-      "basis_kind": "definitional",
-      "basis": "频率类字段上游已折到 0–1。"
-    },
-    "ratio": {
-      "kind": "identity",
-      "basis_kind": "definitional",
-      "basis": "比率类字段按定义落在 0–1,无需再折。"
-    },
-    "stability": {
-      "kind": "identity",
-      "basis_kind": "definitional",
-      "basis": "稳定度类字段上游已折到 0–1。"
-    },
-    "contact": {
-      "kind": "identity",
-      "basis_kind": "definitional",
-      "basis": "占比类字段按定义落在 0–1。"
-    },
-    "density": {
-      "kind": "full_scale",
-      "full_scale": 10.0,
-      "basis_kind": "definitional",
-      "basis": "连接词密度的定义是每百字连接词数(语音日志列 connective_density),满量程按该定义记为 10.0:每百字 10 个连接词。旧值 0.02 是旧公式「命中数÷字符数」的量程,在新单位下等价于 2.0(0.02×100) —— 单位换算只是把满量程换成 2.0,而 10.0 是按新定义重设的:该量无天然上界(每百字 10 个并非物理上限),10.0 是当前可辩护的参考量程,M5 标定到位后替换。"
-    },
-    "jitter": {
-      "kind": "full_scale",
-      "full_scale": 0.2,
-      "basis_kind": "legacy_arbitrary",
-      "basis": "旧实现 val×5。⚠️ 2026-09-27 更正两处:① 「抖动的单位未定义(未除肩宽、未除时间)」已过期 —— B3 定下了分母口径(÷ 肩宽 ÷ 窗内真实秒数,逐列见 l0_columns.json 的 `*_jitter` 各行);② 「该槽当前由 G4 封停,不可达」已过期 —— 该封停于本日解除(原文「经 x5 归一化恒饱和」被三场实测推翻),它现在**可达**。⚠️ 但要如实记:满量程 0.2 仍是历史遗留的 val×5,在新单位下**没有任何物理或标定依据**。实测后果(2026-09-27,三场重放):米制腕部抖动 raw ≈ 0.0011/0.0013/0.0018(米/秒)⟹ 归一后 ≈ 0.0055~0.0090、**反向翻向后恒 ≈ 0.99** —— 该槽在**当前产出上等于一个常量**,而 G1/G2/G3/G4 **都不看归一后的值**,四关全过。这是**标定债**,不是列的病:M3.1(仪器标定)已被使用者裁定跳过,故此处只登记,不重设数值。M5 标定到位后按自采分布重登记本因子。"
-    },
-    "deviation": {
-      "kind": "full_scale",
-      "full_scale": 0.2,
-      "basis_kind": "legacy_arbitrary",
-      "basis": "旧实现 val×5。偏离量的单位未定义,无物理依据。该槽当前由 G4 封停,不可达。"
-    },
-    "pause": {
-      "kind": "pause_bins",
-      "normal_lo": 0.5,
-      "normal_hi": 3.0,
-      "below_value": 0.5,
-      "above_span": 5.0,
-      "basis_kind": "legacy_arbitrary",
-      "basis": "旧实现的分箱:0.5–3.0s 记 0、<0.5s 记 0.5、(v-3)/5。分箱本身隐含「正常停顿区间」的判断,无出处;该槽当前由 G4 封停,不可达。"
-    },
-    "energy": {
-      "kind": "full_scale",
-      "full_scale": 0.004,
-      "basis_kind": "legacy_arbitrary",
-      "basis": "旧实现 val×250。能量受设备增益与距离污染(ICC .654),跨会话不可比,故设备侧满量程无意义。该槽当前由 G4 封停,不可达。"
-    },
-    "pitch_variation": {
-      "kind": "full_scale",
-      "full_scale": 80.0,
-      "basis_kind": "legacy_arbitrary",
-      "basis": "80Hz 记为满量程(旧实现 val/80)。⚠️ 2026-09-27 更正:「该槽当前由 G4 封停(代码取的是 pitch_mean,名字与计算不符)」已过期 —— 该封停于本日解除(特征 `interview_pitch_variation_mean` 实测与日志列 `pitch_variation` 逐值相等、与 `pitch_mean` 相等的行 0/8)。⚠️ 本族满量程 80 仍是历史遗留、无物理依据:三场正式素材的会话均值实测 33.5/167.1/105.7 Hz ⟹ 按 80 折算落在 0.42~2.09,有三个场次里的两个会饱和。**那是标定问题**(M3.1 已裁定跳过),这里只如实登记,不重设数值。"
-    },
-    "n_chars": {
-      "kind": "full_scale",
-      "full_scale": 30.0,
-      "basis_kind": "legacy_arbitrary",
-      "basis": "30 字记为满量程(旧实现 val/30)。无物理依据 —— 回答详尽度没有天然的满量程。2026-09-26 键名随日志列改:length → n_chars(列名与映射关键词必须同名,§4.10)。"
-    },
-    "reaction_time": {
-      "kind": "full_scale",
-      "full_scale": 10.0,
-      "basis_kind": "legacy_arbitrary",
-      "basis": "2026-09-26 新接的量,没有历史标尺:登记值就是 `_default_scale_factor` 的 10 秒,把它显式写出来只为让它**可被审查与替换**(而不是悄悄继承默认值)。10 秒无物理或文献依据;按 M5 的规矩,阈值/量程只能来自物理下限或**自采数据** —— 等录够场次后用本系统自己的反应延迟分布重登记。"
     }
   }
 }

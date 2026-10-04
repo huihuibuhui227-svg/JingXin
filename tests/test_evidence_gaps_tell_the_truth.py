@@ -146,14 +146,20 @@ def test_answer_length_slot_is_reachable_now():
     assert ev["raw_value"] == 24.0 and ev["n_valid"] == 12
 
 
-def test_length_scale_entry_follows_the_column_name():
-    """量程表的键必须跟着列名走 —— 否则 30 字满量程那条登记**静默失效**、回落到默认 10。
+def test_length_threshold_entry_follows_the_column_name():
+    """门槛表的键必须跟着列名走 —— 否则「回答详尽度」那族的门槛登记**静默失效**、回落到默认。
 
-    红法:把 `scale_factors` 里的键改回 `length` ⟹ 下面取到的是 `_default_scale_factor`。
+    ⚠️ 2026-10-04 改挂:原来它查的是**折算因子**表(`scale_factors.n_chars.full_scale`),
+    而那张表已随评分层整层摘除(见「甲、22」)。**"登记表的键必须跟列名走"这条纪律没有变**,
+    只是承载它的表换成了**门槛表**(`thresholds.n_chars`)—— 而门槛是 G3 的判据,仍在使用。
+
+    红法:把 `thresholds` 里的键改回 `length` ⟹ 下面取到的是 `_default_n_valid`(10)。
     """
-    from report_frontend.evidence_gate import scale_factor_for
-    sf = scale_factor_for("voice_interview_n_chars_mean")
-    assert sf["full_scale"] == 30.0, f"没命中原登记,取到的是兜底:{sf}"
+    from report_frontend.evidence_gate import _threshold_for, load_thresholds
+
+    assert _threshold_for("voice_interview_n_chars_mean") == 5, (
+        f"没命中原登记,取到的是兜底:{_threshold_for('voice_interview_n_chars_mean')}")
+    assert load_thresholds()["thresholds"]["n_chars"] == 5, "门槛表里没有 n_chars 族"
 
 
 def _face_df(**extra) -> pd.DataFrame:
