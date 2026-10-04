@@ -137,7 +137,14 @@ def test_slot_level_quarantine_covers_spec_5_3():
 
     # ⚠️ 2026-10-03 本表**再缩一项**:`face_eye_contact_ratio` 已解封
     #    (消费方口径改对 + 补齐 `_std`/`_sample_size`),见 `_RELEASED`。
-    for key in ("face_gaze_stability_mean", "face_micro_exp_au_name_au7_freq",
+    # ⚠️ 同日**更正一个名字**:下面第二个键原写 `face_micro_exp_au_name_au7_freq`,
+    #    而 `feature_engine` 造键的写法是 `f"face_micro_exp_{col}"`,列名本身叫
+    #    `micro_exp_au_name` ⟹ 真键多一层 `micro_exp_`。原名**在任何一场里都不会出现**
+    #    (与 evidence_gate 里记的 E7 —— `upper_body_head_tilt` 恒不命中 —— 同一类错法)。
+    #    本测试当时**照样绿**:`is_quarantined` 是按子串匹配封停键的,两个名字都含
+    #    `au7_freq` ⟹ 它只证明"封停条目还在",证明不了"这个名字是真的"。
+    for key in ("face_gaze_stability_mean",
+                "face_micro_exp_micro_exp_au_name_au7_freq",
                 "voice_research_research_speech_ratio_mean"):
         assert is_quarantined(key) is not None, f"{key} 未被封停"
 
@@ -222,10 +229,18 @@ _STILL_QUARANTINED = (
     ("face_gaze_deviation_mean", "y 分量主导:实测与 |gaze_direction_y| 的相对差仅 1.3%~7.7%"),
     ("face_gaze_stability_mean", "仍派生自被封停的 gaze_deviation(槽已改指 gaze_direction_x_std,特征键本身没改)"),
     ("voice_interview_interview_speech_ratio_mean", "自指阈值,三场 24/24 行恒 1.0"),
-    ("face_blink_rate_per_min_mean", "60 s 滚动窗,1.06 s 帧间隔下量的是采样格"),
+    ("face_blink_rate_per_min_mean", "采样率不足(不是单位错):帧间隔实测中位 1.000~1.002 s 而眨眼"
+                                     "时长 100~400 ms ⟹ 漏检结构性;0.3 s 去抖在 1 fps 下恒不触发 "
+                                     "⟹ 计的是「最近 60 秒里判定闭眼的帧数」(上限=60 s 内帧数,实测 max 57)"),
     ("face_eye_closed_sec_mean", "与 is_blink 冗余(判定门 ear<0.18 几乎不触发)"),
     ("interview_pause_duration_mean_mean", "自指能量门限 mean(rms)×0.3,无出处"),
-    ("face_micro_exp_au_name_au7_freq", "au7 + avg_ear ≡ 1.0(实测 min=max=1.0)"),
+    # ⚠️ 键名 2026-10-03 更正:原写 `face_micro_exp_au_name_au7_freq`,而真键多一层
+    #    `micro_exp_`(见本文件上面那处更正的说明)。原先那句证据「au7 + avg_ear ≡ 1.0
+    #    (实测 min=max=1.0)」也是**过期**的:它描述的是源列 `au7_eye_squeeze` 的退化,
+    #    而这条 one-hot 键**全仓 0 产出**(51 场 22277 行里 `micro_exp_au_name` 只有 6 行
+    #    有值,取值只有 au4_frown / au7_eye_squeeze)。
+    ("face_micro_exp_micro_exp_au_name_au7_freq",
+     "全仓 0 产出:该键只在 micro_exp_au_name 取值为「au7_freq」时产生,而该标签从没出现过"),
 )
 
 
@@ -649,7 +664,7 @@ def test_allowlist_whys_quote_dead_mechanisms_only_with_a_correction():
 # 系统性扫描(2026-10-03)查出 **3 个**,合计权重 0.8 —— `speech_ratio` 与 `focus_score`
 # 都是先有守卫、后被它抓出来的(后者还是因为把 `planned` 从含糊的「M3.2」写明成「删列」)。
 #
-# ★ **2026-10-03 三个都已做掉,故本名单现在是空的**。处置 = **删槽 + 余下按原比例重归一**,
+# ★ **2026-10-03 全部做掉,故本名单现在是空的**。处置 = **删槽 + 余下按原比例重归一**,
 #   依据:维度分只按「**过门**槽」的权重归一(`weighted_sum / total_weight`),
 #   所以按比例缩放**不改变任何分数**。实测两场端到端比对:分数 / level / confidence /
 #   观测区间 / 原始值 / 样本量 / `passed_slots` / `total_score` **一处都没变**,
@@ -658,6 +673,27 @@ def test_allowlist_whys_quote_dead_mechanisms_only_with_a_correction():
 #   正是因此被永久封停的;改指别的构念则需要一套新的依据(本仓不许凭空给)。
 #   ⚠️ 名单**非空**就意味着"有一处槽仍指着待删列、且是已知的" —— 那是**临时状态**。
 #   处置理由与影响见 `docs/下一步.md`「丙、17」。
+#
+# ★★ 2026-10-03 **判据补洞,并由补好的判据抓出第 4、5 个** ★★
+#   原判据是 `kw in doomed`(**等值**),而槽的关键词是**特征引擎的匹配模式**、
+#   白名单里登记的是**落盘列名**,两者经常不是一个字符串:
+#     · `blink_rate` ⊂ `blink_rate_per_min` ⟹ 等值比对**抓不到**,
+#       于是这个真指着待删列的槽让本测试**假报干净**(名单空着就通过了,实测过)。
+#   补洞后立刻红了两次,查出 `cognitive_efficiency` 的 `au7_freq`(0.3)与
+#   `blink_rate`(0.2)—— 两条的源列(`micro_exp_au_name` / `blink_rate_per_min`)
+#   都标着 M3.2 删列。两条都已**删槽 + 重归一**(0.5 死权重 → 0.0)。
+#
+# ⚠️ **补完的判据仍有边界,不许当全称结论用**:双向子串只覆盖"关键词与列名互为子串"
+#   那一类。还有**名字上完全推不出来**的一类,实例就是上面那个 `au7_freq` ——
+#   它的取数键是 `face_micro_exp_micro_exp_au_name_au7_freq`(源列 `micro_exp_au_name`),
+#   两个名字之间**没有任何公共子串**;它之所以能被查出来,靠的是"某个**标签名**恰好
+#   等于这个关键词"这层知识,而标签词表不在 L0 里 ⟹ **机器推不出来**。
+#   这类**必须显式登记源列** —— 这正是 `_SLOTS_ON_DOOMED_COLUMNS` 第三个字段的用处。
+#   我试过用 token 交集兜这一类:**太松**,一次跑出 11 条误报
+#   (`left_wrist_jitter_world` ↔ `left_arm_angle` 之类),不可用,故不采用。
+#
+# 表项 = `(维度, 槽关键词, 源列名)`。⭐ 第三个字段必需:见上,有一类槽的名字与列名
+# 之间没有任何公共子串,只有登记了源列才能被机器校验。
 _SLOTS_ON_DOOMED_COLUMNS: tuple = ()
 
 
@@ -670,11 +706,47 @@ def _doomed_columns() -> set:
             if "删列" in str(a.get("planned", ""))}
 
 
+def _doomed_columns_hit_by(keyword: str, doomed) -> list:
+    """关键词命中了哪些「待删列」—— **双向子串**,不是等值。
+
+    为什么不能等值:见上面那段「判据补洞」。`blink_rate` ↔ `blink_rate_per_min`
+    两条方向各有用处(前者是关键词比列名短,后者是列名比关键词短),故都留着。
+    """
+    return sorted(c for c in doomed if keyword == c or keyword in c or c in keyword)
+
+
+def test_the_doomed_column_rule_catches_a_renamed_keyword():
+    """★ **正向对照**:判据必须真的抓得到"关键词是列名的一部分"那一类。
+
+    为什么单独立一条:下面那条测试**只在有人引用待删列时才红**,而当时名单正好是空的
+    ⟹ 把判据改回等值比对,它**照样绿**,洞会第二次静默出现(第一次就是这么漏的)。
+    这里拿**已经删掉的那个真槽**反推,把判据本身钉住。
+
+    红法(实测):把 `_doomed_columns_hit_by` 的 `keyword in c or c in keyword`
+    删回 `keyword == c`(等值)⟹ 本测试红 —— `blink_rate` 命中不到 `blink_rate_per_min`。
+    """
+    doomed = {"blink_rate_per_min", "focus_score", "micro_exp_au_name"}
+
+    assert _doomed_columns_hit_by("blink_rate", doomed) == ["blink_rate_per_min"], (
+        "`blink_rate` 是**真出现过**的那个槽:它的取数键是 "
+        "`face_blink_rate_per_min_mean`,源列 `blink_rate_per_min` 标着 M3.2 删列。"
+        "等值比对抓不到它 —— 这条断言就是钉这个的。")
+    assert _doomed_columns_hit_by("focus_score", doomed) == ["focus_score"]
+    # `au7_freq` 这一类**故意断言抓不到**:它不是本判据的射程,只能靠显式登记源列。
+    # 把它写成断言(而不是留个注释),是为了将来有人想拿 token 交集来"补全"时,
+    # 会先看到这里的边界在哪。
+    assert _doomed_columns_hit_by("au7_freq", doomed) == [], (
+        "`au7_freq` → `micro_exp_au_name` 是**名字推不出**的那一类(靠标签词表才知道),"
+        "双向子串本来就不该命中它 —— 若这条红了,说明判据被改成了 token 交集之类"
+        "更松的东西,而那实测有 11 条误报,请先看清上面那段边界说明。")
+
+
 def test_no_slot_points_at_a_column_marked_for_deletion():
     """★ 槽位表与 L0 表是**两处独立维护**的登记 —— 列说要删、槽却还指着它,两边都没人发现。
 
-    判据:白名单里标了「删列」的列,不许再被任何槽当关键词 ——
-    除非显式登记进 `_SLOTS_ON_DOOMED_COLUMNS`(= 已知、待重新分配权重)。
+    判据:白名单里标了「删列」的列,不许再被任何槽当关键词(双向子串,见
+    `_doomed_columns_hit_by`)—— 除非显式登记进 `_SLOTS_ON_DOOMED_COLUMNS`
+    (= 已知、待重新分配权重,且**写明源列**)。
 
     红法(**两个方向**):
     - 有人**新**让一个槽指向待删列 ⟹ 红;
@@ -690,20 +762,24 @@ def test_no_slot_points_at_a_column_marked_for_deletion():
     for dim, spec in rules.items():
         for ind in spec.get("indicators", []):
             kw = ind[0]
-            if kw in doomed and (dim, kw) not in pending:
-                offenders.append(f"{dim}.{kw}(w={ind[1]})")
+            registered = {col for d, k, col in pending if (d, k) == (dim, kw)}
+            unresolved = [c for c in _doomed_columns_hit_by(kw, doomed)
+                          if c not in registered]
+            if unresolved:
+                offenders.append(f"{dim}.{kw}(w={ind[1]}) -> {unresolved}")
     assert not offenders, (
         "这些槽仍指向**已标记删列**的列:\n  " + "\n  ".join(offenders)
         + "\n—— 要么在该维度内重新分配权重(不能改指同一测量,那会数两遍),"
           "要么把它登记进 `_SLOTS_ON_DOOMED_COLUMNS` 并写清为什么、归哪个里程碑。")
 
-    for dim, kw in _SLOTS_ON_DOOMED_COLUMNS:
+    for dim, kw, source_column in _SLOTS_ON_DOOMED_COLUMNS:
         keys = [i[0] for i in rules.get(dim, {}).get("indicators", [])]
         assert kw in keys, (
             f"{dim}.{kw} 已经不在了 —— 若已重新分配过权重,请把它从 "
             f"`_SLOTS_ON_DOOMED_COLUMNS` 划掉")
-        assert kw in doomed, (
-            f"{kw} 不再被标记待删 —— 那本名单的处置要跟着改(要么留列、要么换依据)")
+        assert source_column in doomed, (
+            f"{dim}.{kw} 登记的源列「{source_column}」不再被标记待删 —— "
+            f"那本名单的处置要跟着改(要么留列、要么换依据)")
 
 
 

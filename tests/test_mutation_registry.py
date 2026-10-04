@@ -111,6 +111,30 @@ MUTATIONS: tuple[Mutation, ...] = (
         "把 `gaze_deviation` 槽**加回**到它指向的待删列上 ⟹ 守卫抓"
         "(⚠️ 原登记是「把列移出待删名单」,那条 2026-10-03 删槽后**已失效** —— "
         "槽都不是槽了,移不移名单守卫都不管;换成本条)"),
+    Mutation(
+        "tests/test_report_layer.py::test_the_doomed_column_rule_catches_a_renamed_keyword",
+        "tests/test_report_layer.py",
+        "    return sorted(c for c in doomed if keyword == c or keyword in c or c in keyword)",
+        "    return sorted(c for c in doomed if keyword == c)",
+        "⚠️ 本条变异改的是**守卫自己**(不是生产文件)—— 本表唯一的例外类:"
+        "「待删列」判据退回**等值**比对 ⟹ `blink_rate` 命中不到 `blink_rate_per_min`,"
+        "那个洞会第二次静默出现。没有这条正向对照,上一行那条守卫在**名单为空时照样绿**。"),
+    Mutation(
+        "tests/test_dimension_live_weight.py::test_registered_dead_weight_matches_reality",
+        "report_frontend/evidence_gate.py",
+        '    "pause_duration": Quarantine(',
+        '    "pause_duration探针": Quarantine(',
+        "解封一个**只被**封停、不指向待删列的槽(`pause_duration`,w=1/7)⟹ "
+        "该维死权重 5/7 → 4/7,登记表抓"),
+    Mutation(
+        "tests/test_dimension_live_weight.py::test_registered_dead_weight_matches_reality",
+        "report_frontend/research_mapper.py",
+        '                    ("n_chars", 0.4, True, "回答详尽度", "support"),',
+        '                    ("au7_freq", 0.3, False, "眼部挤压 (费力)", "core"),\n'
+        '                    ("n_chars", 0.4, True, "回答详尽度", "support"),',
+        "把 2026-10-03 删掉的 `au7_freq` **加回来** ⟹ 死权重 0.0 → 0.3,登记表抓。"
+        "⭐ 这是那个「名字推不出源列」的洞的**唯一兜底**:`au7_freq` → `micro_exp_au_name` "
+        "在名字上没有任何公共子串,守卫看不见它 —— 能挡住它复活的只有这张死权重登记表"),
 )
 
 
