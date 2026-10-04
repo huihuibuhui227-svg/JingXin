@@ -19,16 +19,24 @@
 | 情境行为稳定性 | 0.25 | **0.0** | 1.0 |
 | **沟通表达流畅度** | **0.20** | **5/7 ≈ 0.714** | **2/7 ≈ 0.286** |
 | 行为表现活跃度 | 0.15 | **0.0** | 1.0 |
-| 言语流畅特征 | 0.15 | 0.5 | 0.5 |
+| 作答过程特征 | 0.15 | **0.0** | 1.0 |
 
 ⟹ **2026-10-03 之前**沟通表达流畅度 **80%** 的声明证据是死的(全仓最糟);
 删掉 `speech_ratio` 槽、余下按原比例重归一之后降到 **5/7 ≈ 0.714**
 (余下 `fluency_score` **全系统无产出方**、`pause_duration` **卡标定集**)。
+它现在是**唯一**还薄的维度。
 
-同一天还有两处变活:`话语结构特征` 0.3 → **0.0**(删掉 `focus_score` 槽)、
-`情境行为稳定性` 0.2 → **0.0**(删掉 `gaze_deviation` 槽)——
-两者都是"指向待删列"的槽,处置见 `docs/下一步.md`「丙、17」。
-`行为表现活跃度` 保持唯一 100% 活 —— 那是解封 `eye_contact` 的**直接结果**(解封前它也有 0.3 死)。
+同一天还有三处变活:`话语结构特征` 0.3 → **0.0**(删掉 `focus_score` 槽)、
+`情境行为稳定性` 0.2 → **0.0**(删掉 `gaze_deviation` 槽)、
+`作答过程特征`(原显示名「言语流畅特征」)0.5 → **0.0**
+(删掉 `au7_freq` 0.3 + `blink_rate` 0.2 两个槽)。
+三条都是"指向待删列"的槽,处置见 `docs/下一步.md`「丙、17」。
+`行为表现活跃度` 保持 100% 活 —— 那是解封 `eye_contact` 的**直接结果**(解封前它也有 0.3 死)。
+
+⚠️ `作答过程特征` 那一维**连显示名一起改了**:原「言语流畅特征」既与它的槽
+(回答详尽度 / 反应延迟)对不上,又与 `communication_fluency` 的「沟通表达流畅度」
+**撞词** —— 报告与雷达图会把两个名字并排渲染。改名的完整理由在
+`research_mapper.py` 那段注释里;这个名字由本文件的 `_DEAD_WEIGHT` 钉着(名字一变就红)。
 
 ## 这张表还牵出一个陷阱(登记,但本轮**不改**)
 
@@ -65,7 +73,9 @@ _DEAD_WEIGHT = {
                               "fluency_score 无生产者(4/7) + pause_duration 封停(1/7);"
                               "2026-10-03 删掉 speech_ratio 槽后按比例重归一"),
     "confidence_level": ("行为表现活跃度", 0.0, "全活 —— 2026-10-03 解封 eye_contact 的直接结果"),
-    "cognitive_efficiency": ("言语流畅特征", 0.5, "au7_freq 封停(0.3) + blink_rate 封停(0.2)"),
+    "cognitive_efficiency": ("作答过程特征", 0.0,
+                             "全活 —— 2026-10-03 删掉 au7_freq(0.3)与 blink_rate(0.2)"
+                             "两个「指向待删列」的槽之后;同日改名(原「言语流畅特征」)"),
 }
 
 #: 浮点比较容差(权重都是 0.1 的整数倍)。
@@ -78,6 +88,11 @@ def _dead_weight_of(spec: dict) -> tuple:
     from report_frontend.research_mapper import NO_PRODUCER
 
     l0 = importlib.import_module("l0_columns")
+    # ⚠️ 这里是 `kw in doomed`(**等值**),对"关键词与列名不是一个字符串"的槽会漏
+    #    (实例:`blink_rate` vs `blink_rate_per_min`)。本函数只用它算**死权重这个数**;
+    #    "槽该不该还在表里"由 `tests/test_report_layer.py` 那条双向子串的守卫管,
+    #    两处分工与那次漏判的经过写在本文件 `test_registered_dead_weight_matches_reality`
+    #    的 docstring 里。**不许**把这里的漏当成"这个槽没问题"的依据。
     doomed = {a["column"] for a in l0.load().get("legacy_allowlist", [])
               if "删列" in str(a.get("planned", ""))}
 
@@ -101,12 +116,23 @@ def test_registered_dead_weight_matches_reality():
 
     红法(两个方向,**都实测过**):
     - 有人**新**封停一个槽 ⟹ 死权重变大 ⟹ 红(实测:封停 `connective_density`,w=0.4);
-    - 有人**解封**一个槽 ⟹ 死权重变小 ⟹ 红(实测:解封 `au7_freq`)。
-      ⚠️ **例外(我实测踩到,记在此处)**:槽**同时**「封停」且「指向待删列」时
+    - 有人**解封**一个槽 ⟹ 死权重变小 ⟹ 红(实测:解封 `pause_duration`,它在
+      `communication_fluency` 里只被**封停**、没指向待删列,权重 1/7 ⟹ 5/7 → 4/7)。
+      ⚠️ **例外(实测踩到,记在此处)**:槽**同时**「封停」且「指向待删列」时
       (如 `focus_score` / `speech_ratio`),摘掉封停**不会**改变死权重 ——
       下面的判据里**封停优先**,它仍被算作死的。我第一版把"解封 ⟹ 红"写成无条件的,
-      拿 `focus_score` 去验**没红**;换成只封停的 `au7_freq` 才红。
+      拿 `focus_score` 去验**没红**;换成只封停的槽才红。
       这条判据看的是"它**还是不是**死的",不是"它头上的标签是哪一个"。
+
+    ⚠️ **这条钉子的射程边界(2026-10-03 补记,吃过一次亏)**:它靠的是
+    `is_quarantined(kw) / NO_PRODUCER / 待删列` 三条**按关键词**的判据,而
+    `_DEAD_WEIGHT` 只登记**权重数字**。所以"关键词与源列名对不上"的槽
+    (实例:`blink_rate` → 源列 `blink_rate_per_min`,而这里比的是
+    `kw in doomed` **等值**)在这里**也算活着** —— 我当时就是据此写下
+    「这两个槽不属于『指向待删列』」这句**错话**,并拿它去给使用者做决策依据。
+    补洞在 `tests/test_report_layer.py::test_no_slot_points_at_a_column_marked_for_deletion`
+    (双向子串 + 正向对照)。本文件与它的分工:本文件守"**有多少声明权重是死的**"
+    (数字),那里守"**这个槽还该不该在表里**"(身份)。
     """
     from report_frontend.research_mapper import ResearchCapabilityMapper
 

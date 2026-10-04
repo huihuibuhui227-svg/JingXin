@@ -112,7 +112,7 @@
     {
       "column": "blink_rate_per_min",
       "modality": "face",
-      "why": "§4.1:186 依据栏原文:「直接列恒 0;衍生列走挂钟 60 秒窗 → 编码机器负载」,L0 形态栏:「从 is_blink 算 per-sec」。⚠️ 「恒 0」这条已由 M2.5 修掉(序列化改用 current_au,video_pipeline.py;evidence_gate.QUARANTINE['blink_rate'] 的 blink_rate 封停 unblock 写的正是「M2 修序列化」);剩下的删除理由是「60 秒窗」那条:窗口按会话相对秒算,量的不是 per-sec 眨眼率。",
+      "why": "§4.1:186 依据栏原文:「直接列恒 0;衍生列走挂钟 60 秒窗 → 编码机器负载」,L0 形态栏:「从 is_blink 算 per-sec」。⚠️ 「恒 0」这条已由 M2.5 修掉(序列化改用 current_au,video_pipeline.py;evidence_gate.QUARANTINE['blink_rate'] 的 blink_rate 封停 unblock 写的正是「M2 修序列化」)。⚠️ **更正(2026-10-03):原来「剩下的删除理由是『60 秒窗』那条:窗口按会话相对秒算,量的不是 per-sec 眨眼率」这句不成立** —— 该窗现在就是按真实 `timestamp` 算的,而「60 秒窗内的次数」**本来就是** per-minute 率,换单位/换统计量都治不了。实测出来的真病因是**采样率**:帧间隔中位 1.000~1.002 s 而眨眼时长 100~400 ms(漏检是结构性的),且 0.3 s 去抖在 1 fps 下**恒不触发** ⟹ 它计的是「最近 60 秒里判定闭眼的**帧数**」(上限 = 60 s 内的帧数,实测 max 57)而不是眨眼次数;另有误检(`is_blink` 连续段出现 14/18/19/21/28 帧的长段)。完整实测与处置见 `evidence_gate.QUARANTINE['blink_rate']`。",
       "planned": "M3.2 删列"
     },
     {
@@ -184,7 +184,7 @@
     {
       "column": "micro_exp_au_name",
       "modality": "face",
-      "why": "§4.1:200 依据栏原文:「每帧取字典序第一个命中项」;并见 R9(2026-09-25-m2-6-raw-media-retention-design.md:66 / :454「micro_exp_* 整族不进本轮 L0 契约」)",
+      "why": "§4.1:200 依据栏原文:「每帧取字典序第一个命中项」;并见 R9(2026-09-25-m2-6-raw-media-retention-design.md:66 / :454「micro_exp_* 整族不进本轮 L0 契约」)。⚠️ 补记(2026-10-03):报告层曾有一个 core 槽挂在**本列的 one-hot** 上 —— `research_mapper` 的 `cognitive_efficiency.au7_freq`(w=0.3),它的取数键是 `face_micro_exp_micro_exp_au_name_au7_freq`。该槽已删:本列 **51 场 22277 行只有 6 行有值**(场 20260929_205448_8b75),取值只有 `au4_frown` / `au7_eye_squeeze` ⟹ **`au7_freq` 这个标签从没出现过**,那条 one-hot 键全仓 0 产出。",
       "planned": "M3.2 删列"
     },
     {

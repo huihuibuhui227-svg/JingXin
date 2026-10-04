@@ -135,7 +135,12 @@ class ResearchCapabilityMapper:
                     #   所以按比例缩放**不改变任何分数**。实测两场:维度分、`total_score`、
                     #   `level`、`confidence`、`matched_indicators` 的**分子**、`passed_slots`
                     #   内容全部逐字相同;变的只有权重本身、`contribution`(按权重派生)
-                    #   与 `matched_indicators` 的**分母**(4→3)/`coverage.n_slots`(20→17)。
+                    #   与 `matched_indicators` 的**分母**。
+                    # ⚠️ 这里**不写具体数**:`coverage.n_slots` 这个数本仓已被抄过三份
+                    #   (本注释、`docs/下一步.md`「丙、17」、以及 `tests/test_structured_report_endpoint.py`
+                    #   里那个字面量 —— 后者在第二批删槽时漏改、由全量套件抓出来)。
+                    #   要看当前值请跑 `python tools/jx_selfcheck.py --all`,或直接读表;
+                    #   抄一个数到注释里就是下一次过期。
                     ("connective_density", 0.5714285714285714, True, "连接词密度", "core"),
                     # `gaze_stability` → `gaze_direction_x_std`(会话内标准差)。
                     # 旧列是 1/(1+std(gaze_deviation)),而 gaze_deviation 的 y 分量
@@ -227,18 +232,46 @@ class ResearchCapabilityMapper:
                 ]
             },
             "cognitive_efficiency": {
-                "name": "言语流畅特征",
-                "description": "观测面部动作单元频率与回答长度的可测量。",
-                "algorithm": "微表情频率分析与响应延迟回归",
+                # ★ 2026-10-03 **改名**:原「言语流畅特征」(2026-09-24 中性化那轮从
+                #   「认知负荷效率」机械改过来的)与槽位对不上,而且与
+                #   `communication_fluency` 的「沟通表达流畅度」**撞词** ——
+                #   报告与雷达图会把两个名字并排渲染,读者看到两条「流畅」轴。
+                #   本维余下的槽是**回答详尽度 + 反应延迟**,都发生在**作答过程**中
+                #   ⟹ 名字改成纯观测式的「作答过程特征」,不再主张任何构念。
+                "name": "作答过程特征",
+                "description": "观测作答过程中的回答详尽度与反应延迟的可测量。",
+                "algorithm": "回答长度与响应延迟统计",
                 "indicators": [
-                    ("au7_freq", 0.3, False, "眼部挤压 (费力)", "core"),
-                    ("blink_rate", 0.2, True, "眨眼频率", "support"),
-                    # 关键词 = **语音日志的列名**(2026-09-26 接线:那个列是新加的,
-                    # 在此之前这个槽全系统没有产出方,报告只能写"尚无产出方")。
+                    # ★ 2026-10-03 **删掉两个槽**:`au7_freq`(原 w=0.3,「眼部挤压」)
+                    #   与 `blink_rate`(原 w=0.2,「眨眼频率」)—— 两条指向的源列都已被
+                    #   标记 **M3.2 删列**(分别是 `micro_exp_au_name` / `blink_rate_per_min`),
+                    #   这是守卫 `test_no_slot_points_at_a_column_marked_for_deletion`
+                    #   **补洞之后**抓出来的(此前它按「关键词 == 列名」等值比对,而
+                    #   `blink_rate ≠ blink_rate_per_min` ⟹ 假报干净)。
+                    #   · `au7_freq` 的取数键是 `face_micro_exp_micro_exp_au_name_au7_freq`
+                    #     (`micro_exp_au_name` 字符串列的 one-hot)。该列 **51 场 22277 行
+                    #     只有 6 行有值**(场 `20260929_205448_8b75`),取值只有 `au4_frown` /
+                    #     `au7_eye_squeeze` ⟹ **`au7_freq` 这个标签从没出现过**;
+                    #     而它原本要量的 AU7 强度列 `au7_eye_squeeze` 又逐帧 ≡ `1 − avg_ear`
+                    #     (四场实测 `max|diff| = 1.1e-16`)⟹ 两条路都断。
+                    #     f98d 上实测 `_fuzzy_match("au7_freq", …) == (None, None)` ——
+                    #     **它根本不走 `au7_eye_squeeze`**。
+                    #   · `blink_rate` 走 `face_blink_rate_per_min_mean` ⟹ 源列
+                    #     `blink_rate_per_min`。机制是**采样率**,不是单位:
+                    #     帧间隔实测中位 1.000~1.002 s,而眨眼时长 100~400 ms
+                    #     ⟹ 漏检是结构性的;实测 duty 4.4%~14.2%,`is_blink` 连续段里
+                    #     出现 14/18/19/21/28 帧(≈14~28 秒)的长段 = 误检。
+                    #   两槽**都从不进门** ⟹ 删掉不改变任何分数(维度分只按「过门槽」归一)。
+                    #   补齐了的守卫判据与"为什么不是改指别的测量"见 `docs/下一步.md`「丙、17」。
+                    #
+                    # 余下两个槽 ×2(原 0.2/0.3);按原比例缩放,理由同上。
+                    #
+                    # 关键词 = **语音日志的列名**(2026-09-26 接线:那两个列是新加的,
+                    # 在此之前这两个槽全系统没有产出方,报告只能写"尚无产出方")。
                     # 名字必须与 `voice_interaction/utils/logger.py` 的列逐字一致 ——
                     # 上游产出名与下游消费名对不上就是静默的空值(§4.10)。
-                    ("n_chars", 0.2, True, "回答详尽度", "support"),
-                    ("reaction_time", 0.3, False, "反应延迟", "core"),
+                    ("n_chars", 0.4, True, "回答详尽度", "support"),
+                    ("reaction_time", 0.6, False, "反应延迟", "core"),
                 ]
             }
         }

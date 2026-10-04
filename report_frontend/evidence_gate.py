@@ -152,7 +152,23 @@ QUARANTINE: dict[str, Quarantine] = {
     #   2026-09-27 对账后 `au4_freq`(解封)与 `fluency_score`(改挂 NO_PRODUCER)
     #   退出本组,余 6 条。
     "gaze_stability": Quarantine("由被封停的 gaze_deviation 派生", "M3 修 gaze_direction_x"),
-    "au7_freq": Quarantine("au7 + avg_ear 恒等 1.0,与 au4 互补", "M3"),
+    # ★ 2026-10-03 **更正理由(原话写错了取数路径)**。原理由:「au7 + avg_ear 恒等 1.0,
+    #   与 au4 互补」,unblock「M3」。那句话描述的是**源列** `au7_eye_squeeze` 的退化 ——
+    #   实测它确实成立(四场逐帧 `au7_eye_squeeze ≡ 1 − avg_ear`,max|diff| = 1.1e-16),
+    #   但**不是这个槽的取数路径**:槽的键是 `face_micro_exp_micro_exp_au_name_au7_freq`
+    #   (`micro_exp_au_name` 字符串列的 one-hot)。f98d 上实测
+    #   `_fuzzy_match("au7_freq", …) == (None, None)` —— 它**根本不走** `au7_eye_squeeze`。
+    #   于是"等 M3"是句空话:该 one-hot 键在**全仓 0 产出**。真实现状是源列
+    #   `micro_exp_au_name` **51 场 22277 行只有 6 行有值**(场 `20260929_205448_8b75`),
+    #   取值只有 `au4_frown` / `au7_eye_squeeze` ⟹ **`au7_freq` 这个标签从没出现过**;
+    #   而它原本要量的 AU7 强度那条路又断在退化上(见上)。两条源列都标着 M3.2 删列。
+    #   槽已于 2026-10-03 删除(它从不进门 ⟹ 删掉不改任何分数)。
+    "au7_freq": Quarantine(
+        "全仓 0 产出:取数键来自 `micro_exp_au_name` 的 one-hot,而该列 51 场 22277 行"
+        "只有 6 行有值,取值只有 au4_frown / au7_eye_squeeze ——「au7_freq」这个标签"
+        "从没出现过;另一条路(AU7 强度列)逐帧 ≡ 1 − avg_ear(四场 max|diff|=1.1e-16)"
+        "⟹ 零额外信息。两条源列都已标 M3.2 删列",
+        "需要一个真会产出这个标签的来源 —— 现无;若将来 AU7 有独立产出方,连同槽一起重新登记"),
     "speech_ratio": Quarantine("自指阈值,87.9% 恰为 1.0", "M3 真 VAD"),
     # ✅ 2026-10-03 **解封 `eye_contact`**(本组余 5 条)。它自己写的 unblock
     #    (「M3 改 feature_engine 的 eye_contact 口径」)已达成,而且这次是
@@ -181,10 +197,27 @@ QUARANTINE: dict[str, Quarantine] = {
     "micro_exp_onset_frame": Quarantine("环形缓冲下标,恒在 5~13", "永不", permanent=True),
     "fluency_proxy": Quarantine("与 fluency_score 同自由度,数了两遍", "永不", permanent=True),
     # ---- 等对应里程碑 ----
+    # ★ 2026-10-03 **更正理由与 unblock(原话把病因写成了单位)**。
+    #   原理由说「60 秒滚动窗,量的不是 per-sec 眨眼率 … 改成按真实帧间隔算的 per-sec 率」。
+    #   实测已不是这样:`_update_blink_state` 现在**就是**按真实 `timestamp` 算的
+    #   60 秒窗(`video_pipeline.py`,`test_video_pipeline_timebase.py` 钉着)——
+    #   60 秒窗内的次数**本来就是** per-minute 率,换单位治不了。
+    #   真正的病因是**采样率**,而且有两处,方向相反:
+    #     · **漏检**:帧间隔实测中位 1.000~1.002 s(四场),而眨眼时长 100~400 ms
+    #       ⟹ 绝大多数眨眼根本没被采到;
+    #     · **计错单位**:0.3 s 去抖在 1 fps 下**恒不触发**(相邻闭眼帧间隔 ≈1 s > 0.3 s)
+    #       ⟹ 每一次"闭眼帧"都记一次 ⟹ `blink_count` 数的是「最近 60 秒里判定闭眼的
+    #       **帧数**」,上限就是 60 s 内的帧数(实测 max **57**)。
+    #   另有**误检**:实测 duty 4.4%~14.2%(人眼真实闭眼占比约 5% 量级),
+    #   `is_blink` 连续段里出现 14/18/19/21/28 帧(≈14~28 秒)的长段。
+    #   槽已于 2026-10-03 删除;源列 `blink_rate_per_min` 另已标 M3.2 删列。
     "blink_rate": Quarantine(
-        "60 秒滚动窗,量的不是 per-sec 眨眼率:三场帧间隔 1.06–1.07 s,"
-        "is_blink 只命中 1/271·3/477·11/479 帧 ⟹ 计数由采样格决定,不是被试的眨眼频率",
-        "随列处置(删列)或改成按真实帧间隔算的 per-sec 率"),
+        "病因是**采样率**不是单位:帧间隔实测中位 1.000~1.002 s(四场)而眨眼时长 "
+        "100~400 ms ⟹ 漏检结构性;0.3 s 去抖在 1 fps 下恒不触发 ⟹ 计的是"
+        "「最近 60 秒里判定闭眼的**帧数**」(上限=60 s 内帧数,实测 max 57)而不是眨眼次数。"
+        "另有误检:实测 duty 4.4%~14.2%,is_blink 连续段出现 14/18/19/21/28 帧(≈14~28 秒)的长段",
+        "提高面部采集率(现约 1 fps)—— 那是采集侧决策,换单位/改列名都治不了;"
+        "源列 blink_rate_per_min 另已标 M3.2 删列"),
     "eye_closed_sec": Quarantine(
         "与 is_blink 冗余:判定门 avg_ear < 0.18,而 avg_ear 均值 0.42 ⟹ "
         "2b11/1592 整个会话恒 0、caf0 只有 3 个取值", "随列处置(删列)或并入眨眼时长"),
