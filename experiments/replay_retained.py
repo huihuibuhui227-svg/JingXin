@@ -255,33 +255,78 @@ def load_audio_segments(session_dir: Path | str, kind: str = "converted"
 
 
 def replay_voice(session_dir: Path, out_csv: Path, answers_only: bool = False,
-                 dedupe: bool = True) -> int:
-    """按留存音频重跑**语音服务的那一条路**,把每段的**特征字典**写成 CSV。返回段数。
+                 dedupe: bool = True, questions: list[dict] | None = None,
+                 session_id: str | None = None) -> int:
+    """按留存音频重跑**语音服务的那一条路**,写出 **`VoiceLogger` 契约形状**的一张表。
 
     ★ 与手势腿同一条理由(见 `replay_gesture` 的说明):「重放」的全部意义是**走真产出方**。
     所以这里调的是端点调的那个函数 `voice_interaction.api.app.prosody_features_from_pcm`
     —— 端点里 `await _prosody_async(audio_data)`(它内部 `asyncio.to_thread` 包的就是
     这个函数)拿到的正是同一份字节。若本脚本自己写一遍"读 wav → 调提取器 → 改名",
     它证的就是它自己抄的那份接线:端点里漏接一个键、改名表漏一行,这条腿照样绿。
-    ⚠️ 走的是 `prosody_features_from_pcm`,因此**不经过** `reaction_time_features`
-    (那要用墙钟与题目台账,重放里没有,也不许编)—— 本腿只对"提取器产出"负责。
+
+    ## 表格形状(甲-4,2026-10-03 改)
+
+    以前这里写的是**自己拼的列**(`file`/`seq`/`source_endpoint`/`seconds` + 提取器的键),
+    而报告层读的是 `VoiceLogger` 的 **32 列契约** ⟹ 那份 CSV 喂给报告时语音系的槽
+    **成片掉光**,也与同一场活跑的日志逐列比不了。现在:
+
+    * 表头与行的形状都取自 `VoiceLogger`(`build_row` + `fieldnames`)—— **一处实现**;
+    * 产不出的列**逐条登记**在 `voice_interaction/utils/replay_contract.py` 的
+      `NOT_WRITTEN_BY_REPLAY` 里并写明为什么,**留空不编**(要文本的那 5 列来自 ASR,
+      而本腿只负责声学;`is_valid` 是活路径调用方的占位判断,重放不复制它没做的判断);
+    * `reaction_time` 那一组**产出了** —— 它要的两样东西重放都有:`ask_end` 来自
+      `questions.jsonl`,到达时刻来自留存账本。见下面两条推断规则。
+
+    ## 两条**推断**规则(重放与活路径唯一的语义差,不许静默)
+
+    1. **到达时刻**用**同 `seq` 的 `raw` 记录**的 `received_at_wall`
+       (`replay_contract.arrival_wall_of`)。同一次上传落 `raw`/`converted` **两条**记录,
+       而 `_record()` 每条各采一次 `time.time()` ⟹ 差 150~283 ms;`reaction_time` 用的是
+       raw 那条(实测与活日志吻合 **±5 ms**)。找不到 raw 记录就返回 `None` ⟹
+       `reaction_time` **整组不写**,不退回那个已知偏晚的时刻。
+    2. **题号**按「最后一个 `ask_end ≤ 到达时刻`」推断
+       (`replay_contract.infer_question_index`)。活路径知道题号(它正在处理那一题),
+       重放只有账本。实测(场 `20260927_212143_95a8`,8 段回答)与活日志 **8/8 全对**。
+
+    这两条都由 `tests/test_voice_replay_contract.py` 钉住。
     """
     import importlib
     import wave
 
+    from voice_interaction.utils.logger import VoiceLogger
+    from voice_interaction.utils.replay_contract import (
+        NOT_WRITTEN_BY_REPLAY, arrival_wall_of, infer_question_index)
+
     voice_app = importlib.import_module("voice_interaction.api.app")
 
     segments, report = load_audio_segments(session_dir)
+    # 「到达时刻」只在 **raw** 记录上(见 docstring 第 1 条)—— 单读一份 raw 账本备查。
+    raw_segments, _raw_report = load_audio_segments(session_dir, kind="raw")
+    raw_records = [rec for _p, rec in raw_segments]
+    questions = list(questions or [])
+    sid = session_id or session_dir.name.split("__")[-1]
     print(f"[素材] 账本 {report['ledger_records']} 段(converted),盘上找得到 {report['files_on_disk']} 段;"
           f"账本碎行 {report['torn_lines']} 行;"
-          f"带 declared_ts 的音频行 {report['declared_ts_present']} 段(音频这一路应为 0)")
+          f"带 declared_ts 的音频行 {report['declared_ts_present']} 段(音频这一路应为 0);"
+          f"raw 账本 {len(raw_records)} 行(取到达时刻用);题目台账 {len(questions)} 题")
     if report["missing_files"]:
+        # 不静默:这些段账本有、盘上没有 —— 它们不会出现在 CSV 里,而看的人会以为
+        # 那一段本来就没有。
         print(f"⚠️  {len(report['missing_files'])} 段**账本有、盘上没有**,本次不重放;"
               f"前几个:{report['missing_files'][:5]}", file=sys.stderr)
 
     if answers_only:
+        _before = len(segments)
         segments = [(p, r) for p, r in segments
                     if r.get("source_endpoint") == "/interview/answer_audio"]
+        # 筛选结果**必须报出来**:0 段时若不说话,读的人会以为"这一场没有音频",
+        # 而真相是"这一场没有**提交过回答**"(实测场 `..._2449`:8 段全是 `/asr` 预览)。
+        print(f"[筛选] --answers-only:保留 {len(segments)}/{_before} 段"
+              f"(`/interview/answer_audio`)")
+        if not segments and _before:
+            print(f"⚠️  {_before} 段音频都不是提交的回答(是 `/asr` 预览)—— 本场没答过题,"
+                  f"不是「没有音频」;不加 `--answers-only` 可重放那批预览段", file=sys.stderr)
 
     if dedupe:
         seen: set[str] = set()
@@ -301,33 +346,53 @@ def replay_voice(session_dir: Path, out_csv: Path, answers_only: bool = False,
         segments = kept
 
     rows: list[dict] = []
-    for path, rec in segments:
-        with wave.open(str(path), "rb") as wf:
-            ch, sw, fr, n = (wf.getnchannels(), wf.getsampwidth(),
-                             wf.getframerate(), wf.getnframes())
-            # 与端点同一道闸(voice_interaction/api/app.py 的 `wave` 校验):
-            # 不满足就**报出来**,不静默跳过 —— 跳过的段在 CSV 里就是"没有这一行",
-            # 而看的人会以为那一段本来就没有。
-            if (ch, sw, fr) != (1, 2, 16000):
-                print(f"[跳过] {path.name}:格式 {ch}ch/{sw*8}bit/{fr}Hz,"
-                      f"端点会 400 —— 不是{1}ch/16bit/16000Hz", file=sys.stderr)
-                continue
-            pcm = wf.readframes(n)
-        feats = voice_app.prosody_features_from_pcm(pcm)
-        row = {"file": path.name, "seq": rec.get("seq"),
-               "source_endpoint": rec.get("source_endpoint"),
-               "seconds": round(len(pcm) / 2 / 16000, 2)}
-        row.update(feats)
-        rows.append(row)
+    no_reaction: list[int] = []
+    # ⚠️ 用一个**只借形状**的 logger:表头写进临时目录(与 `replay_gesture` 同一条理由),
+    #    免得重放一遍就在 data/logs/ 里多出一个空 CSV。
+    with tempfile.TemporaryDirectory(prefix="replay_voice_") as junk:
+        vlog = VoiceLogger(log_type="interview", log_dir=junk, session_id=sid)
+        for path, rec in segments:
+            with wave.open(str(path), "rb") as wf:
+                ch, sw, fr, n = (wf.getnchannels(), wf.getsampwidth(),
+                                 wf.getframerate(), wf.getnframes())
+                # 与端点同一道闸(voice_interaction/api/app.py 的 `wave` 校验):
+                # 不满足就**报出来**,不静默跳过 —— 跳过的段在 CSV 里就是"没有这一行",
+                # 而看的人会以为那一段本来就没有。
+                if (ch, sw, fr) != (1, 2, 16000):
+                    print(f"[跳过] {path.name}:格式 {ch}ch/{sw*8}bit/{fr}Hz,"
+                          f"端点会 400 —— 不是{1}ch/16bit/16000Hz", file=sys.stderr)
+                    continue
+                pcm = wf.readframes(n)
+            feats = voice_app.prosody_features_from_pcm(pcm)
 
-    if rows:
-        keys = list(rows[0])
-        keys += sorted({k for r in rows for k in r} - set(keys))
-        out_csv.parent.mkdir(parents=True, exist_ok=True)
-        with out_csv.open("w", newline="", encoding="utf-8") as f:
-            w = csv.DictWriter(f, fieldnames=keys)
-            w.writeheader()
-            w.writerows(rows)
+            arrived = arrival_wall_of(rec, raw_records)
+            qidx = infer_question_index(arrived, questions)
+            window = next((w for w in questions if w.get("index") == qidx), None)
+            if arrived is None or window is None:
+                no_reaction.append(rec.get("seq"))
+            else:
+                # 走**活路径同一个函数**,不在这里重写公式(那会让"重放"证的是自己抄的那份)。
+                feats.update(voice_app.reaction_time_features(feats, arrived, window))
+
+            rows.append(vlog.build_row(
+                feats, question_index=qidx, emotion="", feedback="",
+                # ⚠️ `is_valid` 传 None(留空),不是 True:活路径那个 True 是调用方的占位判断,
+                #    重放不复制一个它没有做出的判断。见 `NOT_WRITTEN_BY_REPLAY`。
+                is_valid=None))
+
+        if rows:
+            keys = list(rows[0])
+            out_csv.parent.mkdir(parents=True, exist_ok=True)
+            with out_csv.open("w", newline="", encoding="utf-8") as f:
+                w = csv.DictWriter(f, fieldnames=keys)
+                w.writeheader()
+                w.writerows(rows)
+
+    print(f"[契约] 表头 = `VoiceLogger` 的 {len(vlog.fieldnames)} 列(形状取自生产侧,非本脚本拼的);"
+          f"产不出的 {len(NOT_WRITTEN_BY_REPLAY)} 列**留空**:{sorted(NOT_WRITTEN_BY_REPLAY)}")
+    if no_reaction:
+        print(f"⚠️  {len(no_reaction)} 段的 `reaction_time` 一组没写(缺 raw 到达时刻或题台账);"
+              f"段序号:{no_reaction[:5]}", file=sys.stderr)
     return len(rows)
 
 
@@ -352,11 +417,18 @@ def main(argv=None) -> int:
         _frames, report = load_frames(d, args.modality)
         missing, torn = len(report["missing_ts"]), report["torn_lines"]
     elif args.modality == "voice":
+        import session_meta
         n = replay_voice(d, Path(args.out), answers_only=args.answers_only,
-                         dedupe=not args.no_dedupe)
+                         dedupe=not args.no_dedupe,
+                         # 题台账与 sid 从**生产侧同一个读取器**取(`session_meta.read_questions`),
+                         # 不在这里自己解析 jsonl —— 那是重放腿最该避免的"自己抄一份接线"。
+                         questions=session_meta.read_questions(args.session_id),
+                         session_id=args.session_id)
         print(f"[完成] 重放语音 {n} 段 -> {args.out}")
-        print("下一步:与 data/logs/interview_emotion_log_<sid>.csv 的对应行逐格比对"
-              "(注意:活路径那几行还多出 `reaction_time` 一组,它们要墙钟与题目台账,重放里没有)")
+        print("下一步:与 data/logs/interview_emotion_log_<sid>.csv 的对应行逐格比对。"
+              "列形状两边相同;差异只该出现在"
+              "① 登记为「重放写不出」的那 6 列(留空 vs 活路径的值)"
+              "② `unix_timestamp`/`timestamp`(活路径写落盘时刻,重放只有留存记录的到达时刻)")
         _segs, report = load_audio_segments(d)
         missing, torn = len(report["missing_files"]), report["torn_lines"]
     else:
