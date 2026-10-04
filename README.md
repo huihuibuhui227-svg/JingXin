@@ -100,8 +100,16 @@ curl -s localhost:8002/health; curl -s localhost:5000/api/health
 ```bash
 PY=$JX_PY   # 或写全 ~/anaconda3/envs/jingxin/bin/python
 
+# ── ★ 改完东西先跑这个（引用/登记/口径/变异/提交范围，约 4 秒）────
+$PY tools/jx_selfcheck.py                 # 元检查（不含全量）
+$PY tools/jx_selfcheck.py --all           # 追加全量套件（70~100 秒）
+$PY tools/jx_selfcheck.py --mutations     # 追加：真跑变异登记表（每条一个子进程）
+# 它管的是「我上一次改的东西有没有把别处说过的话弄成假话」——
+# 引用指不指得着、维度死权重对不对、docstring 里的「红法」是不是真的。
+# ⚠️ 在本沙箱里 --all 会因 test_recordings_browser（禁止跨设备目录改名）报 ✗。
+
 # ── 测试 ──────────────────────────────────────────────
-$PY -m pytest -q                       # 全量(~709 条)
+$PY -m pytest -q                       # 全量
 NUMBA_CACHE_DIR=/tmp/numba-cache $PY -m pytest -q   # numba 需要可写缓存目录
 
 # ── 结构图与清单（脚本生成，不会过期）────────────────

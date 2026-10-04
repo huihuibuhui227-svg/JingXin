@@ -15,6 +15,7 @@
 
 ## 管什么(三条,判据都取**能精确判定**的)
 
+0. 扫描面:根 `README.md` + 顶层 `docs/*.md` + 六个代码目录的 `*.py`;
 1. `「甲、1」`/`「丙、17」` 这类**条目标号**引用 ⟹ `docs/下一步.md` 里必须真的有那个编号;
 2. `<路径>.py:<行号>` ⟹ 目标文件存在时,行号不许超界(文件变短、引用指到尾部之外 ⟹ 红);
 3. 被引用的**测试名** ⟹ `tests/` 里要有同名定义(或它是某个已定义名字的前缀,见下)。
@@ -59,8 +60,13 @@ _RENAME_MARKERS = ("原 ", "原`", "改名", "已移", "曾", "旧名")
 
 
 def _scan_files() -> list[Path]:
-    """要扫的文件:顶层 docs/*.md + 六个代码目录下的 *.py(不含本文件)。"""
-    out = list((REPO / "docs").glob("*.md"))
+    """要扫的文件:根 `README.md` + 顶层 `docs/*.md` + 六个代码目录下的 `*.py`(不含本文件)。
+
+    ⚠️ 根 `README.md` **必须在内**:它是最常被读的文档,而它 2026-10-03 之前
+    一直不在任何引用守卫的射程里(本函数第一版也漏了它)。
+    """
+    readme = REPO / "README.md"
+    out = ([readme] if readme.is_file() else []) + list((REPO / "docs").glob("*.md"))
     for r in ("tests", "report_frontend", "face_expression", "tools",
               "gesture_analysis", "voice_interaction"):
         out += [p for p in (REPO / r).rglob("*.py") if "__pycache__" not in str(p)]
