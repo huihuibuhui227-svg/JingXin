@@ -241,6 +241,13 @@ _STILL_QUARANTINED = (
     #    有值,取值只有 au4_frown / au7_eye_squeeze)。
     ("face_micro_exp_micro_exp_au_name_au7_freq",
      "全仓 0 产出:该键只在 micro_exp_au_name 取值为「au7_freq」时产生,而该标签从没出现过"),
+    # 2026-10-04 补:`energy` 槽解析到的真键。这条**必须**进本表 —— 它是
+    # `tests/test_dimension_live_weight.py` 那个「封停键比槽关键词长」的洞的**前提**:
+    # 那里靠双向子串才把 `energy` 数成 0.2 死权重,而"封停确实打在这个真键上"由本表钉。
+    ("voice_interview_interview_energy_mean_mean",
+     "采集链(麦克风/AGC/距离/增益)全未受控 ⟹ 绝对能量水平不是被试的属性;"
+     "「M3 会话内归一」不是能兑现的路(要可比就必须对未知增益不变 ⟹ 只能用比值 ⟹ "
+     "量变成「本场内的相对高低」而不再是能量水平)"),
 )
 
 

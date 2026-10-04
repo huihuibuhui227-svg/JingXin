@@ -123,9 +123,12 @@ MUTATIONS: tuple[Mutation, ...] = (
         "tests/test_dimension_live_weight.py::test_registered_dead_weight_matches_reality",
         "report_frontend/evidence_gate.py",
         '    "pause_duration": Quarantine(',
-        '    "pause_duration探针": Quarantine(',
+        '    "pauseXduration": Quarantine(',
         "解封一个**只被**封停、不指向待删列的槽(`pause_duration`,w=1/7)⟹ "
-        "该维死权重 5/7 → 4/7,登记表抓"),
+        "该维死权重 5/7 → 4/7,登记表抓。"
+        "⚠️ 2026-10-04 改过 new:原来写的是 `pause_duration探针`(**加后缀**),"
+        "而封停查找改成**双向子串**之后 `pause_duration ⊂ pause_duration探针` 仍然命中 ⟹ "
+        "那条变异**不再红**(机制自己报的「变异之后仍然绿」)。改成真正不相关的名字才等价于解封"),
     Mutation(
         "tests/test_dimension_live_weight.py::test_registered_dead_weight_matches_reality",
         "report_frontend/research_mapper.py",
@@ -188,6 +191,15 @@ MUTATIONS: tuple[Mutation, ...] = (
         "    if True:\n        return bak",
         "备份选名退回「无条件用同一个后缀」⟹ 跑第二遍就把最初那份原始日志顶掉"
         "(与 face 回填那条同形;当年那份 `.predrop.bak` 正是这么丢的)"),
+    Mutation(
+        "tests/test_dimension_live_weight.py::test_registered_dead_weight_matches_reality",
+        "tests/test_dimension_live_weight.py",
+        "    hits = [q for q in QUARANTINE if q == kw or q in kw or kw in q]",
+        "    hits = [q for q in QUARANTINE if q == kw]",
+        "⚠️ 同「守护卫自己」那一类例外:封停查找退回**等值** ⟹ `energy`(封停键 "
+        "`energy_mean` 更长)抓不到 ⟹ `confidence_level` 死权重 0.2 → 0.0。"
+        "⭐ 这是「封停键比槽关键词长」那个洞的**唯一**对照 —— "
+        "它与 `test_report_layer.py` 那条「待删列」守卫是同型洞的镜像(那边是关键词更短)"),
 )
 
 

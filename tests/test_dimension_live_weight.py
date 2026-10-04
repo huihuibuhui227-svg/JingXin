@@ -28,7 +28,7 @@
 | 话语结构特征 | 0.25 | **0.0** | 1.0 |
 | 情境行为稳定性 | 0.25 | **0.0** | 1.0 |
 | **沟通表达流畅度** | **0.20** | **5/7 ≈ 0.714** | **2/7 ≈ 0.286** |
-| 行为表现活跃度 | 0.15 | **0.0** | 1.0 |
+| 行为表现活跃度 | 0.15 | **0.2** | 0.8 |
 | 作答过程特征 | 0.15 | **0.0** | 1.0 |
 
 ⟹ **2026-10-03 之前**沟通表达流畅度 **80%** 的声明证据是死的(全仓最糟);
@@ -41,7 +41,22 @@
 `作答过程特征`(原显示名「言语流畅特征」)0.5 → **0.0**
 (删掉 `au7_freq` 0.3 + `blink_rate` 0.2 两个槽)。
 三条都是"指向待删列"的槽,处置见 `docs/下一步.md`「丙、17」。
-`行为表现活跃度` 保持 100% 活 —— 那是解封 `eye_contact` 的**直接结果**(解封前它也有 0.3 死)。
+`行为表现活跃度` 从 0.3 死降到 **0.2 死**(解封 `eye_contact` 的直接结果;
+余下那 0.2 是 `energy` 槽 —— 2026-10-04 才被本表**正确地**数上,见下面那条边界)。
+
+## 一条边界(2026-10-04 补):封停这一支判错过一次,而且是**漏**不是误报
+
+本表原来用 `is_quarantined(关键词)` 判封停 —— 那是把**槽关键词**直接当**特征键**喂进去,
+而两者的长度关系**两个方向都有**:
+
+* `focus_score` ↔ 封停键 `focus_score`:等值,旧实现抓得到;
+* `energy` → 封停键 **`energy_mean`**:封停键**更长**,旧实现**抓不到**
+  ⟹ `confidence_level` 的死权重登记成 **0.0**,真值 **0.2**。
+
+这与 `tests/test_report_layer.py` 那条「待删列」守卫是**同一类洞的镜像**(那边是槽关键词
+比列名短:`blink_rate` ⊂ `blink_rate_per_min`)。两处现在都是**双向子串**。
+⚠️ 这条边界**没被单独做成一件事** —— 它是 `energy` 那一片的必要组成部分(那一维要如实
+登记"永久拿不到 0.2 的证据",登记表就不能同时说它 100% 活)。
 
 ⚠️ `作答过程特征` 那一维**连显示名一起改了**:原「言语流畅特征」既与它的槽
 (回答详尽度 / 反应延迟)对不上,又与 `communication_fluency` 的「沟通表达流畅度」
@@ -54,9 +69,9 @@
 
     den = sum(dimension_weights[k] for k, d in ... if d["score"] is not None)
 
-⟹ 一个**只有 2/7 个槽撑着**的维度(`communication_fluency`)与一个**证据全活**的维度,
+⟹ 一个**只有 2/7 个槽撑着**的维度(`communication_fluency`)与一个**可达 0.8** 的维度,
 拿**一样重**的权重。于是在复合分里,声明证据死掉 5/7 的那个维度(0.20)比
-完全活的 `confidence_level`(0.15)**权重更大**。
+可达 0.8 的 `confidence_level`(0.15)**权重更大**。
 
 **本轮不改**:`total_score` / `total_level` 明确标注"只为 API 稳定保留、报告层一个字都不渲染"
 (`research_mapper.py` 的三处注释 + spec §5.4 :157-158),而**被展示的那一层**是 `coverage`
@@ -85,7 +100,10 @@ _DEAD_WEIGHT = {
                               "⚠️ 另 2/7 的 pitch_variation **直到同日都是被 G3 结构性挡住的**"
                               "(pitch 族门槛还是帧级 10,而本列每段回答一个样本、题库每场 8 题"
                               "⟹ 实测 n_valid=8 < 10),修好门槛单位后才真的算活 —— 见「甲、2」"),
-    "confidence_level": ("行为表现活跃度", 0.0, "全活 —— 2026-10-03 解封 eye_contact 的直接结果"),
+    "confidence_level": ("行为表现活跃度", 0.2,
+                         "`energy` 槽(0.2)封停 —— 2026-10-04 查明它**没有对应里程碑**"
+                         "(采集链未受控 ⟹ 保绝对值不可比、要可比就只能自指归一 ⟹ 不再是能量);"
+                         "另三个槽全活 —— 那是解封 eye_contact 的直接结果"),
     "cognitive_efficiency": ("作答过程特征", 0.0,
                              "全活 —— 2026-10-03 删掉 au7_freq(0.3)与 blink_rate(0.2)"
                              "两个「指向待删列」的槽之后;同日改名(原「言语流畅特征」)"),
@@ -118,6 +136,29 @@ def _threshold_unreachable(kw: str) -> bool:
             and data["thresholds"][fam] >= data["_default_n_valid"])
 
 
+def _quarantine_key_for(kw: str) -> str | None:
+    """槽关键词命中了哪条封停 —— **双向子串**取最长,不是 `is_quarantined(关键词)`。
+
+    为什么不能只查关键词:`is_quarantined(x)` 的语义是「**封停键**是否为 `x` 的子串」,
+    而映射函数喂给它的 `x` 是**解析后的特征键**(`face_focus_score_mean` 之类)。
+    槽关键词与封停键的**长度关系两个方向都有**:
+
+    * `focus_score` ↔ 封停键 `focus_score` —— 等值,旧实现抓得到;
+    * `energy` → 封停键 **`energy_mean`** —— 封停键**更长**,旧实现**抓不到**
+      ⟹ 死权重登记成 0.0,而真值是 **0.2**(`confidence_level` 的 `energy` 槽)。
+
+    这与 `tests/test_report_layer.py` 那条「待删列」守卫是**同一类洞的镜像**:
+    那边是槽关键词比列名短(`blink_rate` ⊂ `blink_rate_per_min`),
+    这边是槽关键词比封停键短。**两处都改成双向子串**,理由同一个。
+    (实测:本函数在 15 个槽上跑一遍,命中恰好是 `pause_duration` 与 `energy`,
+    零误报;token 交集那种更松的判据实测有 11 条误报,不用。)
+    """
+    from report_frontend.evidence_gate import QUARANTINE
+
+    hits = [q for q in QUARANTINE if q == kw or q in kw or kw in q]
+    return max(hits, key=len) if hits else None
+
+
 def _dead_weight_of(spec: dict) -> tuple:
     """返回 `(死权重, [死掉的槽...])`。
 
@@ -126,10 +167,12 @@ def _dead_weight_of(spec: dict) -> tuple:
 
     ⚠️ **每个槽只计一次**(权重不会重复计入),所以"先判哪个"不影响那个**数**;
     它只影响 `why` 里写的**归因**。归因顺序按"最贴近真实拦截点"排:一个同时被封停
-    又门槛不可达的槽(如 `energy`),它剩下的拦路虎是封停(G3 修好后 G4 才是它报的
-    那个原因),所以封停排前面。
+    又门槛不可达的槽,它剩下的拦路虎是封停(G3 修好后 G4 才是它报的那个原因),
+    所以封停排前面。
+
+    ⚠️ 封停这一支用 `_quarantine_key_for`(**双向子串**),不是 `is_quarantined(关键词)`
+    —— 后者对 `energy`(封停键 `energy_mean` 更长)会漏,理由见那个函数的 docstring。
     """
-    from report_frontend.evidence_gate import is_quarantined
     from report_frontend.research_mapper import NO_PRODUCER
 
     l0 = importlib.import_module("l0_columns")
@@ -144,7 +187,7 @@ def _dead_weight_of(spec: dict) -> tuple:
     dead, why = 0.0, []
     for kw, w, _pos, _name, _imp in spec.get("indicators", []):
         reason = None
-        if is_quarantined(kw):
+        if _quarantine_key_for(kw):
             reason = "封停"
         elif kw in NO_PRODUCER:
             reason = "无生产者"
@@ -223,8 +266,9 @@ def test_thin_dimensions_are_flagged_not_silently_weighted(dim):
 
     这条钉的是那个**陷阱**:`total_score` 的聚合只按"有没有分"归一
     (`den = sum(dimension_weights[k] ... if score is not None)`)⟹
-    **只有 1/5 个槽撑着的维度与证据全活的维度拿一样重**,于是复合分里
-    `communication_fluency`(0.20,声明证据死掉 80%)比 `confidence_level`(0.15,全活)权重还大。
+    **只有 2/7 个槽撑着的维度与可达 0.8 的维度拿一样重**,于是复合分里
+    `communication_fluency`(0.20,可达 2/7 ≈ 0.286)比 `confidence_level`(0.15,可达 **0.8**)
+    权重还大 —— 对比仍然成立,只是后者**不是**"全活"(2026-10-04 起它自己也有 0.2 死)。
 
     本轮**不改**该聚合(它是明确不渲染的遗留字段,而展示层 `coverage` 是诚实的);
     但"哪个维度是薄的"必须**有人看得见**,不能将来哪天有人重新渲染 `total_score` 时
@@ -242,3 +286,33 @@ def test_thin_dimensions_are_flagged_not_silently_weighted(dim):
     assert weights[dim] > 0, (
         f"{dim} 的维度权重是 0 —— 那它死权重再多也影响不到复合分,"
         f"本登记该相应说明(为什么: {why})")
+
+
+def test_the_quarantine_lookup_catches_a_longer_registry_key():
+    """★ 正向对照:封停那一支必须抓到「封停键比槽关键词**长**」那一类。
+
+    实测过的漏洞(不是构造的):`energy` → 封停键 **`energy_mean`**。旧实现
+    `is_quarantined("energy")` 返回 `None`(`is_quarantined` 的语义是"封停键是否为
+    **输入**的子串",而这里输入的是**槽关键词**、不是解析后的特征键)⟹
+    `confidence_level` 的死权重登记成 **0.0**,真值 **0.2**。
+
+    红法(实测):把 `_quarantine_key_for` 换回 `is_quarantined(kw)` ⟹ 本条红
+    (第一条断言拿到 `None`),且 `test_registered_dead_weight_matches_reality` 也红
+    (死权重 0.2 → 0.0)。已登记成变异。
+
+    ⚠️ 第二条断言看着多余,其实是**前提守卫**:哪天有人把封停键改名成 `energy`,
+    这条会红并逼着重新论证 —— 否则"双向子串"会退化成"等值也能过",而洞重新打开
+    时不会有人知道。
+    """
+    from report_frontend.evidence_gate import is_quarantined
+
+    assert _quarantine_key_for("energy") in ("energy_mean", "energy_level")
+    assert is_quarantined("energy") is None, (
+        "`is_quarantined('energy')` 现在能命中了 —— 封停键大概改名了,"
+        "本函数的必要性要重新论证(见 docstring)")
+    # 反方向(等值那一类)也必须通
+    assert _quarantine_key_for("focus_score") == "focus_score"
+    # 且不许误报:实测 15 个槽里只有 `pause_duration` 与 `energy` 命中
+    for kw in ("n_chars", "reaction_time", "eye_contact", "pitch_variation",
+               "au4_frown", "connective_density", "left_wrist_jitter_world"):
+        assert _quarantine_key_for(kw) is None, f"{kw} 被误判成封停 —— 判据过松"
