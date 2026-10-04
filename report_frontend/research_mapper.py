@@ -91,17 +91,33 @@ def _indicator_sample_size(found_key: str, all_features: Dict[str, Any]) -> Opti
     更糟的是**让一行都不带的日志过掉 G3 门槛** —— 门槛正是 M1 存在的理由(诚实轴),
     单位错了它就只是一枚橡皮图章。
 
-    `found_key` 通常是 `<基名>_mean`;没有 `_mean` 后缀的键(如
-    `face_eye_contact_ratio`)直接查 `<键>_sample_size`。
+    **查法两种都试**(2026-10-04 补第二种):
+      1. `<found_key>_sample_size` —— 给**没有统计量后缀**的键用
+         (如 `face_eye_contact_ratio`)。
+      2. 先剥掉统计量后缀(`_mean`/`_std`/`_min`/`_max`/`_sum`/`_trend`)再查
+         —— 因为**样本量是按"源列"登记的,一个列的全部统计量共用一个**
+         (`_extract_numeric_stats` 与 gaze 块都是这个口径)。
+         少了这一步,槽消费的是 `_std`(如 `gaze_direction_x_std`「视线稳定性」)
+         就查不到同列已经登记的样本量 ⟹ G3 与**报告显示的 `n_valid`** 双双退到
+         模态行数。实测活标本(场 `20260927_203322_6d57`):底层列只有 **12/200**
+         行非空,而报告印的是 **`n_valid=200`**。
     """
-    base = found_key[:-len("_mean")] if found_key.endswith("_mean") else found_key
-    raw = all_features.get(f"{base}_sample_size")
-    if raw is None:
-        return None
-    try:
-        return int(raw)
-    except (TypeError, ValueError):
-        return None
+    candidates = []
+    if found_key.endswith("_mean"):
+        candidates.append(found_key[:-len("_mean")] + "_sample_size")
+    candidates.append(f"{found_key}_sample_size")
+    for suffix in ("_mean", "_std", "_min", "_max", "_sum", "_trend"):
+        if found_key.endswith(suffix):
+            candidates.append(found_key[: -len(suffix)] + "_sample_size")
+    for key in candidates:
+        raw = all_features.get(key)
+        if raw is None:
+            continue
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            continue
+    return None
 
 
 class ResearchCapabilityMapper:

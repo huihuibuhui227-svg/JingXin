@@ -170,13 +170,26 @@ class PsychologicalFeatureEngine:
             stats[f"{base_name}_max"] = float(series.max())
             stats[f"{base_name}_sum"] = float(series.sum())
 
+            # ★ **样本量一律产出**(2026-10-04 改)。
+            #
+            # 以前只在"短序列"(< `min_rows_for_trend`)那一支产出它,长序列那一支只出
+            # `_trend` ⟹ 长序列的指标**没有自己的样本量**,而 G3(`evidence_gate`)与
+            # **报告里显示的 `n_valid`** 会退到**模态行数**兜底。那是个**反保守**的兜底:
+            # 模态行数是"落盘了多少行",不是"这个统计量用了几个观测"。
+            #
+            # 实测的活标本(场 `20260927_203322_6d57`):`face_gaze_direction_x_std` 的
+            # 底层列只有 **12/200** 行非空,而报告印的是 **`n_valid=200`** —— 高估 16 倍,
+            # 且那是**显示给人看**的那个数(`coverage.passed_slots[].n_valid`)。
+            #
+            # `series = df[col].dropna()`,所以 `len(series)` **就是**这个统计量真正用上的
+            # 观测数 —— 与 `extract_pitch_features` 那边"f0 上的统计量按浊音帧数算"同一口径。
+            stats[f"{base_name}_sample_size"] = len(series)
+
             if len(series) >= min_rows_for_trend:
                 n = len(series)
                 start_avg = series.iloc[:max(1, n // 10)].mean()
                 end_avg = series.iloc[-max(1, n // 10):].mean()
                 stats[f"{base_name}_trend"] = float(end_avg - start_avg)
-            else:
-                stats[f"{base_name}_sample_size"] = len(series)
         return stats
 
     # ---------------------------------------------------------
@@ -221,6 +234,10 @@ class PsychologicalFeatureEngine:
                     stability_score = 1.0 / (1.0 + dev_series.std())
                     features['face_gaze_stability_mean'] = float(stability_score)
                     features['face_gaze_deviation_mean'] = float(dev_series.mean())
+                    # 样本量(2026-10-04 补,理由见下面「3. Gaze 方向统计」那段):
+                    # 它们是**由 `gaze_deviation` 的非空序列**算出来的 ⟹ 观测数就是它。
+                    features['face_gaze_stability_sample_size'] = int(len(dev_series))
+                    features['face_gaze_deviation_sample_size'] = int(len(dev_series))
 
             # 2. 注视中心度 (Center Fixation) -> Eye Contact
             #
@@ -267,14 +284,26 @@ class PsychologicalFeatureEngine:
                 features['face_eye_contact_ratio_sample_size'] = int(len(contact))
                 # 平均水平偏移(眼宽单位)。保留原始量纲,供审查时对得上 iris 四列。
                 features['face_gaze_dispersion_mean'] = float(s.mean())
+                features['face_gaze_dispersion_sample_size'] = int(len(s))
 
             # 3. Gaze 方向统计
+            #
+            # ★ 2026-10-04 **补 `_sample_size`**。这一块此前只写 `_mean`/`_std`,而它
+            # 正是槽 `gaze_direction_x_std`(「视线稳定性」)的**唯一产出方** ⟹
+            # `_indicator_sample_size` 拿不到样本量,G3 与**报告里显示的 `n_valid`**
+            # 双双退到**模态行数**。实测活标本(场 `20260927_203322_6d57`):
+            # `gaze_direction_x` 只有 **12/200** 行非空(iris 四列同样 12 行),
+            # 而报告印的是 **`n_valid=200`** —— 高估 16 倍。
+            # 上面那个 eye_contact 块**一直**在写 `face_eye_contact_ratio_sample_size`
+            # (注释还写着"记的是真正用上的帧数,不是原始行数")—— 本块缺的就是同一条纪律。
             for col in gaze_cols:
                 if pd.api.types.is_numeric_dtype(df[col]):
                     series = df[col].dropna()
                     if len(series) > 0:
                         features[f"face_{col}_mean"] = float(series.mean())
                         features[f"face_{col}_std"] = float(series.std())
+                        # 该列**全部**统计量共用一个样本量:它们都出自同一个 `dropna()` 序列。
+                        features[f"face_{col}_sample_size"] = int(len(series))
 
         if len(features) == 0:
             print("      ⚠️ 未检测到关键词列，执行全量数值扫描...")
@@ -297,6 +326,10 @@ class PsychologicalFeatureEngine:
                       if any(x in c.lower() for x in ['x_', 'y_', 'z_', 'coord', 'landmark'])]
         if coord_cols:
             features['gesture_global_motion_amplitude'] = float(df[coord_cols].std().sum())
+            # 逐坐标 std 的聚合 ⟹ 观测数是**参与聚合的行数**(coord 列全空的行会拖出 NaN,
+            # 用 `dropna(how="all")` 的行数才是真正进了这个数的) —— 2026-10-04 补。
+            features['gesture_global_motion_amplitude_sample_size'] = int(
+                len(df[coord_cols].dropna(how="all")))
         return features
 
     # ---------------------------------------------------------

@@ -200,6 +200,28 @@ MUTATIONS: tuple[Mutation, ...] = (
         "`energy_mean` 更长)抓不到 ⟹ `confidence_level` 死权重 0.2 → 0.0。"
         "⭐ 这是「封停键比槽关键词长」那个洞的**唯一**对照 —— "
         "它与 `test_report_layer.py` 那条「待删列」守卫是同型洞的镜像(那边是关键词更短)"),
+    Mutation(
+        "tests/test_l1_sample_size.py::test_the_sparse_gaze_column_carries_its_own_sample_size",
+        "report_frontend/feature_engine.py",
+        '                        features[f"face_{col}_sample_size"] = int(len(series))',
+        '                        pass  # 探针:去掉样本量',
+        "把「3. Gaze 方向统计」的 `_sample_size` 拿掉 ⟹ 稀疏 gaze 列没有自己的样本量,"
+        "G3 与**报告显示的 `n_valid`** 退到模态行数。实测后果:场 `6d57` 印出 `n_valid=200`"
+        "而真值 12 ⟹ `logical_thinking` 拿到 **99.05「卓越」**"),
+    Mutation(
+        "tests/test_l1_sample_size.py::test_long_series_also_carries_a_sample_size",
+        "report_frontend/feature_engine.py",
+        '            stats[f"{base_name}_sample_size"] = len(series)',
+        '            pass  # 探针:长序列不发样本量',
+        "把 `_extract_numeric_stats` 的样本量挪回「只有短序列」那一支(即修前的样子)⟹ "
+        "长序列指标查不到自己的样本量 ⟹ 全语料 33 场的 `n_valid` 被模态行数高估(可达 4 倍)"),
+    Mutation(
+        "tests/test_l1_sample_size.py::test_indicator_sample_size_finds_it_through_a_statistic_suffix",
+        "report_frontend/research_mapper.py",
+        '    for suffix in ("_mean", "_std", "_min", "_max", "_sum", "_trend"):',
+        "    for suffix in ():",
+        "查法退回「只认 `<基名>_mean` 的兄弟键」⟹ 槽消费的是 `_std` 时(如 "
+        "`gaze_direction_x_std`「视线稳定性」)查不到同列已登记的样本量"),
 )
 
 
