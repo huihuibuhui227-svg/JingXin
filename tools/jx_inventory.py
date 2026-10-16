@@ -250,7 +250,9 @@ def main() -> int:
                                 read_port(FRONTEND / "vite.config.js")) if p != "?"), "?")
     A(f"| 前端(React/Vite,仓库外) | `{FRONTEND}` | {fe_port} | — |")
     A("")
-    A("⚠️ 三个服务**无启动脚本**,必须 `setsid` 脱离终端起;否则终端一 Ctrl-Z 就成 T 态")
+    A("★ 起服务用 `tools/start_all.sh`(一键起三个服务 + 面板 + 前端,幂等,内部已 `setsid`);")
+    A("要让**重启机器也自动起**,装成 systemd 用户服务:`tools/systemd/install.sh`。")
+    A("⚠️ **手工**起才必须 `setsid` 脱离终端;否则终端一 Ctrl-Z 就成 T 态")
     A("(端口在听却不回话,看着像崩溃,且收不到 TERM「杀不掉」)。")
     A("")
 
@@ -390,7 +392,10 @@ def main() -> int:
     # ── 8 开工入口 ────────────────────────────────────────────
     A("## 8. 下次开工的入口")
     A("")
-    A("1. `docs/下一步.md` **§0.11**(最新一节)+ §11.6 的「该带进去的 5 样」")
+    A("1. `docs/下一步.md` 的 **「一、下一步」**(甲乙丙丁戊五张清单)+ 文末"
+      "「五、之后的主线」的里程碑勾选表")
+    A("   ⚠️ 旧的「§0.11 / §11.6 最新一节」说法**已作废** —— 那些 §0.x 会话日志已移进 "
+      "`docs/复盘/`。")
     A("2. `l0_columns.json` —— 就是任务清单:按 `status=pending` + `maturity=B` 筛")
     A("3. `docs/superpowers/specs/2026-09-21-jingxin-feature-redesign-design.md` §4 —— 逐列定义的依据")
     A("4. 重放必须喂留存账本的 `declared_ts`(样板 `experiments/replay_retained.py`)")
