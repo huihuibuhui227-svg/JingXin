@@ -8,7 +8,7 @@ import warnings
 import json
 
 from .evidence_gate import (check_g4_not_proxy, confidence_from, gate,
-                            normalize_value, user_message)
+                            user_message)
 
 warnings.filterwarnings('ignore')
 
@@ -91,17 +91,33 @@ def _indicator_sample_size(found_key: str, all_features: Dict[str, Any]) -> Opti
     更糟的是**让一行都不带的日志过掉 G3 门槛** —— 门槛正是 M1 存在的理由(诚实轴),
     单位错了它就只是一枚橡皮图章。
 
-    `found_key` 通常是 `<基名>_mean`;没有 `_mean` 后缀的键(如
-    `face_eye_contact_ratio`)直接查 `<键>_sample_size`。
+    **查法两种都试**(2026-10-04 补第二种):
+      1. `<found_key>_sample_size` —— 给**没有统计量后缀**的键用
+         (如 `face_eye_contact_ratio`)。
+      2. 先剥掉统计量后缀(`_mean`/`_std`/`_min`/`_max`/`_sum`/`_trend`)再查
+         —— 因为**样本量是按"源列"登记的,一个列的全部统计量共用一个**
+         (`_extract_numeric_stats` 与 gaze 块都是这个口径)。
+         少了这一步,槽消费的是 `_std`(如 `gaze_direction_x_std`「视线稳定性」)
+         就查不到同列已经登记的样本量 ⟹ G3 与**报告显示的 `n_valid`** 双双退到
+         模态行数。实测活标本(场 `20260927_203322_6d57`):底层列只有 **12/200**
+         行非空,而报告印的是 **`n_valid=200`**。
     """
-    base = found_key[:-len("_mean")] if found_key.endswith("_mean") else found_key
-    raw = all_features.get(f"{base}_sample_size")
-    if raw is None:
-        return None
-    try:
-        return int(raw)
-    except (TypeError, ValueError):
-        return None
+    candidates = []
+    if found_key.endswith("_mean"):
+        candidates.append(found_key[:-len("_mean")] + "_sample_size")
+    candidates.append(f"{found_key}_sample_size")
+    for suffix in ("_mean", "_std", "_min", "_max", "_sum", "_trend"):
+        if found_key.endswith(suffix):
+            candidates.append(found_key[: -len(suffix)] + "_sample_size")
+    for key in candidates:
+        raw = all_features.get(key)
+        if raw is None:
+            continue
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            continue
+    return None
 
 
 class ResearchCapabilityMapper:
@@ -120,8 +136,28 @@ class ResearchCapabilityMapper:
                 "algorithm": "加权线性组合 + 认知负荷推断",
                 "indicators": [
                     # 2026-09-27 列对账(逐槽,判据 = **同构念的更好测法**,不是"能过门"):
-                    ("connective_density", 0.4, True, "连接词密度", "core"),
-                    ("focus_score", 0.3, True, "面部专注度", "core"),
+                    #
+                    # ★ 2026-10-03 **删掉 `focus_score` 槽**(原 w=0.3,「面部专注度」):
+                    #   它指向的列已被标记 **M3.2 删列** —— 实测可被 `head_yaw` **100%
+                    #   精确重构**(零额外信息),且 **99% 恒 0.3**(因为 `head_yaw` 有
+                    #   ~+0.35 常量偏移,而分箱阈值是 0.03/0.08 ⟹ 0.8 那档结构性不可达)。
+                    #   而 `head_yaw` 自身登记为「不实现、不近似」⟹ **没有诚实的替代测法**
+                    #   可改指(改指 `gaze_direction_x_std` 会与本维已有的那个槽数两遍)
+                    #   ⟹ 只能删槽。
+                    #
+                    # 余下三个槽 ×1/0.7(原 0.4/0.2/0.1,和 0.7)。
+                    # ★ **保持比例**是有意的,不是凑数:维度分只按「**过门**槽」的权重归一
+                    #   (`weighted_sum / total_weight`,`total_weight` 只累加过门的那些),
+                    #   所以按比例缩放**不改变任何分数**。实测两场:维度分、`total_score`、
+                    #   `level`、`confidence`、`matched_indicators` 的**分子**、`passed_slots`
+                    #   内容全部逐字相同;变的只有权重本身、`contribution`(按权重派生)
+                    #   与 `matched_indicators` 的**分母**。
+                    # ⚠️ 这里**不写具体数**:`coverage.n_slots` 这个数本仓已被抄过三份
+                    #   (本注释、`docs/下一步.md`「丙、17」、以及 `tests/test_structured_report_endpoint.py`
+                    #   里那个字面量 —— 后者在第二批删槽时漏改、由全量套件抓出来)。
+                    #   要看当前值请跑 `python tools/jx_selfcheck.py --all`,或直接读表;
+                    #   抄一个数到注释里就是下一次过期。
+                    ("connective_density", 0.5714285714285714, True, "连接词密度", "core"),
                     # `gaze_stability` → `gaze_direction_x_std`(会话内标准差)。
                     # 旧列是 1/(1+std(gaze_deviation)),而 gaze_deviation 的 y 分量
                     # (gaze_direction_y)是解剖常量、自身也被封停 ⟹ 它量的是那个常量的
@@ -129,14 +165,14 @@ class ResearchCapabilityMapper:
                     # 判「保」的 gaze_direction_x)的会话内标准差。那条封停自己写的解封
                     # 条件就是「M3 修 gaze_direction_x」。
                     # ⚠️ 方向随之翻:std 越大 = 越不稳 = 越糟 ⟹ is_positive 由 True 改 False。
-                    ("gaze_direction_x_std", 0.2, False,
+                    ("gaze_direction_x_std", 0.2857142857142857, False,
                      "视线稳定性 (视线水平偏移的会话内标准差)", "core"),
                     # `au4_freq` → `au4_frown`:同一个构念(**皱眉**)的真几何量。
                     # 旧槽想量皱眉,而它匹配到的是「从 micro_exp 字符串解析出的垃圾」;
                     # au4_frown = 双眉内侧点距 ÷ 眼距,是比值本身。
                     # ⚠️ 方向随之翻:眉内距**越小**眉越皱(越糟)⟹ 旧槽的 False 会让
                     # 「越皱得分越高」,故改 True(值越大=越不皱=越好)。
-                    ("au4_frown", 0.1, True, "皱眉 (双眉内侧点距 ÷ 眼距)", "support"),
+                    ("au4_frown", 0.14285714285714285, True, "皱眉 (双眉内侧点距 ÷ 眼距)", "support"),
                 ]
             },
             "stress_resilience": {
@@ -148,15 +184,22 @@ class ResearchCapabilityMapper:
                     # → `au23_lip_compression`:槽的构念原文就是「眉间收缩与**唇部压缩**」,
                     # 而这是唇部压缩的真几何量(唇红厚 ÷ 面部轮廓高,§4.1:172 判「重构」)。
                     # ⚠️ 方向:唇红**越薄** = 压得越紧 = 越糟 ⟹ 值越大越好,is_positive 改 True。
-                    ("au23_lip_compression", 0.3, True,
+                    ("au23_lip_compression", 0.375, True,
                      "唇部压缩 (唇红厚 ÷ 面部轮廓高)", "core"),
                     # `jitter` → `left_wrist_jitter_world`:换的不是"能过门的抖动",
                     # 是**量得到的**抖动 —— 旧 keyword 首命中的 left_hand_jitter 在
                     # 三场里 null=286/430/441(缺席 95%/79%/77%,会话内只有 6 个不同取值),
                     # 而腕的世界坐标三场 null=0/3/1、且是米制(取景无关)。
-                    ("left_wrist_jitter_world", 0.3, False, "腕部抖动 (米/秒)", "core"),
-                    ("gaze_deviation", 0.2, False, "视线偏差", "core"),
-                    ("symmetry_score", 0.2, True, "面部对称性", "support"),
+                    ("left_wrist_jitter_world", 0.375, False, "腕部抖动 (米/秒)", "core"),
+                    # ★ 2026-10-03 **删掉 `gaze_deviation` 槽**(原 w=0.2,「视线偏差」):
+                    #   该列已被标记 **M3.2 删列** —— 它就是
+                    #   `√(gaze_direction_x² + gaze_direction_y²)`,而 `gaze_direction_y` 是
+                    #   **解剖常量**(四场高质量素材中位 −0.16~−0.195、std 仅 0.017~0.046),
+                    #   实测它与 `|gaze_direction_y|` 的相对差只有 **1.3%~7.7%**
+                    #   ⟹ 量的基本就是那个常量。而 `gaze_direction_x` 的登记里**明令**
+                    #   「L1 不许再把 gaze_deviation 从别处派生回来」⟹ 只能删槽。
+                    #   余下三个槽 ×1/0.8(原 0.3/0.3/0.2,和 0.8);保持比例的理由同上。
+                    ("symmetry_score", 0.25, True, "面部对称性", "support"),
                 ]
             },
             "communication_fluency": {
@@ -164,10 +207,23 @@ class ResearchCapabilityMapper:
                 "description": "观测语音韵律与停顿相关的可测量。",
                 "algorithm": "韵律特征与停顿分析",
                 "indicators": [
-                    ("fluency_score", 0.4, True, "语音流畅度", "core"),
-                    ("speech_ratio", 0.3, True, "有效说话占比", "core"),
-                    ("pitch_variation", 0.2, True, "语调变化", "support"),
-                    ("pause_duration", 0.1, False, "平均停顿时长", "support"),
+                    # ★ 2026-10-03 **删掉 `speech_ratio` 槽**(原 w=0.3,「有效说话占比」):
+                    #   该列已被标记 **M3.2 删列** —— 它的判定门是**自指**的
+                    #   (`rms > mean(rms)×k`),而自指门让量**尺度不变** ⟹ 它测的是能量分布的
+                    #   *形状*,不是"这个人说了多久";实测 **87.9% 的帧恰为 1.0**。
+                    #   正面修法要**真 VAD**(封停条目自己写的 unblock 就是「M3 真 VAD」,
+                    #   而那是生产方工作、不在报告层射程内)⟹ 只能删槽。
+                    #
+                    # 余下三个槽 ×1/0.7(原 0.4/0.2/0.1,和 0.7);保持比例的理由同上。
+                    # ⚠️ **如实记:删完之后本维仍很薄** —— 余下三个里
+                    #   `fluency_score` **全系统无产出方**(`NO_PRODUCER`)、
+                    #   `pause_duration` 封停(**卡标定集**,M3.1 已裁定跳过)⟹
+                    #   真正能过门的只有 `pitch_variation`(0.2857)。
+                    #   这是**已知且已登记**的状态,见 `docs/下一步.md`「甲、3」:
+                    #   换列治不了,要动生产方。
+                    ("fluency_score", 0.5714285714285714, True, "语音流畅度", "core"),
+                    ("pitch_variation", 0.2857142857142857, True, "语调变化", "support"),
+                    ("pause_duration", 0.14285714285714285, False, "平均停顿时长", "support"),
                 ]
             },
             "confidence_level": {
@@ -181,40 +237,81 @@ class ResearchCapabilityMapper:
                     # 唯一未被封停、且 B3 已补上归一化(÷ 掌长)的就是张开度。
                     # ⚠️ 它是**分量**不是原合成;列只在手可见的帧上有值(三场 14–133 帧),
                     # 这一点由 G3 用该列自己的 sample_size 拦。
-                    ("left_hand_spread", 0.3, True, "手掌张开度 (÷ 掌长)", "core"),
+                    ("left_hand_spread", 0.375, True, "手掌张开度 (÷ 掌长)", "core"),
                     # `shoulder_score` → `shrug_level`:旧列同样已从落盘契约删掉。
                     # 槽的构念是**肩部放松度**,耸肩程度是同一部位的反向量
                     # (÷ 肩宽、基线=因果中位数,B3 重做)。
                     # ⚠️ 方向:越耸 = 越不放松 = 越糟 ⟹ is_positive 改 False。
-                    ("shrug_level", 0.2, False, "肩部放松度 (耸肩程度 ÷ 肩宽)", "support"),
-                    ("eye_contact", 0.3, True, "眼神接触比例", "core"),
-                    ("energy", 0.2, True, "语音能量", "support"),
+                    ("shrug_level", 0.25, False, "肩部放松度 (耸肩程度 ÷ 肩宽)", "support"),
+                    ("eye_contact", 0.375, True, "眼神接触比例", "core"),
+                    # ★ 2026-10-04 **删掉 `energy` 槽**(原 w=0.2,「语音能量」)。
+                    #   它封停的 unblock 写的是「M3 会话内归一」,而 2026-10-04 查明
+                    #   **那不是一条能兑现的路**(见 `evidence_gate.QUARANTINE['energy_mean']`
+                    #   的穷尽论证:保绝对值 ⟹ 采集链未受控、跨会话不可比;要可比 ⟹ 只能自指
+                    #   归一 ⟹ 量不再是能量水平)。**没有对应里程碑** ⟹ 它**永久**过不了门。
+                    #   留着的代价是实打实的:`matched_indicators` 的分母**永久**多一个
+                    #   ⟹ 每一场的覆盖率都被系统性低估,而那条缺口(「该指标本轮停用」)
+                    #   **不可行动**。处置与今天删掉的另外 5 个「永不可能过门」的槽同规。
+                    #   余下三个槽 ×1.25(原 0.3/0.2/0.3,和 0.8)—— 按原比例重归一。
+                    #   ⚠️ `energy_mean` 那一列与它的封停条目**都保留**:列是
+                    #   `columns/implemented`(不是待删列),而"这一维本来还想量语音能量、
+                    #   在该硬件下量不了"这件事由那条封停条目继续挂着。
+
                 ]
             },
             "cognitive_efficiency": {
-                "name": "言语流畅特征",
-                "description": "观测面部动作单元频率与回答长度的可测量。",
-                "algorithm": "微表情频率分析与响应延迟回归",
+                # ★ 2026-10-03 **改名**:原「言语流畅特征」(2026-09-24 中性化那轮从
+                #   「认知负荷效率」机械改过来的)与槽位对不上,而且与
+                #   `communication_fluency` 的「沟通表达流畅度」**撞词** ——
+                #   报告与雷达图会把两个名字并排渲染,读者看到两条「流畅」轴。
+                #   本维余下的槽是**回答详尽度 + 反应延迟**,都发生在**作答过程**中
+                #   ⟹ 名字改成纯观测式的「作答过程特征」,不再主张任何构念。
+                "name": "作答过程特征",
+                "description": "观测作答过程中的回答详尽度与反应延迟的可测量。",
+                "algorithm": "回答长度与响应延迟统计",
                 "indicators": [
-                    ("au7_freq", 0.3, False, "眼部挤压 (费力)", "core"),
-                    ("blink_rate", 0.2, True, "眨眼频率", "support"),
-                    # 关键词 = **语音日志的列名**(2026-09-26 接线:那个列是新加的,
-                    # 在此之前这个槽全系统没有产出方,报告只能写"尚无产出方")。
+                    # ★ 2026-10-03 **删掉两个槽**:`au7_freq`(原 w=0.3,「眼部挤压」)
+                    #   与 `blink_rate`(原 w=0.2,「眨眼频率」)—— 两条指向的源列都已被
+                    #   标记 **M3.2 删列**(分别是 `micro_exp_au_name` / `blink_rate_per_min`),
+                    #   这是守卫 `test_no_slot_points_at_a_column_marked_for_deletion`
+                    #   **补洞之后**抓出来的(此前它按「关键词 == 列名」等值比对,而
+                    #   `blink_rate ≠ blink_rate_per_min` ⟹ 假报干净)。
+                    #   · `au7_freq` 的取数键是 `face_micro_exp_micro_exp_au_name_au7_freq`
+                    #     (`micro_exp_au_name` 字符串列的 one-hot)。该列 **51 场 22277 行
+                    #     只有 6 行有值**(场 `20260929_205448_8b75`),取值只有 `au4_frown` /
+                    #     `au7_eye_squeeze` ⟹ **`au7_freq` 这个标签从没出现过**;
+                    #     而它原本要量的 AU7 强度列 `au7_eye_squeeze` 又逐帧 ≡ `1 − avg_ear`
+                    #     (四场实测 `max|diff| = 1.1e-16`)⟹ 两条路都断。
+                    #     f98d 上实测 `_fuzzy_match("au7_freq", …) == (None, None)` ——
+                    #     **它根本不走 `au7_eye_squeeze`**。
+                    #   · `blink_rate` 走 `face_blink_rate_per_min_mean` ⟹ 源列
+                    #     `blink_rate_per_min`。机制是**采样率**,不是单位:
+                    #     帧间隔实测中位 1.000~1.002 s,而眨眼时长 100~400 ms
+                    #     ⟹ 漏检是结构性的;实测 duty 4.4%~14.2%,`is_blink` 连续段里
+                    #     出现 14/18/19/21/28 帧(≈14~28 秒)的长段 = 误检。
+                    #   两槽**都从不进门** ⟹ 删掉不改变任何分数(维度分只按「过门槽」归一)。
+                    #   补齐了的守卫判据与"为什么不是改指别的测量"见 `docs/下一步.md`「丙、17」。
+                    #
+                    # 余下两个槽 ×2(原 0.2/0.3);按原比例缩放,理由同上。
+                    #
+                    # 关键词 = **语音日志的列名**(2026-09-26 接线:那两个列是新加的,
+                    # 在此之前这两个槽全系统没有产出方,报告只能写"尚无产出方")。
                     # 名字必须与 `voice_interaction/utils/logger.py` 的列逐字一致 ——
                     # 上游产出名与下游消费名对不上就是静默的空值(§4.10)。
-                    ("n_chars", 0.2, True, "回答详尽度", "support"),
-                    ("reaction_time", 0.3, False, "反应延迟", "core"),
+                    ("n_chars", 0.4, True, "回答详尽度", "support"),
+                    ("reaction_time", 0.6, False, "反应延迟", "core"),
                 ]
             }
         }
 
-        self.dimension_weights = {
-            "logical_thinking": 0.25,
-            "stress_resilience": 0.25,
-            "communication_fluency": 0.20,
-            "confidence_level": 0.15,
-            "cognitive_efficiency": 0.15
-        }
+        # ⚠️ **这里曾有 `self.dimension_weights`(2026-10-04 摘除)**。
+        # 它的**唯一**用途就是把五个维度分加权成 `total_score`;那个复合分连同逐维度
+        # 点分/档位一起摘掉了(理由见 `map_features_to_scores` 返回处那段注释)。
+        # 摘掉而不留"仅供说明"的副本,是因为**留着就会被汇总** —— 一份看着像权重的数据
+        # 放在那里,下一个人重新加总它只是时间问题。
+        #
+        # 各维度**内部**的槽权重仍然保留(在 `mapping_rules[...]["indicators"]` 里)——
+        # 那个权重是**维度内**的池化,与"跨维度加权成一个人的总分"是两件事。
 
     def map_features_to_scores(self, features: Dict[str, Any]) -> Dict[str, Any]:
         print("\n⚖️ 正在执行行为指标映射...")
@@ -247,11 +344,7 @@ class ResearchCapabilityMapper:
 
         for dim_key, rule_config in self.mapping_rules.items():
             indicators = rule_config["indicators"]
-            weighted_sum = 0.0
-            total_weight = 0.0
             evidence_chain = []
-            positive_factors = []
-            negative_factors = []
             inference_data = {}
             # 这两个必须声明在维度循环内 —— 声明在方法级会让 5 个维度共用一个列表,
             # 证据缺口串味(Ruling 2)。
@@ -278,10 +371,17 @@ class ResearchCapabilityMapper:
                         dim_gaps.append(f"{human_name}: 未采集到对应数据")
                     continue
 
-                # 伴随的 _std 用于 G2(常量判定);模态行数用于 G3(样本量)。
-                # 取法两种都试:真实数据的列形如 `<基名>_mean` + `<基名>_std`,而有些
-                # 键(如 face_eye_contact_ratio)没有 _mean 后缀 —— 只查前者会让
-                # 这些键**静默**拿不到标准差:G2 退回 fail-open,区间也失去变异信息。
+                # 伴随的 _std 用于 G2(常量判定)与"本场观测区间";模态行数用于 G3。
+                # 取法**三种**(第三种 2026-10-04 补):
+                #   ① `<基名>_mean` 的兄弟 `<基名>_std>` —— 常态;
+                #   ② `<键>_std` —— 给没有 `_mean` 后缀的键(如 `face_eye_contact_ratio`);
+                #   ③ **本键自己就是离散度**(`found_key` 以 `_std` 结尾,实例
+                #      `face_gaze_direction_x_std`「视线稳定性」)⟹ 它**没有**"伴随的 std",
+                #      而 G2 问的恰恰是"底层序列有没有变化",对这个键那个答案**就是它的值**
+                #      (`std == 0` ⟺ 序列恒定)。
+                #      ⟹ **G2 拿它的值当判据,但区间不能拿**(`val ± 2·val` 是个没意义的区间)
+                #      ⟹ 区间仍留空(如实)。修前它是**静默 fail-open**:全语料 278 个过门槽里
+                #      **29 个**都落在这一条上,而报告里看不出这 29 次 G2 没执行。
                 std = None
                 for std_key in (
                     (found_key[:-len("_mean")] + "_std") if found_key.endswith("_mean") else None,
@@ -290,6 +390,9 @@ class ResearchCapabilityMapper:
                     if std_key and std_key in all_features:
                         std = all_features[std_key]
                         break
+                # G2 的输入与"区间用的 std"是**两个东西**:前者可以在键自身是离散度时
+                # 退而用它的值,后者不行。
+                g2_std = std if std is not None else (found_val if found_key.endswith("_std") else None)
                 modality = next((m for m in n_rows_by_modality if found_key.startswith(m + "_")), None)
                 # 样本量优先取**该指标自己**的 `<基名>_sample_size`(特征引擎按 dropna
                 # 后真正带值的行数产出),取不到才退回模态行数 —— 理由见
@@ -298,7 +401,7 @@ class ResearchCapabilityMapper:
                 if n_valid is None:
                     n_valid = int(n_rows_by_modality.get(modality, 0))
 
-                chk = gate(found_key, found_val, n_valid=n_valid, std=std)
+                chk = gate(found_key, found_val, n_valid=n_valid, std=g2_std)
                 if not chk.ok:
                     # ⚠️ 只准用 user_message。chk.reason 含维护者文案(封停理由等),
                     # 而 dim_gaps 会被渲染进报告的"证据缺口"一节 —— 直接用会外泄内部信息。
@@ -314,60 +417,40 @@ class ResearchCapabilityMapper:
             # 本维缺口并入顶层
             all_evidence_gaps.extend(dim_gaps)
 
-            # 4. 计算 —— 只有过门的指标参与加权
+            # 4. 逐槽组装证据 —— **不再有"折算/加权/贡献"这一步**(2026-10-04 摘除)。
+            #
+            # 这里原来是:`_dynamic_normalize(原始值)` → `final_val`(0–1)→ × 槽权重 →
+            # `contribution` → 维内加权和 → 维度 `score` → `total_score`。
+            # 整条链的**唯一终点**就是那个复合分,所以它们一起摘了(理由见返回处那段注释)。
+            # `normalized_score` / `contribution` / `status`(强支撑/弱支撑/中性)/
+            # `direction` / `weight` / `positive_factors` / `negative_factors` 全部随之删除 ——
+            # 注意 `status` 与那两个 factors 是**在未标定标尺上贴的判定标签**,与档位同一类物种。
+            # ⚠️ 摘它们**不是**因为"算错了":是那个标尺没有标定样本能给背书(§5.5)。
+            #
+            # `_dynamic_normalize` 与 `evidence_thresholds.json` 的 `scale_factors` 登记表
+            # **当晚也一并删掉了** —— 它们唯一的作用就是喂这条链,留着就是一把
+            # **没有消费方、又本就没有依据**的尺子(理由见 `evidence_gate` 里那段注释)。
+            # ⟹ 「乙、7 标定债」随之**作废**(没有分数就不需要标尺)。
             for keyword, weight, is_positive, human_name, matched_val, matched_key, std, n_valid in matched:
-                normalized_val = self._dynamic_normalize(matched_val, keyword)
-
-                if is_positive:
-                    final_val = normalized_val
-                else:
-                    final_val = 1.0 - normalized_val
-
-                final_val = max(0.0, min(1.0, final_val))
-                contribution = final_val * weight
-
-                # 调试输出
-                if keyword in ['tension_score', 'jitter', 'gaze_stability']:
-                    print(
-                        f"         🧮 {human_name}: 原始={matched_val:.2f}, 因子={final_val:.2f}, 贡献=+{contribution:.3f}")
-
-                weighted_sum += contribution
-                total_weight += weight
-
-                status = "✅ 强支撑" if final_val > 0.7 else "⚠️ 弱支撑" if final_val < 0.4 else "➖ 中性"
-
-                # 只留原始值供调试;百分位已随杜撰基线一并删除(spec §5.5:
+                # 只留原始值供审查;百分位已随杜撰基线一并删除(spec §5.5:
                 # 没有真实常模就不输出百分位)
                 inference_data[keyword] = {"val": matched_val}
 
-                evidence_item = {
+                evidence_chain.append({
                     "feature": matched_key,
                     "human_name": human_name,
                     "raw_value": round(matched_val, 4),
-                    "normalized_score": round(final_val, 2),
-                    "contribution": round(contribution, 3),
-                    "status": status,
-                    "direction": "正向" if is_positive else "反向",
-                    "weight": weight,
                     # spec §5.4 的「值 + 有效样本量 + 置信度 + evidence_gaps」需要样本量;
                     # 区间只由本场会话自己的测量构成(spec §5.5/§5.6)。
                     "n_valid": n_valid,
                     "std": _as_float(std),
                     "observed_interval": _observed_interval(matched_val, std),
-                }
-                evidence_chain.append(evidence_item)
+                })
 
-                if final_val > 0.65:
-                    positive_factors.append(human_name)
-                elif final_val < 0.35:
-                    negative_factors.append(human_name)
-
-            # 5. 无任何指标过门 → 不出分,只出缺口(spec §5.1 硬规则)
+            # 5. 无任何指标过门 → 不出缺口之外的东西(spec §5.1 硬规则)
             if not matched:
                 dimension_results[dim_key] = {
                     "display_name": rule_config["name"],
-                    "score": None,
-                    "level": "证据不足",
                     "evidence_chain": [],
                     "evidence_gaps": dim_gaps,
                     "confidence": "无",
@@ -377,21 +460,23 @@ class ResearchCapabilityMapper:
                 continue
 
             confidence = confidence_from(len(matched), len(indicators))
-            score = round(max(0.0, min(100.0, weighted_sum / total_weight * 100)), 2)
-            level = self._get_level(score)
 
             # 说明:此处曾产出 narrative / simple_narrative(模板填空式评语),
             # 已随 `_generate_deep_inference` 一并删除(spec §5.4:不解读、不推断)。
             # 报告层改为直接渲染证据状态,不再有可填空的句子。
+            #
+            # ⚠️ **这里曾产出 `score` 与 `level`(2026-10-04 摘除)**。理由不是"它们算错了",
+            # 而是"它们是错的一类东西":一个维度分是**未标定标尺上的复合点分**,
+            # 档位是对人的评语 —— 而本仓要宣称的是「结构化行为记录 + 低置信度特质提示」。
+            # 它们**一个字都不渲染**(见 `report_generator` 与前端 `ReportViewer` 的引用),
+            # 却随时可能被下一个渲染者接上,所以从 payload 里摘掉。
+            # 逐维度的呈现改用 `matched_indicators`(过门 N/M)+ `confidence` +
+            # `evidence_chain`(原始值 / 区间 / 样本量)+ `evidence_gaps`。
             dimension_results[dim_key] = {
                 "display_name": rule_config["name"],
                 "description": rule_config["description"],
                 "algorithm": rule_config["algorithm"],
-                "score": score,
-                "level": level,
                 "evidence_chain": evidence_chain,
-                "positive_factors": positive_factors,
-                "negative_factors": negative_factors,
                 "evidence_gaps": dim_gaps,
                 "confidence": confidence,
                 "matched_indicators": f"{len(matched)}/{len(indicators)}",
@@ -402,30 +487,27 @@ class ResearchCapabilityMapper:
             print(f"   ✅ [{rule_config['name']}] 过门指标 {len(matched)}/{len(indicators)}，"
                   f"置信度：{confidence}")
 
-        # 总分 —— 只在有维度过门时产出;一个都没有时 total_score 为 None(spec §6.1)
-        valid = [d for d in dimension_results.values() if d["score"] is not None]
-        if not valid:
-            final_total = None
-        else:
-            num = sum(d["score"] * self.dimension_weights[k]
-                      for k, d in dimension_results.items() if d["score"] is not None)
-            den = sum(self.dimension_weights[k]
-                      for k, d in dimension_results.items() if d["score"] is not None)
-            final_total = round(num / den, 2)
-
+        # ⚠️ **这里曾算出 `total_score` / `total_level`(2026-10-04 摘除,连同
+        # `dimension_weights`)。** 不是说那个聚合"算错了" —— 是**它不该存在**:
+        #   · 本仓没有标定样本(§5.5 禁一切人群参照区间;M5 被许可 + 伦理审查卡死)
+        #     ⟹ 权重是**声明的**,那个 0–100 是未标定标尺上的数;
+        #   · 它的**分母不是常数**:实测 53 场里"有分的维度数"是 0/2/3/5 四种
+        #     ⟹ 它一直在拿**不同维度子集**互相比较;
+        #   · 它是**对人的复合判定**,而本仓要宣称的是「结构化行为记录 +
+        #     低置信度特质提示」(spec §5.4 :157-158 / §5.6 就是这个意思)。
+        # 实测过的现形:场 `9b2b` 剔掉一个**假过门**之后,`stress_resilience`
+        # 反而 59.35 → 94.68 —— 每次诚实性修复都可能把复合分推高,然后被人读成结论。
+        #
+        # 呈现层**唯一**的来源是 `coverage`:过门槽 + 原始值 + 本场观测区间 +
+        # 有效样本量 + 置信度上限(见 `_coverage`)。
         coverage = self._coverage(dimension_results)
 
         return {
-            "total_score": final_total,
-            "total_level": self._get_level(final_total) if final_total is not None else "证据不足",
             "dimensions": dimension_results,
-            # ⚠️ total_score / total_level 只为 API 稳定保留:它们是**未标定标尺**上的
-            # 复合点分与五档评语,报告层一个字都不渲染(spec §5.4 :157-158 / §5.6)。
-            # 聚合呈现改用 coverage(覆盖事实 + 逐指标实测区间 + 置信度上限)。
             "coverage": coverage,
             "summary_narrative": NO_COMPOSITE_STATEMENT,
             "evidence_gaps": all_evidence_gaps,
-            "model_metadata": {"version": "JingXin-Mapper-v11-EvidenceGate",
+            "model_metadata": {"version": "JingXin-Mapper-v12-NoComposite",
                                "timestamp": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")}
         }
 
@@ -464,25 +546,8 @@ class ResearchCapabilityMapper:
             "passed_slots": passed_slots,
         }
 
-    def _dynamic_normalize(self, val: float, keyword: str) -> float:
-        """按登记表把原始值折到 0–1(spec §5.1)。
-
-        实现全部搬进 `evidence_gate.normalize_value` —— 满量程、分箱边界一律读
-        `evidence_thresholds.json`;本方法保留只为既有调用点稳定,体内不得再出现裸常量。
-        """
-        return normalize_value(val, keyword)
-
-    def _get_level(self, score: float) -> str:
-        if score >= 90:
-            return "卓越"
-        elif score >= 80:
-            return "优秀"
-        elif score >= 70:
-            return "良好"
-        elif score >= 60:
-            return "合格"
-        else:
-            return "待提升"
+    # ⚠️ 2026-10-04 **删掉 `_dynamic_normalize`**(它只是 `evidence_gate.normalize_value`
+    #    的转发)。折算层整体已删,理由见 `evidence_gate` 里那段注释。
 
     def _fuzzy_match(self, keyword: str, all_features: Dict[str, Any]):
         """按关键词在扁平化特征里找第一个数值指标。

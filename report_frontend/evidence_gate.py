@@ -75,10 +75,53 @@ class Quarantine:
 #      生产方修好不等于这个量能进分 —— 见下面那条理由。
 QUARANTINE: dict[str, Quarantine] = {
     # ---- 等 M3 ----
-    "focus_score": Quarantine("3 个硬编码取值 {0.3,0.5,0.8},2b11 会话内恒 0.3", "M3"),
+    # ★ 2026-10-03 把 `focus_score` 的理由**改准**。原写「3 个硬编码取值 {0.3,0.5,0.8},
+    #   2b11 会话内恒 0.3」—— 现象对,但**归因太浅**:读的人会以为只是"分箱粗"或
+    #   "那一场碰巧",于是去调阈值,而那正是本仓禁止的"拿分布凑参数"。
+    #   实测四场高质量素材(f98d/2e84/8102/5b10):
+    #     · 它可被 (`head_yaw`, `blink_rate_per_min`) **100% 精确重构** ⟹ **零额外信息**,
+    #       是 `head_yaw` 的 3 值分箱,不是一次测量;
+    #     · **99% 恒 0.3**(f98d 314/314、5b10 343/343、2e84 962/971、8102 6597/6619);
+    #     · 根因:`head_yaw` 有 **~+0.35 的常量偏移**(四场中位 +0.287~+0.371),而分箱
+    #       阈值是 0.03/0.08 ⟹ **永远**落进"偏头"那档,0.8 那档**结构性不可达**;
+    #     · 更深一层:`head_yaw` 自己的登记写着「**本列不实现、不近似**」(真 3D 头姿
+    #       需相机内参,而"本项目没有任何内参来源")⟹ 这条**不该靠调阈值救**
+    #       (那是拟合分布),也不该靠 2D 近似救(登记明令禁止)。
+    "focus_score": Quarantine(
+        "`head_yaw` 的 3 值分箱(0.3/0.5/0.8),不是测量 —— 实测四场可被 "
+        "(`head_yaw`, `blink_rate_per_min`) 100% 精确重构(零额外信息),且 99% 恒 0.3:"
+        "`head_yaw` 有 ~+0.35 常量偏移而阈值是 0.03/0.08,0.8 那档结构性不可达。"
+        "而 `head_yaw` 自身登记为「不实现、不近似」(需相机内参,本项目没有)",
+        "等 `head_yaw` 有真 3D 头姿(需相机内参)后改用连续 yaw;"
+        "或按兄弟条目 `tension_score`/`tension_level` 一并删列(M3.2)"),
+    # ★ 2026-10-03 把 `tension_score` 的理由**补实**。原写「伪合成:硬编码权重
+    #   (.25/.25/.2/.15/.15)与硬编码情绪加成;5 个分量里 eye_closure 近乎恒 0」——
+    #   方向对,但没给**可核的数**,也没说清它为什么**在 L1 层修不了**(读的人会去调权重)。
+    #   实测四场高质量素材(f98d/2e84/8102/5b10):
+    #     · `tension_engine.py` 共 **10 个无依据参数**:权重 .25/.25/.2/.15/.15、
+    #       放大系数 ×1.3/×1.3/×1.5/×0.8、`eye_closed_sec / 2.0` 的那个 2 秒、
+    #       `emotional_boost × 0.4`,以及**无 temporal_stats 时的硬编码默认
+    #       `expression_instability = 0.3`** ⟹ **全零输入也拿 0.045,不是 0**(有地板);
+    #     · **`eye_closure` 是死权重**:它占 **0.2**,而 `eye_closed_sec` 在真实数据里
+    #       **97%~99.7% 的帧为 0**(f98d 9/314、2e84 109/971、8102 751/6619、5b10 19/343),
+    #       因为它的判定门 `avg_ear < 0.18` 几乎不触发(该列本身也在封停中)
+    #       ⟹ `eye_closed_sec = 0` 时可达上限只有 **0.8**,那 0.2 结构性用不上;
+    #     · **约 72% 的量来自没落盘的派生状态**:已落盘输入(au4/au23/eye_closed_sec)
+    #       只解释中位 **0.117**,而 tension 中位 0.40~0.55、残差中位 **+0.27~+0.43**
+    #       —— 那部分来自**滚动窗口** `*_volatility`(CSV 里根本没有 volatility 列)。
+    #       重跑管线能逐格复现它,但**读 CSV 的人看不出这个数是怎么来的**。
+    #     ⟹ **不可修**:权重没有物理或几何依据,要落地只能靠标定集,而 M5 的两个前置
+    #       (许可禁止在 RecruitView 分布上拟合、自评量表要过伦理审查)都卡着
+    #       ⟹ 按登记计划 **M3.2 删列**。
+    #     ⚠️ 别为了让档位"有变化"去调 0.3/0.6 或那几个权重 —— 那是拿分布凑参数。
     "tension_score": Quarantine(
-        "伪合成:硬编码权重(.25/.25/.2/.15/.15)与硬编码情绪加成;5 个分量里 "
-        "eye_closure 近乎恒 0(eye_closed_sec 恒 0,2b11/1592 std=0)", "M3"),
+        "无依据的手工加权合成:`tension_engine.py` 里 **10 个参数全无出处**"
+        "(权重 .25/.25/.2/.15/.15、放大 ×1.3/×1.5/×0.8、`eye_closed_sec/2.0`、×0.4、"
+        "以及无 temporal_stats 时的硬编码默认 `expression_instability=0.3`);"
+        "其中 **`eye_closure` 占 0.2 却是死权重**(`eye_closed_sec` 真实数据里 97%~99.7% 为 0,"
+        "`eye_closed_sec=0` 时可达上限只有 0.8);且 **~72% 的量来自没落盘的滚动窗口 "
+        "`*_volatility`**(已落盘输入只解释中位 0.117,残差中位 +0.27~+0.43)",
+        "权重没有物理依据,只能靠标定集 ⟹ 按登记计划 **M3.2 删列**"),
     "tension_level": Quarantine("字符串分箱", "M3"),
     "tension_sources_": Quarantine("au4/au23 副本或恒定量", "M3"),
     "gaze_direction_y": Quarantine("恒负,解剖常量", "M3"),
@@ -109,13 +152,33 @@ QUARANTINE: dict[str, Quarantine] = {
     #   2026-09-27 对账后 `au4_freq`(解封)与 `fluency_score`(改挂 NO_PRODUCER)
     #   退出本组,余 6 条。
     "gaze_stability": Quarantine("由被封停的 gaze_deviation 派生", "M3 修 gaze_direction_x"),
-    "au7_freq": Quarantine("au7 + avg_ear 恒等 1.0,与 au4 互补", "M3"),
+    # ★ 2026-10-03 **更正理由(原话写错了取数路径)**。原理由:「au7 + avg_ear 恒等 1.0,
+    #   与 au4 互补」,unblock「M3」。那句话描述的是**源列** `au7_eye_squeeze` 的退化 ——
+    #   实测它确实成立(四场逐帧 `au7_eye_squeeze ≡ 1 − avg_ear`,max|diff| = 1.1e-16),
+    #   但**不是这个槽的取数路径**:槽的键是 `face_micro_exp_micro_exp_au_name_au7_freq`
+    #   (`micro_exp_au_name` 字符串列的 one-hot)。f98d 上实测
+    #   `_fuzzy_match("au7_freq", …) == (None, None)` —— 它**根本不走** `au7_eye_squeeze`。
+    #   于是"等 M3"是句空话:该 one-hot 键在**全仓 0 产出**。真实现状是源列
+    #   `micro_exp_au_name` **51 场 22277 行只有 6 行有值**(场 `20260929_205448_8b75`),
+    #   取值只有 `au4_frown` / `au7_eye_squeeze` ⟹ **`au7_freq` 这个标签从没出现过**;
+    #   而它原本要量的 AU7 强度那条路又断在退化上(见上)。两条源列都标着 M3.2 删列。
+    #   槽已于 2026-10-03 删除(它从不进门 ⟹ 删掉不改任何分数)。
+    "au7_freq": Quarantine(
+        "全仓 0 产出:取数键来自 `micro_exp_au_name` 的 one-hot,而该列 51 场 22277 行"
+        "只有 6 行有值,取值只有 au4_frown / au7_eye_squeeze ——「au7_freq」这个标签"
+        "从没出现过;另一条路(AU7 强度列)逐帧 ≡ 1 − avg_ear(四场 max|diff|=1.1e-16)"
+        "⟹ 零额外信息。两条源列都已标 M3.2 删列",
+        "需要一个真会产出这个标签的来源 —— 现无;若将来 AU7 有独立产出方,连同槽一起重新登记"),
     "speech_ratio": Quarantine("自指阈值,87.9% 恰为 1.0", "M3 真 VAD"),
-    "eye_contact": Quarantine(
-        "**消费方**未随生产方改:iris 四列已改为眼内相对坐标,而 "
-        "feature_engine 的 eye_contact 口径仍是「到画面中心 (0.5,0.5) 的距离」"
-        "⟹ 实测 face_eye_contact_ratio 恒 0.0(三场),且无 _std 伴随列 "
-        "(G2 在此退回 fail-open,挡不住)", "M3 改 feature_engine 的 eye_contact 口径"),
+    # ✅ 2026-10-03 **解封 `eye_contact`**(本组余 5 条)。它自己写的 unblock
+    #    (「M3 改 feature_engine 的 eye_contact 口径」)已达成,而且这次是
+    #    **连消费方一起验过**的 —— 当年栽的正是"只核了生产方那一半":
+    #      · 消费方改用它真正的原点 **0**(iris 四列是**眼内相对坐标**,不是图像坐标);
+    #      · 只取水平分量(x 静息位 ≈ 0;y 静息位 −0.15~−0.20 是解剖偏移,无可标定零点);
+    #      · 剔除虹膜跑出睑裂的坏帧(物理量程 (1−D/W)/2 ≈ 0.305);
+    #      · 补上 G2 要的 `_std` 与 G3 要的 `_sample_size` —— 当年封停理由点名过
+    #        「无 `_std` 伴随列,G2 在此退回 fail-open」,那个洞现在堵上了。
+    #    逐条证据(四场高质量素材实测)见 `tests/test_report_layer.py` 的 `_RELEASED`。
     # 永久封停:unblock 是给人看的显示文本,逻辑判断一律用 permanent 字段。
     # 不要用 unblock == "永不" 反推 —— 字符串是显示层,不是逻辑层。
     # ★ 这两条此前写成 `upper_body_head_tilt` / `shoulder_is_calibrated` —— 那是
@@ -134,10 +197,27 @@ QUARANTINE: dict[str, Quarantine] = {
     "micro_exp_onset_frame": Quarantine("环形缓冲下标,恒在 5~13", "永不", permanent=True),
     "fluency_proxy": Quarantine("与 fluency_score 同自由度,数了两遍", "永不", permanent=True),
     # ---- 等对应里程碑 ----
+    # ★ 2026-10-03 **更正理由与 unblock(原话把病因写成了单位)**。
+    #   原理由说「60 秒滚动窗,量的不是 per-sec 眨眼率 … 改成按真实帧间隔算的 per-sec 率」。
+    #   实测已不是这样:`_update_blink_state` 现在**就是**按真实 `timestamp` 算的
+    #   60 秒窗(`video_pipeline.py`,`test_video_pipeline_timebase.py` 钉着)——
+    #   60 秒窗内的次数**本来就是** per-minute 率,换单位治不了。
+    #   真正的病因是**采样率**,而且有两处,方向相反:
+    #     · **漏检**:帧间隔实测中位 1.000~1.002 s(四场),而眨眼时长 100~400 ms
+    #       ⟹ 绝大多数眨眼根本没被采到;
+    #     · **计错单位**:0.3 s 去抖在 1 fps 下**恒不触发**(相邻闭眼帧间隔 ≈1 s > 0.3 s)
+    #       ⟹ 每一次"闭眼帧"都记一次 ⟹ `blink_count` 数的是「最近 60 秒里判定闭眼的
+    #       **帧数**」,上限就是 60 s 内的帧数(实测 max **57**)。
+    #   另有**误检**:实测 duty 4.4%~14.2%(人眼真实闭眼占比约 5% 量级),
+    #   `is_blink` 连续段里出现 14/18/19/21/28 帧(≈14~28 秒)的长段。
+    #   槽已于 2026-10-03 删除;源列 `blink_rate_per_min` 另已标 M3.2 删列。
     "blink_rate": Quarantine(
-        "60 秒滚动窗,量的不是 per-sec 眨眼率:三场帧间隔 1.06–1.07 s,"
-        "is_blink 只命中 1/271·3/477·11/479 帧 ⟹ 计数由采样格决定,不是被试的眨眼频率",
-        "随列处置(删列)或改成按真实帧间隔算的 per-sec 率"),
+        "病因是**采样率**不是单位:帧间隔实测中位 1.000~1.002 s(四场)而眨眼时长 "
+        "100~400 ms ⟹ 漏检结构性;0.3 s 去抖在 1 fps 下恒不触发 ⟹ 计的是"
+        "「最近 60 秒里判定闭眼的**帧数**」(上限=60 s 内帧数,实测 max 57)而不是眨眼次数。"
+        "另有误检:实测 duty 4.4%~14.2%,is_blink 连续段出现 14/18/19/21/28 帧(≈14~28 秒)的长段",
+        "提高面部采集率(现约 1 fps)—— 那是采集侧决策,换单位/改列名都治不了;"
+        "源列 blink_rate_per_min 另已标 M3.2 删列"),
     "eye_closed_sec": Quarantine(
         "与 is_blink 冗余:判定门 avg_ear < 0.18,而 avg_ear 均值 0.42 ⟹ "
         "2b11/1592 整个会话恒 0、caf0 只有 3 个取值", "随列处置(删列)或并入眨眼时长"),
@@ -145,40 +225,48 @@ QUARANTINE: dict[str, Quarantine] = {
         "自指能量门限:停顿 = 连续 rms ≤ mean(rms)×0.3 的帧段,门限值无出处 "
         "⟹ 只能来自标定集(M3.1 已裁定跳过)。尾部收尾已由 M3.0 补上",
         "标定集给出能量门限后登记进 evidence_thresholds.json"),
-    "energy_mean": Quarantine("设备增益/距离代理,跨会话不可比", "M3 会话内归一"),
-    "energy_level": Quarantine("同上", "M3 会话内归一"),
+    # ★ 2026-10-04 **更正 energy 那两条的 unblock(原话把自己承诺死了)**。
+    #   原理由「设备增益/距离代理,跨会话不可比」是对的;但 unblock 写的「M3 会话内归一」
+    #   **不是一条能兑现的路**,而且它是**两个方向都堵死**的那种(穷尽论证):
+    #
+    #   · 采集链未受控(浏览器的麦克风、AGC、距离、增益都不知道)⟹ 绝对能量水平
+    #     **不是被试的属性**,跨会话不可比 —— 这一半原理由已经说了;
+    #   · 要让跨会话可比,测出来的量就必须对**未知的正增益 g 不变**(把整段音频乘 g,
+    #     读数不能变)。而"对 g 不变"的数学要求是**齐次 0 次** ⟹ 只能用**比值**:
+    #     要么行内比(`(mean−p10)/(p90−p10)`、`std/mean`),要么拿**本场自己**的分布当参照。
+    #     两条都让结果变成「**本场内的相对高低**」,不再是「能量**水平**」;
+    #     而后者正是本槽的 human_name(「语音能量」)所主张的东西。
+    #   ⟹ 「会话内归一」能让数**可比**,代价是它**不再是能量** —— 那是**换构念**,
+    #     不是解封。所以这一条**没有对应里程碑**,不许再挂着「等 M3」当承诺。
+    #   ⚠️ 要真解封只有一条路:**改成受控采集**(固定增益 + 固定距离,或带已知声压级的
+    #     参考源标定)。那是采集协议的事,不在 M3/M4/M5 这条线上。
+    #
+    #   **实测支撑**(2026-10-04,8 场 / 52 行 —— 全语料唯一有语音数据的那些行):
+    #   · 绝对 `energy_mean` 跨会话 **0.0310~0.0710(2.3 倍)**,会话内 CV 0.15~0.56。
+    #     2.3 倍**不足以**证明"增益主导"(那 8 场机位相近),但也**不构成**可比的依据 ——
+    #     采集链没受控,这个倍数只是巧合;
+    #   · 那个"归一"候选 `(mean−p10)/(p90−p10)` 实测 0.214~0.711、均值 0.414、std 0.086
+    #     ⟹ **它不退化**。这一点恰恰是"归一"看起来可行的原因,所以必须说清:
+    #     问题**不在**它有没有变化,而在**它已经不是能量水平了**;
+    #   · 同一批行里 `speech_ratio` **100% 恰为 1.000** —— 自指退化的活标本
+    #     (与全语料 87.9% 一致)。「自指」本身不必然是罪,**自指到退化**才是;
+    #     而 energy 这一条是另一种病:自指之后**构念变了**。
+    "energy_mean": Quarantine(
+        "设备增益/距离代理,跨会话不可比 —— 采集链(麦克风/AGC/距离/增益)**全未受控** "
+        "⟹ 绝对能量水平不是被试的属性",
+        "**没有对应里程碑**。要让跨会话可比就必须对未知增益不变 ⟹ 只能用比值(行内比 "
+        "或拿本场自己当参照)⟹ 量变成「本场内的相对高低」而**不再是能量水平** "
+        "⟹ 那是换构念不是解封。真解封只能靠**受控采集**(固定增益+固定距离,或已知声压级"
+        "参考源),不在 M3/M4/M5 线上"),
+    "energy_level": Quarantine(
+        "与 `energy_mean` **是同一个数**(`feature_engine` 里 "
+        "`{prefix}_energy_level = stats[energy_mean_mean]`,纯改名别名),所以同一条判据、"
+        "同一个病:采集链未受控 ⟹ 水平不可比",
+        "同 `energy_mean`:没有对应里程碑;「会话内归一」不是一条能兑现的路(见该条说明)"),
     "is_valid": Quarantine("恒 1 且下游从未使用", "M3 改真掩码"),
 }
 
 _THRESHOLD_FILE = Path(__file__).resolve().parent / "evidence_thresholds.json"
-
-# 折算因子的依据类别。`legacy_arbitrary` 是**允许的取值** —— 历史遗留的标尺可以存在,
-# 但必须显式声明它没有依据;留空会让"这条有没有依据"变成不可回答的问题(spec §5.1)。
-_ALLOWED_BASIS_KINDS = {"definitional", "physical", "legacy_arbitrary"}
-
-
-def _validate_scale_factors(data: dict) -> None:
-    factors = data.get("scale_factors")
-    if not isinstance(factors, dict) or not factors:
-        raise ValueError(
-            "evidence_thresholds.json 必须带非空的 scale_factors —— "
-            "折算因子不得写成代码里的裸常量(spec §5.1)"
-        )
-    default = data.get("_default_scale_factor")
-    if not isinstance(default, dict):
-        raise ValueError(
-            "evidence_thresholds.json 必须带 _default_scale_factor —— "
-            "未登记族的默认因子同样是临时值(spec §5.1)"
-        )
-    for name, spec in list(factors.items()) + [("<default>", default)]:
-        if not spec.get("basis"):
-            raise ValueError(f"scale_factors[{name}] 未声明 basis(spec §5.1)")
-        if spec.get("basis_kind") not in _ALLOWED_BASIS_KINDS:
-            raise ValueError(
-                f"scale_factors[{name}] 的 basis_kind 非法:{spec.get('basis_kind')!r}"
-                f"(应为 {sorted(_ALLOWED_BASIS_KINDS)} 之一;没有依据就写 legacy_arbitrary)"
-            )
-
 
 def load_thresholds(path: Optional[Path] = None) -> dict:
     with (Path(path) if path is not None else _THRESHOLD_FILE).open(encoding="utf-8") as f:
@@ -193,8 +281,23 @@ def load_thresholds(path: Optional[Path] = None) -> dict:
             "evidence_thresholds.json 必须带 _default_n_valid —— "
             "未登记指标的默认阈值也属于临时值,不得写成代码里的裸常量(spec §5.1)"
         )
-    _validate_scale_factors(data)
     return data
+
+
+def threshold_family_for(key: str) -> Optional[str]:
+    """`key` 落在哪个**阈值族**上(按最长子串);没有族返回 `None`。
+
+    单独抽出来是因为**族名本身**也是审查对象 —— G3 的门槛必须与该族的 `n_valid`
+    **单位**同量纲(`evidence_thresholds.json` 的 `n_valid_units`:frame / answer),
+    而"单位"是按**族**登记的。`_threshold_for` 只回值、回不了族,于是
+    `tests/test_dimension_live_weight.py` 那条守卫没法判断"这个槽拿到的门槛是不是
+    帧级的"。**匹配语义只有这一处实现**(子串 + 最长优先,与 `is_quarantined` /
+    `is_quarantined` 同一套),`_threshold_for` 也走它 —— 不许再抄第二份。
+    """
+    data = load_thresholds()
+    k = key.lower()
+    matched = [name for name in data["thresholds"] if name in k]
+    return max(matched, key=len) if matched else None
 
 
 def _threshold_for(key: str) -> int:
@@ -205,70 +308,28 @@ def _threshold_for(key: str) -> int:
     而不是自己登记的 2。同模块内两套匹配规则是缺陷。
     """
     data = load_thresholds()
-    thresholds = data["thresholds"]
-    k = key.lower()
-    matched = [name for name in thresholds if name in k]
-    if not matched:
+    fam = threshold_family_for(key)
+    if fam is None:
         # 默认值也来自 JSON —— 不得写成裸常量(spec §5.1)
         return int(data["_default_n_valid"])
-    return thresholds[max(matched, key=len)]
+    return data["thresholds"][fam]
 
 
-def scale_factor_for(key: str) -> dict:
-    """按**最长**子串匹配折算因子族(与阈值、封停名单同一套匹配规则)。
-
-    长度相同者按登记顺序取先登记者 —— 只有一个键会撞名:`pause_duration` 同时含
-    `ratio` 与 `pause`(实测 `'ratio' in 'pause_duration'` 为真),legacy 的 if 链里
-    恒等族排在 pause 之前,故它走恒等族,0.5–3.0s 的分箱从未执行。这一归因由
-    `tests/test_report_layer.py::test_pause_duration_is_shadowed_by_the_ratio_family`
-    钉住 —— 想改归因就动登记表顺序,届时测试会红。
-
-    原实现在 `research_mapper._dynamic_normalize` 里用 if/elif 顺序决定族,
-    且因子是裸常量 —— spec §5.1 明禁。现按族登记在 evidence_thresholds.json,
-    本函数只负责取出来;一个数值都不留在代码里。
-    """
-    data = load_thresholds()
-    factors = data["scale_factors"]
-    k = key.lower()
-    matched = [name for name in factors if name in k]
-    if not matched:
-        return data["_default_scale_factor"]
-    return factors[max(matched, key=len)]
-
-
-def normalize_value(val: float, key: str) -> float:
-    """把原始值按**登记的**折算因子折到 0–1。
-
-    本函数体内不得出现任何可调数值(spec §5.1):满量程、上下界、分箱边界全部来自
-    evidence_thresholds.json。这里的 0.0 / 1.0 是 0–1 值域本身的边界,不是标尺参数。
-    """
-    val = float(val)
-    spec = scale_factor_for(key)
-    kind = spec["kind"]
-    if kind == "identity":
-        out = val
-    elif kind == "identity_or_percent":
-        out = val / spec["percent_divisor"] if val > 1 else val
-    elif kind == "full_scale":
-        out = val / spec["full_scale"]
-    elif kind == "pause_bins":
-        if spec["normal_lo"] <= val <= spec["normal_hi"]:
-            out = 0.0
-        elif val < spec["normal_lo"]:
-            out = spec["below_value"]
-        else:
-            out = (val - spec["normal_hi"]) / spec["above_span"]
-    else:
-        raise ValueError(
-            f"未登记的折算类型:{kind!r} —— 代码与 evidence_thresholds.json 不同步"
-        )
-    return min(1.0, max(0.0, out))
+# ⚠️ 2026-10-04 **删掉折算层**(`scale_factor_for` / `normalize_value` / 它们的登记表):
+#    它们唯一的作用是把原始值折到 0–1 去喂**维度分 → 复合分**那条链,而那条链已从
+#    payload 整层摘除(见 `research_mapper` 返回处那段注释)。留着它等于在仓里放一把
+#    **没有消费方、又本就没有依据**的尺子(13 个族里 7 个是 `legacy_arbitrary`)——
+#    与刚摘掉的 `dimension_weights` 是同一种东西:留着就会被重新汇总。
+#    连带的两个结论:① `evidence_thresholds.json` 的 `scale_factors` 族**已删**;
+#    ② 「乙、7 标定债」**作废**(没有分数就不需要标尺)。
+#    ⚠️ 保留的是**阈值层**(`thresholds` / `n_valid_units` / `_default_n_valid`)——
+#    那是 G3 的判据,仍在使用,与折算无关。
 
 
 def is_quarantined(key: str) -> Optional[Quarantine]:
     """按最长子串匹配封停名单;条目可用 `not_substrings` 声明「这些键不算命中本条」。
 
-    匹配**只有一套语义**(子串 + 最长优先,与 `_threshold_for` / `scale_factor_for`
+    匹配**只有一套语义**(子串 + 最长优先,与 `_threshold_for` / `threshold_family_for`
     同一套 —— 同模块内两套匹配规则是本仓已定性的缺陷)。`not_substrings` 是在这套
     语义**之内**的一个排除位,不是第二套规则:被排除的条目从候选里去掉,再取最长的
     那个;候选清空则返回 `None`(放行),不会退化成"随便挑一个"。

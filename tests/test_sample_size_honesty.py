@@ -93,10 +93,14 @@ def test_rows_that_carry_nothing_cannot_clear_the_sample_floor(tmp_path):
 
 
 def test_sample_size_falls_back_to_modality_rows_when_the_indicator_has_none(tmp_path):
-    """没有 `<基名>_sample_size` 的键(如 `face_eye_contact_ratio`)仍要用模态行数。
+    """没有 `<基名>_sample_size` 的键仍要用模态行数。
 
     这是修复的**另一侧**:优先取指标自己的样本量,但不能因此把退回路径弄丢
     —— 退回路径断了的话,那些没有 `_sample_size` 的指标会一律拿到 0、被 G3 无差别拦下。
+
+    ⚠️ 2026-10-03:举例原先写的是 `face_eye_contact_ratio` —— 那个键**现在有了**
+    `face_eye_contact_ratio_sample_size`(eye_contact 解封时补的,G3 要用),已不是本路径的对象。
+    本测试的输入本来就取自 voice,故断言不受影响,只是那个例子过期了。
     """
     feats = {"voice_research": {"connective_density_mean": 3.5,
                                 "connective_density_std": 0.4,

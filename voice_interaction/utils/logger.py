@@ -112,6 +112,76 @@ class VoiceLogger:
                 writer = csv.DictWriter(f, fieldnames=self.fieldnames)
                 writer.writeheader()
 
+    def build_row(
+            self,
+            prosody_data: Dict[str, Any],
+            question_index: int,
+            emotion: str,
+            feedback: str,
+            is_valid: bool = True,
+            connective_density: Optional[float] = None,
+            connective_density_std: Optional[float] = None,
+            n_rows: Optional[int] = None,
+            logged_at: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """把特征字典整形成**契约形状**的一行(31 列,含各自的默认值)。
+
+        为什么单独抽出来(甲-4,2026-10-03):`experiments/replay_retained.py --modality voice`
+        也要写**同一张表**,而它此前是自己拼列名的 —— 于是两处形状会漂,漂的后果是
+        「重放出来的文件喂给报告时,语音系的槽成片掉光」(甲-4 原文)。现在**行的形状
+        只有这一处实现**:重放调用本方法,守卫断言
+        `list(build_row({}, 0, "", "")) == fieldnames`(逐列逐序)。
+
+        ⚠️ `logged_at` **是显式参数,不是内部取 `datetime.now()`** —— 两个调用方的
+        "这一行的时刻"语义不同:活路径写的是**落盘时刻**,而重放手上只有留存记录的
+        **到达时刻**(没有落盘时刻)。混用会让重放出来的 `unix_timestamp` 看起来
+        像是当时的记录时间,所以必须由调用方自己交代。
+        """
+        now = logged_at if logged_at is not None else datetime.now()
+        return {
+            "session_id": self.session_id,
+            "unix_timestamp": now.timestamp(),
+            "timestamp": now.isoformat(),
+            "pitch_mean": prosody_data.get("pitch_mean", 0),
+            "pitch_variation": prosody_data.get("pitch_variation", 0),
+            "pitch_trend": prosody_data.get("pitch_trend", 0),
+            "pitch_direction": prosody_data.get("pitch_direction", "无法判断"),
+            "energy_mean": prosody_data.get("energy_mean", 0),
+            "energy_variation": prosody_data.get("energy_variation", 0),
+            "speech_ratio": prosody_data.get("speech_ratio", 0),
+            "duration_sec": prosody_data.get("duration_sec", 0),
+            "pause_duration_mean": prosody_data.get("pause_duration_mean", 0),
+            "pause_duration_max": prosody_data.get("pause_duration_max", 0),
+            "pause_frequency": prosody_data.get("pause_frequency", 0),
+            "emotion": emotion,
+            "feedback": feedback,
+            "question_index": question_index,
+            "is_valid": is_valid,
+            "connective_density": connective_density,
+            "connective_density_std": connective_density_std,
+            "n_rows": n_rows,
+
+            # 下面这些**不给默认值**:取不到就留空 —— 0 是个合法的字数/秒数,
+            # 补 0 会把"没算出来"写成"算出来是 0"(本项目一路在杀的那个形态)。
+            "n_chars": prosody_data.get("n_chars"),
+            "speech_duration_sec": prosody_data.get("speech_duration_sec"),
+            "chars_per_sec": prosody_data.get("chars_per_sec"),
+            "energy_p10": prosody_data.get("energy_p10"),
+            "energy_p90": prosody_data.get("energy_p90"),
+            "pitch_p10": prosody_data.get("pitch_p10"),
+            "pitch_p90": prosody_data.get("pitch_p90"),
+
+            # 反应延迟那一组同样**不给默认值**:0 秒是个合法的反应时间,
+            # 补 0 会把"算不出来"写成"反应极快"。
+            "speech_onset_sec": prosody_data.get("speech_onset_sec"),
+            "answer_onset_wall": prosody_data.get("answer_onset_wall"),
+            "reaction_time": prosody_data.get("reaction_time"),
+
+            # 概率同样**不给默认值**:0.0 是**全静音时的真值** ⟹ 它不能兼任"缺值"的
+            # 占位 —— 补 0 会把"没算出来"写成"这段没人声",那是两个不同的结论。
+            "voiced_prob_mean": prosody_data.get("voiced_prob_mean"),
+        }
+
     def log_prosody(
             self,
             prosody_data: Dict[str, Any],
@@ -147,50 +217,19 @@ class VoiceLogger:
         抛出之后,端点的 `except Exception → HTTPException(500)` 会把它变成 500。
         """
         try:
-            now = datetime.now()
-            data = {
-                "session_id": self.session_id,
-                "unix_timestamp": now.timestamp(),
-                "timestamp": now.isoformat(),
-                "pitch_mean": prosody_data.get("pitch_mean", 0),
-                "pitch_variation": prosody_data.get("pitch_variation", 0),
-                "pitch_trend": prosody_data.get("pitch_trend", 0),
-                "pitch_direction": prosody_data.get("pitch_direction", "无法判断"),
-                "energy_mean": prosody_data.get("energy_mean", 0),
-                "energy_variation": prosody_data.get("energy_variation", 0),
-                "speech_ratio": prosody_data.get("speech_ratio", 0),
-                "duration_sec": prosody_data.get("duration_sec", 0),
-                "pause_duration_mean": prosody_data.get("pause_duration_mean", 0),
-                "pause_duration_max": prosody_data.get("pause_duration_max", 0),
-                "pause_frequency": prosody_data.get("pause_frequency", 0),
-                "emotion": emotion,
-                "feedback": feedback,
-                "question_index": question_index,
-                "is_valid": is_valid,
-                "connective_density": connective_density,
-                "connective_density_std": connective_density_std,
-                "n_rows": n_rows,
-
-                # 下面这些**不给默认值**:取不到就留空 —— 0 是个合法的字数/秒数,
-                # 补 0 会把"没算出来"写成"算出来是 0"(本项目一路在杀的那个形态)。
-                "n_chars": prosody_data.get("n_chars"),
-                "speech_duration_sec": prosody_data.get("speech_duration_sec"),
-                "chars_per_sec": prosody_data.get("chars_per_sec"),
-                "energy_p10": prosody_data.get("energy_p10"),
-                "energy_p90": prosody_data.get("energy_p90"),
-                "pitch_p10": prosody_data.get("pitch_p10"),
-                "pitch_p90": prosody_data.get("pitch_p90"),
-
-                # 反应延迟那一组同样**不给默认值**:0 秒是个合法的反应时间,
-                # 补 0 会把"算不出来"写成"反应极快"。
-                "speech_onset_sec": prosody_data.get("speech_onset_sec"),
-                "answer_onset_wall": prosody_data.get("answer_onset_wall"),
-                "reaction_time": prosody_data.get("reaction_time"),
-
-                # 概率同样**不给默认值**:0.0 是**全静音时的真值** ⟹ 它不能兼任"缺值"的
-                # 占位 —— 补 0 会把"没算出来"写成"这段没人声",那是两个不同的结论。
-                "voiced_prob_mean": prosody_data.get("voiced_prob_mean")
-            }
+            # ⚠️ 行的形状**只由 `build_row` 决定**(甲-4):重放腿要写同一张表,
+            #    这里若再抄一份 dict,两处就会漂 —— 漂的后果是重放文件喂给报告时
+            #    语音系的槽成片掉光。本处只负责"写",不负责"形状"。
+            data = self.build_row(
+                prosody_data,
+                question_index=question_index,
+                emotion=emotion,
+                feedback=feedback,
+                is_valid=is_valid,
+                connective_density=connective_density,
+                connective_density_std=connective_density_std,
+                n_rows=n_rows,
+            )
 
             # 写入 CSV
             with open(self.csv_file, 'a', newline='', encoding='utf-8') as f:

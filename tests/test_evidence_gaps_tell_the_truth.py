@@ -42,21 +42,37 @@ def _empty_face_feats() -> dict:
 
 
 def test_quarantined_indicator_reports_the_quarantine_not_missing_data():
-    """已封停的指标,缺数据时也必须说「该指标本轮停用」。
+    """已封停的指标,**有数据但被封停**时必须说「该指标本轮停用」。
 
     红在:改成先查封停之前,mapper 是先 `_fuzzy_match`,找不到就写
     「未采集到对应数据」—— 把真正的拦截原因(封停)盖住了。
 
-    ⚠️ 2026-09-27 换过取样槽:原样本是「困惑微表情」(关键词 `au4_freq`),而那条封停
-    于本日**已解封**(原文「从 micro_exp 字符串解析出的垃圾匹配」被实测推翻:该槽的输入列
-    `micro_exp_au_name` 在三场正式素材里 non-null = 0)⟹ 它现在说的是「未采集到对应数据」,
-    而这**正是真话**(微表情确实一帧都没采到),再拿它当"封停被说成缺数据"的样本就反了。
-    改用同一维度里**仍在封停**的「面部专注度」(`focus_score`,理由「3 个硬编码取值
-    {0.3,0.5,0.8}」仍成立)—— 被钉的性质一字未改,只是换了一个仍然成立的样本。
+    ⚠️ **这个测试的"取样槽"已经被换过两轮,第三轮(2026-10-03)改成从表里自己找。**
+    前两轮都是硬编码一个槽名,而槽位表一改就得手动换:
+      ① `au4_freq` —— 于 2026-09-27 **解封**(输入列 `micro_exp_au_name` 三场 non-null=0);
+      ② `focus_score` —— 于 2026-10-03 **整个槽被删**(它指向的列已标记 M3.2 删列)。
+    硬编码第三次失效 ⟹ 这次不再换第四个名字,而是**从表里找"仍然是槽、且仍封停"的那个**;
+    一个都找不到就**直接红**,而不是悄悄退化成空断言(那正是本测试本来要防的形态)。
     """
-    gaps = _gaps("logical_thinking", _empty_face_feats())
-    mine = [g for g in gaps if g.startswith("面部专注度")]
-    assert mine, f"该槽不在缺口里,测不到:{gaps}"
+    from report_frontend.evidence_gate import is_quarantined
+
+    mapper = ResearchCapabilityMapper()
+    cands = [(dim, ind) for dim, spec in mapper.mapping_rules.items()
+             for ind in spec["indicators"] if is_quarantined(ind[0])]
+    assert cands, ("表里已经没有任何「是槽且封停」的指标了 —— 本测试的前提消失;"
+                   "那时该**删掉它**,而不是让它变成一条空断言")
+    dim, ind = cands[0]
+    keyword, _w, _pos, human_name, _imp = ind
+
+    # 喂一个**能匹配上这个关键词**的特征,拼法用映射自己的约定(`face_<关键词>_mean`)
+    # ⟹ 它走的是"有值 → 过 G1/G2/G3 → 被 G4 拦"那条路,而不是"找不到键"那条。
+    #   两条路都该说「本轮停用」,但只有这一条会暴露"G4 被绕过"。
+    feats = {"face": {f"face_{keyword}_mean": 1.0,
+                      f"face_{keyword}_std": 0.01,
+                      "_n_rows": 100.0}}
+    gaps = mapper.map_features_to_scores(feats)["dimensions"][dim]["evidence_gaps"]
+    mine = [g for g in gaps if g.startswith(human_name)]
+    assert mine, f"槽「{human_name}」({dim}.{keyword}) 不在缺口里,测不到:{gaps}"
     assert "该指标本轮停用" in mine[0], f"封停被说成了别的原因:{mine[0]}"
     assert "未采集到对应数据" not in mine[0], f"仍是那句假话:{mine[0]}"
 
@@ -130,14 +146,20 @@ def test_answer_length_slot_is_reachable_now():
     assert ev["raw_value"] == 24.0 and ev["n_valid"] == 12
 
 
-def test_length_scale_entry_follows_the_column_name():
-    """量程表的键必须跟着列名走 —— 否则 30 字满量程那条登记**静默失效**、回落到默认 10。
+def test_length_threshold_entry_follows_the_column_name():
+    """门槛表的键必须跟着列名走 —— 否则「回答详尽度」那族的门槛登记**静默失效**、回落到默认。
 
-    红法:把 `scale_factors` 里的键改回 `length` ⟹ 下面取到的是 `_default_scale_factor`。
+    ⚠️ 2026-10-04 改挂:原来它查的是**折算因子**表(`scale_factors.n_chars.full_scale`),
+    而那张表已随评分层整层摘除(见「甲、22」)。**"登记表的键必须跟列名走"这条纪律没有变**,
+    只是承载它的表换成了**门槛表**(`thresholds.n_chars`)—— 而门槛是 G3 的判据,仍在使用。
+
+    红法:把 `thresholds` 里的键改回 `length` ⟹ 下面取到的是 `_default_n_valid`(10)。
     """
-    from report_frontend.evidence_gate import scale_factor_for
-    sf = scale_factor_for("voice_interview_n_chars_mean")
-    assert sf["full_scale"] == 30.0, f"没命中原登记,取到的是兜底:{sf}"
+    from report_frontend.evidence_gate import _threshold_for, load_thresholds
+
+    assert _threshold_for("voice_interview_n_chars_mean") == 5, (
+        f"没命中原登记,取到的是兜底:{_threshold_for('voice_interview_n_chars_mean')}")
+    assert load_thresholds()["thresholds"]["n_chars"] == 5, "门槛表里没有 n_chars 族"
 
 
 def _face_df(**extra) -> pd.DataFrame:

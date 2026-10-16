@@ -27,7 +27,9 @@ def test_mapper_indicator_is_renamed_and_matches_new_key():
     assert "连接词密度" in names
     # 权重/方向/重要性不随改名变 —— 元组形状 (keyword, weight, is_positive, human_name, importance)
     renamed = next(ind for ind in rule["indicators"] if ind[0] == "connective_density")
-    assert renamed == ("connective_density", 0.4, True, "连接词密度", "core")
+    # ⚠️ 2026-10-03 权重由 0.4 改为 0.5714285714285714:本维删掉 `focus_score` 槽后,
+    #    余下三个按原比例重归一(0.4/0.7)。名字/方向/重要性**没变**,这正是本条要钉的。
+    assert renamed == ("connective_density", 0.5714285714285714, True, "连接词密度", "core")
 
 
 def test_feature_engine_has_no_second_definition_of_the_metric():
@@ -114,30 +116,17 @@ def test_real_voice_log_column_reaches_the_report():
     assert ev is not None, f"日志列没进证据链:{dim['evidence_gaps']}"
     # 均值 42.5/12 = 3.5417 → 会话内均值;满量程每百字 10 个 → 0.3542 → 四舍五入 0.35
     assert ev["raw_value"] == round(sum(values) / len(values), 4)
-    assert ev["normalized_score"] == 0.35, (
-        f"折算量程不对(旧量程 0.02 会饱和到 1.0):{ev['normalized_score']}"
-    )
+    # ⚠️ 2026-10-04:这里原有一条"折算到 0.35"的断言。折算层随评分层整层摘除
+    #   (见「甲、22」)⟹ 那一句连同它的对象一起删掉。本测试**留下的是主断言**:
+    #   语音日志的列 → 特征引擎 → 证据门 → 报告的证据链,这条链还在。
 
 
-def test_density_scale_matches_the_per_hundred_definition():
-    """量程必须跟着定义走:新定义是**每百字连接词数**(典型 0–10),不是旧的 0–1 比率。
-
-    红在:改名前 density 族登记的是 `full_scale: 0.02`(旧公式「命中数÷字符数」的量程),
-    于是 5.0(每百字 5 个)会被当成 0.02 满量程而**饱和**到 1.0,取不到 0.5;
-    旧量程下这个指标任何真实取值都恒等于 1.0,等于没有量尺。
-    """
-    from report_frontend.evidence_gate import scale_factor_for
-
-    spec = scale_factor_for("connective_density_mean")
-    assert spec["kind"] == "full_scale", f"density 族不再是满量程型:{spec['kind']}"
-    assert spec["full_scale"] == 10.0, (
-        f"density 满量程未随定义更新:{spec['full_scale']}(旧公式的量程是 0.02)"
-    )
-
-    mapper = ResearchCapabilityMapper()
-    assert mapper._dynamic_normalize(5.0, "connective_density_mean") == 0.5, \
-        "每百字 5 个应落在量程中点"
-    assert mapper._dynamic_normalize(10.0, "connective_density_mean") == 1.0
+# ⚠️ 2026-10-04 **已移**除 `test_density_scale_matches_the_per_hundred_definition`:
+#   它守的是 density 族的**折算满量程**(`scale_factors.density.full_scale`),而那张表已随
+#   评分层整层摘除(见「甲、22」)。它记录的那件事——"量程必须跟着定义走,旧 0–1 比率量程会让
+#   每百字密度恒饱和到 1.0"——**随折算层一起失去对象**:现在没有任何地方把原始值折成 0–1。
+#   「density 族有自己的样本量门槛」那条钉子(`test_density_has_its_own_n_valid_threshold`)
+#   **仍然有效并保留**:门槛属于 G3,与折算无关。
 
 
 def test_density_has_its_own_n_valid_threshold():

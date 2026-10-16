@@ -21,6 +21,18 @@ _AU_NUMERIC_RE = re.compile(r'^au\d+_')
 # 这里的每一项都会进特征集,而进特征集的每一个键都可能被证据门看见。
 _FACE_EXTRA_NUMERIC = ('blink',)          # blink_rate_per_min / is_blink
 
+# ── eye_contact 的物理量程(2026-10-03 定)──────────────────────────────
+# 虹膜中心在**睑裂**内能走多远:虹膜是直径 D 的圆,必须整个留在宽 W 的睑裂内
+# ⟹ 中心相对睑裂中点的水平偏移 ≤ (W−D)/2,除以 W 归一化后 = (1 − D/W)/2。
+# 取成人虹膜水平直径 D = 11.7 mm、睑裂宽 W = 30 mm ⟹ ≈ 0.305。
+# 这是**几何必然**(物理下限型),不是拟合值、也不是文献阈值 —— 本仓硬约束允许的
+# 正是这一类(参见 RecruitView 许可对"在数据集分布上拟合的参数"的禁令)。
+# 实测佐证:四场高质量素材越界帧占 0.00%~0.29%(越界的都是 landmark 塌缩的坏值),
+# 而干净场次的最大 |iris_x| ≈ 0.27 < 0.305 ⟹ 量程既没松到放过坏值,也没紧到切掉真信号。
+_IRIS_DIAMETER_MM = 11.7
+_PALPEBRAL_FISSURE_WIDTH_MM = 30.0
+_IRIS_MAX_HORIZONTAL_EXCURSION = (1.0 - _IRIS_DIAMETER_MM / _PALPEBRAL_FISSURE_WIDTH_MM) / 2.0
+
 
 class PsychologicalFeatureEngine:
     """
@@ -158,13 +170,26 @@ class PsychologicalFeatureEngine:
             stats[f"{base_name}_max"] = float(series.max())
             stats[f"{base_name}_sum"] = float(series.sum())
 
+            # ★ **样本量一律产出**(2026-10-04 改)。
+            #
+            # 以前只在"短序列"(< `min_rows_for_trend`)那一支产出它,长序列那一支只出
+            # `_trend` ⟹ 长序列的指标**没有自己的样本量**,而 G3(`evidence_gate`)与
+            # **报告里显示的 `n_valid`** 会退到**模态行数**兜底。那是个**反保守**的兜底:
+            # 模态行数是"落盘了多少行",不是"这个统计量用了几个观测"。
+            #
+            # 实测的活标本(场 `20260927_203322_6d57`):`face_gaze_direction_x_std` 的
+            # 底层列只有 **12/200** 行非空,而报告印的是 **`n_valid=200`** —— 高估 16 倍,
+            # 且那是**显示给人看**的那个数(`coverage.passed_slots[].n_valid`)。
+            #
+            # `series = df[col].dropna()`,所以 `len(series)` **就是**这个统计量真正用上的
+            # 观测数 —— 与 `extract_pitch_features` 那边"f0 上的统计量按浊音帧数算"同一口径。
+            stats[f"{base_name}_sample_size"] = len(series)
+
             if len(series) >= min_rows_for_trend:
                 n = len(series)
                 start_avg = series.iloc[:max(1, n // 10)].mean()
                 end_avg = series.iloc[-max(1, n // 10):].mean()
                 stats[f"{base_name}_trend"] = float(end_avg - start_avg)
-            else:
-                stats[f"{base_name}_sample_size"] = len(series)
         return stats
 
     # ---------------------------------------------------------
@@ -209,39 +234,76 @@ class PsychologicalFeatureEngine:
                     stability_score = 1.0 / (1.0 + dev_series.std())
                     features['face_gaze_stability_mean'] = float(stability_score)
                     features['face_gaze_deviation_mean'] = float(dev_series.mean())
+                    # 样本量(2026-10-04 补,理由见下面「3. Gaze 方向统计」那段):
+                    # 它们是**由 `gaze_deviation` 的非空序列**算出来的 ⟹ 观测数就是它。
+                    features['face_gaze_stability_sample_size'] = int(len(dev_series))
+                    features['face_gaze_deviation_sample_size'] = int(len(dev_series))
 
             # 2. 注视中心度 (Center Fixation) -> Eye Contact
-            center_x, center_y = 0.5, 0.5
-            dist_list = []
+            #
+            # ★★ 2026-10-03 口径修正。这一处曾是「生产方改对了、消费方没跟上」,
+            #    `eye_contact` 槽因此被封停至今(G4 是当时唯一的防线)。★★
+            #
+            # iris 四列是**眼内相对坐标** `(虹膜中心 − 眼中心) ÷ 眼宽`
+            # (生产方 `face_expression/core/feature_extraction/au_calculator.py`),
+            # **原点就是 0**:0 = 虹膜位于睑裂正中 = 正视前方。
+            # 此前这里按"归一化图像坐标"算 `√((x−0.5)²+(y−0.5)²)` ⟹ 正视镜头的人
+            # 距离 ≈ 0.5、`max(0, 1−2×0.5) = 0` ⟹ 实测四场 **99.7%~99.9% 的帧恒为 0**。
+            # 那个 0 不是"这人没有眼神接触",是**公式量错了对象**。
+            #
+            # 只用**水平**分量 `iris_x`:
+            #   · x 的静息位置就是睑裂中点 —— 四场高质量素材实测中位 +0.011~+0.041 ≈ 0;
+            #   · y 的静息位置在 **−0.15~−0.20**(睑裂连线高于瞳孔,属**解剖偏移**),
+            #     垂直方向没有可标定的零点(仪器标定 M3.1 已由使用者裁定跳过)⟹
+            #     放进来的话每场会带一个不同的偏置,比丢掉这个分量更坏。
+            #   ⚠️ **代价如实记:上下看的注视不进入本指标**(`gaze_direction_y` 另在封停中)。
+            #
+            # 剔除**物理上不可能**的帧:`|iris_x| > _IRIS_MAX_HORIZONTAL_EXCURSION` 时
+            # 虹膜已经跑出眼眶,那是**眼宽分母塌缩**(landmark 失败)的产物,不是注视。
+            # 实测高质量素材里只占 0.00%~0.29%,但量级可达 ±3.9 ⟹
+            # **不剔除就会把均值整个拖垮**(这是原实现"恒 0"之外的第二个坑)。
+            valid_x = []
+            for col in ('left_iris_x', 'right_iris_x'):
+                if col not in df.columns:
+                    continue
+                series = pd.to_numeric(df[col], errors='coerce').dropna()
+                for v in series:
+                    if abs(float(v)) <= _IRIS_MAX_HORIZONTAL_EXCURSION:
+                        valid_x.append(abs(float(v)))
 
-            if 'left_iris_x' in df.columns and 'left_iris_y' in df.columns:
-                lx = df['left_iris_x'].dropna()
-                ly = df['left_iris_y'].dropna()
-                if len(lx) == len(ly) and len(lx) > 0:
-                    dist = np.sqrt((lx - center_x) ** 2 + (ly - center_y) ** 2)
-                    dist_list.append(dist)
-
-            if 'right_iris_x' in df.columns and 'right_iris_y' in df.columns:
-                rx = df['right_iris_x'].dropna()
-                ry = df['right_iris_y'].dropna()
-                if len(rx) == len(ry) and len(rx) > 0:
-                    dist = np.sqrt((rx - center_x) ** 2 + (ry - center_y) ** 2)
-                    dist_list.append(dist)
-
-            if dist_list:
-                all_dist = pd.concat(dist_list)
-                avg_dist = all_dist.mean()
-                eye_contact_score = max(0.0, 1.0 - (avg_dist * 2))
-                features['face_eye_contact_ratio'] = float(eye_contact_score)
-                features['face_gaze_dispersion_mean'] = float(avg_dist)
+            if valid_x:
+                s = pd.Series(valid_x, dtype='float64')
+                contact = (1.0 - s / _IRIS_MAX_HORIZONTAL_EXCURSION).clip(lower=0.0, upper=1.0)
+                features['face_eye_contact_ratio'] = float(contact.mean())
+                # G2(非常量)要看这个 —— 缺了它 G2 退回 fail-open。
+                # 封停理由当年点名的正是这个洞("无 _std 伴随列,G2 在此退回 fail-open")。
+                features['face_eye_contact_ratio_std'] = (
+                    float(contact.std()) if len(contact) > 1 else 0.0)
+                # G3(样本够)要看这个 —— 必须与上面同基名,`_indicator_sample_size` 才查得到。
+                # 记的是**真正用上的**帧数(已被物理上限剔过的),不是原始行数。
+                features['face_eye_contact_ratio_sample_size'] = int(len(contact))
+                # 平均水平偏移(眼宽单位)。保留原始量纲,供审查时对得上 iris 四列。
+                features['face_gaze_dispersion_mean'] = float(s.mean())
+                features['face_gaze_dispersion_sample_size'] = int(len(s))
 
             # 3. Gaze 方向统计
+            #
+            # ★ 2026-10-04 **补 `_sample_size`**。这一块此前只写 `_mean`/`_std`,而它
+            # 正是槽 `gaze_direction_x_std`(「视线稳定性」)的**唯一产出方** ⟹
+            # `_indicator_sample_size` 拿不到样本量,G3 与**报告里显示的 `n_valid`**
+            # 双双退到**模态行数**。实测活标本(场 `20260927_203322_6d57`):
+            # `gaze_direction_x` 只有 **12/200** 行非空(iris 四列同样 12 行),
+            # 而报告印的是 **`n_valid=200`** —— 高估 16 倍。
+            # 上面那个 eye_contact 块**一直**在写 `face_eye_contact_ratio_sample_size`
+            # (注释还写着"记的是真正用上的帧数,不是原始行数")—— 本块缺的就是同一条纪律。
             for col in gaze_cols:
                 if pd.api.types.is_numeric_dtype(df[col]):
                     series = df[col].dropna()
                     if len(series) > 0:
                         features[f"face_{col}_mean"] = float(series.mean())
                         features[f"face_{col}_std"] = float(series.std())
+                        # 该列**全部**统计量共用一个样本量:它们都出自同一个 `dropna()` 序列。
+                        features[f"face_{col}_sample_size"] = int(len(series))
 
         if len(features) == 0:
             print("      ⚠️ 未检测到关键词列，执行全量数值扫描...")
@@ -264,6 +326,10 @@ class PsychologicalFeatureEngine:
                       if any(x in c.lower() for x in ['x_', 'y_', 'z_', 'coord', 'landmark'])]
         if coord_cols:
             features['gesture_global_motion_amplitude'] = float(df[coord_cols].std().sum())
+            # 逐坐标 std 的聚合 ⟹ 观测数是**参与聚合的行数**(coord 列全空的行会拖出 NaN,
+            # 用 `dropna(how="all")` 的行数才是真正进了这个数的) —— 2026-10-04 补。
+            features['gesture_global_motion_amplitude_sample_size'] = int(
+                len(df[coord_cols].dropna(how="all")))
         return features
 
     # ---------------------------------------------------------

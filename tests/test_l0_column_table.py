@@ -84,6 +84,72 @@ def test_every_implemented_row_really_is_produced():
     assert not bad, f"表里标了已实现、日志里却没有:{bad}"
 
 
+# ── 登记写着「不实现、不近似」、而代码**还在产出**的列 ────────────────────────
+# 这是**已知且待裁定的矛盾**（使用者 2026-10-03 裁定：先守住，与 M4/M5 一起收），
+# **不是疏忽**。列在这里是为了让它**有人看得见**：任一侧动了就必须同时动另一侧。
+#
+# 背景（逐条可复核）:
+#   · `l0_columns.json` 里 head_yaw / head_pitch 的 status=blocked，acceptance 写
+#     「取得相机内参前**本列不实现、不近似** —— 绝不用 `face_width` 归一化的 2D 近似糊过去」；
+#   · 而 `au_calculator.py` 仍在算那个 2D 近似 `(lm[1].x − 双颊中点.x) ÷ face_width`，
+#     并写进 `DataLogger.fieldnames`（face CSV 92 列之一）；
+#   · 实测四场高质量素材 head_yaw 中位 **+0.287~+0.371**（常量偏移）；core 槽
+#     `focus_score`（权重 0.3）就挂在这上面，见 `evidence_gate.QUARANTINE['focus_score']`。
+#   · **对照**：兄弟列 `head_roll` 写着同一句话，而它**确实没产出**；
+#     `au15_mouth_down` 也是 blocked+活列，但它的登记是「解封前本列**只吐原始量**」
+#     ⟹ `blocked` 在这里**不**等于"不许产出"。所以下面两条是**例外，不是常态**。
+#
+# 三条路（停算 / 保持现状 / 拿内参）的代价见 `docs/下一步.md`「丙、16」。
+_BLOCKED_BUT_STILL_PRODUCED = ("head_yaw", "head_pitch")
+
+#: 登记里表示**禁止产出**的措辞。注意只扫**表**里的 `l0_output`/`acceptance`，
+#: 不扫 `legacy_allowlist.why` —— 白名单的 why 里出现这些词是**引用别人的禁令**
+#: （如 `focus_score` 的 why 引了 head_yaw 那句），扫它只会造出假红。
+_NEGATED_PRODUCTIONS = ("未实现", "不实现", "不近似")
+
+
+def test_declared_not_implemented_columns_are_flagged_if_the_code_still_produces_them():
+    """★ 守「表说一套、代码做一套」。
+
+    登记里带**否定式声明**（"不实现/不近似"）的列，**不许**出现在活列里 ——
+    除非它被显式登记进 `_BLOCKED_BUT_STILL_PRODUCED`（= 已知、待裁定的矛盾）。
+
+    红法(**两个方向都要红**，这正是本测试的要点):
+    - 有人**新**造出一处这样的矛盾 ⟹ 红（要求他写下为什么、归哪个里程碑）；
+    - 有人**停算**了 head_yaw/head_pitch，或把它们标成 implemented ⟹ 红
+      （那时要同步改登记，并从名单里划掉）。
+    """
+    live = _live_columns()
+    doc = l0.load()
+
+    offenders = []
+    for c in doc["columns"]:
+        blob = " ".join(str(c.get(k, "")) for k in ("l0_output", "acceptance"))
+        if not any(n in blob for n in _NEGATED_PRODUCTIONS):
+            continue
+        if c["column"] not in live.get(c["modality"], []):
+            continue                      # 声明不实现、也确实没产出 ⟹ 一致
+        if c["column"] not in _BLOCKED_BUT_STILL_PRODUCED:
+            offenders.append(f"{c['modality']}.{c['column']}")
+    assert not offenders, (
+        "这些列的登记里写着「不实现/不近似」，而 logger 仍在产出它们:\n  "
+        + "\n  ".join(offenders)
+        + "\n—— 要么停算（并同步改登记），要么把它加进 "
+          "`_BLOCKED_BUT_STILL_PRODUCED` 并写清为什么、归哪个里程碑。"
+          "别让「表说一套、代码做一套」无声存在。")
+
+    tabled = {(c["column"], c["modality"]): c for c in doc["columns"]}
+    for col in _BLOCKED_BUT_STILL_PRODUCED:
+        row = tabled.get((col, "face"))
+        assert row is not None, f"{col} 已不在表里 —— 那就不该留在本名单里"
+        assert row["status"] == "blocked", (
+            f"{col} 被标成 {row['status']} —— 但真 3D 头姿还没落地（需相机内参，"
+            f"而项目没有内参来源）⟹ 标 implemented 就是编一个内参")
+        assert col in live["face"], (
+            f"{col} 已经不在活列里了（停算了？）⟹ 请把登记改成「已停算」，"
+            f"并把它从 `_BLOCKED_BUT_STILL_PRODUCED` 划掉")
+
+
 def test_live_contract_matches_the_real_log_contract():
     """★ 红法:往任一 logger 的 `fieldnames` 加一列(或删一列)而不更新 `live_contract` ⟹ 必须红。
 
@@ -119,6 +185,37 @@ def test_allowlist_entries_carry_a_reason_and_a_target():
     for a in l0.load()["legacy_allowlist"]:
         assert a.get("why", "").strip(), f"{a.get('column')} 缺 why"
         assert a.get("planned", "").strip(), f"{a.get('column')} 缺 planned"
+
+
+def test_schema_metadata_does_not_swallow_allowlist_text():
+    """★ 顶层元数据的散文不许把**条目字段的值**整段吞进去。
+
+    这是"用脚本改这份 JSON"最常见的**事故形态**:想改某一条的 `planned`,写成
+    `整份文本.replace(旧值, 新值)` —— 而**旧值在文件里第一次出现的位置不是那一条**
+    (例如 `"M3.2 删列"` 先出现在 `_provisional_note` 里),于是新值被塞进了元数据,
+    而**目标条目一个字都没改**。
+
+    不是假想 —— 2026-10-03 实测踩到,而且**连犯三次**(`focus_score` / `tension_score` /
+    `gaze_deviation` 三条的 `planned` 全没落上,`_schema._provisional_note` 从 351 字符
+    涨到 819)。**当时测试全绿**:`_provisional_note` 是自由散文,而 `planned` 只要非空即可。
+
+    判据:`_schema` 的序列化文本里不许出现任何 `why`/`planned` 的值(≥8 字符的,短值偶然命中
+    不算)。红法:把任一条 `planned`(或 `why`)整段粘进 `_schema` 的散文 ⟹ 红。
+    """
+    import json
+
+    doc = l0.load()
+    blob = json.dumps(doc.get("_schema", {}), ensure_ascii=False)
+    offenders = []
+    for a in doc.get("legacy_allowlist", []):
+        for field in ("why", "planned"):
+            v = str(a.get(field, "")).strip()
+            if len(v) >= 8 and v in blob:
+                offenders.append(f"{a.get('column')}.{field}")
+    assert not offenders, (
+        "`_schema` 的散文里混进了白名单条目的字段值:\n  " + "\n  ".join(offenders)
+        + "\n—— 多半是改 JSON 时用了整份文本的 replace,而旧值第一次出现的位置不是那条。"
+          "请改成**定位到条目区间**再替换,并核对目标条目真的改了。")
 
 
 def test_schema_errors_is_empty_on_the_shipped_file():
@@ -909,22 +1006,22 @@ def test_text_columns_are_derived_from_the_producers_not_copied(monkeypatch):
         "不是从产出方推出来的")
 
 
-def test_the_iris_rows_do_not_claim_eye_contact_can_be_released():
-    """★ 本表原先写着「eye_contact 封停可解(它的 unblock 就是这 4 列)」—— 那句话是**错的**。
+def test_the_iris_rows_record_both_corrections_and_the_release():
+    """★ 这 4 行的 acceptance 走过**两轮更正**,两轮都必须留着。
 
-    错在**只核了生产方**:这 4 列确实按 unblock 改成了眼内相对坐标(平移不变),
-    但 `eye_contact` 这个**槽**还依赖消费方 —— `report_frontend/feature_engine.py` 的
-    eye_contact 口径仍是「到画面中心 (0.5,0.5) 的距离」。实测:iris 的平均距离 ≈ 0.83–0.86
-    ⟹ `max(0, 1 − 2d)` **恒 0.0**,而且没有 `_std` 伴随列(G2 退回 fail-open)⟹
-    解封等于把「没测到」当成「测到 0」按权重 0.3 写进 confidence_level。
+    第一轮(2026-09-27):原写「eye_contact 封停可解(它的 unblock 就是这 4 列)」是**错的**
+    —— 只核了生产方;消费方 `report_frontend/feature_engine.py` 仍按「到画面中心 (0.5,0.5)
+    的距离」算,特征恒 0.0。当时判据是「封停仍在」。
+    第二轮(2026-10-03):**消费方已改对,该槽已解封** —— 真原点 0 / 只取水平分量 /
+    按物理量程剔除虹膜跑出睑裂的坏帧 / 补齐 `_std`(G2)与 `_sample_size`(G3)。
 
-    这正是本仓已定性 5 次的「验证跑错了对象」:验收对象选在了**自己能改的那一半**上。
+    为什么两轮都要留:本仓纪律 2「散文里的话会静默过期」。只留最新那轮,读的人就看不到
+    「这句话已经错过一次」,于是会再犯一次"只核一半"的错。更正必须能**引述**旧说法 ⟹
+    判据全部取**正向**(该说的话在不在),不取"某句话不在"的黑名单
+    —— 黑名单会被自己引用的更正句误伤(本测试第一版就是这么红的)。
 
-    ⚠️ 判据全部取**正向**(该说的话在不在),不取"某句话不在"的黑名单 ——
-    黑名单会被自己引用的更正句误伤(本测试第一版就是这么红的):更正必须能**引述**旧说法。
-
-    红法(三条各自独立):把「封停仍在」改成「封停可解」/ 删掉「更正」这个标记 /
-    删掉消费方那半句 ⟹ 立刻红;把封停条目放行(生产方明明没修完消费方)⟹ 第四条红。
+    红法(各自独立):删掉第一轮的「更正」⟹ 红;删掉第二轮的解封记录 ⟹ 红;
+    把封停条目又加回去 ⟹ 最后一条红。
     """
     from report_frontend.evidence_gate import is_quarantined
 
@@ -934,10 +1031,13 @@ def test_the_iris_rows_do_not_claim_eye_contact_can_be_released():
         assert "更正" in acc, (
             f"{col} 的 acceptance 没有把「原来那句封停可解」标记为更正 —— "
             f"不标的话,下一个人读到的是一句**已经错过一次**的话")
-        assert "封停仍在" in acc, (
-            f"{col} 的 acceptance 没有明说封停**仍在** —— 生产方修好不等于这个槽能进分")
+        assert "封停可解" in acc, (
+            f"{col} 的 acceptance 不再**引述**旧说法 —— 读的人看不到这句错过一次:{acc[:160]}")
         assert ("消费" in acc or "feature_engine" in acc), (
-            f"{col} 的 acceptance 必须点名**消费方**这一侧,否则读的人会以为改完这 4 列就完事:{acc[:120]}")
+            f"{col} 的 acceptance 必须点名**消费方**这一侧,否则读的人会以为改完这 4 列就完事:{acc[:160]}")
+        assert "解封" in acc, (
+            f"{col} 的 acceptance 没有记录第二轮更正(消费方已改对 ⟹ 该槽已解封):{acc[:160]}")
 
-    assert is_quarantined("face_eye_contact_ratio") is not None, (
-        "eye_contact 被封停条目放行了 —— 但消费方的口径没改,特征恒 0.0")
+    assert is_quarantined("face_eye_contact_ratio") is None, (
+        "eye_contact 又被封停了 —— 但消费方口径已改对、`_std`/`_sample_size` 已补齐,"
+        "它自己写的那个 unblock 条件已达成")

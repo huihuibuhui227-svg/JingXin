@@ -4,14 +4,69 @@ from pathlib import Path
 
 from report_frontend.research_mapper import ResearchCapabilityMapper
 
+#: payload 里**不许存在**的评分类键(2026-10-04 整层摘除)。
+#:
+#: 它们都是"**未标定标尺上对人的判定**":复合点分、五档评语、逐维度点分与档位、
+#: 跨维度权重,以及更早删掉的模板评语与百分位。摘除的理由见 `research_mapper`
+#: 返回处那段注释 —— 一句话:本仓要宣称的是「结构化行为记录 + 低置信度特质提示」,
+#: 不是「心理识别结论」(spec §5.4 :157-158 / §5.6)。
+_FORBIDDEN_SCORING_KEYS = (
+    "total_score", "total_level",        # 复合点分 / 五档评语
+    "score", "level",                    # 逐维度点分 / 档位
+    "dimension_weights",                 # 跨维度权重(唯一用途就是上面那个复合分)
+    # 逐槽的折算/汇总输出(2026-10-04 与上面那批一起摘除)——
+    # `status`(强支撑/弱支撑/中性)与 `positive/negative_factors` 是**在未标定标尺上
+    # 贴的判定标签**,与档位同一类物种;`normalized_score`/`contribution`/`weight` 是
+    # 那条链的中间量。它们唯一被渲染的地方是「证据链贡献度」柱状图,而那张图的参照物
+    # (维度分)已不存在,故图与字段一并摘除。
+    "normalized_score", "contribution", "status", "direction", "weight",
+    "positive_factors", "negative_factors",
+    "narrative", "simple_narrative",     # 模板填空式评语(更早删除)
+    "percentile",                        # 百分位(没有真实常模时不得输出)
+)
+
+
+def _scoring_keys(obj, path: str = "") -> list:
+    """递归找出 payload 里所有评分类的键,带路径(便于定位)。"""
+    found: list = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            here = f"{path}.{k}" if path else str(k)
+            if k in _FORBIDDEN_SCORING_KEYS:
+                found.append(here)
+            found += _scoring_keys(v, here)
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            found += _scoring_keys(v, f"{path}[{i}]")
+    return found
+
+
+def test_the_payload_carries_no_scoring_keys_at_all():
+    """★ 2026-10-04:评分类的键**整层摘除** —— 一个都不许回来。
+
+    **为什么钉"键不存在"而不是"值为 None"**:值为 `None` 的字段会被下一个人填上
+    (今天之前 `total_score` 就是"只为 API 稳定保留"地躺在那里),而键不存在时,
+    重新引入必须**显式**改代码 + 改本测试。
+
+    红法(实测):在 `research_mapper` 的返回值里加回 `"total_score": None` ⟹ 本条红。
+    已登记成变异。
+    """
+    for feats in ({}, _MIXED, _LOW):
+        r = ResearchCapabilityMapper().map_features_to_scores(feats)
+        bad = _scoring_keys(r)
+        assert bad == [], f"payload 里出现了评分类的键(未标定标尺上对人的判定):{bad}"
+
 
 def test_zero_input_produces_no_scores():
-    """spec §6.1:零输入必须不再产出分数。基线是 47.08。"""
+    """spec §6.1 + 2026-10-04:零输入必须不产出**任何**分数/档位。基线曾是 47.08。
+
+    摘除之后判据变成"评分类的键不存在"(见 `_scoring_keys`),而不再是"它是 None"。
+    """
     r = ResearchCapabilityMapper().map_features_to_scores({})
 
-    assert r["total_score"] is None
+    assert _scoring_keys(r) == [], f"payload 里仍有评分类的键:{_scoring_keys(r)}"
     for key, dim in r["dimensions"].items():
-        assert dim["score"] is None, f"{key} 零输入却仍出分"
+        assert not dim["evidence_chain"], f"{key} 零输入却仍有证据链"
         assert dim["confidence"] == "无", f"{key} 置信度应为无"
     assert r["evidence_gaps"], "必须给出 evidence_gaps"
 
@@ -20,19 +75,21 @@ def test_no_fake_resume_fallback():
     """spec §5.3:假简历兜底与 BASELINE_FILL 必须不可达。
 
     ⚠️ 原版用零输入 fixture,证据链为空 → 循环零断言,对任何实现都通过。
-    改为喂一个只让 1 个槽过门的输入,断言 matched 恰为 1/4 且缺口为 3。
-    若 BASELINE_FILL 回归,缺失的 3 个槽会被填空 → matched 变 4/4 → 本测试变红。
+    改为喂一个只让 1 个槽过门的输入,断言 matched 恰为 1/3 且缺口为 2。
+    若 BASELINE_FILL 回归,缺失的那 2 个槽会被填空 → matched 变 3/3 → 本测试变红。
     Task 6 换键(connective_density)后实测该 fixture 输出:score=0.5 / conf=低 /
-    matched=1/4 / 缺口 3 —— 0.05(每百字)在新量程 10 下归一为 0.005,故分数不再是
+    matched=1/3 / 缺口 2 —— 0.05(每百字)在新量程 10 下归一为 0.005,故分数不再是
     旧量程下的 100.0;本测试断言的是 matched 与缺口,两者不受换键影响。
+    ⚠️ **2026-10-03 分母由 4 改 3**:本维删掉了 `focus_score` 槽(它指向的列已标记
+    M3.2 删列,且可被 `head_yaw` 100% 重构)⟹ 声明槽数 4 → 3。缺口同步 3 → 2。
     """
     feats = {"voice_research": {"connective_density_mean": 0.05,
                                 "connective_density_std": 0.01,
                                 "_n_rows": 100.0}}
     dim = ResearchCapabilityMapper().map_features_to_scores(feats)["dimensions"]["logical_thinking"]
 
-    assert dim["matched_indicators"] == "1/4", "缺失槽被填充(BASELINE_FILL 回归?)"
-    assert len(dim["evidence_gaps"]) == 3
+    assert dim["matched_indicators"] == "1/3", "缺失槽被填充(BASELINE_FILL 回归?)"
+    assert len(dim["evidence_gaps"]) == 2
     for ev in dim["evidence_chain"]:
         # 裸键名是假简历兜底的签名;带模态前缀才是真测量
         assert ev["feature"] != "connective_density", "裸键名 = 假简历兜底的签名"
@@ -40,23 +97,27 @@ def test_no_fake_resume_fallback():
         assert "代理" not in ev["feature"]
 
 
-def test_quarantined_columns_are_rejected():
+def test_quarantined_columns_never_reach_the_chain_nor_slip_past_the_gate():
     """spec §5.2:封停列即使有值也不得进入证据链。
 
     ⚠️ 原版只喂封停列 → 全部被拒 → 链为空 → 循环零断言。
     改为同时喂一个干净列让链非空,再断言封停列不在其中。
-    若 G4 被移除,focus_score 会进链 → 本测试变红。
 
-    ⚠️ 2026-09-27 换过两轮取样槽,记下来免得下次又踩:
-    第一版用 `symmetry_score` —— 它**已被解封**(理由「未除人脸尺度,近常量,取景代理」
-    经实测推翻)⟹ 再拿它当"封停列"的样本,本测试就在断言一件已经变了的事;
-    第二版用 `tension_score` —— 它仍封停,但同日槽位表重做了(`tension_score` 不再是
-    stress_resilience 的槽)⟹ 喂进去也匹配不到那个槽。现用**仍封停且仍是槽**的
-    `gaze_deviation`(理由「与 gaze_direction_y 同族冗余」仍成立)。
-    它属 stress_resilience,而该维四个槽**都没有数据**、链必为空,
-    故不能靠"链里没有它"来钉(那恒真)。改为断它**出现在证据缺口里** ——
-    若删掉它的封停条目且喂入该列,它会进链、缺口里便不再有它 → 本测试变红。
-    控制器实测:stress_resilience 链=0、缺口=4、缺口含「眉间收缩与唇部压缩」。
+    ⚠️ **这个测试的"取样对象"已经被换过三轮,记下来免得下次又踩**:
+    ① `symmetry_score` —— 它**已被解封**,再拿它当"封停列"就是在断言一件已经变了的事;
+    ② `tension_score` —— 仍封停,但同日槽位表重做,它不再是 `stress_resilience` 的槽;
+    ③ `gaze_deviation` —— 曾"仍封停且仍是槽",于是改成断它**出现在证据缺口里**。
+
+    ★ **2026-10-03 第四次:这次不给它换第五个样本,而是改成不依赖槽位表的判据。**
+    原因是那天把 `focus_score` / `gaze_deviation` / `speech_ratio` 三个槽**整个删了**
+    (它们指向待删列)。槽都没了,"链里没有它"就**恒真**、缺口里也不会有它 ——
+    再钉下去只是在断言空话。所以本测试改为钉两件**仍然成立且各自可被单一改动弄红**的事:
+
+    ① **端到端**:所有维度的证据链里都不许出现那两个封停列(链由喂进去的
+       `connective_density` 撑非空,避免空断言);
+    ② **兜底**:`gate()` 仍把这两个列名判给 **G4** —— 删槽之后这条是防
+       "将来有人加回一个匹配它们的槽"(主防线已移到槽位表,
+       由 `test_no_slot_points_at_a_column_marked_for_deletion` 守着)。
     """
     feats = {"voice_research": {"connective_density_mean": 0.05,
                                 "connective_density_std": 0.01,
@@ -68,14 +129,21 @@ def test_quarantined_columns_are_rejected():
                       "_n_rows": 100.0}}
     dims = ResearchCapabilityMapper().map_features_to_scores(feats)["dimensions"]
 
-    lt = dims["logical_thinking"]
-    assert lt["evidence_chain"], "证据链为空 —— 本测试退化为空断言"
-    for ev in lt["evidence_chain"]:
-        assert "focus_score" not in ev["feature"]
+    # ① 端到端
+    chain_features = [ev["feature"] for d in dims.values() for ev in d["evidence_chain"]]
+    assert chain_features, "所有证据链都是空的 —— 本测试会退化成空断言"
+    for col in ("focus_score", "gaze_deviation"):
+        hit = [f for f in chain_features if col in f]
+        assert not hit, f"封停列「{col}」进了证据链:{hit}"
 
-    sr = dims["stress_resilience"]
-    assert sr["evidence_chain"] == [], "封停列进了链"
-    assert any("视线偏差" in g for g in sr["evidence_gaps"]), "视线偏差槽未被处理"
+    # ② 兜底:直接问闸门,别靠"链里没有它"
+    from report_frontend.evidence_gate import gate
+
+    for key in ("face_focus_score_mean", "face_gaze_deviation_mean"):
+        chk = gate(key, 0.3, n_valid=300, std=0.05)
+        assert (not chk.ok) and chk.gate_name == "G4", (
+            f"{key} 没被 G4 拦住({chk.gate_name}: {chk.reason})—— "
+            f"删槽之后这道兜底是唯一的防线,将来有人加回一个匹配它的槽时全靠它")
 
 
 def test_confidence_can_be_none_and_low():
@@ -104,12 +172,10 @@ def test_confidence_can_be_none_and_low():
     assert tuple(confidence_from(n, 4) for n in range(5)) == ("无", "低", "中", "中", "中")
 
 
-def test_dimension_weights_sum_to_one():
-    """spec §5.3:comm 维度权重和曾为 1.4。"""
-    m = ResearchCapabilityMapper()
-    for dim_key, rule in m.mapping_rules.items():
-        total = sum(w for _, w, _, _, _ in rule["indicators"])
-        assert abs(total - 1.0) < 1e-9, f"{dim_key} 权重和为 {total}"
+# ⚠️ 2026-10-04 **已移**除名为 `test_dimension_weights_sum_to_one` 的那条:它守的是跨维度权重和为 1
+#    (`self.dimension_weights`),而那张表已随复合分一起摘除。同一件事(**维度内**槽权重
+#    和为 1)由 `tests/test_dimension_live_weight.py::test_every_dimension_declares_full_slot_weight`
+#    更严格地守着,所以这里不另立一份。
 
 
 def test_slot_level_quarantine_covers_spec_5_3():
@@ -122,8 +188,17 @@ def test_slot_level_quarantine_covers_spec_5_3():
     """
     from report_frontend.evidence_gate import is_quarantined
 
-    for key in ("face_gaze_stability_mean", "face_micro_exp_au_name_au7_freq",
-                "voice_research_research_speech_ratio_mean", "face_eye_contact_ratio"):
+    # ⚠️ 2026-10-03 本表**再缩一项**:`face_eye_contact_ratio` 已解封
+    #    (消费方口径改对 + 补齐 `_std`/`_sample_size`),见 `_RELEASED`。
+    # ⚠️ 同日**更正一个名字**:下面第二个键原写 `face_micro_exp_au_name_au7_freq`,
+    #    而 `feature_engine` 造键的写法是 `f"face_micro_exp_{col}"`,列名本身叫
+    #    `micro_exp_au_name` ⟹ 真键多一层 `micro_exp_`。原名**在任何一场里都不会出现**
+    #    (与 evidence_gate 里记的 E7 —— `upper_body_head_tilt` 恒不命中 —— 同一类错法)。
+    #    本测试当时**照样绿**:`is_quarantined` 是按子串匹配封停键的,两个名字都含
+    #    `au7_freq` ⟹ 它只证明"封停条目还在",证明不了"这个名字是真的"。
+    for key in ("face_gaze_stability_mean",
+                "face_micro_exp_micro_exp_au_name_au7_freq",
+                "voice_research_research_speech_ratio_mean"):
         assert is_quarantined(key) is not None, f"{key} 未被封停"
 
 
@@ -147,7 +222,8 @@ def test_all_slot_level_quarantine_keys_are_pinned():
     """
     from report_frontend.evidence_gate import is_quarantined
 
-    for entry in ("gaze_stability", "au7_freq", "speech_ratio", "eye_contact"):
+    # ⚠️ 2026-10-03 `eye_contact` 解封后从本表移出(它是本组最后一条被解封的)。
+    for entry in ("gaze_stability", "au7_freq", "speech_ratio"):
         assert is_quarantined(entry) is not None, f"{entry} 未被封停"
 
 
@@ -174,6 +250,16 @@ def test_all_slot_level_quarantine_keys_are_pinned():
 #   · pitch_variation 理由「实际取的是 pitch_mean,名字与计算不符」
 #     ⟹ 特征 `interview_pitch_variation_mean` = 33.494/167.076/105.664,与日志列
 #       pitch_variation 逐值相等、与 pitch_mean 相等的行 0/8(三场)。
+#   · eye_contact     理由「**消费方**未随生产方改 ⟹ 特征恒 0.0,且无 _std 伴随列
+#       (G2 在此退回 fail-open)」
+#     ⟹ 2026-10-03 把消费方改对:原点用**眼内相对坐标的真原点 0**(不再是到画面中心
+#       (0.5,0.5) 的距离)、只取水平分量(x 静息位 ≈ 0;y 静息位 −0.15~−0.20 是解剖
+#       偏移,无可标定零点)、按物理量程 (1−虹膜直径/睑裂宽)/2 ≈ 0.305 剔除虹膜跑出
+#       睑裂的坏帧,并补齐 G2 要的 `face_eye_contact_ratio_std` 与 G3 要的
+#       `face_eye_contact_ratio_sample_size` —— 当年点名的那个 fail-open 洞堵上了。
+#       四场高质量素材(f98d/2e84/8102/5b10)实测该特征 0.62~0.96,**不再恒 0**;
+#       改前四场 99.7%~99.9% 的帧恒 0。
+#       判据仍是 G4 自己的口径("它自己写的那个理由不成立"),不是"这个量有用"。
 _RELEASED = (
     ("face_symmetry_score_mean", "symmetry_score"),
     ("gesture_left_hand_jitter_mean", "jitter"),
@@ -182,21 +268,39 @@ _RELEASED = (
     ("gesture_left_hand_fist_status_mean", "fist_status"),
     ("face_micro_exp_au_name_au4_freq", "au4_freq"),
     ("voice_interview_interview_pitch_variation_mean", "pitch_variation"),
+    ("face_eye_contact_ratio", "eye_contact"),
 )
 
 # 仍须封停:它们的理由**现在仍然成立**,或已被改写成当前真实的机制。逐个给理由。
 _STILL_QUARANTINED = (
-    ("face_eye_contact_ratio", "生产方改了、消费方没改 ⟹ 现口径恒 0"),
-    ("face_focus_score_mean", "3 个硬编码取值 {0.3,0.5,0.8},2b11 恒 0.3"),
-    ("face_tension_score_mean", "伪合成 + 5 项里 eye_closure 恒 0"),
-    ("face_gaze_direction_y", "恒负(三场 max −0.087/−0.132/−0.098)"),
-    ("face_gaze_deviation_mean", "与 gaze_direction_y 同族冗余"),
-    ("face_gaze_stability_mean", "由被封停的 gaze_deviation 派生"),
+    ("face_focus_score_mean", "head_yaw 的 3 值分箱(零额外信息,实测 100% 可重构),"
+                              "且 99% 恒 0.3(head_yaw 有 ~+0.35 常量偏移,而阈值是 0.03/0.08)"),
+    ("face_tension_score_mean", "10 个参数全无出处的加权合成;eye_closure 占 0.2 却是死权重"
+                               "(eye_closed_sec 真实数据 97%~99.7% 为 0);~72% 的量来自"
+                               "没落盘的滚动窗口 *_volatility"),
+    ("face_gaze_direction_y", "解剖常量:四场高质量素材中位 −0.16~−0.195、std 仅 0.017~0.046"),
+    ("face_gaze_deviation_mean", "y 分量主导:实测与 |gaze_direction_y| 的相对差仅 1.3%~7.7%"),
+    ("face_gaze_stability_mean", "仍派生自被封停的 gaze_deviation(槽已改指 gaze_direction_x_std,特征键本身没改)"),
     ("voice_interview_interview_speech_ratio_mean", "自指阈值,三场 24/24 行恒 1.0"),
-    ("face_blink_rate_per_min_mean", "60 s 滚动窗,1.06 s 帧间隔下量的是采样格"),
+    ("face_blink_rate_per_min_mean", "采样率不足(不是单位错):帧间隔实测中位 1.000~1.002 s 而眨眼"
+                                     "时长 100~400 ms ⟹ 漏检结构性;0.3 s 去抖在 1 fps 下恒不触发 "
+                                     "⟹ 计的是「最近 60 秒里判定闭眼的帧数」(上限=60 s 内帧数,实测 max 57)"),
     ("face_eye_closed_sec_mean", "与 is_blink 冗余(判定门 ear<0.18 几乎不触发)"),
     ("interview_pause_duration_mean_mean", "自指能量门限 mean(rms)×0.3,无出处"),
-    ("face_micro_exp_au_name_au7_freq", "au7 + avg_ear ≡ 1.0(实测 min=max=1.0)"),
+    # ⚠️ 键名 2026-10-03 更正:原写 `face_micro_exp_au_name_au7_freq`,而真键多一层
+    #    `micro_exp_`(见本文件上面那处更正的说明)。原先那句证据「au7 + avg_ear ≡ 1.0
+    #    (实测 min=max=1.0)」也是**过期**的:它描述的是源列 `au7_eye_squeeze` 的退化,
+    #    而这条 one-hot 键**全仓 0 产出**(51 场 22277 行里 `micro_exp_au_name` 只有 6 行
+    #    有值,取值只有 au4_frown / au7_eye_squeeze)。
+    ("face_micro_exp_micro_exp_au_name_au7_freq",
+     "全仓 0 产出:该键只在 micro_exp_au_name 取值为「au7_freq」时产生,而该标签从没出现过"),
+    # 2026-10-04 补:`energy` 槽解析到的真键。这条**必须**进本表 —— 它是
+    # `tests/test_dimension_live_weight.py` 那个「封停键比槽关键词长」的洞的**前提**:
+    # 那里靠双向子串才把 `energy` 数成 0.2 死权重,而"封停确实打在这个真键上"由本表钉。
+    ("voice_interview_interview_energy_mean_mean",
+     "采集链(麦克风/AGC/距离/增益)全未受控 ⟹ 绝对能量水平不是被试的属性;"
+     "「M3 会话内归一」不是能兑现的路(要可比就必须对未知增益不变 ⟹ 只能用比值 ⟹ "
+     "量变成「本场内的相对高低」而不再是能量水平)"),
 )
 
 
@@ -215,6 +319,154 @@ def test_the_released_keys_are_released_and_the_rest_are_not():
         )
     for key, why in _STILL_QUARANTINED:
         assert is_quarantined(key) is not None, f"{key} 不再被封停,而它仍然满足 G4 口径:{why}"
+
+
+def _focus_score(yaw: float, blink_rate: float = 0.0) -> float:
+    """直接调生产方的那个分箱函数(它不碰 self,所以传 None 即可,不必建管线)。"""
+    from types import SimpleNamespace
+
+    from face_expression.pipeline.video_pipeline import VideoPipeline
+
+    au = SimpleNamespace(head_yaw=yaw, blink_rate_per_min=blink_rate)
+    return VideoPipeline._calculate_focus_score(None, au)
+
+
+def test_focus_score_is_only_a_three_value_bin_of_head_yaw():
+    """★ `focus_score` **不是测量** —— 它是 `head_yaw` 的 3 值分箱,零额外信息。
+
+    实测(四场高质量素材 f98d/2e84/8102/5b10):该列可被
+    (`head_yaw`, `blink_rate_per_min`) **100% 精确重构** —— 一帧不差。
+    它是 core 槽、权重 0.3,名字叫「面部专注度」,而实际只编码了"歪没歪头"这一件事,
+    且歪没歪的判据本身来自一个登记为「不实现、不近似」的 2D 近似。
+
+    红法:把返回改成连续量(例如真按 yaw 线性映射)⟹ 本测试红 —— 那时**必须同时**
+    处理 `head_yaw` 的登记(它是 blocked),否则就是拿一个未实现的列去喂一个 core 槽。
+    """
+    vals = {_focus_score(y, b)
+            for y in (-0.5, -0.09, -0.08, -0.05, -0.03, -0.02, 0.0, 0.02, 0.03, 0.05, 0.09, 0.5)
+            for b in (0.0, 29.9, 30.0, 60.0)}
+    assert vals == {0.3, 0.5, 0.8}, f"取值不再是那 3 个(变成连续量了?):{sorted(vals)}"
+
+
+def test_focus_score_ignores_blink_rate_in_practice():
+    """`blink_rate < 30` 这个条件在真实数据上形同虚设 —— 于是它只由 yaw 决定。
+
+    实测四场:0.8 那档要求 `|yaw| < 0.03`,而四场 `head_yaw` 中位是 **+0.287~+0.371**,
+    最小值也才 −0.27 ⟹ **一帧都进不去**。
+
+    红法:把 blink_rate 的条件改成真正会命中的门 ⟹ 本测试红(说明分箱的输入变了,
+    那时 `focus_score` 的封停理由也要跟着改)。
+    """
+    assert _focus_score(0.0, blink_rate=0.0) == 0.8          # 只有同时 |yaw|<0.03 才给 0.8
+    assert _focus_score(0.0, blink_rate=100.0) != 0.8, (
+        "blink_rate 的条件没生效 —— 那分箱连 `blink_rate` 都不看了")
+
+
+def test_focus_score_collapses_to_one_value_at_the_real_head_yaw_offset():
+    """★ 钉住**实测的塌缩**:真实素材的 `head_yaw` 全部落进"偏头"那一档。
+
+    四场中位 +0.287 / +0.343 / +0.366 / +0.371 ⟹ 全部 > 0.08 ⟹ `focus_score` 恒 0.3。
+    实测占比:f98d **314/314**、5b10 **343/343**、2e84 962/971、8102 6597/6619。
+
+    为什么要钉一个"错"的行为:这是**防有人靠调阈值把它修好看** ——
+    把 0.08 挪到 0.4 能让它"有变化",但那是拿本数据集的分布凑参数,
+    正是 RecruitView 许可与本仓硬约束禁止的事。真要修,得先让 `head_yaw` 有真 3D
+    (需相机内参,而项目没有内参来源)。
+
+    红法:把阈值改成能容纳 +0.35 的值 ⟹ 本测试红(那时请先读 `head_yaw` 的 acceptance)。
+    """
+    for yaw in (0.287, 0.343, 0.366, 0.371):        # 四场实测中位
+        assert _focus_score(yaw) == 0.3, (
+            f"yaw={yaw} 不再塌到 0.3 —— 阈值被调过?那要先处理 head_yaw 的登记(它是 blocked)")
+
+
+def _tension(au4=0.0, au23=0.0, eye_closed_sec=0.0, smile_vol=None, volatilities=None,
+             emotion=None):
+    """调生产方的那个合成器 —— 纯计算,不加载模型。"""
+    from face_expression.core.analysis.tension_engine import TensionEngine
+    from face_expression.models.features import AUFeatures, TemporalStats
+
+    data = {}
+    if smile_vol is not None:
+        data["au12_smile_volatility"] = smile_vol
+    for name, v in (volatilities or {}).items():
+        data[f"{name}_volatility"] = v
+    au = AUFeatures(au4_frown=au4, au23_lip_compression=au23, eye_closed_sec=eye_closed_sec)
+    return TensionEngine().compute(au, TemporalStats(data=data), emotion_vector=emotion)
+
+
+def test_tension_score_is_a_hand_weighted_composite_golden_value():
+    """★ 金标准:把 `tension_engine.py` 里那 **10 个无依据参数**逐个钉住。
+
+    手算(参数全部取自源码,这段就是推导过程):
+      au4  项 0.25 × min(0.5 × 1.3, 1) = 0.1625
+      au23 项 0.25 × min(0.2 × 1.3, 1) = 0.065
+      eye_closed = min(1.0 / 2.0, 1) = 0.5 ⟹ × 0.2 = 0.1
+      smile_vol 0.15 × min(0.4 × 1.5, 1) = 0.09
+      expression_instability 0.15 × min(0.4 × 1.5, 1) = 0.09
+      base = 0.5075 ⟹ round 3 = **0.508**
+
+    情绪加成那笔(`× 0.4`)单列一条,否则金标准里 `emotion_vector=None` 会让它**没人钉**:
+      再给 `emotion_vector={"anxiety": 0.5}` ⟹ `boost = max(...) = 0.5`,
+      `base = 0.5075 + 0.5 × 0.4 = 0.7075` ⟹ round 3 = **0.708**
+
+    为什么用金标准、而不是"在测试里把公式重算一遍":重算等于把公式抄进测试,
+    两边一起错照样绿。金标准钉的是**任何一个参数被改动都会红** ——
+    而这正是本切片要防的"调权重凑好看"。
+
+    红法(逐条反向复现实测):动 .25 权重 ⟹ 红;`eye_closed_sec/2.0` → `/1.0` ⟹ 红;
+    **eye_closure 的 0.2 挪走 ⟹ 只有本测试红**(饱和测试那里 `eye_closed_sec=0`,不受影响);
+    动 ×0.4 的情绪加成 ⟹ 红。
+    """
+    r = _tension(au4=0.5, au23=0.2, eye_closed_sec=1.0, smile_vol=0.4)
+    assert abs(r.tension_score - 0.508) < 5e-4, (
+        f"金标准变了:{r.tension_score} —— 若是有意重定权重,请先读 "
+        f"`evidence_gate.QUARANTINE['tension_score']`:那些权重没有物理依据,"
+        f"重定只能靠标定集(而 M5 的两个前置都卡着)")
+    assert r.tension_level == "medium"
+
+    # 情绪加成那一笔(×0.4)—— 单独钉,别让它在 `emotion_vector=None` 的样例里漏掉
+    r2 = _tension(au4=0.5, au23=0.2, eye_closed_sec=1.0, smile_vol=0.4,
+                  emotion={"anxiety": 0.5})
+    assert abs(r2.tension_score - 0.708) < 5e-4, f"情绪加成的 ×0.4 动过?:{r2.tension_score}"
+
+
+def test_tension_score_has_a_hardcoded_nonzero_floor():
+    """★ 全零输入也拿 **0.045**,不是 0 —— 来自硬编码默认 `expression_instability = 0.3`。
+
+    手算:其余四项全 0,只剩 `0.15 × 0.3 = 0.045`。
+    这个地板是真缺陷形态:**"没有任何信号"的会话会拿到一个非零的紧张度**,
+    而读报告的人无从知道这 0.045 是个常量。
+
+    红法:把 `expression_instability = 0.3  # 默认非零值` 改成 0.0 ⟹ 红 ——
+    注意那是**允许**的方向,改了请一并更新本测试与封停理由。
+    """
+    r = _tension()                      # 全 0 + TemporalStats(data={})
+    assert abs(r.tension_score - 0.045) < 1e-9, f"地板变了:{r.tension_score}"
+    assert r.tension_level == "low"
+
+
+def test_tension_score_eye_closure_weight_is_unreachable_in_real_data():
+    """★ 钉住那个**死权重**:`eye_closure` 占 0.2,而真实数据里它几乎恒 0。
+
+    实测四场高质量素材 `eye_closed_sec` 的非零帧:9/314、109/971、751/6619、19/343
+    ⟹ **97%~99.7% 的帧那一项是 0**(判定门 `avg_ear < 0.18` 几乎不触发)。
+    于是 `eye_closed_sec = 0` 时,其余四项**全部饱和也只有 0.8**。
+
+    ⚠️ **牙齿的确切范围**(反向复现实测,我第一版把这里写错了,更正留在此处):
+    - 本测试钉的是**那 0.8 这个上限**,即四个**可达**权重之和 ——
+      改动 .25/.25/.15/.15 中任一个 ⟹ 本测试**红**;
+    - 但**把 eye_closure 的 0.2 挪走,本测试不红**(这里 `eye_closed_sec = 0`,
+      权重乘的仍是 0)⟹ 那条由 `..._golden_value` 负责(它取 `eye_closed_sec = 1.0`,
+      0.2 会贡献 0.1)。**"0.2 是死权重"这个结论**由两件事合起来支撑:
+      本测试的 0.8 上限 + 上面那组实测非零率 + 金标准钉住 0.2 本身。
+    """
+    r = _tension(au4=1.0, au23=1.0, eye_closed_sec=0.0,
+                 smile_vol=1.0, volatilities={"au4_frown": 1.0})
+    assert abs(r.tension_score - 0.8) < 1e-9, (
+        f"`eye_closed_sec = 0` 时的可达上限不再是 0.8:{r.tension_score} —— "
+        f"那四个可达权重动过?")
+    assert r.tension_sources["eye_closure"] == 0.0
 
 
 def test_the_released_jitter_keys_really_reach_the_score():
@@ -246,7 +498,8 @@ def test_the_released_jitter_keys_really_reach_the_score():
                          "gesture_left_wrist_jitter_world_std": 0.002,
                          "_n_rows": 300.0}}
     sr = ResearchCapabilityMapper().map_features_to_scores(feats)["dimensions"]["stress_resilience"]
-    assert sr["matched_indicators"] == "1/4", (
+    # ⚠️ 2026-10-03 分母由 4 改 3:本维删掉了 `gaze_deviation` 槽(它指向待删列)⟹ 声明槽数 4 → 3。
+    assert sr["matched_indicators"] == "1/3", (
         f"解封的 jitter 列仍未进分(实得 {sr['matched_indicators']}),缺口:{sr['evidence_gaps']}")
 
 
@@ -395,13 +648,25 @@ _DEAD_MECHANISMS = (
 
 
 def _fold_dashes(s: str) -> str:
-    """把三种减号折成 ASCII 连字符 —— 否则「r=−0.994」写个全角减号就能绕过钉子。
+    """把四种减号折成 ASCII 连字符,并**去掉所有空白**。
 
     这类"换个长得像的字符就绕过"是措辞类钉子的通病:钉的是**意思**,所以比较前先归一。
+
+    ⚠️ **2026-10-03 补去空白**:此前只折减号,于是死短语 `r=-0.994` 与文本里的
+    `r = −0.994`(等号两边带空格)**不匹配** —— 一个空格就能绕过这条守卫。
+    实测 `l0_columns.json` 的 `gaze_deviation.why` 正是这么漏掉的。
     """
+    import re
+
     for ch in ("−", "–", "—", "－"):
         s = s.replace(ch, "-")
-    return s
+    return re.sub(r"\s+", "", s)
+
+
+#: 白名单 `why` 里**允许**保留死短语的情形:它是在**引述旧说法**,旁边已经写了更正。
+#: 本仓的规矩是「更正必须能引述旧说法」⟹ 一律禁止引述反而会让历史读不通。
+#: 所以判据取**正向**:引用了死短语,就必须同时带上一个"已经处理过"的标记。
+_CORRECTION_MARKERS = ("更正", "已修", "修复消失", "已被推翻", "不再", "已删")
 
 
 def test_no_quarantine_reason_describes_a_removed_mechanism():
@@ -409,6 +674,7 @@ def test_no_quarantine_reason_describes_a_removed_mechanism():
     想解封的人找不到该修什么,而想审查的人以为这条还封得有理。
 
     红法:把任一条已经死掉的机制写回任一条 `Quarantine.reason`(或新增一条拿它当理由的封停)⟹ 立刻红。
+    (去空白归一后,现有理由里 0 命中 ⟹ 收紧比较不会误伤。)
     """
     from report_frontend.evidence_gate import QUARANTINE
 
@@ -420,58 +686,292 @@ def test_no_quarantine_reason_describes_a_removed_mechanism():
         + "; ".join(f"{k} 的理由含「{phrase}」" for k, _r, phrase in offenders))
 
 
-def test_eye_contact_stays_quarantined_and_its_reason_names_the_consumer():
-    """★ 本任务最重要的一条钉子:`eye_contact` 的 unblock 条件(「M3 改眼内相对坐标」)**已达成**,
-    但**不许解封** —— 因为改的是**生产方**,消费方没跟着改。
+def test_allowlist_whys_quote_dead_mechanisms_only_with_a_correction():
+    """★ 同一条纪律要管到 `legacy_allowlist.why` —— 那里此前**没有任何守卫**。
 
-    `feature_engine._extract_face_features` 仍按 `sqrt((x−0.5)² + (y−0.5)²)` 算「到画面中心的
-    距离」,而 iris 四列现在是**眼内相对坐标**(会话均值 ≈ −0.016 / −0.051 / −0.021,不是 0.5 附近)
-    ⟹ 平均距离 ≈ 0.83–0.86,`max(0, 1 − 2d)` **恒为 0.0**,而且这个 0.0 没有 `_std` 伴随列,
-    G2 退回 fail-open ⟹ 解封后它会以**权重 0.3**把「没测到」当成「测到了 0」写进 confidence_level。
+    实测踩到(2026-10-03):`gaze_deviation.why` 一直引用着「组内 r = −0.994」,
+    而本仓 `_DEAD_MECHANISMS` 里明明记着那个数**已被实测推翻**(r = −0.71/−0.42/−0.06)。
+    读白名单的人会拿一个**已知不成立**的数当删除依据。
 
-    这正是 G1/G2/G3 三关**没有**替我们把关的那一处:三关全过(G1 有值 0.0 / G2 无 std 不拦 /
-    G3 落到模态行数)。所以 G4 是这里唯一的防线,而理由必须说清是**消费方**的问题。
+    为什么不能像封停理由那样一律禁止:白名单的 `why` **本来就是引述 §4.1 原文**
+    (如「§4.1:191 依据栏原文:…」),而本仓规矩是「更正必须能**引述**旧说法」。
+    所以判据取**正向**:引用了死短语,就必须同时带一个"已经处理过"的标记
+    (`_CORRECTION_MARKERS`)。
+
+    红法:① 往任一条 `why` 里加一个死短语而不写更正 ⟹ 红;
+    ② 把 `gaze_deviation.why` 里那段更正删掉 ⟹ 红;
+    ③ 把 `_fold_dashes` 的"去空白"去掉、并把更正文本写成带空格的形式 ⟹ 红。
     """
-    from report_frontend.evidence_gate import QUARANTINE, is_quarantined
+    import importlib
 
-    q = is_quarantined("face_eye_contact_ratio")
-    assert q is not None, (
-        "eye_contact 被解封了 —— 但特征是 `face_eye_contact_ratio` 恒 0.0(实测三场),"
-        "解封等于把「没测到」当成「测到 0」按权重 0.3 写进 confidence_level"
+    l0 = importlib.import_module("l0_columns")
+    doc = l0.load()
+    offenders = []
+    for a in doc.get("legacy_allowlist", []):
+        why = _fold_dashes(str(a.get("why", "")))
+        hit = [p for p in _DEAD_MECHANISMS if _fold_dashes(p) in why]
+        if hit and not any(m in str(a.get("why", "")) for m in _CORRECTION_MARKERS):
+            offenders.append(f"{a.get('column')}: 含「{'/'.join(hit)}」但没有更正标记")
+    assert not offenders, (
+        "这些白名单条目的 why 引用了**已被推翻的机制**却没写更正:\n  "
+        + "\n  ".join(offenders)
+        + "\n—— 要么删掉那个依据,要么留着它并写明「更正:…已不成立」。")
+
+
+# ── 仍指向「待删列」的槽(已知、待在该维度内重新分配权重) ─────────────────────
+# 槽位表(`research_mapper.mapping_rules`)与 L0 表/白名单是**两处独立维护**的登记,
+# 会漂:列说要删,槽却还指着它,而两边都没人发现。
+# 系统性扫描(2026-10-03)查出 **3 个**,合计权重 0.8 —— `speech_ratio` 与 `focus_score`
+# 都是先有守卫、后被它抓出来的(后者还是因为把 `planned` 从含糊的「M3.2」写明成「删列」)。
+#
+# ★ **2026-10-03 全部做掉,故本名单现在是空的**。处置 = **删槽 + 余下按原比例重归一**,
+#   依据:维度分只按「**过门**槽」的权重归一(`weighted_sum / total_weight`),
+#   所以按比例缩放**不改变任何分数**。实测两场端到端比对:分数 / level / confidence /
+#   观测区间 / 原始值 / 样本量 / `passed_slots` / `total_score` **一处都没变**,
+#   变的只有权重、`contribution`、`matched_indicators` 的**分母**与 `coverage.n_slots`。
+#   为什么"重归一"而不是"改指别的测量":改指同一测量会**数两遍**,而 `fluency_proxy`
+#   正是因此被永久封停的;改指别的构念则需要一套新的依据(本仓不许凭空给)。
+#   ⚠️ 名单**非空**就意味着"有一处槽仍指着待删列、且是已知的" —— 那是**临时状态**。
+#   处置理由与影响见 `docs/下一步.md`「丙、17」。
+#
+# ★★ 2026-10-03 **判据补洞,并由补好的判据抓出第 4、5 个** ★★
+#   原判据是 `kw in doomed`(**等值**),而槽的关键词是**特征引擎的匹配模式**、
+#   白名单里登记的是**落盘列名**,两者经常不是一个字符串:
+#     · `blink_rate` ⊂ `blink_rate_per_min` ⟹ 等值比对**抓不到**,
+#       于是这个真指着待删列的槽让本测试**假报干净**(名单空着就通过了,实测过)。
+#   补洞后立刻红了两次,查出 `cognitive_efficiency` 的 `au7_freq`(0.3)与
+#   `blink_rate`(0.2)—— 两条的源列(`micro_exp_au_name` / `blink_rate_per_min`)
+#   都标着 M3.2 删列。两条都已**删槽 + 重归一**(0.5 死权重 → 0.0)。
+#
+# ⚠️ **补完的判据仍有边界,不许当全称结论用**:双向子串只覆盖"关键词与列名互为子串"
+#   那一类。还有**名字上完全推不出来**的一类,实例就是上面那个 `au7_freq` ——
+#   它的取数键是 `face_micro_exp_micro_exp_au_name_au7_freq`(源列 `micro_exp_au_name`),
+#   两个名字之间**没有任何公共子串**;它之所以能被查出来,靠的是"某个**标签名**恰好
+#   等于这个关键词"这层知识,而标签词表不在 L0 里 ⟹ **机器推不出来**。
+#   这类**必须显式登记源列** —— 这正是 `_SLOTS_ON_DOOMED_COLUMNS` 第三个字段的用处。
+#   我试过用 token 交集兜这一类:**太松**,一次跑出 11 条误报
+#   (`left_wrist_jitter_world` ↔ `left_arm_angle` 之类),不可用,故不采用。
+#
+# 表项 = `(维度, 槽关键词, 源列名)`。⭐ 第三个字段必需:见上,有一类槽的名字与列名
+# 之间没有任何公共子串,只有登记了源列才能被机器校验。
+_SLOTS_ON_DOOMED_COLUMNS: tuple = ()
+
+
+def _doomed_columns() -> set:
+    """白名单里 `planned` 含「删列」的列名。"""
+    import importlib
+
+    l0 = importlib.import_module("l0_columns")
+    return {a["column"] for a in l0.load().get("legacy_allowlist", [])
+            if "删列" in str(a.get("planned", ""))}
+
+
+def _doomed_columns_hit_by(keyword: str, doomed) -> list:
+    """关键词命中了哪些「待删列」—— **双向子串**,不是等值。
+
+    为什么不能等值:见上面那段「判据补洞」。`blink_rate` ↔ `blink_rate_per_min`
+    两条方向各有用处(前者是关键词比列名短,后者是列名比关键词短),故都留着。
+    """
+    return sorted(c for c in doomed if keyword == c or keyword in c or c in keyword)
+
+
+def test_the_doomed_column_rule_catches_a_renamed_keyword():
+    """★ **正向对照**:判据必须真的抓得到"关键词是列名的一部分"那一类。
+
+    为什么单独立一条:下面那条测试**只在有人引用待删列时才红**,而当时名单正好是空的
+    ⟹ 把判据改回等值比对,它**照样绿**,洞会第二次静默出现(第一次就是这么漏的)。
+    这里拿**已经删掉的那个真槽**反推,把判据本身钉住。
+
+    红法(实测):把 `_doomed_columns_hit_by` 的 `keyword in c or c in keyword`
+    删回 `keyword == c`(等值)⟹ 本测试红 —— `blink_rate` 命中不到 `blink_rate_per_min`。
+    """
+    doomed = {"blink_rate_per_min", "focus_score", "micro_exp_au_name"}
+
+    assert _doomed_columns_hit_by("blink_rate", doomed) == ["blink_rate_per_min"], (
+        "`blink_rate` 是**真出现过**的那个槽:它的取数键是 "
+        "`face_blink_rate_per_min_mean`,源列 `blink_rate_per_min` 标着 M3.2 删列。"
+        "等值比对抓不到它 —— 这条断言就是钉这个的。")
+    assert _doomed_columns_hit_by("focus_score", doomed) == ["focus_score"]
+    # `au7_freq` 这一类**故意断言抓不到**:它不是本判据的射程,只能靠显式登记源列。
+    # 把它写成断言(而不是留个注释),是为了将来有人想拿 token 交集来"补全"时,
+    # 会先看到这里的边界在哪。
+    assert _doomed_columns_hit_by("au7_freq", doomed) == [], (
+        "`au7_freq` → `micro_exp_au_name` 是**名字推不出**的那一类(靠标签词表才知道),"
+        "双向子串本来就不该命中它 —— 若这条红了,说明判据被改成了 token 交集之类"
+        "更松的东西,而那实测有 11 条误报,请先看清上面那段边界说明。")
+
+
+def test_no_slot_points_at_a_column_marked_for_deletion():
+    """★ 槽位表与 L0 表是**两处独立维护**的登记 —— 列说要删、槽却还指着它,两边都没人发现。
+
+    判据:白名单里标了「删列」的列,不许再被任何槽当关键词(双向子串,见
+    `_doomed_columns_hit_by`)—— 除非显式登记进 `_SLOTS_ON_DOOMED_COLUMNS`
+    (= 已知、待重新分配权重,且**写明源列**)。
+
+    红法(**两个方向**):
+    - 有人**新**让一个槽指向待删列 ⟹ 红;
+    - 有人删掉了那个槽、或把列从待删名单里移走 ⟹ 红,要求同步这份名单。
+    """
+    from report_frontend.research_mapper import ResearchCapabilityMapper
+
+    doomed = _doomed_columns()
+    rules = ResearchCapabilityMapper().mapping_rules
+    pending = set(_SLOTS_ON_DOOMED_COLUMNS)
+
+    offenders = []
+    for dim, spec in rules.items():
+        for ind in spec.get("indicators", []):
+            kw = ind[0]
+            registered = {col for d, k, col in pending if (d, k) == (dim, kw)}
+            unresolved = [c for c in _doomed_columns_hit_by(kw, doomed)
+                          if c not in registered]
+            if unresolved:
+                offenders.append(f"{dim}.{kw}(w={ind[1]}) -> {unresolved}")
+    assert not offenders, (
+        "这些槽仍指向**已标记删列**的列:\n  " + "\n  ".join(offenders)
+        + "\n—— 要么在该维度内重新分配权重(不能改指同一测量,那会数两遍),"
+          "要么把它登记进 `_SLOTS_ON_DOOMED_COLUMNS` 并写清为什么、归哪个里程碑。")
+
+    for dim, kw, source_column in _SLOTS_ON_DOOMED_COLUMNS:
+        keys = [i[0] for i in rules.get(dim, {}).get("indicators", [])]
+        assert kw in keys, (
+            f"{dim}.{kw} 已经不在了 —— 若已重新分配过权重,请把它从 "
+            f"`_SLOTS_ON_DOOMED_COLUMNS` 划掉")
+        assert source_column in doomed, (
+            f"{dim}.{kw} 登记的源列「{source_column}」不再被标记待删 —— "
+            f"那本名单的处置要跟着改(要么留列、要么换依据)")
+
+
+
+def test_eye_contact_is_released_now_that_the_consumer_is_fixed():
+    """★ 2026-10-03:`eye_contact` **已解封** —— 本测试是当年那条「不许解封」钉子的**接班**。
+
+    历史留着(更正必须能**引述**旧说法,否则读的人对不上):
+    原钉子写「`eye_contact` 的 unblock 条件(改眼内相对坐标)**已达成**,但**不许解封**
+    —— 因为改的是**生产方**,消费方没跟着改」。那时 `feature_engine` 仍按
+    `sqrt((x−0.5)²+(y−0.5)²)` 算「到画面中心的距离」⟹ 特征恒 0.0,且无 `_std`
+    (G2 退回 fail-open)⟹ 解封等于把「没测到」当成「测到 0」按权重 0.3 写进 confidence_level。
+
+    2026-10-03 **消费方已改对**(见下一条),四项一并补齐:真原点 0 / 只取水平分量 /
+    按物理量程剔除坏帧 / `_std` 与 `_sample_size` ⟹ 解封条件真正达成,条目已从封停名单删除。
+    """
+    from report_frontend.evidence_gate import is_quarantined
+
+    assert is_quarantined("face_eye_contact_ratio") is None, (
+        "eye_contact 又被封停了 —— 若消费方口径退化(例如又按画面中心算),它的特征会重新恒 0,"
+        "那时才该重新封停"
     )
-    reason = q.reason
-    assert ("消费" in reason or "feature_engine" in reason), (
-        f"eye_contact 的封停理由必须点名**消费方**(生产方已修好,问题在 feature_engine 仍按"
-        f"画面中心算距离),现在写的是:{reason!r}"
+    assert ("face_eye_contact_ratio", "eye_contact") in _RELEASED, (
+        "解封证据必须登记在 `_RELEASED` 里 —— 判据是「它自己写的那个理由不成立」,"
+        "不是「我们觉得这个量挺有用」"
     )
-    assert "iris 图像坐标" not in reason, (
-        f"理由仍停在被修好的生产方那一侧 —— 读的人会去改已经改对的地方:{reason!r}"
+
+
+def test_eye_contact_consumer_uses_the_eye_relative_origin():
+    """★ 消费方口径:**iris 四列的真原点是 0**(虹膜在眼内偏了多少),不是画面中心 0.5。
+
+    fixture 沿用被替换掉的那条钉子,便于逐值对照。同样这 6 个数:
+    旧口径 `max(0, 1 − 2·√((x−0.5)²+(y−0.5)²))` **恒 0.0**;
+    新口径给出 0.7705 —— 因为 iris 四列量的是"虹膜在眼内偏了多少",不是"脸在画面哪儿"。
+
+    红法(三条各自独立):
+    - 把原点改回 0.5 ⟹ 值塌回 ~0,本测试红;
+    - 把 y 也算进来 ⟹ 被 y 的解剖偏移(−0.15~−0.20)拉低,本测试红;
+    - 去掉 `_std` / `_sample_size` ⟹ 后两条断言红(G2/G3 会退回 fail-open)。
+    """
+    import math
+
+    import pandas as pd
+
+    from report_frontend.feature_engine import PsychologicalFeatureEngine
+
+    df = pd.DataFrame({"left_iris_x": [-0.20, -0.02, 0.13], "left_iris_y": [-0.16, -0.14, -0.12],
+                       "right_iris_x": [-0.01, 0.01, 0.05], "right_iris_y": [-0.18, -0.16, -0.15]})
+    feats = PsychologicalFeatureEngine({"face": df}).extract_all_features()["face"]
+
+    bound = (1.0 - 11.7 / 30.0) / 2.0          # = 0.305,见 feature_engine 里的推导
+    xs = [0.20, 0.02, 0.13, 0.01, 0.01, 0.05]  # 两眼的 |iris_x|
+    expect = sum(1.0 - x / bound for x in xs) / len(xs)
+    got = feats["face_eye_contact_ratio"]
+    assert abs(got - expect) < 1e-6, f"手算 {expect:.4f},实得 {got}"
+
+    # 旧口径在同样的输入上恒 0 —— 这就是被修掉的那个 bug(取左眼第 1 帧为例)
+    old = max(0.0, 1.0 - 2 * math.hypot(-0.20 - 0.5, -0.16 - 0.5))
+    assert old == 0.0, "旧口径的复现写错了"
+    assert got > 0.5, f"正视前方的一组值不该得低分:{got}"
+
+    # G2(非常量)要 `_std`;G3(样本够)要 `_sample_size` —— 缺任一个都会静默 fail-open
+    assert feats["face_eye_contact_ratio_std"] > 0, "缺 _std ⟹ G2 退回 fail-open"
+    assert feats["face_eye_contact_ratio_sample_size"] == len(xs), (
+        "缺 _sample_size ⟹ G3 落到模态行数,门槛就只是一枚橡皮图章"
     )
-    assert QUARANTINE["eye_contact"].unblock, "解封条件不能被清空(那是给人看的下一步)"
 
 
-def test_the_eye_contact_consumer_is_still_frame_centred():
-    """上一条钉子的**机制依据**:眼内相对坐标喂进去,`face_eye_contact_ratio` 恒 0。
+def test_eye_contact_drops_physically_impossible_iris_frames():
+    """★ 第二个坑:虹膜跑出睑裂的坏帧必须剔除,否则均值被拖垮。
 
-    这是特征,不是断言「应该这样」—— 它记录**当前**消费方的行为,好让"哪天消费方改成眼内
-    口径了"这件事有人看得见(那时本测试变红,eye_contact 才该真的解封)。
+    生产方 `(虹膜中心 − 眼中心) ÷ 眼宽` 在**眼宽分母塌缩**(landmark 失败)时会吐
+    物理上不可能的值 —— 四场高质量素材实测量级可达 ±3.9,占 0.00%~0.29%。
+    占比虽小,但**一个 ±4 就能把 30 个正常帧的均值从 0.90 拉到 0.87**,而且它进的是
+    「眼神接触」这种人看人话的槽,不该由 landmark 抖动决定。
+
+    红法:去掉 `_IRIS_MAX_HORIZONTAL_EXCURSION` 那个 if ⟹ 本测试红
+    (`_sample_size` 会多 1,均值被拉低)。
     """
     import pandas as pd
 
     from report_frontend.feature_engine import PsychologicalFeatureEngine
 
-    # 眼内相对坐标的真实量级(重放三场实测:左眼 x ∈ [−0.36, 1.31],y ∈ [−0.5, 0.2])
-    df = pd.DataFrame({"left_iris_x": [-0.20, -0.02, 0.13], "left_iris_y": [-0.16, -0.14, -0.12],
-                       "right_iris_x": [-0.01, 0.01, 0.05], "right_iris_y": [-0.18, -0.16, -0.15]})
+    ok = [0.03] * 30                     # 30 帧正常:虹膜几乎居中
+    df = pd.DataFrame({"left_iris_x": ok + [4.0],          # 1 帧坏值(虹膜"跑出眼眶")
+                       "right_iris_x": [None] * 31})
     feats = PsychologicalFeatureEngine({"face": df}).extract_all_features()["face"]
 
-    assert feats["face_eye_contact_ratio"] == 0.0, (
-        f"face_eye_contact_ratio 不再是恒 0({feats['face_eye_contact_ratio']})—— "
-        f"若消费方改成了眼内口径,eye_contact 的解封条件才真正达成"
+    assert feats["face_eye_contact_ratio_sample_size"] == 30, "坏帧被算进了样本量"
+    bound = (1.0 - 11.7 / 30.0) / 2.0
+    assert abs(feats["face_eye_contact_ratio"] - (1.0 - 0.03 / bound)) < 1e-6, (
+        f"坏帧影响了均值:{feats['face_eye_contact_ratio']}"
     )
-    assert "face_eye_contact_ratio_std" not in feats, (
-        "本列现在有 _std 伴随列了 —— G2 不再 fail-open,本钉子的前提变了"
-    )
+
+
+def test_the_released_eye_contact_really_reaches_the_score():
+    """★ 解封必须**真的改变打分** —— 否则它只是一次无声的表改动
+    (本仓已 5 次栽在"验证跑错了对象")。
+
+    端到端(特征 → 四关 → 打分):给一个四关都过的 face 特征,断言 eye_contact
+    出现在 `confidence_level` 的 `evidence_chain` 里,且用的是**它自己的** `n_valid`
+    ——刻意让 628 ≠ 模态行数 321,这样"退回到模态行数"会被抓住。
+
+    实测(2026-10-03,场 `..._f98d` 走完整链路):
+      raw 0.8298 / n_valid 628 / std 0.1357。
+    ⚠️ 2026-10-04:原来还断言 `normalized_score 0.83` 与 `contribution 0.249`(并入
+    `positive_factors`)—— 那三个字段随评分层一起摘除了(见 `research_mapper` 返回处
+    那段注释)。**"它真的进了报告"这条判据没有变**:过门 ⟺ 出现在 `evidence_chain` 里,
+    而 `evidence_chain` 正是渲染层逐槽出表的那批数据。
+
+    红法:把封停条目加回去 / 去掉 `_sample_size` 或 `_std` / 把值改回恒 0 ⟹ 红。
+    """
+    from report_frontend.research_mapper import ResearchCapabilityMapper
+
+    feats = {"face": {
+        "face_eye_contact_ratio": 0.83,
+        "face_eye_contact_ratio_std": 0.14,           # G2:会话内非常量
+        "face_eye_contact_ratio_sample_size": 628,    # G3:它**自己**的样本量
+        "_n_rows": 321.0,                             # 模态行数,故意与上面不同
+    }}
+    dims = ResearchCapabilityMapper().map_features_to_scores(feats)["dimensions"]
+    chains = [e for d in dims.values() for e in d.get("evidence_chain", [])]
+    hit = next((e for e in chains if e["feature"] == "face_eye_contact_ratio"), None)
+    assert hit is not None, (
+        f"eye_contact 没进 evidence_chain(仍在缺口里?):{[e['feature'] for e in chains]}")
+    assert hit["n_valid"] == 628, (
+        f"用的不是它自己的样本量(回落到了模态行数?):{hit['n_valid']}")
+    assert hit["std"] > 0, "G2 没拿到 `_std` ⟹ 非常量这一关形同虚设"
+    # "真的进了报告" = 它在 `evidence_chain` 里(上面已断言),而 `evidence_chain`
+    # 正是渲染层逐槽出表用的那批数据 —— 不再需要一个折算后的分数来证明。
+    assert set(hit) == {"feature", "human_name", "raw_value", "n_valid", "std",
+                        "observed_interval"}, (
+        f"evidence_chain 的字段集变了(评分类字段不该回来):{sorted(hit)}")
 
 
 def test_question_index_is_not_dropped():
@@ -541,100 +1041,20 @@ BANNED = ["焦虑", "紧张", "压力", "抗压", "情绪稳定", "说谎", "诚
           "录用", "人格", "心理画像", "常模"]
 
 
-# --- I2:折算因子必须在 evidence_thresholds.json 登记(spec §5.1) ---
-
-# (slot 关键词, JSON 内的补丁路径, 补丁值, 输入原始值, 期望归一值)
-# 期望值按**打补丁后的登记值**手工推算:若某族又被写回代码里的裸常量,
-# 该行的期望值不会出现(例如 density 会恒为 1.0 而不是 0.05)。
-_SCALE_CASES = [
-    ("connective_density", ("scale_factors", "density", "full_scale"), 1.0, 0.05, 0.05),
-    ("jitter", ("scale_factors", "jitter", "full_scale"), 0.4, 0.1, 0.25),
-    ("gaze_deviation", ("scale_factors", "deviation", "full_scale"), 0.4, 0.1, 0.25),
-    # 2026-09-26:关键词随语音日志的列名改成 `n_chars`(先前是 text_avg_length),
-    # 量程表的键跟着改 —— 键与关键词必须同名,否则这条登记静默失效。
-    ("n_chars", ("scale_factors", "n_chars", "full_scale"), 60.0, 30.0, 0.5),
-    ("energy", ("scale_factors", "energy", "full_scale"), 0.002, 0.001, 0.5),
-    ("pitch_variation", ("scale_factors", "pitch_variation", "full_scale"), 40.0, 20.0, 0.5),
-    ("fluency_score", ("scale_factors", "score", "percent_divisor"), 50.0, 20.0, 0.4),
-    # pause 分箱用合成键 pause_seconds:真实词表里唯一含 pause 的键是 pause_duration,
-    # 而它同时含 ratio,按 legacy 归因走恒等族(见下方 shadowing 测试)。
-    ("pause_seconds", ("scale_factors", "pause", "above_span"), 1.0, 4.0, 1.0),
-    ("pause_seconds", ("scale_factors", "pause", "below_value"), 0.25, 0.3, 0.25),
-    ("blink_rate", ("_default_scale_factor", "full_scale"), 100.0, 50.0, 0.5),
-    # 恒等族(ratio/freq/stability/contact)也必须来自登记表:整个族换成 full_scale 后
-    # 半径语义变了,输出必须跟着变(1.0 → 0.5),否则说明该族是代码里的分支常量。
-    ("speech_ratio", ("scale_factors", "ratio"),
-     {"kind": "full_scale", "full_scale": 2.0,
-      "basis_kind": "legacy_arbitrary", "basis": "测试探针"}, 1.0, 0.5),
-]
+# ⚠️ 2026-10-04 **已移**除折算层那一组钉子(`_SCALE_CASES` + 三条测试):
+#   · 已移 `test_scale_factors_are_registered_not_hardcoded`
+#   · 已移 `test_pause_duration_is_shadowed_by_the_ratio_family`
+#   · 已移 `test_every_registered_scale_factor_declares_a_basis`
+#   它们守的都是 `evidence_thresholds.json` 的 `scale_factors` 登记表,而那张表已随
+#   评分层**整层摘除**(见 `docs/下一步.md`「甲、22」)—— **没有分数就不需要标尺**。
+#   同一天已移的还有本文件末尾那条 `test_the_jitter_scale_factor_is_a_registered_calibration_debt`
+#   (它的期望值全都来自 `normalize_value`)。⚠️ 那条带走了一个**真实的发现**,记在这里:
+#   它证明过「**G1~G4 全都只看原始列,没有任何一关看归一后的值**」⟹ 一个因子选错
+#   (`jitter` 的 `full_scale` 是旧单位遗留)就能造出一个**四关全过却零信息**的槽
+#   (实测归一后恒 ≈0.99)。那是「丙、9」。**折算层删掉之后这个洞按构消失** ——
+#   没有折算,就没有"因子错了而门看不见"这回事。
 
 
-def test_scale_factors_are_registered_not_hardcoded(tmp_path, monkeypatch):
-    """spec §5.1:临时值不得写成代码里的裸常量。
-
-    逐族把 evidence_thresholds.json 里的登记值改掉,`_dynamic_normalize` 的输出必须随之
-    改变。任何一族被硬编码回代码里,该族那一行就会拿到打补丁前的值 → 本测试变红。
-    """
-    import json
-
-    from report_frontend import evidence_gate
-
-    data = json.loads(evidence_gate._THRESHOLD_FILE.read_text(encoding="utf-8"))
-    probe = tmp_path / "evidence_thresholds.json"
-
-    for keyword, path, value, raw, expected in _SCALE_CASES:
-        node = data
-        for part in path[:-1]:
-            node = node[part]
-        node[path[-1]] = value
-        probe.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-        monkeypatch.setattr(evidence_gate, "_THRESHOLD_FILE", probe)
-
-        got = ResearchCapabilityMapper()._dynamic_normalize(raw, keyword)
-        assert abs(got - expected) < 1e-9, (
-            f"{keyword} 的归一化没跟着登记值变:期望 {expected},实际 {got}"
-            f" —— 该族的因子可能被写回了代码里的裸常量"
-        )
-
-
-def test_pause_duration_is_shadowed_by_the_ratio_family():
-    """pause_duration 撞名留档 —— spec §8.2 #2 把这条标为「待查」,本轮实测结案。
-
-    实测(旧实现的 if 链 与 本实现的最长匹配,两者一致):`'ratio' in 'pause_duration'`
-    为真,而恒等族在旧 if 链里排在 pause 之前 → pause_duration 走的是**恒等**分支,
-    0.5–3.0s 的分箱从未执行过。spec §8.2 说"不含 ratio、走 pause 分支"是**记错了**。
-
-    本测试把 legacy 行为钉住(改它要动登记表,且应带 M5 依据):
-    若有人把 pause 族调到 ratio 之前,pause_duration 的归一化随之改变 → 本测试变红。
-    """
-    from report_frontend.evidence_gate import scale_factor_for
-
-    assert "ratio" in "pause_duration" and "pause" in "pause_duration", "撞名的前提变了"
-    assert scale_factor_for("pause_duration")["kind"] == "identity", \
-        "pause_duration 的归因变了 —— legacy 走的是恒等族(0.5–3.0s 分箱从未执行)"
-    # 合成键 pause_seconds 不含 ratio,才能走到登记的分箱(真实词表里没有这样的键)
-    assert scale_factor_for("pause_seconds")["kind"] == "pause_bins"
-
-
-def test_every_registered_scale_factor_declares_a_basis():
-    """spec §5.1:登记项必须声明依据;没有依据的必须显式写 legacy_arbitrary,不得留空。"""
-    from report_frontend.evidence_gate import load_thresholds
-
-    data = load_thresholds()
-    assert data["scale_factors"], "折算因子未登记"
-    kinds = {"definitional", "physical", "legacy_arbitrary"}
-    for name, spec in data["scale_factors"].items():
-        assert spec.get("basis"), f"{name} 未声明依据"
-        assert spec["basis_kind"] in kinds, f"{name} 的 basis_kind 未登记:{spec['basis_kind']}"
-    default = data["_default_scale_factor"]
-    assert default.get("basis") and default["basis_kind"] in kinds
-
-# 混合 fixture:让 logical_thinking 真的出分(1/4 槽过门),其余 4 维仍为 score=None。
-# 叙事层里禁止词与硬编码句原本住在**出分路径**上,零证据输入会在组合那几句之前
-# 就短接掉 —— 用零证据 fixture 的测试因此对改动前后都通过(本计划已栽过八次)。
-# 本 fixture 让三条叙事层测试同时走到出分路径与无证据路径。
-# 键名与量程同源:真实日志列 connective_density 经 feature_engine 的通用数值路径
-# 产出 _mean/_std,量程是「每百字 10 个」—— 10.0 正好落在满量程上(分数饱和端)。
 _MIXED = {"voice_research": {"connective_density_mean": 10.0,
                              "connective_density_std": 1.0,
                              "_n_rows": 100.0}}
@@ -667,14 +1087,16 @@ def test_report_renders_no_candidate_rating():
     一个都到不了渲染层 —— 用零证据 fixture 的断言在改动前后都通过(空断言)。
     """
     result = ResearchCapabilityMapper().map_features_to_scores(_MIXED)
-    assert result["total_level"] in _LEVEL_WORDS, "fixture 没走进五档评语,本测试退化为空断言"
+    # 前提:_MIXED 必须真的走出"有证据"这条路 —— 否则只扫得到"无证据"那几句(空断言)。
+    # 以前这里靠 `total_level in _LEVEL_WORDS` 当前提;档位摘除后改用**覆盖数**,
+    # 那本来也更贴本仓的主张。
+    assert result["coverage"]["n_passed"] > 0, "fixture 无过门槽,本测试退化为空断言"
 
     html = _rendered_html(result, _MIXED)
 
     for word in _LEVEL_WORDS:
         assert word not in html, f"报告仍把档位评语渲染成对人的评级:{word}"
     assert "综合行为观测评分" not in html, "报告仍把未标定标尺上的点分当评分渲染"
-    assert str(result["total_score"]) not in html, "报告仍渲染点分数值"
 
     # 正向断言:否则"把整段都删掉"也能让本测试通过
     assert "观测区间" in html, "聚合呈现缺区间(spec §5.6:区间 + 置信度 + 依据)"
@@ -688,7 +1110,7 @@ def test_zero_value_scored_session_renders_no_verdict():
     与 `_MIXED`(100.0 / 卓越)合起来覆盖点分的两端;只测高分端会漏掉低分端。
     """
     result = ResearchCapabilityMapper().map_features_to_scores(_LOW)
-    assert result["total_level"] == "待提升", "fixture 没走进「待提升」档,本测试退化为空断言"
+    assert result["coverage"]["n_passed"] > 0, "fixture 无过门槽,本测试退化为空断言"
 
     html = _rendered_html(result, _LOW)
 
@@ -704,7 +1126,7 @@ def test_scored_dimension_follows_spec_5_4_shape_and_carries_5_6_caveat():
     """
     result = ResearchCapabilityMapper().map_features_to_scores(_MIXED)
     dim = result["dimensions"]["logical_thinking"]
-    assert dim["score"] is not None, "fixture 未出分,本测试退化为空断言"
+    assert dim["evidence_chain"], "fixture 该维度没有过门槽,本测试退化为空断言"
 
     html = _rendered_html(result, _MIXED)
 
@@ -712,7 +1134,8 @@ def test_scored_dimension_follows_spec_5_4_shape_and_carries_5_6_caveat():
         assert token in html, f"出分维度缺 {token}(spec §5.4 / §5.6)"
     assert "归一值" not in html, "维度表仍在渲染未标定标尺上的归一化点分"
     # 缺口仍要逐维列出(spec §5.4 的 evidence_gaps)
-    assert len(dim["evidence_gaps"]) == 3 and "未过门的指标" in html
+    # ⚠️ 2026-10-03 缺口由 3 改 2:logical_thinking 删掉了 `focus_score` 槽 ⟹ 声明槽数 4 → 3。
+    assert len(dim["evidence_gaps"]) == 2 and "未过门的指标" in html
 
 
 def test_deep_analysis_summary_has_no_point_score_or_level():
@@ -720,7 +1143,7 @@ def test_deep_analysis_summary_has_no_point_score_or_level():
     from report_frontend.report_generator import ReportGenerator
 
     result = ResearchCapabilityMapper().map_features_to_scores(_MIXED)
-    assert result["total_level"] in _LEVEL_WORDS, "fixture 没走进五档评语,本测试退化为空断言"
+    assert result["coverage"]["n_passed"] > 0, "fixture 无过门槽,本测试退化为空断言"
 
     html = ReportGenerator()._generate_deep_text_analysis(_MIXED, result)
 
@@ -732,14 +1155,15 @@ def test_deep_analysis_summary_has_no_point_score_or_level():
 def test_radar_plots_coverage_not_scores():
     """spec §5.4/§5.6:雷达图的半径不得再是维度点分。
 
-    `_MIXED` 下 logical_thinking 的维度分是 100.0(未标定标尺上的复合点分),
-    而它的覆盖数是 1/4 —— 半径若回到 `dim['score']`,r 里会出现 100.0 → 本测试变红。
+    `_MIXED` 下 logical_thinking 的覆盖数是 1/4 —— 半径若回到 `dim['score']`,r 里会出现
+    100.0 → 本测试变红。⚠️ 2026-10-04 起 `dim['score']` **已不存在**(整层摘除),
+    所以"回到点分"这件事在类型上也不可能了;本测试仍然守着"半径就是过门槽数"
+    这条**正向**断言(否则"整张图删掉"也能通过)。
     """
     from report_frontend.visualizer import ReportVisualizer
 
     result = ResearchCapabilityMapper().map_features_to_scores(_MIXED)
-    assert result["dimensions"]["logical_thinking"]["score"] == 100.0, \
-        "fixture 未出分,本测试退化为空断言"
+    assert result["coverage"]["n_passed"] > 0, "fixture 无过门槽,本测试退化为空断言"
 
     fig = ReportVisualizer(output_dir="/tmp")._build_radar_figure(result)
     raw = list(fig.data[0].r)
@@ -777,16 +1201,18 @@ def test_observed_interval_is_session_derived():
     for claim in ("百分位", "优于", "Top", "分位"):
         assert claim not in html, f"报告出现人群位置表述:{claim}"
 
-    # 无 _mean 后缀的键:同一个 _std 取法,`<键>_std` 那条分支
-    # ⚠️ 这是**合成 fixture**(T6 审查结论):生产键里没有「有 _std 兄弟姐妹、却没有 _mean」
-    #    的形态,故这条分支对真实数据目前不起作用。保留只为钉住取法本身 —— 日后真有人
-    #    写出这种键时,别才发现它静默拿不到标准差。
-    bare = {"face": {"face_energy": 0.5, "face_energy_std": 0.1, "_n_rows": 100.0}}
+    # 无 `_mean` 后缀的键:同一个 `_std` 取法,`<键>_std` 那条分支。
+    # ⚠️ 2026-10-04 改用它:`energy` 槽(原来的 fixture 挂靠点)已删。
+    #    而 `eye_contact` 是**真实键形态** —— `feature_engine` 产出的就是
+    #    `face_eye_contact_ratio` + `face_eye_contact_ratio_std`(没有 `_mean`)⟹
+    #    这条分支**真的有生产用例**,不再是"只为钉取法本身"的合成 fixture。
+    bare = {"face": {"eye_contact_ratio": 0.83, "eye_contact_ratio_std": 0.07,
+                     "_n_rows": 100.0}}
     dim = ResearchCapabilityMapper().map_features_to_scores(bare)["dimensions"]["confidence_level"]
-    ev = next(e for e in dim["evidence_chain"] if e["human_name"] == "语音能量")
-    assert ev["feature"] == "face_energy", f"钉的键变了:{ev['feature']}"
-    assert ev["observed_interval"] == [0.4, 0.6], (
-        f"不带 _mean 的键没取到伴随标准差:{ev['observed_interval']}"
+    ev = next(e for e in dim["evidence_chain"] if e["human_name"] == "眼神接触比例")
+    assert ev["feature"] == "face_eye_contact_ratio", f"钉的键变了:{ev['feature']}"
+    assert ev["std"] == 0.07 and ev["observed_interval"], (
+        f"不带 _mean 的键没取到伴随标准差:{ev['std']} / {ev['observed_interval']}"
     )
 
 
@@ -811,8 +1237,8 @@ def test_deep_analysis_has_no_banned_words():
     from report_frontend.report_generator import ReportGenerator
 
     result = ResearchCapabilityMapper().map_features_to_scores(_MIXED)
-    # 断言 fixture 真的走出了分路径 —— 否则本测试退化为只扫无证据文案
-    assert result["total_score"] is not None, "fixture 未出分,本测试退化为空断言"
+    # 断言 fixture 真的有证据可渲染 —— 否则本测试退化为只扫无证据文案
+    assert result["coverage"]["n_passed"] > 0, "fixture 无过门槽,本测试退化为空断言"
     html = ReportGenerator()._generate_deep_text_analysis(_MIXED, result)
 
     for word in BANNED:
@@ -820,20 +1246,22 @@ def test_deep_analysis_has_no_banned_words():
 
 
 def test_deep_analysis_handles_none_scores():
-    """score 为 None 的维度不得参与排序/取最大值,且仍要渲染成"证据不足"。
+    """**没有证据**的维度不得参与排序/取最大值,且仍要渲染成"证据不足"。
 
-    ⚠️ fixture 必须是 _MIXED:零证据输入会让 total_score 直接为 None,
-    根本走不到 max(..., key=CONF_ORDER.get) 那一行,本测试就守不住它。
-    _MIXED 下 logical_thinking 出分、其余 4 维为 None,两条路径同时被走到。
+    ⚠️ 2026-10-04:判据由"`score is None`"改成"`evidence_chain` 为空" —— 两者等价
+    (没有过门槽 ⟺ 没有分),而点分本身已摘除。
+    ⚠️ fixture 必须是 _MIXED:零证据输入会让**每一维**都空,走不到
+    `max(..., key=CONF_ORDER.get)` 那一行;`_MIXED` 下 logical_thinking 有证据、
+    其余 4 维为空,两条路径同时被走到。
     """
     from report_frontend.report_generator import ReportGenerator
 
     result = ResearchCapabilityMapper().map_features_to_scores(_MIXED)
     html = ReportGenerator()._generate_deep_text_analysis(_MIXED, result)
 
-    assert result["total_score"] is not None, "fixture 未出分,本测试守不住 conf_cap 那一行"
-    assert any(d["score"] is None for d in result["dimensions"].values()), \
-        "fixture 无 None 维度,本测试守不住'证据不足'渲染"
+    assert result["coverage"]["n_passed"] > 0, "fixture 无过门槽,本测试守不住 conf_cap 那一行"
+    assert any(not d["evidence_chain"] for d in result["dimensions"].values()), \
+        "fixture 无'无证据'维度,本测试守不住'证据不足'渲染"
     assert "证据不足" in html
 
 
@@ -846,7 +1274,7 @@ def test_no_hardcoded_gaze_claim():
     from report_frontend.report_generator import ReportGenerator
 
     result = ResearchCapabilityMapper().map_features_to_scores(_MIXED)
-    assert result["total_score"] is not None, "fixture 未出分,本测试退化为空断言"
+    assert result["coverage"]["n_passed"] > 0, "fixture 无过门槽,本测试退化为空断言"
     html = ReportGenerator()._generate_deep_text_analysis(_MIXED, result)
     assert "未出现异常的回避行为" not in html
     assert "如外科医生般" not in html
@@ -961,31 +1389,3 @@ def test_the_released_slots_still_pass_the_other_three_gates():
             f"解封动作把别的关一起松掉了")
 
 
-def test_the_jitter_scale_factor_is_a_registered_calibration_debt():
-    """★ 解封 `jitter` 之后**必须**留下这条:该槽在当前产出上等于一个常量。
-
-    登记因子 `scale_factors.jitter.full_scale = 0.2` 是旧单位(val×5)的遗留,
-    而 B3 把列改成了「÷ 肩宽 ÷ 窗内真实秒数」⟹ 米制抖动 raw ≈ 0.001~0.002,
-    比旧量程小约 200 倍 ⟹ 归一后 ≈0.006、**反向翻向后恒 ≈0.99**。
-    四关**都不看归一后的值**(它们看的是原始列),所以这个槽四关全过却零信息。
-
-    这条钉子把"标定债"变成可被看见的东西:**M5 重登记该因子时它会红**,
-    那时把期望值改成新因子下的实测值即可 —— 而不是让这个洞静默存在。
-
-    红法:有人把 `full_scale` 改成与新单位相称的值(那正是该做的,届时更新本测试),
-    或把 `normalize_value` 改成先看归一值再判常量。
-    """
-    from report_frontend.evidence_gate import normalize_value, scale_factor_for
-
-    sf = scale_factor_for("gesture_left_wrist_jitter_world_mean")
-    assert sf["basis_kind"] == "legacy_arbitrary", (
-        f"jitter 族的依据类别变了({sf['basis_kind']})—— 若已按自采分布重登记,"
-        f"请连同下面这两个期望值一起更新")
-
-    # 三场重放的米制腕部抖动会话均值
-    for raw in (0.0011, 0.0013, 0.0018):
-        nv = normalize_value(raw, "gesture_left_wrist_jitter_world_mean")
-        assert nv < 0.01, f"raw={raw} 的归一值不再是近 0({nv})—— 因子似乎已重登记"
-        assert (1.0 - nv) > 0.98, (
-            f"raw={raw} 反向翻向后不再是近满值({1.0 - nv})—— "
-            f"若因子已标定,把这条钉子的期望值改成新实测值")

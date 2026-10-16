@@ -269,6 +269,9 @@ def face_env(tmp_path, monkeypatch):
     monkeypatch.setattr(face_app, "VideoPipeline", _FakeFacePipeline)
     face_app.session_pipelines.clear()
     face_app.session_loggers.clear()
+    # 取景状态也是模块级、按 session_id 缓存的（2026-10-03 加的），不清会跨测试残留：
+    # 同一个 id 在下一个测试里会**跳过探测**、直接用上一个测试定下的取景。
+    face_app.session_framing.clear()
     return tmp_path
 
 

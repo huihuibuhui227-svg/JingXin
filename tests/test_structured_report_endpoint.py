@@ -77,8 +77,25 @@ def test_structured_report_still_answers_when_the_target_has_no_logs(client):
     assert body["status"] == "success", body
     assert body["session_id"] == _SID, "空数据时反而说不出描述的是哪一场"
     assert body["result"]["coverage"]["n_passed"] == 0, body["result"]["coverage"]
-    # 分母也要钉住(复审 Minor 4):"0 / 20" 里的 20 是可回归的
-    assert body["result"]["coverage"]["n_slots"] == 20, body["result"]["coverage"]
+    # 分母要钉住(复审 Minor 4)—— 它是可回归的。
+    # ⚠️ 这个数**抄过三次、错了两次**(20 → 17 → 15),每次都是"人工记得改";
+    #    2026-10-03 丙-17 第二批删槽(`au7_freq` / `blink_rate`)时**又漏了它**,
+    #    是 `tools/jx_selfcheck.py --all` 跑全量才抓出来的。所以现在改成**两条**:
+    #    ① 端点报的数必须等于槽位表里**声明槽的总数**(推导,不会过期);
+    #    ② 推导出来的总数钉在一个字面量上(那一条才是"槽表被改过"的警报)。
+    from report_frontend.research_mapper import ResearchCapabilityMapper
+
+    declared = sum(len(s["indicators"])
+                   for s in ResearchCapabilityMapper().mapping_rules.values())
+    got = body["result"]["coverage"]["n_slots"]
+    assert got == declared, (
+        f"端点报的槽数 {got} 与槽位表声明的 {declared} 不符 —— "
+        f"覆盖率的分母必须数全**声明**的槽(包括永不可能过门的那些,那是刻意的)")
+    assert declared == 14, (
+        f"槽位表的声明槽总数从 15 变成了 {declared}。若是有意改动(加/删槽),"
+        f"请一并同步:`docs/下一步.md`「丙、17 / 丙、18」的两张表、"
+        f"`tests/test_dimension_live_weight.py` 的 `_DEAD_WEIGHT`、"
+        f"以及本文件这个数。若并非有意 —— 那是槽表被误动,先查再改。")
     assert all(v["status"] == "missing"
                for k, v in body["sources"].items() if k != "none_bucket"), body["sources"]
 

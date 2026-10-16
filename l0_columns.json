@@ -94,8 +94,8 @@
     {
       "column": "focus_score",
       "modality": "face",
-      "why": "3 个硬编码取值,99.7% 恒 0.3(QUARANTINE 已封停)",
-      "planned": "M3.2"
+      "why": "3 值分箱(0.3/0.5/0.8),不是测量 —— 实测四场高质量素材可被 (head_yaw, blink_rate_per_min) **100% 精确重构**(零额外信息);且 **99% 恒 0.3**(f98d 314/314、5b10 343/343、2e84 962/971、8102 6597/6619),根因是 head_yaw 有 **~+0.35 常量偏移**(四场中位 +0.287~+0.371)而分箱阈值是 0.03/0.08 ⟹ 0.8 那档结构性不可达。更深一层:head_yaw 自身登记为「不实现、不近似」(真 3D 头姿需相机内参,本项目没有)⟹ 不该靠调阈值救(那是拟合分布),也不该靠 2D 近似救(登记明令禁止)。evidence_gate.QUARANTINE['focus_score'] 已封停。",
+      "planned": "与兄弟条目 tension_score / tension_level 一致:**M3.2 删列**;若先拿到相机内参,则 head_yaw 解封、改用连续 yaw 替代这个分箱(见 head_yaw 的 acceptance)"
     },
     {
       "column": "session_id",
@@ -112,7 +112,7 @@
     {
       "column": "blink_rate_per_min",
       "modality": "face",
-      "why": "§4.1:186 依据栏原文:「直接列恒 0;衍生列走挂钟 60 秒窗 → 编码机器负载」,L0 形态栏:「从 is_blink 算 per-sec」。⚠️ 「恒 0」这条已由 M2.5 修掉(序列化改用 current_au,video_pipeline.py;evidence_gate.QUARANTINE['blink_rate'] 的 blink_rate 封停 unblock 写的正是「M2 修序列化」);剩下的删除理由是「60 秒窗」那条:窗口按会话相对秒算,量的不是 per-sec 眨眼率。",
+      "why": "§4.1:186 依据栏原文:「直接列恒 0;衍生列走挂钟 60 秒窗 → 编码机器负载」,L0 形态栏:「从 is_blink 算 per-sec」。⚠️ 「恒 0」这条已由 M2.5 修掉(序列化改用 current_au,video_pipeline.py;evidence_gate.QUARANTINE['blink_rate'] 的 blink_rate 封停 unblock 写的正是「M2 修序列化」)。⚠️ **更正(2026-10-03):原来「剩下的删除理由是『60 秒窗』那条:窗口按会话相对秒算,量的不是 per-sec 眨眼率」这句不成立** —— 该窗现在就是按真实 `timestamp` 算的,而「60 秒窗内的次数」**本来就是** per-minute 率,换单位/换统计量都治不了。实测出来的真病因是**采样率**:帧间隔中位 1.000~1.002 s 而眨眼时长 100~400 ms(漏检是结构性的),且 0.3 s 去抖在 1 fps 下**恒不触发** ⟹ 它计的是「最近 60 秒里判定闭眼的**帧数**」(上限 = 60 s 内的帧数,实测 max 57)而不是眨眼次数;另有误检(`is_blink` 连续段出现 14/18/19/21/28 帧的长段)。完整实测与处置见 `evidence_gate.QUARANTINE['blink_rate']`。",
       "planned": "M3.2 删列"
     },
     {
@@ -148,8 +148,8 @@
     {
       "column": "gaze_deviation",
       "modality": "face",
-      "why": "§4.1:191 依据栏原文:「与 gaze_direction_y 组内 r = −0.994」",
-      "planned": "M3.2 删列"
+      "why": "§4.1:191 依据栏原文:「与 gaze_direction_y 组内 r = −0.994」。**更正(2026-10-03)**:那个 r 值**已不再成立** —— 本仓 `_DEAD_MECHANISMS` 里就记着「gaze_deviation:实测 r = −0.71/−0.42/−0.06」(2026-09-27 三场重放),所以**不能**再拿「组内 r = −0.994」当删除依据。**现存的删除依据是结构性的**:gaze_deviation 是 gaze_direction_x 与 gaze_direction_y 的平方和开方,而 gaze_direction_y 是**解剖常量**(四场高质量素材实测中位 −0.16~−0.195、std 仅 0.017~0.046),横向分量却很小(gaze_direction_x 的绝对值中位 0.02~0.07)⟹ gaze_deviation 与 |gaze_direction_y| 的相对差只有 **1.3% / 4.8% / 6.9% / 7.7%**(f98d/2e84/8102/5b10),它量的基本就是那个解剖常量。本列**不在 L0 表里**(见本白名单),evidence_gate 的 gaze_deviation 条目已封停。",
+      "planned": "**M3.2 删列**。⚠️ 删之前必须先处理仍挂在它上面的那个 core 槽:research_mapper 的 stress_resilience 维度里 gaze_deviation(权重 0.2、视线偏差)仍在指向本列 —— 需要在**该维度内重新分配那 0.2**。**不能**改指到 gaze_direction_x_std:那会与 logical_thinking 的同名槽**数两遍**,而 fluency_proxy 正是因此被永久封停的。见 docs/下一步.md「丙、17」"
     },
     {
       "column": "eye_closed_sec",
@@ -172,8 +172,8 @@
     {
       "column": "tension_score",
       "modality": "face",
-      "why": "§4.1:197 依据栏原文:「伪合成:5 项里 eye_closed 恒 0、expression_instability 饱和 1.0、au4 86~92% 为 0;与倒置 au23 相关 0.87」;evidence_gate.QUARANTINE['tension_score'] 封停",
-      "planned": "M3.2 删列"
+      "why": "§4.1:197 依据栏原文:「伪合成:5 项里 eye_closed 恒 0、expression_instability 饱和 1.0、au4 86~92% 为 0;与倒置 au23 相关 0.87」。**2026-10-03 补实测**(四场高质量素材):`tension_engine.py` 共 **10 个无依据参数**(权重 .25/.25/.2/.15/.15、放大 ×1.3/×1.5/×0.8、`eye_closed_sec/2.0`、×0.4,以及无 temporal_stats 时的硬编码默认 `expression_instability=0.3` ⟹ **全零输入也拿 0.045,不是 0**);`eye_closure` 占 **0.2** 却是死权重(`eye_closed_sec` 真实数据里 **97%~99.7% 为 0**,判定门 `avg_ear<0.18` 几乎不触发,该列本身也在封停中 ⟹ 可达上限只有 0.8);且 **~72% 的量来自没落盘的滚动窗口 `*_volatility**(已落盘输入只解释中位 0.117,而 tension 中位 0.40~0.55,残差中位 +0.27~+0.43 —— CSV 里没有 volatility 列,读的人看不出这个数怎么来的)。evidence_gate.QUARANTINE['tension_score'] 封停。",
+      "planned": "**M3.2 删列**(与 tension_level / tension_sources_* 同族同批)。若要救它只能靠标定集重定权重,而 M5 两个前置(许可禁止在 RecruitView 分布上拟合、自评量表要过伦理审查)都卡着 ⟹ 本轮不做"
     },
     {
       "column": "tension_level",
@@ -184,7 +184,7 @@
     {
       "column": "micro_exp_au_name",
       "modality": "face",
-      "why": "§4.1:200 依据栏原文:「每帧取字典序第一个命中项」;并见 R9(2026-09-25-m2-6-raw-media-retention-design.md:66 / :454「micro_exp_* 整族不进本轮 L0 契约」)",
+      "why": "§4.1:200 依据栏原文:「每帧取字典序第一个命中项」;并见 R9(2026-09-25-m2-6-raw-media-retention-design.md:66 / :454「micro_exp_* 整族不进本轮 L0 契约」)。⚠️ 补记(2026-10-03):报告层曾有一个 core 槽挂在**本列的 one-hot** 上 —— `research_mapper` 的 `cognitive_efficiency.au7_freq`(w=0.3),它的取数键是 `face_micro_exp_micro_exp_au_name_au7_freq`。该槽已删:本列 **51 场 22277 行只有 6 行有值**(场 20260929_205448_8b75),取值只有 `au4_frown` / `au7_eye_squeeze` ⟹ **`au7_freq` 这个标签从没出现过**,那条 one-hot 键全仓 0 产出。",
       "planned": "M3.2 删列"
     },
     {
@@ -952,8 +952,8 @@
       "maturity": "B",
       "l0_output": "吐「虹膜中心相对眼中心」的眼内归一化横坐标;「看哪边」的阈值留给 L1。",
       "status": "implemented",
-      "quarantine_ref": "eye_contact —— **仍封停,但理由已改准**(`evidence_gate.QUARANTINE['eye_contact']`):生产方(本行这 4 列)已按原 unblock 改成眼内相对坐标,**而消费方没跟着改** —— `report_frontend/feature_engine.py` 的 eye_contact 口径仍是「到画面中心 (0.5,0.5) 的距离」,实测 `face_eye_contact_ratio` 恒 **0.0**(三场),且没有 `_std` 伴随列(G2 在此退回 fail-open,挡不住)⟹ 解封等于把「没测到」当成「测到 0」。解封条件已改为:**改 feature_engine 的 eye_contact 口径为眼内相对**。",
-      "acceptance": "重构好 = ① 平移裁剪框(人脸在画面里的位置变)该列不变;② ⚠️ **2026-09-27 更正:原写「eye_contact 封停可解(它的 unblock 就是这 4 列)」是错的** —— 那一步只兑现了**生产方**,而消费方(`report_frontend/feature_engine.py`)仍按「到画面中心 (0.5,0.5) 的距离」算 eye_contact ⟹ 实测该特征恒 0.0,解封等于把「没测到」当成「测到 0」。`evidence_gate.QUARANTINE['eye_contact']` 的封停**仍在**,解封条件已改为改消费方口径;③ 左右列名与实际虹膜的一致性在 M3.2 定(本行保留现名,改名会动日志列契约)。",
+      "quarantine_ref": "eye_contact —— **该键已于 2026-10-03 解封**(原先 evidence_gate 封停名单里那条「消费方未随生产方改」已按它自己写的 unblock 条件删除;现在引用该键会落空)。详见下方 acceptance ② 的第二次更正。",
+      "acceptance": "重构好 = ① 平移裁剪框(人脸在画面里的位置变)该列不变;② **两次更正,都留着**:2026-09-27 更正「原写『eye_contact 封停可解(它的 unblock 就是这 4 列)』是错的」—— 那一步只兑现了**生产方**,而消费方 `report_frontend/feature_engine.py` 仍按「到画面中心 (0.5,0.5) 的距离」算,实测该特征恒 0.0;**2026-10-03 再次更正:消费方已改对,该槽已解封** —— 消费方改用眼内相对坐标的真原点 0、只取水平分量(x 静息位 ≈ 0;y 静息位 −0.15~−0.20 是解剖偏移,无可标定零点)、按物理量程 (1−虹膜直径/睑裂宽)/2 ≈ 0.305 剔除虹膜跑出睑裂的坏帧,并补齐 G2 要的 `face_eye_contact_ratio_std` 与 G3 要的 `face_eye_contact_ratio_sample_size` ⟹ 四场高质量素材实测该特征 0.62~0.96、不再恒 0,**封停已撤**;③ 左右列名与实际虹膜的一致性在 M3.2 定(本行保留现名,改名会动日志列契约)。",
       "basis": "① eye_center / eye_width 的下标由本行定:§4.1:188 只写了「(iris − eye_center) ÷ eye_width」,没给这两个量怎么取;本行取该眼两角的均值与距离(角点出处:landmarks.py 的 RIGHT_EYE 含 33/133、landmarks.py 的 LEFT_EYE 含 362/263;au_calculator.py 也把 dist(lm[33], lm[133]) 当该眼宽用)。② ⚠️ 左右命名:landmarks.py 与 mediapipe 的 FACEMESH_LEFT_EYE / RIGHT_EYE **逐点相同**,即 lm[33..133] 是**右**眼;而 au_calculator.py 把它叫 left。本行按**代码的配对**(日志列实际装的量)定义并保留列名 —— 改列名会动日志列契约(钉子方向 1),那是 M3.2 的决定。"
     },
     {
@@ -966,8 +966,8 @@
       "maturity": "B",
       "l0_output": "吐「虹膜中心相对眼中心」的眼内归一化纵坐标;「看上/下」的阈值留给 L1。",
       "status": "implemented",
-      "quarantine_ref": "eye_contact —— **仍封停,但理由已改准**(`evidence_gate.QUARANTINE['eye_contact']`):生产方(本行这 4 列)已按原 unblock 改成眼内相对坐标,**而消费方没跟着改** —— `report_frontend/feature_engine.py` 的 eye_contact 口径仍是「到画面中心 (0.5,0.5) 的距离」,实测 `face_eye_contact_ratio` 恒 **0.0**(三场),且没有 `_std` 伴随列(G2 在此退回 fail-open,挡不住)⟹ 解封等于把「没测到」当成「测到 0」。解封条件已改为:**改 feature_engine 的 eye_contact 口径为眼内相对**。",
-      "acceptance": "同 left_iris_x:① 平移裁剪框该列不变;② ⚠️ **2026-09-27 更正:原写「eye_contact 封停可解」是错的**(只兑现了生产方;消费方 `report_frontend/feature_engine.py` 仍按到画面中心的距离算 ⟹ 该特征实测恒 0.0),`evidence_gate.QUARANTINE['eye_contact']` 的封停仍在;③ 列名与虹膜左右的一致性归 M3.2。",
+      "quarantine_ref": "eye_contact —— **该键已于 2026-10-03 解封**(原先 evidence_gate 封停名单里那条「消费方未随生产方改」已按它自己写的 unblock 条件删除;现在引用该键会落空)。详见下方 acceptance ② 的第二次更正。",
+      "acceptance": "重构好 = ① 平移裁剪框(人脸在画面里的位置变)该列不变;② **两次更正,都留着**:2026-09-27 更正「原写『eye_contact 封停可解(它的 unblock 就是这 4 列)』是错的」—— 那一步只兑现了**生产方**,而消费方 `report_frontend/feature_engine.py` 仍按「到画面中心 (0.5,0.5) 的距离」算,实测该特征恒 0.0;**2026-10-03 再次更正:消费方已改对,该槽已解封** —— 消费方改用眼内相对坐标的真原点 0、只取水平分量(x 静息位 ≈ 0;y 静息位 −0.15~−0.20 是解剖偏移,无可标定零点)、按物理量程 (1−虹膜直径/睑裂宽)/2 ≈ 0.305 剔除虹膜跑出睑裂的坏帧,并补齐 G2 要的 `face_eye_contact_ratio_std` 与 G3 要的 `face_eye_contact_ratio_sample_size` ⟹ 四场高质量素材实测该特征 0.62~0.96、不再恒 0,**封停已撤**;③ 左右列名与实际虹膜的一致性在 M3.2 定(本行保留现名,改名会动日志列契约)。",
       "basis": "同 left_iris_x:eye_center / eye_width 的下标由本行定(§4.1:188 没给),取该眼两角的均值与距离;并提醒代码的 left/right 与 landmarks.py 的声明相反,本行按代码的配对定义。"
     },
     {
@@ -980,8 +980,8 @@
       "maturity": "B",
       "l0_output": "吐「虹膜中心相对眼中心」的眼内归一化横坐标;「看哪边」的阈值留给 L1。",
       "status": "implemented",
-      "quarantine_ref": "eye_contact —— **仍封停,但理由已改准**(`evidence_gate.QUARANTINE['eye_contact']`):生产方(本行这 4 列)已按原 unblock 改成眼内相对坐标,**而消费方没跟着改** —— `report_frontend/feature_engine.py` 的 eye_contact 口径仍是「到画面中心 (0.5,0.5) 的距离」,实测 `face_eye_contact_ratio` 恒 **0.0**(三场),且没有 `_std` 伴随列(G2 在此退回 fail-open,挡不住)⟹ 解封等于把「没测到」当成「测到 0」。解封条件已改为:**改 feature_engine 的 eye_contact 口径为眼内相对**。",
-      "acceptance": "同 left_iris_x:① 平移裁剪框该列不变;② ⚠️ **2026-09-27 更正:原写「eye_contact 封停可解」是错的**(只兑现了生产方;消费方 `report_frontend/feature_engine.py` 仍按到画面中心的距离算 ⟹ 该特征实测恒 0.0),`evidence_gate.QUARANTINE['eye_contact']` 的封停仍在;③ 列名与虹膜左右的一致性归 M3.2。",
+      "quarantine_ref": "eye_contact —— **该键已于 2026-10-03 解封**(原先 evidence_gate 封停名单里那条「消费方未随生产方改」已按它自己写的 unblock 条件删除;现在引用该键会落空)。详见下方 acceptance ② 的第二次更正。",
+      "acceptance": "重构好 = ① 平移裁剪框(人脸在画面里的位置变)该列不变;② **两次更正,都留着**:2026-09-27 更正「原写『eye_contact 封停可解(它的 unblock 就是这 4 列)』是错的」—— 那一步只兑现了**生产方**,而消费方 `report_frontend/feature_engine.py` 仍按「到画面中心 (0.5,0.5) 的距离」算,实测该特征恒 0.0;**2026-10-03 再次更正:消费方已改对,该槽已解封** —— 消费方改用眼内相对坐标的真原点 0、只取水平分量(x 静息位 ≈ 0;y 静息位 −0.15~−0.20 是解剖偏移,无可标定零点)、按物理量程 (1−虹膜直径/睑裂宽)/2 ≈ 0.305 剔除虹膜跑出睑裂的坏帧,并补齐 G2 要的 `face_eye_contact_ratio_std` 与 G3 要的 `face_eye_contact_ratio_sample_size` ⟹ 四场高质量素材实测该特征 0.62~0.96、不再恒 0,**封停已撤**;③ 左右列名与实际虹膜的一致性在 M3.2 定(本行保留现名,改名会动日志列契约)。",
       "basis": "同 left_iris_x:eye_center / eye_width 的下标由本行定(§4.1:188 没给);角点出处 landmarks.py(LEFT_EYE 含 362/263)。代码的 left/right 命名与 landmarks.py 相反,本行按代码的配对定义并保留列名。"
     },
     {
@@ -994,8 +994,8 @@
       "maturity": "B",
       "l0_output": "吐「虹膜中心相对眼中心」的眼内归一化纵坐标;「看上/下」的阈值留给 L1。",
       "status": "implemented",
-      "quarantine_ref": "eye_contact —— **仍封停,但理由已改准**(`evidence_gate.QUARANTINE['eye_contact']`):生产方(本行这 4 列)已按原 unblock 改成眼内相对坐标,**而消费方没跟着改** —— `report_frontend/feature_engine.py` 的 eye_contact 口径仍是「到画面中心 (0.5,0.5) 的距离」,实测 `face_eye_contact_ratio` 恒 **0.0**(三场),且没有 `_std` 伴随列(G2 在此退回 fail-open,挡不住)⟹ 解封等于把「没测到」当成「测到 0」。解封条件已改为:**改 feature_engine 的 eye_contact 口径为眼内相对**。",
-      "acceptance": "同 left_iris_x:① 平移裁剪框该列不变;② ⚠️ **2026-09-27 更正:原写「eye_contact 封停可解」是错的**(只兑现了生产方;消费方 `report_frontend/feature_engine.py` 仍按到画面中心的距离算 ⟹ 该特征实测恒 0.0),`evidence_gate.QUARANTINE['eye_contact']` 的封停仍在;③ 列名与虹膜左右的一致性归 M3.2。",
+      "quarantine_ref": "eye_contact —— **该键已于 2026-10-03 解封**(原先 evidence_gate 封停名单里那条「消费方未随生产方改」已按它自己写的 unblock 条件删除;现在引用该键会落空)。详见下方 acceptance ② 的第二次更正。",
+      "acceptance": "重构好 = ① 平移裁剪框(人脸在画面里的位置变)该列不变;② **两次更正,都留着**:2026-09-27 更正「原写『eye_contact 封停可解(它的 unblock 就是这 4 列)』是错的」—— 那一步只兑现了**生产方**,而消费方 `report_frontend/feature_engine.py` 仍按「到画面中心 (0.5,0.5) 的距离」算,实测该特征恒 0.0;**2026-10-03 再次更正:消费方已改对,该槽已解封** —— 消费方改用眼内相对坐标的真原点 0、只取水平分量(x 静息位 ≈ 0;y 静息位 −0.15~−0.20 是解剖偏移,无可标定零点)、按物理量程 (1−虹膜直径/睑裂宽)/2 ≈ 0.305 剔除虹膜跑出睑裂的坏帧,并补齐 G2 要的 `face_eye_contact_ratio_std` 与 G3 要的 `face_eye_contact_ratio_sample_size` ⟹ 四场高质量素材实测该特征 0.62~0.96、不再恒 0,**封停已撤**;③ 左右列名与实际虹膜的一致性在 M3.2 定(本行保留现名,改名会动日志列契约)。",
       "basis": "同 left_iris_x:eye_center / eye_width 的下标由本行定(§4.1:188 没给);角点出处 landmarks.py(LEFT_EYE 含 362/263)。代码的 left/right 命名与 landmarks.py 相反,本行按代码的配对定义并保留列名。"
     },
     {
