@@ -109,7 +109,10 @@ $PY tools/jx_selfcheck.py --mutations     # 追加：真跑变异登记表（每
 # ⚠️ 在本沙箱里 --all 会因 test_recordings_browser（禁止跨设备目录改名）报 ✗。
 
 # ── 测试 ──────────────────────────────────────────────
-$PY -m pytest -q                       # 全量
+# ★ 全量门要带 JX_RUN_MUTATIONS=1:覆盖率守卫拒绝给「被跳过」的测试背书,
+#   而变异实测默认是跳过的(每条一个子进程,约多花 30 秒)。
+JX_RUN_MUTATIONS=1 $PY -m pytest -q    # 全量门(期望全绿)
+$PY -m pytest -q                       # 快跑:会**照实**报 1 红(test_no_assert_is_dead)
 NUMBA_CACHE_DIR=/tmp/numba-cache $PY -m pytest -q   # numba 需要可写缓存目录
 
 # ── 结构图与清单（脚本生成，不会过期）────────────────

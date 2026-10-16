@@ -167,7 +167,7 @@ def main(argv=None) -> int:
         for name, what, targets in groups:
             print(f"── {name} ──  {what}")
             gname, ok, dt, summary, out = _run_group(name, targets, tmp,
-                                                     mutations=(name == "变异实测"))
+                                                     mutations=args.mutations)
             outputs[gname] = out
             print(f"   {'✓' if ok else '✗'} {summary}   ({dt:.1f}s)")
             print()

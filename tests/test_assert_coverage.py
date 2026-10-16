@@ -248,6 +248,9 @@ def test_no_assert_is_dead():
         "以下测试被收集但从未进入 call 阶段(跳过 / 前置失败),其 assert 一行都没被核实:\n"
         + "\n".join(f"  {nodeid}" for nodeid in report.never_called)
         + "\n(跳过的测试,其断言不在覆盖保证之内,且本检查不会替它背书)"
+        + "\n★ 若那是**有意**的 opt-in(如变异实测,默认跳过以免每次多花约 30 秒),"
+          "全量门请带 `JX_RUN_MUTATIONS=1`(或跑 `tools/jx_selfcheck.py --mutations`)"
+          "—— 裸跑报这一红不是缺陷,是这条闸在照实说「它没被核实过」。"
     )
     assert report.never_collected == [], (
         "以下函数源码里看着是测试,但 pytest 没收集到它(改名 / 不在 Test* 类里 / 有参数):\n"

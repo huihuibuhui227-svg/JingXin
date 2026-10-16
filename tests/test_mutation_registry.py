@@ -316,8 +316,16 @@ def _child_env(tmp: Path) -> dict:
 
 
 def _run_one(nodeid: str, cwd: Path, tmp: Path) -> tuple:
+    # ★ 子进程必须给**自己的** `--basetemp`。不给的话它用默认 temp 根
+    #   (`/tmp/pytest-of-<user>/pytest-N/`),而 pytest 启动时只保留**最近 3 个**编号 ——
+    #   于是子进程会把**父进程正在用的那一个**删掉,父进程里别的测试随后写自己的
+    #   `tmp_path` 文件时就 FileNotFoundError。
+    #   实测(2026-10-16):`JX_RUN_MUTATIONS=1 pytest -q`(变异与本套件同进程)必现;
+    #   分组跑(jx_selfcheck 默认那样)不现 —— 所以这个洞藏了很久。
+    base = Path(tempfile.mkdtemp(prefix="basetemp_", dir=tmp))
     proc = subprocess.run(
-        [sys.executable, "-m", "pytest", nodeid, "-q", "--no-header", "-p", "no:cacheprovider"],
+        [sys.executable, "-m", "pytest", nodeid, "-q", "--no-header", "-p", "no:cacheprovider",
+         f"--basetemp={base}"],
         cwd=cwd, env=_child_env(tmp), capture_output=True, text=True)
     return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
 

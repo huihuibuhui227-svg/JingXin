@@ -832,14 +832,21 @@ def test_no_slot_points_at_a_column_marked_for_deletion():
         + "\n—— 要么在该维度内重新分配权重(不能改指同一测量,那会数两遍),"
           "要么把它登记进 `_SLOTS_ON_DOOMED_COLUMNS` 并写清为什么、归哪个里程碑。")
 
-    for dim, kw, source_column in _SLOTS_ON_DOOMED_COLUMNS:
-        keys = [i[0] for i in rules.get(dim, {}).get("indicators", [])]
-        assert kw in keys, (
-            f"{dim}.{kw} 已经不在了 —— 若已重新分配过权重,请把它从 "
-            f"`_SLOTS_ON_DOOMED_COLUMNS` 划掉")
-        assert source_column in doomed, (
-            f"{dim}.{kw} 登记的源列「{source_column}」不再被标记待删 —— "
-            f"那本名单的处置要跟着改(要么留列、要么换依据)")
+    # ⚠️ 2026-10-16:这里原来是一个 `for ... in _SLOTS_ON_DOOMED_COLUMNS:` 里套两条断言。
+    #   登记表现在是**空的**(= 所有槽都不再指向待删列,正是想要的终态)⟹ 那两条断言
+    #   一行都不会执行,而 `tests/test_assert_coverage.py` 的 never_executed 闸拒绝给
+    #   从未执行过的 assert 背书。改成先收集、在循环外断言:空表时这一行照样执行,
+    #   判据一字未松(原来的两条都还在,只是并成一条并指出是**哪条登记**过期)。
+    stale = [
+        f"{dim}.{kw} -> 源列「{source_column}」"
+        for dim, kw, source_column in _SLOTS_ON_DOOMED_COLUMNS
+        if kw not in [i[0] for i in rules.get(dim, {}).get("indicators", [])]
+        or source_column not in doomed
+    ]
+    assert not stale, (
+        "`_SLOTS_ON_DOOMED_COLUMNS` 里的登记已经过期:\n  " + "\n  ".join(stale)
+        + "\n—— 槽已经不在了,就从登记表划掉(若已重新分配过权重);"
+          "源列不再被标记待删,那本名单的处置要跟着改(要么留列、要么换依据)。")
 
 
 
