@@ -31,6 +31,7 @@ import pytest
 
 from report_frontend import event_windows as ew
 from report_frontend import l1_face, l1_gesture
+from report_frontend.l1_session import dispersion_of as l1_session_dispersion
 
 SID = "20261018_130000_cd34"
 ORIGIN = 1_790_400_000.0
@@ -197,3 +198,84 @@ def test_frames_outside_note_speaks_only_above_five_percent():
     both = frames_outside_note({"face": 40, "gesture": 50},
                                {"face": 100, "gesture": 100})
     assert both and "face" in both and "gesture" in both
+
+
+# ── 3. 裁定①:会话级口径 = 回答帧并集,逐题只作离散度层 ────────────────────
+
+def test_answer_union_covers_from_first_to_last_answer_window(rec_dir):
+    """★ 并集 = [首窗起, 末窗止),**不含**提问期与首题之前。
+
+    两题:40 秒、60 秒问完,会话到 100 秒 ⟹ 并集是 [40, 100),不是 [0, 100)。
+    首题之前的 40 帧不在里面 —— 这就是"分母只算回答帧"的意思。
+
+    红法:把 `answer_union` 改成返回 `self` ⟹ 并集仍是 2 个窗口,本条红。
+    """
+    _questions(rec_dir, [40.0, 60.0])
+    ws = ew.build_windows(SID, ORIGIN, session_end_sec=100.0)
+    u = ws.answer_union()
+    assert len(u.windows) == 1
+    assert (u.windows[0].t_start, u.windows[0].t_end) == (40.0, 100.0)
+
+    t = pd.Series(np.arange(100, dtype=float))
+    # 并集口径下,首题之前那 40 帧仍然在"窗口外" —— 口径变的是**逐题还是合并**,
+    # 不是"要不要把提问期算进分母"。
+    assert u.count_outside(t) == 40
+
+
+def test_answer_union_is_identity_when_there_are_no_question_windows(rec_dir):
+    """没有台账时整场就是一个窗口,并集原样返回(不能凭空造一个窗口)。
+
+    红法:去掉 `answer_union` 开头的 `if not self.windows: return self`
+    ⟹ 空窗口集上 `windows[0]` 抛 IndexError。
+    """
+    ws = ew.build_windows(SID, ORIGIN, session_end_sec=100.0)
+    assert ws.answer_union() is ws
+
+
+def test_per_question_indicators_do_not_collide_by_name():
+    """★ 逐题产出的是**同名多份**,所以它绝不能直接进 `indicators`。
+
+    `l1_mapper` 按名字建字典(`by_name[ind["name"]] = …`)⟹ 8 题一场只剩最后一题,
+    而且**不报错**。实测 `20260927_212143_95a8`:199 条 / 38 个名字 / 23 个各 8 份。
+    这条测试把"逐题值有多份同名"这件事钉住 —— 它是把逐题值放进离散度层的理由。
+
+    红法:把 `compute_face_indicators` 改成"同名只保留最后一题"⟹ 本条红。
+    """
+    from collections import Counter
+
+    n = 200
+    t = pd.Series(np.arange(n, dtype=float))
+    face = pd.DataFrame({
+        "gaze_direction_x": np.linspace(0, 0.1, n),
+        "is_blink": (np.arange(n) % 20 == 0).astype(float),
+        "head_pitch": np.zeros(n), "head_yaw": np.zeros(n), "head_roll": np.zeros(n),
+        "avg_ear": np.full(n, 0.3),
+    })
+    ws = ew.WindowSet("s", "answer",
+                      [ew.AnswerWindow(0, 0.0, 60.0), ew.AnswerWindow(1, 60.0, 120.0)],
+                      n_questions=2)
+    out = l1_face.compute_face_indicators(face, ws, t)
+    dups = {k: v for k, v in Counter(i.name for i in out).items() if v > 1}
+    assert dups, "逐题口径必须产出同名多份;若没有,说明窗口没生效"
+    assert all(v == 2 for v in dups.values())
+
+
+def test_dispersion_needs_at_least_two_questions():
+    """★ 单题没有"离散度"可言 —— 不给,而不是给一个 0。
+
+    给 0 会把"只测了一题"说成"题间非常稳定",那是把证据说多。
+
+    红法:把 `dispersion_of` 里的 `if len(vals) < 2: continue` 删掉 ⟹ 本条红。
+    """
+    from report_frontend.l1_indicators import measured
+
+    one = [measured("x", "F1_smile", "f", ("c",), "answer:0", "", value=1.0,
+                    n_valid=10, n_total=10, threshold=5)]
+    assert l1_session_dispersion(one) == {}
+
+    two = one + [measured("x", "F1_smile", "f", ("c",), "answer:1", "", value=3.0,
+                          n_valid=10, n_total=10, threshold=5)]
+    d = l1_session_dispersion(two)
+    assert d["x"]["n_questions"] == 2
+    assert d["x"]["median"] == 2.0
+    assert d["x"]["min"] == 1.0 and d["x"]["max"] == 3.0

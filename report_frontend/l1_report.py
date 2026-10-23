@@ -165,5 +165,13 @@ def build_l1_report(session_id: str, logs: dict | None = None) -> dict:
             # ★ 与旧引擎报告对比时的那句提醒。见 `l1_mapper.NOT_COMPARABLE`。
             "comparability_notes": l1_mapper.comparability_notes(),
             "gaps": list(result.gaps),
+            # ★ 裁定①(2026-10-24):会话级 38 条的口径是**回答帧并集**,
+            #   逐题那份只作**离散度**层,不冒充会话级值。见 `l1_session.dispersion_of`。
+            "dispersion": dict(getattr(result, "dispersion", None) or {}),
+            "dispersion_note": (
+                "逐题值的题间离散度(中位/IQR/极值),**只在本场内有意义** —— "
+                "它不能与别的场次比,也不是会话级值;会话级那 38 条见 indicators"
+                "(口径:所有回答窗内帧的并集)。单题时不出现在这里(没有离散度可言)。"
+            ),
         },
     }

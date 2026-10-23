@@ -39,6 +39,50 @@ def _ws(*bounds):
 
 # ── V 族 ─────────────────────────────────────────────────────────────────
 
+def test_missing_voice_log_gap_counts_the_series_that_still_produced(tmp_path, monkeypatch):
+    """★ 「没有 voice 日志」**不等于**「V 族 12 条全部不可出」。
+
+    ## 钉的是什么
+
+    语音**日志**没有(24 场正式场全是 0 行),但 12 条里有 8 条只吃**帧序列** ——
+    整场录音重算出的序列在,它们就出得来。2026-10-24 实测场 `20260928_180131_8102`:
+    V 族 **10/12 有值**,而 `l1.gaps` 里写着「V 族 12 条全部不可出」。
+    同一份载荷里前面一行还写着「voice 模态来自原始音频重算」—— 自相矛盾,
+    而且这句话会直接渲染到报告界面上。
+
+    ## 这条测试必须走**真路径**
+
+    第一版写成"自己按消息格式拼一句再断言它包含数字"—— 那是**恒等式**,
+    无论 `l1_session` 里写的是什么它都绿。要证明的是**载荷与消息同源**,
+    所以必须真的调 `compute_session_l1`,再从 `result.gaps` 里读那句话。
+
+    红法:把 `l1_session` 里那条 gap 改回写死的「V 族 12 条全部不可出」⟹ 本条红。
+    """
+    from report_frontend import l1_session, voice_series
+
+    sid = "20261024_010000_ab12"
+    monkeypatch.setenv("JINGXIN_RECORDINGS_DIR", str(tmp_path))
+    # 只放序列缓存,**不放语音日志** —— 正是 24 场正式场的情形。
+    voice_series.save_series([voice_series.VoiceSeries(
+        session_id=sid, index=None, frame_sec=0.1,
+        # 200 帧 = 20 秒。必须长过门槛:`pause` 族要 n_valid ≥ 2,
+        # 而帧级门槛更高 —— 6 帧的序列一条都过不了门,那样测出来的是"样本不够",
+        # 不是"消息写错了"。
+        f0=np.where(np.arange(200) % 7 == 0, np.nan,
+                    120.0 + 10.0 * np.sin(np.arange(200) / 5.0)),
+        voiced_prob=np.ones(200), rms=np.full(200, 0.05), source="camera.webm")])
+
+    result = l1_session.compute_session_l1(sid, logs={})
+    voice = [i for i in result.indicators if i.family.startswith("V")]
+    n_val = sum(1 for i in voice if i.has_value)
+    assert n_val > 0, "整场录音序列在 ⟹ 至少序列那几条必须出值"
+
+    msg = next((g for g in result.gaps if "voice 日志" in g), "")
+    assert msg, f"必须有一条说明没有语音日志:{result.gaps}"
+    assert "全部不可出" not in msg, f"有 {n_val} 条有值,却说全部不可出:{msg}"
+    assert f"{n_val} 条" in msg, f"报的条数必须等于载荷里真有值的条数({n_val}):{msg}"
+
+
 def test_voice_reports_exactly_four_values_and_eight_not_stored():
     """★ 粒度不够的 8 条必须报 `not_stored`,且值必须是 NaN。
 

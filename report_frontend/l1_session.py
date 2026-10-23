@@ -46,6 +46,12 @@ class L1Result:
     gaps: list[str] = field(default_factory=list)
     #: 每个模态的**实际**可用行占比 —— "日志存在" ≠ "数据存在"。
     coverage: dict = field(default_factory=dict)
+    #: 逐题值的**离散度**层(裁定①,2026-10-24)。
+    #:
+    #: `{指标名: {"n_questions": k, "median": …, "iqr": …, "min": …, "max": …}}`。
+    #: 只在题数 ≥ 2 时出现 —— 单题没有"离散度"可言,硬给一个 0 是把"没测"说成"很稳"。
+    #: **它不是会话级值**:会话级那 38 条在 `indicators` 里,口径是回答帧并集。
+    dispersion: dict = field(default_factory=dict)
 
     def by_name(self, name: str) -> list[L1Indicator]:
         return [i for i in self.indicators if i.name == name]
@@ -122,6 +128,29 @@ def _pick_voice(logs: dict):
     return None
 
 
+def voice_gap_note(voice, voice_inds) -> str | None:
+    """没有语音日志时的那句说明 —— **按载荷里真有值的条数说**。
+
+    ## 为什么必须数,不能写死
+
+    「语音**日志**没有」≠「V 族没有量」:12 条里有 8 条序列指标只吃帧序列,
+    整场录音重算出的序列在,它们就出得来。原先这里写死「V 族 12 条全部不可出」,
+    而实测场 `20260928_180131_8102` 的载荷里 V 族 **10/12 有值**,同一份 `gaps`
+    里前面还写着「voice 模态来自原始音频重算」—— 自相矛盾,且会渲染到界面上。
+
+    返回 `None` 表示"有语音日志",不该说这句话。
+    """
+    if voice is not None:
+        return None
+    from report_frontend import l1_voice
+    n_all = len(l1_voice.ORDER)
+    n_val = sum(1 for i in voice_inds if i.has_value)
+    if n_val:
+        return (f"本场没有 voice 日志 —— V 族 {n_all} 条里 {n_val} 条由整场录音重算得出,"
+                f"其余 {n_all - n_val} 条不可出")
+    return f"本场没有 voice 日志 —— V 族 {n_all} 条全部不可出"
+
+
 def frames_outside_note(outside: dict[str, int], totals: dict[str, int],
                         frac: float = 0.05) -> str | None:
     """落在所有回答窗口之外的帧**多到值得说一句**时的说明,否则 None。
@@ -144,6 +173,47 @@ def frames_outside_note(outside: dict[str, int], totals: dict[str, int],
     return ("有帧落在所有回答窗口之外(提问期与首题之前不属于任何窗口):"
             + "、".join(f"{n} {k}/{t} 帧({k / t:.0%})"
                         for n, (k, t) in sorted(bad.items())))
+
+
+#: 逐题值进离散度层时要报的统计量。中位/IQR 用 25%/75% 分位 —— 题数少时比 std 稳。
+def dispersion_of(per_window: list[L1Indicator]) -> dict:
+    """逐题指标 → 每条的题间离散度。**单题不给**(返回空)。
+
+    ## 为什么单列一层,而不是把逐题值塞进 `indicators`
+
+    `indicators` 是报告主表,`l1_mapper` 按**名字**建字典
+    (`by_name[ind["name"]] = …`)。8 题一场会产出 8 份同名指标,于是那份字典
+    只剩**最后一题**的值,而且不报错 —— 实测场 `20260927_212143_95a8`:
+    199 条指标、38 个名字、23 个名字各出现 8 次。
+
+    离散度层解决的是"逐题信息别丢",同时**不冒充会话级值**:
+    它只在本场内有意义(题与题之间的差异),不能与别的场次比。
+    """
+    import math as _math
+    import numpy as _np
+
+    by_name: dict[str, list[float]] = {}
+    for ind in per_window:
+        if ind.has_value:
+            by_name.setdefault(ind.name, []).append(float(ind.value))
+
+    out: dict[str, dict] = {}
+    for name, vals in by_name.items():
+        if len(vals) < 2:
+            continue                     # 单题没有离散度,不编一个 0
+        arr = _np.asarray(vals, dtype=float)
+        arr = arr[_np.isfinite(arr)]
+        if arr.size < 2:
+            continue
+        q25, q50, q75 = _np.percentile(arr, [25, 50, 75])
+        out[name] = {
+            "n_questions": int(arr.size),
+            "median": round(float(q50), 6),
+            "iqr": round(float(q75 - q25), 6),
+            "min": round(float(arr.min()), 6),
+            "max": round(float(arr.max()), 6),
+        }
+    return out
 
 
 def compute_session_l1(session_id: str,
@@ -173,14 +243,27 @@ def compute_session_l1(session_id: str,
                                      [], gap=tl.gap or "无会话原点")
         # ★ T 族**不依赖时间轴** —— 它只读转写文本。所以哪怕没有会话原点
         #   (正式场的常态),这三条照样算得出来。放在早退分支里,否则会白丢。
+        #
+        # ★ 同理 **V 族 8 条序列指标也不依赖时间轴**(它们只吃 `f0` 帧序列),
+        #   而整场录音重算出的序列缓存在盘上。原先这里漏传 `series=`,于是
+        #   "没有时间原点"这一个原因把 V 族**全部**报成 `modality_missing`,
+        #   连序列那 8 条一起 —— 而下面的正路分支是传的。2026-10-24 由
+        #   `test_missing_voice_log_gap_counts_the_series_that_still_produced` 抓出。
         inds = (l1_face.compute_face_indicators(None, ws, None)
                 + l1_gesture.compute_gesture_indicators(None, ws, None)
-                + l1_voice.compute_voice_indicators(_pick_voice(logs))
+                + l1_voice.compute_voice_indicators(
+                    _pick_voice(logs),
+                    series=voice_series.load_series(session_id),
+                    session_id=session_id)
                 + l1_text.compute_text_indicators(
                     transcript_chars.text(session_id)))
         if transcript_chars.text(session_id) is None:
             gaps.append("本场没有 ASR 转写 —— T 族 3 条全部不可出"
                         "(可跑 tools/jx_transcribe_recordings.py 生成)")
+        _vg = voice_gap_note(_pick_voice(logs), [i for i in inds
+                                                 if i.family.startswith("V")])
+        if _vg:
+            gaps.append(_vg)
         return L1Result(session_id, tl, ws, inds, gaps,
                         coverage=l1_quality.modality_coverage(logs))
 
@@ -219,22 +302,38 @@ def compute_session_l1(session_id: str,
             gaps.append(_note)
 
     inds: list[L1Indicator] = []
+    dispersion: dict = {}
+
+    # ── F/G 两族:**会话级口径 = 回答帧并集**(裁定①,2026-10-24)───────────
+    #
+    # 逐题窗口此前直接把 F/G 切成"每回答一份",两个后果都不是调参能修的:
+    #
+    #   1. **同名撞车**:8 题一场产出 8 份同名指标,而 `l1_mapper` 按名字建字典
+    #      ⟹ 只剩最后一题的值,且不报错(实测 `20260927_212143_95a8`:199 条 /
+    #      38 个名字 / 23 个名字各 8 份);
+    #   2. **分母不可比**:回答窗 13.2~234 秒,39 个里 16 个 <30 秒,而 frame 族
+    #      门槛 20~30 帧(1 Hz 下即 20~30 秒)⟹ 一半窗口过不了门。
+    #
+    # 现在:会话级 38 条在**回答帧并集**上算一次(分母 = 所有回答窗内的帧,
+    # 提问期与首题之前不算,差额由 `frames_outside` 如实报出);逐题那份不丢,
+    # 只进 `dispersion` 层,不冒充会话级值。
+    ws_union = ws.answer_union()
 
     # ── F 族(面部)──────────────────────────────────────────────────────
     if face is None or face_tb is None or not face_tb.usable:
-        inds.extend(l1_face.compute_face_indicators(None, ws, None))
+        inds.extend(l1_face.compute_face_indicators(None, ws_union, None))
         gaps.append("本场没有可用的 face 日志 —— F 族 16 条全部不可出")
     else:
-        inds.extend(l1_face.compute_face_indicators(face, ws, face_tb.t_sec))
+        inds.extend(l1_face.compute_face_indicators(face, ws_union, face_tb.t_sec))
 
     # ── G 族(手势)──────────────────────────────────────────────────────
     gest = logs.get("gesture")
     gest_tb = tl.modalities.get("gesture")
     if gest is None or gest_tb is None or not gest_tb.usable:
-        inds.extend(l1_gesture.compute_gesture_indicators(None, ws, None))
+        inds.extend(l1_gesture.compute_gesture_indicators(None, ws_union, None))
         gaps.append("本场没有可用的 gesture 日志 —— G 族 7 条全部不可出")
     else:
-        inds.extend(l1_gesture.compute_gesture_indicators(gest, ws, gest_tb.t_sec))
+        inds.extend(l1_gesture.compute_gesture_indicators(gest, ws_union, gest_tb.t_sec))
         # ★ 拼接场守卫:一场访谈可能是**多段录制**拼起来的。
         #
         # 实测(2026-10-18,13 场 A 档):12 场是单段,但**王语桐一场是 9 段**。
@@ -256,6 +355,20 @@ def compute_session_l1(session_id: str,
         if _note:
             gaps.append(_note)
 
+    # ── 逐题那份:只进离散度层 ──────────────────────────────────────────
+    #
+    # 有逐题窗口时才值得算(会话级口径下 `ws` 只有一个整场窗口,逐题 == 会话级,
+    # 再算一遍是重复劳动)。F/G 两族一起算,按名字汇总后进 `dispersion`。
+    if ws.windows:
+        per_window: list[L1Indicator] = []
+        if face is not None and face_tb is not None and face_tb.usable:
+            per_window.extend(
+                l1_face.compute_face_indicators(face, ws, face_tb.t_sec))
+        if gest is not None and gest_tb is not None and gest_tb.usable:
+            per_window.extend(
+                l1_gesture.compute_gesture_indicators(gest, ws, gest_tb.t_sec))
+        dispersion = dispersion_of(per_window)
+
     # ── V 族(语音)──────────────────────────────────────────────────────
     # 语音日志一行 = 一段回答 ⟹ 不需要时间轴,只需要"有没有这份日志"。
     # `LogDataLoader` 把语音叫 `voice_interview` / `voice_research` —— 三个键都收,
@@ -270,13 +383,15 @@ def compute_session_l1(session_id: str,
         if tb_voice is not None:
             tl.modalities["voice"] = tb_voice
             gaps.append("voice 模态来自原始音频重算(日志 0 行),时间轴未与墙钟核对")
-    inds.extend(l1_voice.compute_voice_indicators(voice, series=series,
-                                                          session_id=session_id))
+    voice_inds = l1_voice.compute_voice_indicators(voice, series=series,
+                                                   session_id=session_id)
+    inds.extend(voice_inds)
     if voice is not None and series is None:
         gaps.append("语音日志在,但没有帧级序列缓存 —— V 族 8 条序列指标报 not_stored"
                     "(可跑 report_frontend/voice_series.extract_session 生成)")
-    if voice is None:
-        gaps.append("本场没有 voice 日志 —— V 族 12 条全部不可出")
+    _vg = voice_gap_note(voice, voice_inds)
+    if _vg:
+        gaps.append(_vg)
 
     # ── T 族(文本)—— 只依赖转写,与三个模态的日志无关 ──────────────────
     inds.extend(l1_text.compute_text_indicators(
@@ -286,4 +401,5 @@ def compute_session_l1(session_id: str,
                     "(可跑 tools/jx_transcribe_recordings.py 生成)")
 
     return L1Result(session_id, tl, ws, inds, gaps,
-                    coverage=l1_quality.modality_coverage(logs))
+                    coverage=l1_quality.modality_coverage(logs),
+                    dispersion=dispersion)

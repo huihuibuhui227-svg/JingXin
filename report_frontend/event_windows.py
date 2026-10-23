@@ -103,6 +103,41 @@ class WindowSet:
                 return w.index
         return None
 
+    def answer_union(self) -> "WindowSet":
+        """所有回答窗口的**并集**,当成一个会话级窗口。
+
+        ## 为什么需要它(裁定①,2026-10-24)
+
+        逐题算 F/G 有两个问题,都不是"调参能好":
+
+        1. **分母不可比**:回答窗实测 13.2~234 秒,39 个里 16 个短于 30 秒,
+           而 frame 族门槛是 20~30 帧(1 Hz 下 = 20~30 秒)⟹ 一半窗口过不了门;
+        2. **同名撞车**:8 题一场会产出 8 份同名指标,而 `l1_mapper` 按名字建字典
+           (`by_name[ind["name"]] = …`)⟹ 只剩最后一题的值,而且**不报错**。
+
+        并集口径解决的是"会话级这个数该在哪些帧上算":只用回答帧,不用提问期,
+        也不用首题之前的帧 —— 与整场口径的区别由 `count_outside` 如实报出。
+        逐题那份不丢,进 `dispersion` 层(见 `l1_session`)。
+
+        会话级(`windows == []`)时原样返回:整场本来就是一个窗口,没有"并集"可做。
+        """
+        if not self.windows:
+            return self
+        # 窗口互不重叠(`[ask_end_k, ask_end_{k+1})` 天然不交),所以并集就是
+        # 一个覆盖 [首窗起, 末窗止) 的区间 —— 段间空隙本来就不属于任何回答窗口。
+        return WindowSet(
+            session_id=self.session_id,
+            granularity=self.granularity,
+            windows=[AnswerWindow(index=-1,
+                                  t_start=self.windows[0].t_start,
+                                  t_end=self.windows[-1].t_end,
+                                  qid="回答帧并集")],
+            n_questions=self.n_questions,
+            n_answer_segments=self.n_answer_segments,
+            wall_reliable=self.wall_reliable,
+            gap=self.gap,
+        )
+
     def count_outside(self, t) -> int:
         """`t` 里**不属于任何窗口**的帧数。NaN 不算(缺失不是"落在窗口外")。
 

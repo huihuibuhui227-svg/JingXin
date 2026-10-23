@@ -50,8 +50,16 @@ PY = _pick("JX_PY",
            Path.home() / "miniconda3/envs/jingxin/bin/python",
            Path.home() / "anaconda3/envs/jingxin/bin/python",
            sys.executable)
-RECORDINGS = _pick("JX_RECORDINGS", Path.home() / "shared" / "jingxin_recordings",
-                   Path.home() / "JingXin" / "recordings")
+# ⚠️ **录制根的候选顺序必须与 `tools/jx_env.sh` 一致**(`~/JingXin/recordings` 优先)。
+#
+# 踩过:本文件原先把 `~/shared/jingxin_recordings` 排在前面,而 `_pick` 取的是
+# **第一个存在的**路径。服务器上那个目录**存在**(只有 4 场旧试跑),于是整节
+# 「5 录制素材」列出的是 4 场试跑、写着「`_试跑/` 该目录不存在」,而盘上 41 个
+# 有效目录 / 24 场正式素材一个都没进去 —— 而 `--check` 还报「是最新的」
+# (它比对的是同一份错根生成的结果)。这与 `_pick` docstring 里记的是同一类事故:
+# **生成器把错的机器描述写成了事实**。
+RECORDINGS = _pick("JX_RECORDINGS", Path.home() / "JingXin" / "recordings",
+                   Path.home() / "shared" / "jingxin_recordings")
 SHARED = _pick("JX_SHARED", Path.home() / "shared", Path.home() / "JingXin")
 FRONTEND = _pick("JX_FRONTEND", Path.home() / "JingXin-frontend",
                  Path.home() / "JingXin" / "frontend")
@@ -119,28 +127,54 @@ def read_port(path: Path) -> str:
     return m.group(1) if m else "?"
 
 
+def _is_formal(d: Path) -> bool:
+    """实名正式场?判据**只有目录名**,不是 `meta.json`。
+
+    正则从 `report_frontend.corpus` 取,不在这里再抄一份 —— 抄了就会漂,
+    而「两处各持一份判据」正是本仓反复栽的形态。导入失败(缺依赖)时退回
+    同一个模式的本地副本,并把这件事写进产出(见调用方)。
+    """
+    try:
+        from report_frontend.corpus import FORMAL_PATTERN
+        return bool(FORMAL_PATTERN.search(d.name))
+    except Exception:
+        return bool(re.search(r"-\d+-([一-龥]{2,4})-(\d{9,10})-([一-龥]+)",
+                              d.name))
+
+
 def classify_session(d: Path, in_trial_dir: bool) -> tuple[str, str, int, bool]:
     """→ (档位, 依据, 问题数, 有 transcript)。
 
-    ★ **`meta.json` 区分不出「正式素材」与「试跑」** —— 实测:三场正式与 `_试跑/`
+    ★ **`meta.json` 区分不出「正式素材」与「试跑」** —— 实测正式场与 `_试跑/`
     里 5 场的 `candidate` / `capture` 块**逐字相同**(同一台机器、同一个脚手架
     `jx_new_session.py` 填的机器实测值)。唯一实质差异是问题数(正式 8,试跑 1~4),
     而那是**偶然**,不是设计。
-    ⟹ **可靠判据只有目录位置**:`_试跑/` 下面的一律是试跑。靠 meta.json「填得全不全」
-    筛正式素材会把 5 场试跑一起筛进来。
+    ⟹ **可靠判据只有目录位置 / 目录名**:`_试跑/` 下面的一律是试跑;根目录下
+    按 `_is_formal`(目录名 `-序号-姓名-学号-学院`)。靠 meta.json「填得全不全」
+    筛正式素材会把试跑一起筛进来。
+
+    ⚠️ 原实现是**反过来**的:先看 `meta.json` 在不在,不在就一律报「试跑 / 无
+    meta.json」。2026-10-24 实测 24 场实名正式场**全都没有 meta.json**
+    (它们是 09-28/09-29 那批现场录的,没走 `jx_new_session.py` 铺模板),
+    于是整张表把 24 场正式素材标成试跑,而同一份输出顶上又写着「24 场实名正式场」
+    —— 自相矛盾。判据必须只有一处。
     """
-    meta = d / "meta.json"
-    if not meta.exists():
-        return "试跑", "无 meta.json", 0, (d / "transcript.json").exists()
-    try:
-        doc = json.loads(meta.read_text(encoding="utf-8"))
-    except Exception:
-        return "试跑", "meta.json 读不出", 0, (d / "transcript.json").exists()
-    nq = len(doc.get("questions") or [])
     has_tr = (d / "transcript.json").exists()
+    nq = 0
+    meta = d / "meta.json"
+    if meta.exists():
+        try:
+            nq = len(json.loads(meta.read_text(encoding="utf-8")).get("questions") or [])
+        except Exception:
+            nq = 0
     if in_trial_dir:
-        return "试跑", f"在 `_试跑/` 下(meta.json 与正式素材**同款**,仅问题数 {nq} 不同)", nq, has_tr
-    return "正式", f"根目录 + meta.json(问题数 {nq})", nq, has_tr
+        return "试跑", "在 `_试跑/` 下", nq, has_tr
+    if not _is_formal(d):
+        return "试跑", "目录名不是 `-序号-姓名-学号-学院`", nq, has_tr
+    why = f"目录名实名(问题数 {nq})" if nq else "目录名实名"
+    if not meta.exists():
+        why += ";无 meta.json"
+    return "正式", why, nq, has_tr
 
 
 def sessions_table(root: Path, in_trial_dir: bool = False) -> list[str]:
@@ -324,17 +358,30 @@ def main() -> int:
     A("")
 
     # ── 5 录制素材 ────────────────────────────────────────────
-    A("## 5. 录制素材 `~/shared/jingxin_recordings/`")
+    #
+    # ⚠️ 这一节原先写死「三场正式素材」「`_试跑/` 的 9 场已删」—— 那是 **2026-09-27**
+    #   的事实。到 10-24 盘上是 24 场实名正式场 + 15 场测试场,那两句散文早就过期了
+    #   (本项目「散文中的数会静默过期」第 8 次)。现在**一律当场数**。
+    # `_回收站` / `_已作废` / `NONE` 不是素材 —— 与 `corpus.audit_corpus` 同一套排除规则。
+    _rec_dirs = ([p for p in RECORDINGS.iterdir()
+                  if p.is_dir() and p.name != "NONE" and not p.name.startswith("_")]
+                 if RECORDINGS.exists() else [])
+    _formal = [p for p in _rec_dirs if _is_formal(p)]
+    _trial = RECORDINGS / "_试跑"
+    A(f"## 5. 录制素材 `{RECORDINGS}/`")
     A("")
-    A("**别删。** 三场正式素材是 M3/M4 的输入与验收依据。")
+    A(f"**别删。** 盘上共 **{len(_rec_dirs)}** 个有效目录,其中 **{len(_formal)}** 场实名正式场"
+      "是 M3/M4 的输入与验收依据(判据:`-序号-姓名-学号-学院`,见 `corpus.FORMAL_PATTERN`)。")
     A("")
-    A("⚠️ `_试跑/` 的 9 场已于 2026-09-27 按使用者裁定删除(811 MB)⟹ **回归比对现在只能靠"
-      "三场正式素材本身**。原「留着做回归」那条不再成立。")
+    if _trial.exists():
+        A(f"⚠️ `_试跑/` 仍在(`{len([p for p in _trial.iterdir() if p.is_dir()])}` 场)。")
+    else:
+        A("⚠️ `_试跑/` 已于 2026-09-27 按使用者裁定删除(811 MB)⟹ **回归比对只能靠正式素材本身**。")
     A("")
-    A("⚠️ **`meta.json` 区分不出正式素材与试跑** —— 实测三场正式与 `_试跑/` 里 5 场的")
+    A("⚠️ **`meta.json` 区分不出正式素材与试跑** —— 实测正式场与 `_试跑/` 里 5 场的")
     A("`candidate` / `capture` 块**逐字相同**(同一台机器 + 同一个脚手架 `jx_new_session.py`)。")
-    A("**可靠判据只有目录位置**(`_试跑/` 下一律是试跑)。按「meta.json 填得全不全」筛正式素材,")
-    A("会把 5 场试跑一起筛进来 —— 这正是「量错了对象」那一类。")
+    A("**可靠判据只有目录位置 / 目录名**(`_试跑/` 下一律是试跑)。按「meta.json 填得全不全」筛正式素材,")
+    A("会把试跑一起筛进来 —— 这正是「量错了对象」那一类。")
     A("")
     A("### 5.1 根目录")
     A("")
@@ -342,8 +389,7 @@ def main() -> int:
     A("|---|---|---:|---|---:|---:|---|---|")
     L.extend(sessions_table(RECORDINGS, in_trial_dir=False))
     A("")
-    A("### 5.2 `_试跑/`(已于 2026-09-27 删除)")
-    A("")
+    A("### 5.2 `_试跑/`")
     A("")
     A("| session | 档位 | 问题数 | transcript | webm | media 文件数 | 还有 | 依据 |")
     A("|---|---|---:|---|---:|---:|---|---|")
