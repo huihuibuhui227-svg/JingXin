@@ -26,7 +26,9 @@ import pytest
 from tools.jx_boundary_feasibility import FULL_COVER, _log_span_sec, survey
 
 SID = "20260929_180047_6fee"
-FORMAL = f"20260929_180047-2-廖怡涵-261210823-金融8班__{SID}"
+# ⚠️ 假名假学号 —— 判据只看形状(`-序号-姓名-学号-学院`)。本仓是公开仓库,
+# 没理由把真实受访者的姓名学号写进测试。
+FORMAL = f"20260929_180047-2-示例乙-000000002-示例学院__{SID}"
 
 
 def _session(root: Path, name: str = FORMAL, span_ms: int | None = 600_000) -> Path:

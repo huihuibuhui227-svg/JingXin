@@ -142,11 +142,11 @@ def test_real_names_and_student_ids_are_redacted_in_the_table(inv, tmp_path):
 
     红法:把 `sessions_table` 里的 `redact(d.name)` 改回 `d.name` ⟹ 本条红。
     """
-    real = "20260929_180047-2-张三-261210823-金融8班__20260929_180047_6fee"
+    real = "20260929_180047-2-张三-987654321-金融8班__20260929_180047_6fee"
     (tmp_path / real).mkdir()
     body = "\n".join(inv.sessions_table(tmp_path))
     assert "张三" not in body, f"真实姓名进了表:\n{body}"
-    assert "261210823" not in body, f"真实学号进了表:\n{body}"
+    assert "987654321" not in body, f"真实学号进了表:\n{body}"
     # 代号要能替代它,且学号**位数保留**(位数本身是判据的一部分)
     assert "候选A" in body, body
     assert "000000000" in body, f"学号应换成同长度占位符:\n{body}"
@@ -154,7 +154,7 @@ def test_real_names_and_student_ids_are_redacted_in_the_table(inv, tmp_path):
 
 def test_redaction_keeps_the_shape_readable(inv):
     """脱敏后仍要能看出「这是正式场」—— 只换姓名学号,不动序号与学院。"""
-    real = "20260929_180047-2-张三-261210823-金融8班__20260929_180047_6fee"
+    real = "20260929_180047-2-张三-987654321-金融8班__20260929_180047_6fee"
     inv._assign_codes([Path(real)])
     out = inv.redact(real)
     assert "20260929_180047-2-" in out
