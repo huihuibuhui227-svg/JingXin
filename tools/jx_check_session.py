@@ -186,14 +186,40 @@ def check(dir_name: str) -> tuple[list[Row], dict]:
                         warn=True))
 
     # ── 3. media/camera.webm + vp8/opus 双流 ─────────────────────────
+    #
+    # ⚠️ 两种失败**必须分开报**,它们的补救动作完全不同:
+    #   · 文件不存在   ⟹ 录制没走完(没到结束页),整场重录;
+    #   · 文件在但缺轨 ⟹ 录到了,是**某一条轨没进文件**。2026-10-24 实测两场
+    #     (`185929_…`、`191038_…`)只有 `opus` 没有 `vp8`:音轨 178/185 秒**完整**,
+    #     视觉那一整块却没有。旧文案对这两种一律说「没走到结束页」——
+    #     那会让人去重录整场,而其实音频是好的、只有视觉不可用。
     cam = d / "media" / "camera.webm"
     if not cam.exists():
+        facts["camera_verdict"] = "no_file"
         rows.append(Row("原生视频", False, "media/camera.webm **不存在** —— §8.4 第 2 条:没走到结束页"))
     else:
         codes = _ffprobe_codecs(cam)
         mb = cam.stat().st_size / 1e6
         ok = "vp8" in codes and "opus" in codes
-        rows.append(Row("原生视频", ok, f"camera.webm {mb:.1f} MB, 流={codes}"))
+        if not ok:
+            missing = [x for x in ("vp8", "opus") if x not in codes]
+            # 缺 vp8 ⟹ 视觉全不可用;缺 opus ⟹ 音频/转写全不可用。轻重不一样。
+            if missing == ["vp8"]:
+                facts["camera_verdict"] = "no_video_track"
+                detail = (f"camera.webm {mb:.1f} MB,**只有音轨没有视频轨**(流={codes})"
+                          f" —— 文件是录下来的,但视觉那一整块没有;"
+                          f"音频可用,视觉指标与面部/手势全不可出")
+            elif missing == ["opus"]:
+                facts["camera_verdict"] = "no_audio_track"
+                detail = (f"camera.webm {mb:.1f} MB,**只有视频轨没有音轨**(流={codes})"
+                          f" —— 转写与语音指标全不可出")
+            else:
+                facts["camera_verdict"] = "other"
+                detail = f"camera.webm {mb:.1f} MB,缺 {missing}(流={codes})"
+            rows.append(Row("原生视频", False, detail))
+        else:
+            facts["camera_verdict"] = "ok"
+            rows.append(Row("原生视频", ok, f"camera.webm {mb:.1f} MB, 流={codes}"))
 
     # ── 4. 面部 / 手势:帧数 + 检出率 ─────────────────────────────────
     for mod, csv_name in (("face", f"face_au_log_{sid}.csv"),
@@ -313,7 +339,19 @@ def verdict(rows: list[Row], facts: dict) -> str:
     soft = [r for r in rows if not r.ok and r.warn]
     n_q = facts.get("n_questions", 0)
     if any(x.name == "原生视频" for x in hard):
-        return "不够格 —— 没有原生视频(没走到结束页),这一场只能当试跑"
+        # 判词必须与**盘上的事实**一致:文件不存在 与 文件在但缺轨 是两回事。
+        # 旧文案对两者一律说「没走到结束页」—— 而缺轨的场次音频往往是完整的
+        # (实测 178/185 秒),说成"没录到"会让人白重录一场。
+        cam = facts.get("camera_verdict")
+        if cam == "no_file":
+            return "不够格 —— 没有原生视频(没走到结束页),这一场只能当试跑"
+        if cam == "no_video_track":
+            return ("不够格 —— camera.webm 在,但**只有音轨没有视频轨**;"
+                    "音频可用,视觉指标与面部/手势全不可出(不是没录到,是视觉轨没进文件)")
+        if cam == "no_audio_track":
+            return ("不够格 —— camera.webm 在,但**只有视频轨没有音轨**;"
+                    "转写与语音指标全不可出")
+        return "不够格 —— 原生视频不合判据"
     if n_q and n_q < MIN_ANSWERS:
         return f"不够格 —— 只答了 {n_q} 题,低于门槛 {MIN_ANSWERS}(正式要 {EXPECTED_QUESTIONS})"
     if hard:
