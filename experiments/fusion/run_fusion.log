@@ -1,0 +1,17 @@
+行 2011 | 无文本 0 | meta 缺失 0
+[seed 42] text=0.275 beh=0.278 fus=0.288 late=0.286 (text_dim=800)  p(F>T)=0.494 p(F>B)=0.498
+[seed 123] text=0.346 beh=0.389 fus=0.400 late=0.359 (text_dim=800)  p(F>T)=0.492 p(F>B)=0.488
+[seed 456] text=0.353 beh=0.386 fus=0.405 late=0.369 (text_dim=800)  p(F>T)=0.494 p(F>B)=0.487
+[seed 789] text=0.388 beh=0.415 fus=0.419 late=0.396 (text_dim=800)  p(F>T)=0.496 p(F>B)=0.504
+[seed 1024] text=0.446 beh=0.446 fus=0.465 late=0.432 (text_dim=800)  p(F>T)=0.495 p(F>B)=0.484
+
+=== 汇总(5 seeds mean±std) ===
+  text_rf      macro = 0.3616±0.0558
+  beh_rf       macro = 0.3830±0.0565
+  fus_rf       macro = 0.3952±0.0585
+  late_fusion  macro = 0.3682±0.0483
+  Δ fus-text = +0.0337  Δ fus-beh = +0.0123
+  fus>text 种子数 5/5  fus>beh 5/5
+  mean p(F>T)=0.495  mean p(F>B)=0.492
+  参考: 既有已调优行为 RF_all = 0.383  (用户级 7:1:2)
+耗时 436s

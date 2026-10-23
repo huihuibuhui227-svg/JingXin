@@ -1,0 +1,462 @@
+============================================================
+ROUND 1: Abstract Claims vs Evidence
+============================================================
+## Claim-by-claim assessment
+
+I separate compound sentences into individually testable claims. “Supported” means directly borne out by the supplied experimental facts or numerical results; “Partially” means some evidence exists but the wording overreaches or is not fully validated.
+
+| # | Abstract claim | Verdict | Evidence and assessment |
+|---:|---|---|---|
+| 1 | Existing automated interview systems **predominantly rely on black-box end-to-end multimodal regression or rigid rubric-based scoring**. | **PARTIALLY** | The experiments include several regression and fusion baselines, but a single benchmark and 17 evaluated methods cannot establish what the field “predominantly” uses. No literature-survey evidence is provided for the prevalence claim, and rubric-based systems are not represented in Table 1. |
+| 2 | Both prior paradigms **lack transparent, stepwise reasoning**. | **PARTIALLY** | The listed RF, SVR, Ridge, MLP, LSTM, CRMF, and fusion baselines do not expose CoT-style intermediate reasoning. However, the universal claim about both categories is not experimentally tested, especially for rubric-based systems. |
+| 3 | The paper **proposes a framework called CueCoT**. | **SUPPORTED** | CueCoT is included as an evaluated method in Table 1. |
+| 4 | CueCoT **bridges multimodal behavioral signals with LLM CoT capabilities**. | **CONTRADICTED** | Feature shuffling causes only \(\Delta r=0.009\), described in the supplied facts as near-perfect invariance and evidence that the LLM ignores behavioral input. Thus, the experiments do not demonstrate an effective bridge between behavioral signals and LLM reasoning. |
+| 5 | CueCoT extracts **fine-grained facial action units, gaze patterns, body gestures, and vocal prosody**. | **PARTIALLY** | The experiments contain face, voice, and gesture modalities, so multimodal cue extraction is plausible. However, no supplied result verifies the quality or fineness of the action-unit, gaze, gesture, or prosodic measurements individually. |
+| 6 | Those cues are extracted through **lightweight encoders**. | **PARTIALLY** | This is an architectural description, but no parameter counts, latency, computational comparison, or other evidence establishes that the encoders are “lightweight.” |
+| 7 | The cue encoders are **interpretable**. | **PARTIALLY** | Naming behavioral features may make them more semantically meaningful than latent embeddings, but no interpretability evaluation or human study was conducted. Moreover, feature shuffling suggests that the downstream predictions do not meaningfully depend on these cues. |
+| 8 | The cues are **projected into the LLM token space as structured soft prompts**. | **PARTIALLY** | This is a specific implementation claim, but it is not verified by the supplied table or experimental facts. The feature-shuffling experiment indicates that whatever projection is used has almost no effect on outputs. |
+| 9 | The soft prompts **enable explicit multi-step reasoning**. | **PARTIALLY** | CueCoT may generate text formatted as multiple reasoning stages, but there was no human evaluation of whether those stages constitute valid reasoning. CueCoT is not significantly different from direct prompting (\(p=0.085\)), so the experiments do not establish that the soft prompts add a meaningful reasoning capability. |
+| 10 | The reasoning proceeds **from raw behavioral observation to psychological-state inference to competency assessment**. | **CONTRADICTED** | Near-invariance under behavioral-feature shuffling is inconsistent with a genuinely input-grounded progression from behavioral observations to later conclusions. The generated chain may have this surface format, but the output apparently does not materially depend on the observations. Psychological-state inference was also not independently validated. |
+| 11 | Prior work treats LLMs as **direct regressors or uses end-to-end fusion without intermediate reasoning**. | **PARTIALLY** | The evaluated direct-LLM and fusion baselines fit this description. Nevertheless, the experiments cannot establish this as a comprehensive characterization of prior work; that would require a literature-based novelty analysis. |
+| 12 | CueCoT **produces reasoning chains**. | **SUPPORTED** | This is consistent with the method’s stated CoT output design. However, this only supports the existence of generated chains, not their faithfulness or correctness. |
+| 13 | The reasoning chains are **transparent and auditable**. | **PARTIALLY** | Textual intermediate outputs can be read and inspected, which provides some procedural transparency. But no human audit or interpretability evaluation was conducted, and the shuffling result indicates that the chains may rationalize model priors rather than faithfully explain use of behavioral evidence. |
+| 14 | The reasoning chains make the assessment process **fully inspectable**. | **CONTRADICTED** | “Fully” is not justified. Soft prompts and LLM internal computation remain opaque; no human evaluation examined the chains; and the feature-shuffling result undermines their faithfulness to the stated input cues. Observable generated text is not equivalent to full process inspectability. |
+| 15 | CueCoT is evaluated on **a public interview benchmark**. | **SUPPORTED** | The experiments use the single RecruitView dataset, containing 2,011 videos from 331 participants. |
+| 16 | The evaluation compares CueCoT against **unimodal baselines**. | **SUPPORTED** | Table 1 includes face-, voice-, gesture-, and text-only methods such as RF, SVR, Ridge, and TF-IDF. |
+| 17 | The evaluation compares CueCoT against **standard multimodal fusion methods**. | **SUPPORTED** | The table includes RF(All), SVR(All), Late Fusion, Early Fusion MLP, Attn-LSTM, and CRMF. |
+| 18 | The evaluation compares CueCoT against **direct LLM prompting without CoT reasoning**. | **SUPPORTED** | GPT-5.6 Direct and LLM Direct are reported. Importantly, CueCoT does not significantly outperform Direct prompting: \(p=0.085\). |
+| 19 | **Ablation studies characterize each reasoning stage’s contribution.** | **PARTIALLY** | Feature shuffling diagnoses the behavioral-input stage, and CueCoT-versus-Direct tests the overall addition of the CoT setup. However, no supplied results separately quantify the contributions of every claimed stage—observation, psychological inference, and competency assessment. The CueCoT/Direct difference is also not significant. |
+| 20 | Validation was performed **across two LLM families**. | **PARTIALLY** | The abstract reports an inter-model result, which suggests a two-model comparison, but the supplied main table does not identify both families or provide their separate performance. The claim therefore lacks enough reported detail for full verification. |
+| 21 | The inter-model correlation is **\(r=0.742\)**. | **SUPPORTED** | This is the reported numerical result for the cross-model comparison. It measures agreement between model outputs, not agreement with human ratings. |
+| 22 | The inter-model result **confirms robustness of the CoT reasoning process**. | **CONTRADICTED** | Agreement between two LLMs does not establish that their reasoning is robust, grounded, or valid. All LLM methods are negatively correlated with human ratings; CueCoT has macro \(r=-0.1283\), and its advantage over Direct is not significant. The models can agree because they share similar priors or failure modes. Feature-shuffling invariance strengthens that alternative explanation. |
+| 23 | Feature-shuffling controls reveal **near-perfect output invariance to behavioral input**. | **SUPPORTED** | This is explicitly included in the supplied experimental facts. It is one of the clearest findings. |
+| 24 | The feature-shuffling change is **\(\Delta r=0.009\)**. | **SUPPORTED** | This exact value is reported in the abstract and is consistent with the stated near-invariance finding. |
+| 25 | The shuffling result indicates that **LLM internal priors dominate over behavioral signals**. | **PARTIALLY** | The result strongly supports the narrower conclusion that the outputs make little use of the behavioral inputs. Attributing the residual behavior specifically to “internal priors” is plausible but not uniquely established: prompt structure, output calibration, preprocessing, or ineffective cue projection could also cause invariance. |
+
+## Overall assessment
+
+The abstract is strongest where it reports the experimental setup and the negative diagnostic result:
+
+- RecruitView evaluation: **supported**
+- Broad baseline coverage: **supported**
+- All LLM methods negatively correlated with human ratings: confirmed by Table 1
+- Feature-shuffling invariance: **supported**
+- \(\Delta r=0.009\): **supported**
+
+Its major overclaims concern the interpretation of generated CoT:
+
+- The data do **not** show an effective bridge from behavioral cues to LLM reasoning.
+- The data do **not** establish faithful psychological-state inference.
+- There is no human evaluation supporting transparency or auditability.
+- “Fully inspectable” is untenable.
+- Inter-model \(r=0.742\) demonstrates agreement, not reasoning robustness.
+- CueCoT is not significantly different from direct prompting (\(p=0.085\)).
+- CueCoT’s macro correlation is negative, \(r=-0.1283\), while the best conventional model, RF(All), reaches \(r=0.3829\).
+
+Thus, the abstract accurately discloses the strongest failure result, but its earlier claims about grounding, reasoning, transparency, stage-wise contribution, and robustness are substantially stronger than the experimental evidence permits.
+
+============================================================
+ROUND 2: Methodology & Experiments
+============================================================
+## 1. “Structured soft prompts” vs. natural-language descriptions
+
+Yes, this is a substantive terminology/method discrepancy.
+
+A **soft prompt** normally means a sequence of continuous, often trainable embedding vectors inserted into the LLM’s embedding space. Percentile-based descriptions serialized into 300–500 natural-language tokens are **discrete textual or hard prompts**, not soft prompts. A deterministic feature-to-text serializer also is not conventionally a “projection into token space.”
+
+The paper should do one of the following:
+
+- Revise the abstract and method to say that features are **quantized/serialized into structured natural-language prompts**; or
+- Actually implement a learned projector that maps numerical features to continuous LLM embeddings, and explain how it is trained and inserted into the model.
+
+The method also needs to specify:
+
+- How percentile thresholds are estimated;
+- Whether thresholds and feature normalization use **training users only**;
+- How temporal windows are aggregated into 300–500 tokens;
+- How missing faces, hands, audio, or unreliable measurements are represented;
+- Whether serialization is deterministic across all LLM variants.
+
+Estimating percentiles globally would leak test-set distributional information.
+
+---
+
+## 2. User-level five-seed split and evaluating GPT-5.6 on all videos
+
+### User-level split
+
+The user-level split is the correct basic choice because clips from the same participant are strongly dependent. A random video-level split would cause clear identity and behavioral leakage.
+
+However, the current protocol could be strengthened:
+
+- With only 331 users, the nominal 7:1:2 split gives roughly 232/33/66 users per split. Report **user counts**, not only video counts.
+- Random grouped splits can produce substantial variation because users contribute 1–17 clips. Consider grouped five-fold cross-validation or balancing splits by both user count and number of clips.
+- Hyperparameter selection, standardization, percentile construction, prompt calibration, and any learned fusion weights must be performed separately using only each seed’s training/validation users.
+- The five random test sets overlap, so they should not be treated as five independent replications in significance tests.
+
+### GPT-5.6 on all videos
+
+Evaluating GPT-5.6 on all 2,011 videos is not a valid head-to-head comparison if the learned methods are evaluated only on held-out test videos.
+
+It may be acceptable as a separate descriptive experiment only if:
+
+1. GPT-5.6 is completely frozen;
+2. It receives no labels, demonstrations, or calibration from the dataset;
+3. Prompts were fixed without inspecting test performance; and
+4. Results are explicitly labeled as non-comparable.
+
+For the primary comparison, every method should be evaluated on exactly the same held-out users for each seed. Otherwise:
+
+- Sample difficulty differs;
+- Paired bootstrap testing is impossible;
+- GPT’s evaluation includes users assigned to training and validation for other methods;
+- Any prompt engineering based on the full dataset becomes a form of test-set adaptation.
+
+A clean protocol would run GPT-5.6 and all other methods on each seed’s test split and retain per-video/per-user paired predictions.
+
+---
+
+## 3. Adequacy of MediaPipe and librosa for AAAI 2027
+
+They are adequate as components of an engineering pipeline, but their use alone is not enough to establish a technically rigorous or novel AAAI contribution.
+
+The largest concern is the claim that facial landmarks yield 14 AUs. MediaPipe Face Mesh does not directly provide validated FACS AU intensities. Hand-crafted landmark-to-AU rules must be:
+
+- Fully specified or cited;
+- Validated against a recognized AU detector or FACS-annotated benchmark;
+- Evaluated for head-pose, illumination, occlusion, facial morphology, and demographic sensitivity.
+
+Likewise, terms such as “confidence-associated patterns,” “fluidity,” “rigidity,” and “fist tightness” require operational definitions. Otherwise, they risk encoding unvalidated psychological assumptions.
+
+For audio, librosa-derived pitch and RMS are reasonable basic features, but ten prosodic dimensions are limited. The paper should document:
+
+- Voice activity detection;
+- Pitch extraction algorithm and valid frequency ranges;
+- Treatment of unvoiced frames;
+- Noise and clipping handling;
+- Speaker normalization;
+- How speech rate is computed and which ASR system supplies words;
+- Whether pauses distinguish silence from failed VAD;
+- Missing-data handling.
+
+Additional concerns include:
+
+- The derivation of 1,260 facial dimensions from the listed measurements is unclear;
+- The handling of variable-duration videos and 3-second windows is unspecified;
+- The weighted gesture fusion layer needs a training procedure or fixed-weight rationale;
+- Reliability and extraction failure rates should be reported;
+- Feature normalization must be fitted on training data only.
+
+For a competitive 2027 paper, I would expect comparisons against stronger pretrained representations, such as facial affect encoders, wav2vec/HuBERT-style speech embeddings, skeleton transformers, or video-language models. Interpretability can justify hand-crafted cues, but then the paper should validate cue accuracy and show that interpretability provides a measurable benefit.
+
+---
+
+## 4. Strength of the TF–IDF baseline
+
+The TF–IDF baseline is too weak as the only text baseline.
+
+It is useful as a classical lexical baseline, but it does not establish that behavioral cues outperform modern semantic representations. At minimum, I would add:
+
+- Sentence/document embeddings followed by Ridge or an MLP;
+- A pretrained transformer text regressor;
+- A text-only LLM using the same prompting and scoring protocol as CueCoT;
+- Transcript-only, summary-only, and transcript-plus-summary variants.
+
+A same-LLM text-only control is particularly important. Otherwise, gains may come from the LLM’s prior knowledge or prompt format rather than from the proposed behavioral features.
+
+Gemini-generated summaries also introduce confounds:
+
+- Which Gemini version and decoding settings were used?
+- Did summaries contain inferred personality or performance judgments?
+- Were they generated from transcripts only or from video?
+- Could the summarizer itself inject target-like assessments?
+
+The raw transcript should be the primary text baseline; generated summaries should be an additional ablation. Stronger multimodal comparisons using transcript plus behavioral features would also be useful.
+
+---
+
+## 5. Counting the “14 baselines”
+
+The stated count is ambiguous and does not match a natural enumeration.
+
+### If every reported configuration is counted
+
+- Unimodal/feature regressors:  
+  3 algorithms × 4 feature sets = **12**
+- Multimodal fusion methods: **4**
+- LLM methods:  
+  3 prompting methods × 2 LLM backends = **6**
+- Text baseline: at least **1**, potentially **2** if transcript and summary are separate
+
+This gives **23–24 configurations**, including CueCoT.
+
+### Likely intended count
+
+The authors may be counting method families:
+
+- SVR, Ridge, RF: 3
+- Four multimodal fusion methods: 4
+- Three LLM prompting methods on two models: 6
+- TF–IDF: 1
+
+Total: **3 + 4 + 6 + 1 = 14**.
+
+However, this count includes the two CueCoT implementations as “methods” even though CueCoT is the proposed approach, not a baseline. It also counts LLM backends separately while collapsing four feature configurations for each classical regressor. That counting rule is inconsistent.
+
+The paper should distinguish clearly among:
+
+- **Baseline method families**;
+- **Backbone variants**;
+- **Feature-set ablations**;
+- **Proposed-method variants**.
+
+In terms of relevance, the classical regressors are useful diagnostics, and CRMF and Attention-LSTM appear to be meaningful comparisons. Direct prompting and generic CoT are necessary ablations. Nevertheless, the suite is not fully comprehensive because it lacks strong pretrained text, audio, video, and multimodal representation baselines. Counting many SVR/Ridge/RF feature variants does not substitute for contemporary baselines.
+
+---
+
+## 6. Bootstrap confidence intervals and Cohen’s \(d\)
+
+The general idea is appropriate, but the resampling unit is critical.
+
+Because each participant contributes multiple videos, ordinary video-level bootstrap resampling violates independence and will produce overly narrow confidence intervals. The bootstrap should be **clustered by user**:
+
+1. Resample held-out users with replacement;
+2. Include all clips for each sampled user;
+3. Recompute the complete macro-averaged metric;
+4. For method comparisons, bootstrap the paired predictions from the same sampled users.
+
+Additional recommendations:
+
+- Report confidence intervals for the **difference between methods**, not only for each method separately.
+- Use the same held-out examples for paired tests.
+- Correct for multiple comparisons if significance is claimed across many baselines, metrics, and 12 targets.
+- Explain whether macro-averaging occurs before or after bootstrapping.
+- For correlations, clustered bootstrap CIs are reasonable; a Fisher transformation is another option but does not itself solve within-user dependence.
+- Since test sets overlap across the five random seeds, do not pool seed-level results as independent observations.
+- A paired Cohen’s \(d\) should be defined on user-level paired losses or another clearly specified independent unit. Computing \(d\) from only five seed-level values is unstable, while computing it over videos ignores clustering.
+- Correlation effect sizes are not naturally summarized by Cohen’s \(d\); report changes in \(r\)/\(\rho\) and their clustered CIs directly.
+
+A further issue is that MSE and MAE depend on label scaling. The paper should state whether target normalization was predetermined by the dataset or recomputed within each split. Any split-dependent transformation must be fitted on the training set only.
+
+---
+
+## 7. Experimental rigor rating
+
+**Current rating: 5/10.**
+
+### Strengths
+
+- User-level splitting addresses the most obvious leakage risk.
+- Multiple random seeds are better than a single split.
+- Several metrics are reported.
+- Direct and generic-CoT variants provide relevant prompting ablations.
+- Cross-backbone LLM evaluation is potentially useful.
+- The proposed behavioral features are interpretable in principle.
+
+### Major weaknesses
+
+- The soft-prompt description contradicts the actual feature serialization.
+- GPT evaluation on all videos is not directly comparable to split-based evaluation.
+- The AU and emotion extraction claims are insufficiently validated.
+- Several feature definitions and dimensionalities are not reproducible from the description.
+- The text baseline is substantially weaker than contemporary alternatives.
+- The “14 baselines” count is inconsistent.
+- The statistical protocol does not state that resampling is clustered by participant.
+- Repeated random splits are overlapping rather than independent.
+- Modern pretrained modality and multimodal baselines are missing.
+- Potential leakage through global percentile estimation, normalization, prompt development, and generated summaries is not addressed.
+
+With same-test-set evaluation for all methods, participant-clustered inference, stronger modern baselines, training-only preprocessing, and validation of the handcrafted behavioral cues, the rigor could plausibly rise to **7–8/10**. In its current form, the experimental conclusions appear promising but are not yet sufficiently controlled for a strong AAAI empirical claim.
+
+============================================================
+ROUND 3: References
+============================================================
+## 1. Fabricated or unverifiable references
+
+### Clearly real, but with bibliographic problems
+
+- **Nguyen et al. (2014), “Hire me”** is real. However, it is a **journal article**, not an `@inproceedings` paper, and `booktitle` should be `journal`. A fuller entry should include *IEEE Transactions on Multimedia*, 16(4), 1018–1031.
+- **Naim et al. (2015)** is real. The venue should be given more precisely as the **11th IEEE International Conference and Workshops on Automatic Face and Gesture Recognition (FG)**.
+- **Nguyen et al. (2013)** appears real, but the citation key `nguyen2012multimodal` conflicts with the publication year. This is not technically invalid, but it is confusing and should become `nguyen2013multimodal`.
+- **HireNet** is real and was published at **AAAI 2019**. The 2017 arXiv identifier explains the date discrepancy, but the entry should include the AAAI volume/pages rather than only an arXiv note.
+- **Wei et al. (2022), BLIP-2, and LLaVA** are established references. Their BibTeX types and proceedings metadata could be made more consistent.
+
+### Needs exact verification
+
+- **Malik et al. / arXiv:2302.09817**: likely a real work, but the exact title and author list should be checked against the arXiv record. The key `malik2022explainable` is inconsistent with the listed year 2023. Cite the later peer-reviewed version if one exists.
+- **Zhan et al. (2025), L2V-CoT**
+- **Hu et al. (2025), TVI-CoT**
+- **Pham et al. (2025), MCOUT**
+
+The last three cannot be verified from the supplied bibliography because their entries are missing. Given their recent dates and relatively unfamiliar names, reviewers may flag them unless you provide complete metadata, DOI/arXiv identifiers, and publication venues. Do not cite them as published conference papers if they are only arXiv manuscripts.
+
+The bibliography is also truncated at `zhu2023minigpt4`, so its validity cannot be assessed from the supplied text.
+
+### Citation-list inconsistencies
+
+- `hemamou2017` is present but never cited in the Related Work section.
+- `zhu2023minigpt4` appears to be in the bibliography but MiniGPT-4 is not cited in the text.
+- The text cites `hu2025tvicot` and `pham2025mcout`, but no corresponding entries are shown.
+- “Transformer encoders” is asserted without a citation.
+
+I would not call the established entries fabricated. The main fabrication/unverifiability risk lies with the incomplete 2025 references.
+
+---
+
+## 2. Key missing citations
+
+### Interview assessment
+
+At minimum, cite **HireNet** in the first subsection. It is directly relevant to hierarchical temporal modeling and attention in asynchronous video interviews:
+
+```latex
+\cite{hemamou2017}
+```
+
+Also consider coverage of these areas:
+
+1. **MIT Interview Dataset / multimodal interview analysis.**  
+   Naim et al. partly covers this, but the dataset and associated prediction setting should be discussed explicitly.
+
+2. **First-impression/personality prediction from video.**  
+   The ChaLearn First Impressions benchmark is highly relevant if your task or labels overlap with apparent personality, interview impressions, or hireability. A representative citation is the ChaLearn LAP First Impressions challenge paper by Ponce-López et al.
+
+3. **Structured interview validity and nonverbal cues.**  
+   The claim that behavioral-signal validity has “rarely been tested empirically” needs grounding in industrial-organizational psychology. Relevant starting points include:
+   - Levashina et al., *The Structured Employment Interview: Narrative and Quantitative Review of the Research Literature*.
+   - DeGroot and Motowidlo on visual/vocal cues and interview judgments.
+   - Barrick, Shaffer, and DeGrassi on self-presentation and interview ratings.
+
+4. **Validity, bias, and fairness of automated hiring systems.**
+   - Raghavan et al. (2020), *Mitigating Bias in Algorithmic Hiring: Evaluating Claims and Practices*.
+   - Köchling and Wehner’s systematic review of discrimination and algorithmic decision-making in HR.
+   - Empirical or psychometric studies of automated video interviews, especially work examining construct validity, subgroup differences, or reactions to AVI systems.
+
+### Multimodal models
+
+If you mention transformer encoders or modern multimodal interview architectures, cite actual interview-specific transformer papers rather than leaving this as a generic phrase. For the broader multimodal-LLM lineage, consider:
+
+- Flamingo
+- MiniGPT-4, if retained in the bibliography
+- InstructBLIP
+- Video-LLaVA or other video-language models, because interview behavior is temporal and BLIP-2/LLaVA are primarily image-oriented references
+
+### Explanation and CoT faithfulness
+
+Because the paper treats generated reasoning as “transparency” and as an analytical instrument, it should cite work showing that rationales and CoT are not necessarily faithful explanations:
+
+- Jacovi and Goldberg (2020), on faithfulness and plausibility in NLP explanations.
+- Jain and Wallace (2019), *Attention is not Explanation*, if attention weights are described as explanations.
+- Turpin et al. (2023), *Language Models Don’t Always Say What They Think*.
+- Lanham et al. (2023), work on measuring CoT faithfulness.
+- Potentially Wiegreffe and Pinter (2019) for the more nuanced debate around attention explanations.
+
+This literature is important because readable CoT does not, by itself, establish that the prediction was causally based on the cited behavioral cues.
+
+---
+
+## 3. Is the “first to apply CoT to behavioral assessment” claim justified?
+
+**No—not in its present form.**
+
+“Behavioral assessment” is extremely broad and can include:
+
+- emotion recognition,
+- mental-health assessment,
+- personality inference,
+- social-interaction analysis,
+- clinical behavioral coding,
+- human-activity understanding,
+- educational and workplace assessment,
+- deception or intent analysis.
+
+It is unlikely that a blanket priority claim across all these areas can be defended. In addition, “structured CoT reasoning” needs a precise definition. Prompting a model to produce cue descriptions followed by a prediction may be better described as **structured rationalization** or **rationale generation**, unless the method actually uses intermediate reasoning steps in training or inference.
+
+A safer claim would be:
+
+> To the best of our knowledge, this is the first study to investigate structured language rationales for multimodal reasoning over nonverbal cues in asynchronous video-interview assessment.
+
+Even this should be supported by:
+
+1. A documented literature search;
+2. Careful delimitation to **asynchronous video interviews**;
+3. Comparison with prior explainable interview-assessment systems;
+4. A distinction between **human-readable rationales** and **faithful explanations**.
+
+I would also revise:
+
+> use reasoning transparency as an analytical tool
+
+to something like:
+
+> use generated structured rationales as an analytical probe
+
+unless you independently test rationale faithfulness. “Transparency” implies access to the true basis of the model’s decision, which ordinary CoT generation does not guarantee.
+
+Likewise, the statement that nonverbal-signal reliability “has rarely been tested empirically” is too strong. Nonverbal cues and interview judgments have been studied extensively in psychology. Your more defensible novelty may be testing whether **the specific machine-extracted cues used by automated interview systems contain stable predictive information under your dataset and evaluation design**.
+
+---
+
+## 4. Is the RecruitView citation correct?
+
+There is **no RecruitView citation in the supplied Related Work or visible bibliography**, so it cannot currently be judged correct. If RecruitView is your dataset or a prior benchmark, it needs:
+
+- the exact paper or dataset title,
+- authors,
+- publication venue or repository,
+- year,
+- DOI/URL,
+- version or access date if it is dataset-only.
+
+Do not cite a project webpage as though it were a peer-reviewed paper. If RecruitView has both a dataset paper and a repository, cite the archival paper and optionally the repository/version used.
+
+---
+
+## 5. Reference-quality rating
+
+**Current rating: 5/10.**
+
+### Strengths
+
+- Core classic interview-assessment papers are included.
+- BLIP-2, LLaVA, and the original CoT paper are appropriate foundational references.
+- The references generally align with the two stated research areas.
+
+### Weaknesses
+
+- Several BibTeX types and years/keys are inconsistent.
+- Recent CoT references are missing from the bibliography and therefore unverifiable.
+- HireNet is listed but not discussed.
+- There is insufficient coverage of interview validity, organizational psychology, automated-hiring fairness, and explanation faithfulness.
+- The related-work conclusions overstate both the lack of empirical testing and the priority claim.
+- Image-language methods are cited for a temporally dynamic video problem without enough video-language or temporal multimodal literature.
+
+With complete metadata, stronger interview-validity coverage, and a narrowed novelty claim, this could rise to approximately **8/10**.
+
+### Recommended immediate edits
+
+```latex
+Automated interview assessment has used facial, vocal, linguistic,
+and gestural features to predict interview ratings, hireability, and
+apparent personality
+\cite{nguyen2013multimodal,nguyen2014hireme,naim2015automated,
+hemamou2019hirenet,malik2023explainable}.
+```
+
+And replace the final priority claim with:
+
+```latex
+To the best of our knowledge, ours is the first study to investigate
+structured language rationales for multimodal nonverbal-cue analysis
+in asynchronous video-interview assessment. Rather than treating
+these rationales as inherently faithful explanations, we use them as
+an analytical probe and evaluate their relationship to model
+predictions and observed behavioral signals.
+```
+
+That wording is substantially more defensible for AAAI review.
+
+============================================================
+ROUND 4: Discussion, Ethics & Final Verdict
+============================================================
+**WEAK REJECT.** The paper is reasonably transparent about the failed CoT approach, and the cross-model agreement and feature-shuffling controls make the negative result potentially valuable rather than merely post hoc. However, the central reframing—that behavioral signals are fundamentally weak or that the field’s behavioral-signal assumption is wrong—is not justified by evidence from a single dataset; the results establish failure for these features, representations, and ratings, not a general information limitation. The proposed explanations remain largely speculative without evaluator studies, transcript-controlled analyses, or direct human evaluation, leaving some tension between the broad framing and the narrower empirical findings. The ethics discussion is directionally appropriate, but should address dataset bias, demographic subgroup effects, construct validity, and risks arising from content-based assessment as well as behavior-based systems.

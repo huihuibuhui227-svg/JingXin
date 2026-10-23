@@ -1,0 +1,12 @@
+行 2011 | 无文本 0 | meta 缺失 0
+[seed 42] beh_PCA150=0.276  beh_full=0.278  text_SVD100=0.265  fus_PCA150+SVD100=0.287  fus_full+SVD100=0.290  text_SVD200=0.282  fus_PCA150+SVD200=0.295  fus_full+SVD200=0.287
+[seed 123] beh_PCA150=0.344  beh_full=0.390  text_SVD100=0.355  fus_PCA150+SVD100=0.337  fus_full+SVD100=0.390  text_SVD200=0.338  fus_PCA150+SVD200=0.334  fus_full+SVD200=0.394
+[seed 456] beh_PCA150=0.349  beh_full=0.385  text_SVD100=0.375  fus_PCA150+SVD100=0.389  fus_full+SVD100=0.395  text_SVD200=0.383  fus_PCA150+SVD200=0.381  fus_full+SVD200=0.394
+beh_PCA150           0.3230±0.0333
+beh_full             0.3509±0.0515
+text_SVD100          0.3318±0.0478
+fus_PCA150+SVD100    0.3378±0.0415
+fus_full+SVD100      0.3584±0.0485
+text_SVD200          0.3342±0.0414
+fus_PCA150+SVD200    0.3363±0.0352
+fus_full+SVD200      0.3582±0.0502

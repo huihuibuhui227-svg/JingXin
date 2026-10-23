@@ -1,0 +1,185 @@
+modality,column,kind,note,in_group_b,obs_min,obs_max,observed_ones
+face,au10_upper_lip_raise,level,水平量:只出 mean,1,0,0.825,0
+face,au10_upper_lip_raise_change_rate,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,24637
+face,au10_upper_lip_raise_trend,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,-0.795,1,275
+face,au10_upper_lip_raise_volatility,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,11915
+face,au12_smile,level,水平量:只出 mean,1,0,0.917,0
+face,au12_smile_change_rate,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,22016
+face,au12_smile_trend,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,-0.285,1,170
+face,au12_smile_volatility,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,9935
+face,au14_dimpler,level,水平量:只出 mean,1,0.214,1,8565
+face,au14_dimpler_change_rate,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,361
+face,au14_dimpler_trend,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,-1,1,2569
+face,au14_dimpler_volatility,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,120
+face,au15_mouth_down,level,水平量:只出 mean,1,0,1,29
+face,au15_mouth_down_change_rate,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,22315
+face,au15_mouth_down_trend,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,-0.875,1,419
+face,au15_mouth_down_volatility,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,10475
+face,au1_inner_brow_raise,level,水平量:只出 mean,1,0,0.451,0
+face,au1_inner_brow_raise_change_rate,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,927
+face,au1_inner_brow_raise_trend,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,-0.281,1,923
+face,au1_inner_brow_raise_volatility,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0.003,1,120
+face,au20_lip_stretcher,level,水平量:只出 mean,1,0,0.917,0
+face,au20_lip_stretcher_change_rate,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,22016
+face,au20_lip_stretcher_trend,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,-0.285,1,170
+face,au20_lip_stretcher_volatility,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,9935
+face,au23_lip_compression,level,水平量:只出 mean,1,0,1,1
+face,au23_lip_compression_change_rate,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,33635
+face,au23_lip_compression_trend,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,-1,1,1957
+face,au23_lip_compression_volatility,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,30709
+face,au25_mouth_open,level,水平量:只出 mean,1,0,1,701
+face,au25_mouth_open_change_rate,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,22938
+face,au25_mouth_open_trend,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,-1,1,1747
+face,au25_mouth_open_volatility,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,13523
+face,au26_jaw_drop,level,水平量:只出 mean,1,0,1,4670
+face,au26_jaw_drop_change_rate,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,23426
+face,au26_jaw_drop_trend,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,-1,1,3119
+face,au26_jaw_drop_volatility,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,14418
+face,au2_outer_brow_raise,level,水平量:只出 mean,1,0,0.711,0
+face,au2_outer_brow_raise_change_rate,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,4243
+face,au2_outer_brow_raise_trend,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,-0.811,1,953
+face,au2_outer_brow_raise_volatility,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0.003,1,770
+face,au4_frown,level,水平量:只出 mean,1,0,0.64,0
+face,au4_frown_change_rate,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,10679
+face,au4_frown_trend,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,-0.706,1,36
+face,au4_frown_volatility,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,2405
+face,au6_cheek_raise,level,水平量:只出 mean,1,0,0.704,0
+face,au6_cheek_raise_change_rate,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,380
+face,au6_cheek_raise_trend,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,-0.332,1,1928
+face,au6_cheek_raise_volatility,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0.002,1,120
+face,au7_eye_squeeze,level,水平量:只出 mean,1,0,0.905,0
+face,au7_eye_squeeze_change_rate,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,434
+face,au7_eye_squeeze_trend,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,-0.331,1,2267
+face,au7_eye_squeeze_volatility,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0.002,1,120
+face,au9_nose_wrinkle,level,水平量:只出 mean,1,0.28,0.5,0
+face,au9_nose_wrinkle_change_rate,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,310
+face,au9_nose_wrinkle_trend,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,-0.07,1,1808
+face,au9_nose_wrinkle_volatility,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,120
+face,avg_ear,level,水平量:只出 mean,1,0.095,1,1
+face,avg_ear_change_rate,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,1659
+face,avg_ear_trend,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,-1,1,1443
+face,avg_ear_volatility,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0.002,1,120
+face,blink_rate_per_min,level,水平量:只出 mean,1,0,0,0
+face,blink_rate_per_min_change_rate,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,9820
+face,blink_rate_per_min_trend,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,-1,1,23207
+face,blink_rate_per_min_volatility,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,2730
+face,confidence,level,水平量:只出 mean,1,0.185,1,20836
+face,emotion_anger,level,水平量:只出 mean,1,0,0.75,0
+face,emotion_anxiety,level,水平量:只出 mean,1,0,1,6565
+face,emotion_cognitive_load,level,水平量:只出 mean,1,0,0,0
+face,emotion_contempt,level,水平量:只出 mean,1,0,0,0
+face,emotion_disgust,level,水平量:只出 mean,1,0,1,642
+face,emotion_distress,level,水平量:只出 mean,1,0,0.207,0
+face,emotion_fatigue,level,水平量:只出 mean,1,0,1,129
+face,emotion_fear,level,水平量:只出 mean,1,0,0.5,0
+face,emotion_forced_smile,level,水平量:只出 mean,1,0,0.418,0
+face,emotion_happy,level,水平量:只出 mean,1,0,1,1510
+face,emotion_moral_disgust,level,水平量:只出 mean,1,0,0.131,0
+face,emotion_polite_smile,level,水平量:只出 mean,1,0,0,0
+face,emotion_sadness,level,水平量:只出 mean,1,0,0.259,0
+face,emotion_startled_anxiety,level,水平量:只出 mean,1,0,1,341
+face,emotion_surprise,level,水平量:只出 mean,1,0,1,4154
+face,eye_closed_sec,level,水平量:只出 mean,1,0,0,0
+face,eye_closed_sec_change_rate,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,21294
+face,eye_closed_sec_trend,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,-0.556,1,5
+face,eye_closed_sec_volatility,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,2690
+face,focus_score,level,水平量:只出 mean,1,0.3,0.8,0
+face,gaze_deviation,level,水平量:只出 mean,1,0.136,1.664,2
+face,gaze_deviation_change_rate,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,220
+face,gaze_deviation_trend,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,-1,1,185
+face,gaze_deviation_volatility,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,0.53,0
+face,gaze_direction_x,level,水平量:只出 mean,1,-0.229,0.63,0
+face,gaze_direction_x_change_rate,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,11769
+face,gaze_direction_x_trend,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,-1,1,37
+face,gaze_direction_x_volatility,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,5112
+face,gaze_direction_y,level,水平量:只出 mean,1,-1.664,-0.133,0
+face,gaze_direction_y_change_rate,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,1,1,36300
+face,gaze_direction_y_trend,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,-1,1,351
+face,gaze_direction_y_volatility,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,3002
+face,head_pitch,level,水平量:只出 mean,1,-1,-0.887,0
+face,head_pitch_change_rate,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,1,1,36300
+face,head_pitch_trend,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,-1,0.08,0
+face,head_pitch_volatility,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,10288
+face,head_yaw,level,水平量:只出 mean,1,-0.406,0.516,0
+face,head_yaw_change_rate,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,548
+face,head_yaw_trend,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,-1,1,1242
+face,head_yaw_volatility,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0.002,1,120
+face,is_blink,binary_event,事件列:占片比 + 每秒发生次数,1,0,0,0
+face,is_blink_change_rate,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,0,0
+face,is_blink_trend,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,0,0
+face,is_blink_volatility,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,0,0
+face,is_valid,level,水平量:只出 mean,1,1,1,36300
+face,left_iris_x,level,水平量:只出 mean,1,0.098,0.747,0
+face,left_iris_x_change_rate,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,18
+face,left_iris_x_trend,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,-1,1,23
+face,left_iris_x_volatility,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,0.285,0
+face,left_iris_y,level,水平量:只出 mean,1,0.128,0.764,0
+face,left_iris_y_change_rate,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,4
+face,left_iris_y_trend,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,-1,1,1
+face,left_iris_y_volatility,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,0.208,0
+face,micro_exp_duration_frames,frames,"单位为采样帧,聚合前先换算成秒",1,2,8,0
+face,micro_exp_intensity,level,水平量:只出 mean,1,0.1,1,24
+face,overall_score,level,水平量:只出 mean,1,0,0,0
+face,right_iris_x,level,水平量:只出 mean,1,0.258,0.843,0
+face,right_iris_x_change_rate,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,0.777,0
+face,right_iris_x_trend,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,-1,1,25
+face,right_iris_x_volatility,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,0.171,0
+face,right_iris_y,level,水平量:只出 mean,1,0.128,0.771,0
+face,right_iris_y_change_rate,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,1,4
+face,right_iris_y_trend,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,-1,1,2
+face,right_iris_y_volatility,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,0.215,0
+face,symmetry_score,level,水平量:只出 mean,1,0.866,1,121
+face,symmetry_score_change_rate,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,0.18,0
+face,symmetry_score_trend,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,-1,0.353,0
+face,symmetry_score_volatility,rolling2nd,"滚动二阶量(3 秒窗);只进 A 组,只出 mean",0,0,0.038,0
+face,tension_score,level,水平量:只出 mean,1,0.103,1,1
+face,tension_sources_brow_furrow,level,水平量:只出 mean,1,0,0.832,0
+face,tension_sources_emotional_influence,level,水平量:只出 mean,1,0,0.4,0
+face,tension_sources_expression_instability,level,水平量:只出 mean,1,0.484,1,35907
+face,tension_sources_eye_closure,level,水平量:只出 mean,1,0,0,0
+face,tension_sources_lip_compression,level,水平量:只出 mean,1,0,1,6051
+gesture,left_arm_arm_angle,level,水平量:只出 mean,1,0,180,0
+gesture,left_arm_arm_score,level,水平量:只出 mean,1,0,100,0
+gesture,left_arm_arm_stability,level,水平量:只出 mean,1,0,1,1078
+gesture,left_arm_elbow_jitter,level,水平量:只出 mean,1,0,0.193,0
+gesture,left_arm_is_valid,binary_flag,二值标志位:只出占片比,1,0,1,36286
+gesture,left_arm_wrist_jitter,level,水平量:只出 mean,1,0,0.2986,0
+gesture,left_hand_fist_status,binary_event,事件列:占片比 + 每秒发生次数,1,0,1,4218
+gesture,left_hand_is_valid,binary_flag,二值标志位:只出占片比,1,0,1,639
+gesture,left_hand_jitter,level,水平量:只出 mean,1,0,0.1118,0
+gesture,left_hand_resilience_score,level,水平量:只出 mean,1,0,55.13,0
+gesture,left_hand_spread,level,水平量:只出 mean,1,0,0.3142,0
+gesture,right_arm_arm_angle,level,水平量:只出 mean,1,0,180,0
+gesture,right_arm_arm_score,level,水平量:只出 mean,1,0,100,0
+gesture,right_arm_arm_stability,level,水平量:只出 mean,1,0,1,1078
+gesture,right_arm_elbow_jitter,level,水平量:只出 mean,1,0,0.1651,0
+gesture,right_arm_is_valid,binary_flag,二值标志位:只出占片比,1,0,1,36286
+gesture,right_arm_wrist_jitter,level,水平量:只出 mean,1,0,0.3063,0
+gesture,right_hand_fist_status,binary_event,事件列:占片比 + 每秒发生次数,1,0,1,4927
+gesture,right_hand_is_valid,binary_flag,二值标志位:只出占片比,1,0,1,760
+gesture,right_hand_jitter,level,水平量:只出 mean,1,0,0.1695,0
+gesture,right_hand_resilience_score,level,水平量:只出 mean,1,0,59.72,0
+gesture,right_hand_spread,level,水平量:只出 mean,1,0,0.4381,0
+gesture,shoulder_is_calibrated,binary_flag,二值标志位:只出占片比,1,0,1,32838
+gesture,shoulder_is_valid,binary_flag,二值标志位:只出占片比,1,0,1,36286
+gesture,shoulder_left_jitter,level,水平量:只出 mean,1,0,0.05451,0
+gesture,shoulder_right_jitter,level,水平量:只出 mean,1,0,0.06066,0
+gesture,shoulder_shoulder_score,level,水平量:只出 mean,1,0,70,0
+gesture,shoulder_shrug_level,level,水平量:只出 mean,1,0,1,5
+gesture,upper_body_head_jitter,level,水平量:只出 mean,1,0,0.06863,0
+gesture,upper_body_head_score,level,水平量:只出 mean,1,0,60,0
+gesture,upper_body_head_tilt,level,水平量:只出 mean,1,0,180,0
+gesture,upper_body_is_valid,binary_flag,二值标志位:只出占片比,1,0,1,36286
+gesture,upper_body_torso_jitter,level,水平量:只出 mean,1,0,0.04751,0
+gesture,upper_body_torso_score,level,水平量:只出 mean,1,4.482,90,0
+gesture,upper_body_torso_stability,level,水平量:只出 mean,1,0,1,1078
+voice,duration_sec,level,水平量:只出 mean,1,0.63,92.34,0
+voice,energy_mean,level,水平量:只出 mean,1,0.0005,0.1907,0
+voice,energy_std,level,水平量:只出 mean,1,0.0001,0.1517,0
+voice,pause_duration_max,level,水平量:只出 mean,1,0,6.91,0
+voice,pause_duration_mean,level,水平量:只出 mean,1,0,2.3,1
+voice,pause_frequency,level,水平量:只出 mean,1,0,95.54,0
+voice,pitch_mean,level,水平量:只出 mean,1,0,474.5,0
+voice,pitch_std,level,水平量:只出 mean,1,0,577,0
+voice,pitch_trend,level,水平量:只出 mean,1,-954.4,163.5,0
+voice,speech_ratio,level,水平量:只出 mean,1,0.75,1,102

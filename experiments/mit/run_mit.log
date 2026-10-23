@@ -1,0 +1,13 @@
+[seed 42] n_test=28 text=0.173 beh=0.466 fus=0.501 late=0.394 (text_dim=1000)
+[seed 123] n_test=28 text=0.257 beh=0.369 fus=0.405 late=0.380 (text_dim=1000)
+[seed 456] n_test=28 text=0.235 beh=0.524 fus=0.547 late=0.596 (text_dim=1000)
+[seed 789] n_test=28 text=0.217 beh=0.621 fus=0.657 late=0.548 (text_dim=1000)
+[seed 1024] n_test=28 text=0.291 beh=0.413 fus=0.369 late=0.424 (text_dim=1000)
+
+=== MIT 汇总(5 seeds) ===
+  text_rf      macro = 0.235±0.039
+  beh_rf       macro = 0.479±0.088
+  fus_rf       macro = 0.496±0.103
+  late_fusion  macro = 0.468±0.087
+  beh-text = +0.244   fus-text = +0.261   fus-beh = +0.017
+耗时 24s

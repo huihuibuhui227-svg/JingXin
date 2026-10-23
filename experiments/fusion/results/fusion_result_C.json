@@ -1,0 +1,1968 @@
+{
+ "summary": {
+  "text_rf": {
+   "macro_mean": 0.35447176300137034,
+   "macro_std": 0.03646785393336717,
+   "per_seed": [
+    0.42189802738792875,
+    0.3634523186094721,
+    0.3351805086595896,
+    0.3228056099936892,
+    0.32902235035617194
+   ]
+  },
+  "beh_rf": {
+   "macro_mean": 0.3289747622442999,
+   "macro_std": 0.041891261473300044,
+   "per_seed": [
+    0.36205929095505485,
+    0.30782468720660916,
+    0.3571226609378717,
+    0.2558446251626742,
+    0.3620225469592895
+   ]
+  },
+  "beh_rf_durctrl": {
+   "macro_mean": 0.2513065071165005,
+   "macro_std": 0.029562194321468036,
+   "per_seed": [
+    0.25696890560351676,
+    0.255257781046716,
+    0.26256757285579463,
+    0.19627512277235593,
+    0.28546315330411903
+   ]
+  },
+  "fus_rf": {
+   "macro_mean": 0.39197016241851507,
+   "macro_std": 0.031982150568668946,
+   "per_seed": [
+    0.4490715969238061,
+    0.3935869120707167,
+    0.38662316592472834,
+    0.3511730508588751,
+    0.37939608631444893
+   ]
+  },
+  "late_fusion": {
+   "macro_mean": 0.3700031952787855,
+   "macro_std": 0.03845996235983222,
+   "per_seed": [
+    0.4300373773092794,
+    0.3886266341806852,
+    0.3256428140500132,
+    0.33177242318165784,
+    0.3739367276722918
+   ]
+  },
+  "beh_plus_dur": {
+   "macro_mean": 0.38159858934403323,
+   "macro_std": 0.04514343164107078,
+   "per_seed": [
+    0.42928054427611656,
+    0.3746853205694027,
+    0.4157094635628476,
+    0.2999928778891339,
+    0.3883247404226655
+   ]
+  },
+  "duration_only": {
+   "macro_mean": 0.2437199605104793,
+   "macro_std": 0.039749994686264126,
+   "per_seed": [
+    0.3102314112807384,
+    0.242901099574386,
+    0.2344247200256047,
+    0.18552849696493823,
+    0.24551407470672926
+   ]
+  },
+  "delta_fus_vs_text": 0.03749839941714472,
+  "delta_fus_vs_beh": 0.06299540017421518,
+  "seed_better": {
+   "fus>text": 5,
+   "fus>beh": 5
+  },
+  "p_F_vs_text_mean": 0.4963101782442112,
+  "p_F_vs_beh_mean": 0.49314509411960683,
+  "reference_beh_rf_all": 0.383,
+  "_run": {
+   "features_dir": "/home/huihuibuhui/jingxin/experiments/results/features_C",
+   "drop_duration": false,
+   "n_beh_dims": 22,
+   "tag": "_C"
+  }
+ },
+ "per_seed": {
+  "42": {
+   "text_rf": {
+    "openness": {
+     "pearson_r": 0.49183591770136037,
+     "mse": 1.0686041377358186
+    },
+    "conscientiousness": {
+     "pearson_r": 0.34569589422036395,
+     "mse": 0.6736539060524779
+    },
+    "extraversion": {
+     "pearson_r": 0.4273865267572864,
+     "mse": 0.8571728199920333
+    },
+    "agreeableness": {
+     "pearson_r": 0.45626063531913447,
+     "mse": 1.2129350139091113
+    },
+    "neuroticism": {
+     "pearson_r": 0.1867307311354621,
+     "mse": 0.22157318493868627
+    },
+    "overall_personality": {
+     "pearson_r": 0.46872441700336476,
+     "mse": 0.9575310549445879
+    },
+    "interview_score": {
+     "pearson_r": 0.4269007992328638,
+     "mse": 1.5017743699840675
+    },
+    "answer_score": {
+     "pearson_r": 0.4519142187115835,
+     "mse": 1.1248287753336124
+    },
+    "speaking_skills": {
+     "pearson_r": 0.44593027801357005,
+     "mse": 1.5730976615510897
+    },
+    "confidence_score": {
+     "pearson_r": 0.46725623027393254,
+     "mse": 0.8004069162182759
+    },
+    "facial_expression": {
+     "pearson_r": 0.45255181016491713,
+     "mse": 1.0252910197505423
+    },
+    "overall_performance": {
+     "pearson_r": 0.44158887012130715,
+     "mse": 1.1611426457910141
+    },
+    "macro_r": 0.42189802738792875,
+    "personality_r": 0.3961056870228287,
+    "interview_r": 0.44769036775302906
+   },
+   "beh_rf": {
+    "openness": {
+     "pearson_r": 0.4446417109544285,
+     "mse": 1.1156892511752459
+    },
+    "conscientiousness": {
+     "pearson_r": 0.29571258002627154,
+     "mse": 0.704425507878065
+    },
+    "extraversion": {
+     "pearson_r": 0.39836634362782214,
+     "mse": 0.9009951226330651
+    },
+    "agreeableness": {
+     "pearson_r": 0.33397610760980906,
+     "mse": 1.375202785170893
+    },
+    "neuroticism": {
+     "pearson_r": 0.16859483782020226,
+     "mse": 0.22525026307260046
+    },
+    "overall_personality": {
+     "pearson_r": 0.39383166042672796,
+     "mse": 1.070227953396328
+    },
+    "interview_score": {
+     "pearson_r": 0.3374309745489745,
+     "mse": 1.6588487564576109
+    },
+    "answer_score": {
+     "pearson_r": 0.4143339991555482,
+     "mse": 1.1981072458878965
+    },
+    "speaking_skills": {
+     "pearson_r": 0.3435434009558252,
+     "mse": 1.728764076019288
+    },
+    "confidence_score": {
+     "pearson_r": 0.4252727764972302,
+     "mse": 0.8430124948753512
+    },
+    "facial_expression": {
+     "pearson_r": 0.3894018820147682,
+     "mse": 1.1104591364149303
+    },
+    "overall_performance": {
+     "pearson_r": 0.39960521782305,
+     "mse": 1.2241701547792385
+    },
+    "macro_r": 0.36205929095505485,
+    "personality_r": 0.33918720674421027,
+    "interview_r": 0.38493137516589937
+   },
+   "fus_rf": {
+    "openness": {
+     "pearson_r": 0.5241799742137685,
+     "mse": 1.0307095858318862
+    },
+    "conscientiousness": {
+     "pearson_r": 0.3690055424809387,
+     "mse": 0.6607556361165279
+    },
+    "extraversion": {
+     "pearson_r": 0.4701264608376985,
+     "mse": 0.8166072347066586
+    },
+    "agreeableness": {
+     "pearson_r": 0.4629835234409832,
+     "mse": 1.1980053184397266
+    },
+    "neuroticism": {
+     "pearson_r": 0.2184800019432288,
+     "mse": 0.2187080368389413
+    },
+    "overall_personality": {
+     "pearson_r": 0.49594792535988425,
+     "mse": 0.9240451518515902
+    },
+    "interview_score": {
+     "pearson_r": 0.43225683136382753,
+     "mse": 1.4853035530232979
+    },
+    "answer_score": {
+     "pearson_r": 0.48116293902261315,
+     "mse": 1.084652962251828
+    },
+    "speaking_skills": {
+     "pearson_r": 0.47688747044671936,
+     "mse": 1.5151602802159876
+    },
+    "confidence_score": {
+     "pearson_r": 0.5067563401450382,
+     "mse": 0.7573795059451169
+    },
+    "facial_expression": {
+     "pearson_r": 0.4770641130278165,
+     "mse": 0.9953387740607954
+    },
+    "overall_performance": {
+     "pearson_r": 0.47400804080315617,
+     "mse": 1.117063070484779
+    },
+    "macro_r": 0.4490715969238061,
+    "personality_r": 0.42345390471275035,
+    "interview_r": 0.4746892891348618
+   },
+   "late_fusion": {
+    "openness": {
+     "pearson_r": 0.530561321844825,
+     "mse": 1.0078547991779063
+    },
+    "conscientiousness": {
+     "pearson_r": 0.3596190899515568,
+     "mse": 0.6972188654536905
+    },
+    "extraversion": {
+     "pearson_r": 0.4081564736679393,
+     "mse": 0.8646111118469216
+    },
+    "agreeableness": {
+     "pearson_r": 0.4325566430646154,
+     "mse": 1.243478638640859
+    },
+    "neuroticism": {
+     "pearson_r": 0.22013950714807923,
+     "mse": 0.22491997001834182
+    },
+    "overall_personality": {
+     "pearson_r": 0.4967563255664442,
+     "mse": 0.9222200884533697
+    },
+    "interview_score": {
+     "pearson_r": 0.4171757146240321,
+     "mse": 1.5060456269911033
+    },
+    "answer_score": {
+     "pearson_r": 0.4698820216232118,
+     "mse": 1.0977452972973372
+    },
+    "speaking_skills": {
+     "pearson_r": 0.4190096787083594,
+     "mse": 1.5951087783178315
+    },
+    "confidence_score": {
+     "pearson_r": 0.4917405079118385,
+     "mse": 0.7839117308627802
+    },
+    "facial_expression": {
+     "pearson_r": 0.45483077117340925,
+     "mse": 1.0477514784621298
+    },
+    "overall_performance": {
+     "pearson_r": 0.4600204724270425,
+     "mse": 1.132934591335611
+    },
+    "macro_r": 0.4300373773092794,
+    "personality_r": 0.4079648935405766,
+    "interview_r": 0.4521098610779823
+   },
+   "beh_rf_durctrl": {
+    "openness": {
+     "pearson_r": 0.3333580685872338
+    },
+    "conscientiousness": {
+     "pearson_r": 0.21580985841883357
+    },
+    "extraversion": {
+     "pearson_r": 0.3051785054702816
+    },
+    "agreeableness": {
+     "pearson_r": 0.21034223965722015
+    },
+    "neuroticism": {
+     "pearson_r": 0.12254376330861397
+    },
+    "overall_personality": {
+     "pearson_r": 0.2587629776205999
+    },
+    "interview_score": {
+     "pearson_r": 0.2263741918561629
+    },
+    "answer_score": {
+     "pearson_r": 0.3007069139145088
+    },
+    "speaking_skills": {
+     "pearson_r": 0.23082568639631268
+    },
+    "confidence_score": {
+     "pearson_r": 0.31681432279830396
+    },
+    "facial_expression": {
+     "pearson_r": 0.2773993097077707
+    },
+    "overall_performance": {
+     "pearson_r": 0.2855110295063598
+    },
+    "macro_r": 0.25696890560351676,
+    "personality_r": 0.24099923551046384,
+    "interview_r": 0.2729385756965698
+   },
+   "beh_plus_dur": {
+    "openness": {
+     "pearson_r": 0.5032943625283013,
+     "mse": 1.0330680263750198
+    },
+    "conscientiousness": {
+     "pearson_r": 0.33230323491188907,
+     "mse": 0.6877937693296499
+    },
+    "extraversion": {
+     "pearson_r": 0.4531338313542543,
+     "mse": 0.8347140140952592
+    },
+    "agreeableness": {
+     "pearson_r": 0.43776450662348454,
+     "mse": 1.2338104042521556
+    },
+    "neuroticism": {
+     "pearson_r": 0.24907203009442078,
+     "mse": 0.21547213001230506
+    },
+    "overall_personality": {
+     "pearson_r": 0.5134001887656071,
+     "mse": 0.9035330466091057
+    },
+    "interview_score": {
+     "pearson_r": 0.4076870234477861,
+     "mse": 1.5302432699582202
+    },
+    "answer_score": {
+     "pearson_r": 0.4668438321978669,
+     "mse": 1.124690918204774
+    },
+    "speaking_skills": {
+     "pearson_r": 0.41477845349508496,
+     "mse": 1.601886308610197
+    },
+    "confidence_score": {
+     "pearson_r": 0.47576368522328977,
+     "mse": 0.7860562235223881
+    },
+    "facial_expression": {
+     "pearson_r": 0.4316847254860904,
+     "mse": 1.0632497454828693
+    },
+    "overall_performance": {
+     "pearson_r": 0.46564065718532394,
+     "mse": 1.1287142781887536
+    },
+    "macro_r": 0.42928054427611656,
+    "personality_r": 0.4148280257129928,
+    "interview_r": 0.44373306283924036
+   },
+   "duration_only": {
+    "openness": {
+     "pearson_r": 0.3463607135312627,
+     "mse": 1.2311151484405547
+    },
+    "conscientiousness": {
+     "pearson_r": 0.1964682834081895,
+     "mse": 0.7902087779463361
+    },
+    "extraversion": {
+     "pearson_r": 0.2931276110779511,
+     "mse": 1.0042639733614698
+    },
+    "agreeableness": {
+     "pearson_r": 0.3541642434216004,
+     "mse": 1.3657231103886744
+    },
+    "neuroticism": {
+     "pearson_r": 0.12419589734783174,
+     "mse": 0.23646296663485053
+    },
+    "overall_personality": {
+     "pearson_r": 0.4028447810970469,
+     "mse": 1.059342139965484
+    },
+    "interview_score": {
+     "pearson_r": 0.32088894363675463,
+     "mse": 1.6961504296708663
+    },
+    "answer_score": {
+     "pearson_r": 0.4098455162475009,
+     "mse": 1.2413614253418552
+    },
+    "speaking_skills": {
+     "pearson_r": 0.28729103011662543,
+     "mse": 1.8562060939503604
+    },
+    "confidence_score": {
+     "pearson_r": 0.328180502909475,
+     "mse": 0.9605341874534942
+    },
+    "facial_expression": {
+     "pearson_r": 0.2994258165274262,
+     "mse": 1.2599737302683078
+    },
+    "overall_performance": {
+     "pearson_r": 0.35998359604719604,
+     "mse": 1.301332276904926
+    },
+    "macro_r": 0.3102314112807384,
+    "personality_r": 0.28619358831398034,
+    "interview_r": 0.3342692342474964
+   },
+   "_meta": {
+    "n_tr": 1394,
+    "n_va": 197,
+    "n_te": 420,
+    "text_dim": 800,
+    "n_beh_dims": 22
+   },
+   "_p_F_vs_text": {
+    "mean_p": 0.49516908212560384
+   },
+   "_p_F_vs_beh": {
+    "mean_p": 0.48913043478260865
+   }
+  },
+  "123": {
+   "text_rf": {
+    "openness": {
+     "pearson_r": 0.37725566457232595,
+     "mse": 1.183278539835293
+    },
+    "conscientiousness": {
+     "pearson_r": 0.3565758595794921,
+     "mse": 0.5973629188538326
+    },
+    "extraversion": {
+     "pearson_r": 0.3165886850119601,
+     "mse": 1.2401257927673135
+    },
+    "agreeableness": {
+     "pearson_r": 0.41505432555111177,
+     "mse": 1.0940908055685639
+    },
+    "neuroticism": {
+     "pearson_r": 0.2528551042411165,
+     "mse": 0.24934746181150746
+    },
+    "overall_personality": {
+     "pearson_r": 0.4227001234944176,
+     "mse": 1.0764613773276415
+    },
+    "interview_score": {
+     "pearson_r": 0.4147710787339054,
+     "mse": 1.137793239076076
+    },
+    "answer_score": {
+     "pearson_r": 0.34407618605493434,
+     "mse": 1.1686766722191637
+    },
+    "speaking_skills": {
+     "pearson_r": 0.4077806959355648,
+     "mse": 1.7511243866780855
+    },
+    "confidence_score": {
+     "pearson_r": 0.3096406422553644,
+     "mse": 1.2630585689190814
+    },
+    "facial_expression": {
+     "pearson_r": 0.38974357106342816,
+     "mse": 1.1291060734492135
+    },
+    "overall_performance": {
+     "pearson_r": 0.3543858868200437,
+     "mse": 1.3390076927081336
+    },
+    "macro_r": 0.3634523186094721,
+    "personality_r": 0.35683829374173737,
+    "interview_r": 0.37006634347720685
+   },
+   "beh_rf": {
+    "openness": {
+     "pearson_r": 0.274860002940429,
+     "mse": 1.2673713627552508
+    },
+    "conscientiousness": {
+     "pearson_r": 0.2595287928494945,
+     "mse": 0.6354769194428661
+    },
+    "extraversion": {
+     "pearson_r": 0.3366240225655409,
+     "mse": 1.2037623952722147
+    },
+    "agreeableness": {
+     "pearson_r": 0.3262595960939781,
+     "mse": 1.1687867621518753
+    },
+    "neuroticism": {
+     "pearson_r": 0.25130497113886313,
+     "mse": 0.24716941796851422
+    },
+    "overall_personality": {
+     "pearson_r": 0.35915074966610944,
+     "mse": 1.1426060710654937
+    },
+    "interview_score": {
+     "pearson_r": 0.33085196541487566,
+     "mse": 1.2178610161511352
+    },
+    "answer_score": {
+     "pearson_r": 0.26803413463534015,
+     "mse": 1.238202610597226
+    },
+    "speaking_skills": {
+     "pearson_r": 0.35470629578333335,
+     "mse": 1.7998041225510375
+    },
+    "confidence_score": {
+     "pearson_r": 0.3202625944944148,
+     "mse": 1.2498217870416595
+    },
+    "facial_expression": {
+     "pearson_r": 0.30887994530463087,
+     "mse": 1.2003555646612867
+    },
+    "overall_performance": {
+     "pearson_r": 0.3034331755923005,
+     "mse": 1.388824977335138
+    },
+    "macro_r": 0.30782468720660916,
+    "personality_r": 0.3012880225424025,
+    "interview_r": 0.3143613518708159
+   },
+   "fus_rf": {
+    "openness": {
+     "pearson_r": 0.3896861235095523,
+     "mse": 1.1637783043159216
+    },
+    "conscientiousness": {
+     "pearson_r": 0.3662442640925705,
+     "mse": 0.589434689474333
+    },
+    "extraversion": {
+     "pearson_r": 0.37786492479138317,
+     "mse": 1.1730615928358183
+    },
+    "agreeableness": {
+     "pearson_r": 0.4440568007176688,
+     "mse": 1.057494220042389
+    },
+    "neuroticism": {
+     "pearson_r": 0.3001122257014305,
+     "mse": 0.2425782665100586
+    },
+    "overall_personality": {
+     "pearson_r": 0.45358096419659083,
+     "mse": 1.0395036690699881
+    },
+    "interview_score": {
+     "pearson_r": 0.43656446118920145,
+     "mse": 1.108213776713443
+    },
+    "answer_score": {
+     "pearson_r": 0.3759571278456831,
+     "mse": 1.1325515895903893
+    },
+    "speaking_skills": {
+     "pearson_r": 0.4151441685995234,
+     "mse": 1.7230544923766606
+    },
+    "confidence_score": {
+     "pearson_r": 0.36937843429047984,
+     "mse": 1.2040602203716875
+    },
+    "facial_expression": {
+     "pearson_r": 0.39770047904988826,
+     "mse": 1.1146923980369945
+    },
+    "overall_performance": {
+     "pearson_r": 0.39675297086462913,
+     "mse": 1.2855691776854723
+    },
+    "macro_r": 0.3935869120707167,
+    "personality_r": 0.388590883834866,
+    "interview_r": 0.3985829403065675
+   },
+   "late_fusion": {
+    "openness": {
+     "pearson_r": 0.38025043798633756,
+     "mse": 1.1682789462129464
+    },
+    "conscientiousness": {
+     "pearson_r": 0.38544624694676,
+     "mse": 0.5828107056862885
+    },
+    "extraversion": {
+     "pearson_r": 0.3787299315182619,
+     "mse": 1.1657026047701609
+    },
+    "agreeableness": {
+     "pearson_r": 0.41870862401099995,
+     "mse": 1.1060143189828877
+    },
+    "neuroticism": {
+     "pearson_r": 0.32618820554127576,
+     "mse": 0.2353245504709787
+    },
+    "overall_personality": {
+     "pearson_r": 0.44319695308154,
+     "mse": 1.0623081862875652
+    },
+    "interview_score": {
+     "pearson_r": 0.43705088786918467,
+     "mse": 1.1034861657009647
+    },
+    "answer_score": {
+     "pearson_r": 0.3645834380717099,
+     "mse": 1.1475455200891271
+    },
+    "speaking_skills": {
+     "pearson_r": 0.3922163427452043,
+     "mse": 1.7725133221294318
+    },
+    "confidence_score": {
+     "pearson_r": 0.37456417925586066,
+     "mse": 1.1988270982102904
+    },
+    "facial_expression": {
+     "pearson_r": 0.3650611990718435,
+     "mse": 1.1526151960688236
+    },
+    "overall_performance": {
+     "pearson_r": 0.3975231640692453,
+     "mse": 1.294187824099956
+    },
+    "macro_r": 0.3886266341806852,
+    "personality_r": 0.38875339984752916,
+    "interview_r": 0.3884998685138414
+   },
+   "beh_rf_durctrl": {
+    "openness": {
+     "pearson_r": 0.21130301400012416
+    },
+    "conscientiousness": {
+     "pearson_r": 0.21606158762289668
+    },
+    "extraversion": {
+     "pearson_r": 0.2890760592272747
+    },
+    "agreeableness": {
+     "pearson_r": 0.27250663318957213
+    },
+    "neuroticism": {
+     "pearson_r": 0.22669537862015465
+    },
+    "overall_personality": {
+     "pearson_r": 0.306379789328375
+    },
+    "interview_score": {
+     "pearson_r": 0.271361233059752
+    },
+    "answer_score": {
+     "pearson_r": 0.20658563982842354
+    },
+    "speaking_skills": {
+     "pearson_r": 0.29781720637642206
+    },
+    "confidence_score": {
+     "pearson_r": 0.27380603507473555
+    },
+    "facial_expression": {
+     "pearson_r": 0.2508970582499274
+    },
+    "overall_performance": {
+     "pearson_r": 0.2406037379829338
+    },
+    "macro_r": 0.255257781046716,
+    "personality_r": 0.25367041033139953,
+    "interview_r": 0.25684515176203243
+   },
+   "beh_plus_dur": {
+    "openness": {
+     "pearson_r": 0.39140755702339275,
+     "mse": 1.1539758670951823
+    },
+    "conscientiousness": {
+     "pearson_r": 0.32467335141941367,
+     "mse": 0.606351906624175
+    },
+    "extraversion": {
+     "pearson_r": 0.36402178568597393,
+     "mse": 1.170127056715865
+    },
+    "agreeableness": {
+     "pearson_r": 0.4076173177314833,
+     "mse": 1.0876612425754155
+    },
+    "neuroticism": {
+     "pearson_r": 0.3025480702462121,
+     "mse": 0.24126984860491024
+    },
+    "overall_personality": {
+     "pearson_r": 0.44013353039817016,
+     "mse": 1.055573005050273
+    },
+    "interview_score": {
+     "pearson_r": 0.3904691068237117,
+     "mse": 1.1571224850801596
+    },
+    "answer_score": {
+     "pearson_r": 0.36175172252487864,
+     "mse": 1.1559351799224968
+    },
+    "speaking_skills": {
+     "pearson_r": 0.4215482764234818,
+     "mse": 1.700685876006498
+    },
+    "confidence_score": {
+     "pearson_r": 0.326279315135172,
+     "mse": 1.2445381295375106
+    },
+    "facial_expression": {
+     "pearson_r": 0.37956481579335244,
+     "mse": 1.1303066815546023
+    },
+    "overall_performance": {
+     "pearson_r": 0.38620899762758926,
+     "mse": 1.2958200839198717
+    },
+    "macro_r": 0.3746853205694027,
+    "personality_r": 0.3717336020841076,
+    "interview_r": 0.37763703905469764
+   },
+   "duration_only": {
+    "openness": {
+     "pearson_r": 0.2912234625969297,
+     "mse": 1.3017940196154292
+    },
+    "conscientiousness": {
+     "pearson_r": 0.20829083523405043,
+     "mse": 0.7127341837449411
+    },
+    "extraversion": {
+     "pearson_r": 0.20591527169277776,
+     "mse": 1.3902462105782185
+    },
+    "agreeableness": {
+     "pearson_r": 0.2620792235055156,
+     "mse": 1.3063675746885794
+    },
+    "neuroticism": {
+     "pearson_r": 0.1161185388187302,
+     "mse": 0.27253621417215934
+    },
+    "overall_personality": {
+     "pearson_r": 0.2893134843444191,
+     "mse": 1.2773482264334384
+    },
+    "interview_score": {
+     "pearson_r": 0.2583419441219669,
+     "mse": 1.3739958512634762
+    },
+    "answer_score": {
+     "pearson_r": 0.27276962911499053,
+     "mse": 1.3276454998317104
+    },
+    "speaking_skills": {
+     "pearson_r": 0.2641126781369562,
+     "mse": 1.9814139866749443
+    },
+    "confidence_score": {
+     "pearson_r": 0.22625907251105212,
+     "mse": 1.3798356494191193
+    },
+    "facial_expression": {
+     "pearson_r": 0.2327467906190236,
+     "mse": 1.3478863210006984
+    },
+    "overall_performance": {
+     "pearson_r": 0.2876422641962195,
+     "mse": 1.479869729173467
+    },
+    "macro_r": 0.242901099574386,
+    "personality_r": 0.2288234693654038,
+    "interview_r": 0.2569787297833681
+   },
+   "_meta": {
+    "n_tr": 1424,
+    "n_va": 191,
+    "n_te": 396,
+    "text_dim": 800,
+    "n_beh_dims": 22
+   },
+   "_p_F_vs_text": {
+    "mean_p": 0.5019157088122606
+   },
+   "_p_F_vs_beh": {
+    "mean_p": 0.4832167249708479
+   }
+  },
+  "456": {
+   "text_rf": {
+    "openness": {
+     "pearson_r": 0.38264413885803666,
+     "mse": 1.1733594069433662
+    },
+    "conscientiousness": {
+     "pearson_r": 0.2878143280427719,
+     "mse": 0.7396571046858208
+    },
+    "extraversion": {
+     "pearson_r": 0.31576684206683336,
+     "mse": 0.9450238705259016
+    },
+    "agreeableness": {
+     "pearson_r": 0.28820596558996187,
+     "mse": 1.7439287437435917
+    },
+    "neuroticism": {
+     "pearson_r": 0.2602085689957785,
+     "mse": 0.2154902857206
+    },
+    "overall_personality": {
+     "pearson_r": 0.34166729410671093,
+     "mse": 1.746140864780255
+    },
+    "interview_score": {
+     "pearson_r": 0.37844272089871384,
+     "mse": 1.1733086156503116
+    },
+    "answer_score": {
+     "pearson_r": 0.4092220509990688,
+     "mse": 1.1331713198943627
+    },
+    "speaking_skills": {
+     "pearson_r": 0.33914903173942956,
+     "mse": 1.1096209383366777
+    },
+    "confidence_score": {
+     "pearson_r": 0.321002916516065,
+     "mse": 1.2255104663755425
+    },
+    "facial_expression": {
+     "pearson_r": 0.3550200760512035,
+     "mse": 1.195297671302683
+    },
+    "overall_performance": {
+     "pearson_r": 0.3430221700505012,
+     "mse": 1.5159697634024683
+    },
+    "macro_r": 0.3351805086595896,
+    "personality_r": 0.3127178562766822,
+    "interview_r": 0.357643161042497
+   },
+   "beh_rf": {
+    "openness": {
+     "pearson_r": 0.4085541272371007,
+     "mse": 1.1367923489870357
+    },
+    "conscientiousness": {
+     "pearson_r": 0.3117631454103606,
+     "mse": 0.7229277013014384
+    },
+    "extraversion": {
+     "pearson_r": 0.3401983779615734,
+     "mse": 0.9216680697982433
+    },
+    "agreeableness": {
+     "pearson_r": 0.3043052903176078,
+     "mse": 1.7239355917357968
+    },
+    "neuroticism": {
+     "pearson_r": 0.26214671945870305,
+     "mse": 0.21346312032813575
+    },
+    "overall_personality": {
+     "pearson_r": 0.36736743625653046,
+     "mse": 1.7028861004647844
+    },
+    "interview_score": {
+     "pearson_r": 0.39903786479579756,
+     "mse": 1.1532163067189092
+    },
+    "answer_score": {
+     "pearson_r": 0.37020887940481445,
+     "mse": 1.1786316915038424
+    },
+    "speaking_skills": {
+     "pearson_r": 0.39439523863146186,
+     "mse": 1.0320804149982952
+    },
+    "confidence_score": {
+     "pearson_r": 0.39530694626289764,
+     "mse": 1.1458766270170362
+    },
+    "facial_expression": {
+     "pearson_r": 0.34002789531678895,
+     "mse": 1.213088160830468
+    },
+    "overall_performance": {
+     "pearson_r": 0.39216001020082414,
+     "mse": 1.4458165657526807
+    },
+    "macro_r": 0.3571226609378717,
+    "personality_r": 0.332389182773646,
+    "interview_r": 0.3818561391020974
+   },
+   "fus_rf": {
+    "openness": {
+     "pearson_r": 0.4262332532081359,
+     "mse": 1.1257478861349377
+    },
+    "conscientiousness": {
+     "pearson_r": 0.3446590859577403,
+     "mse": 0.7071177537774088
+    },
+    "extraversion": {
+     "pearson_r": 0.35999654353691235,
+     "mse": 0.9102548283887656
+    },
+    "agreeableness": {
+     "pearson_r": 0.32884005896283613,
+     "mse": 1.690221734612152
+    },
+    "neuroticism": {
+     "pearson_r": 0.3097394542804925,
+     "mse": 0.2089126514733571
+    },
+    "overall_personality": {
+     "pearson_r": 0.4007409623792284,
+     "mse": 1.6615623695960169
+    },
+    "interview_score": {
+     "pearson_r": 0.43819345959844686,
+     "mse": 1.101252605961383
+    },
+    "answer_score": {
+     "pearson_r": 0.43676638985101285,
+     "mse": 1.1003995465638337
+    },
+    "speaking_skills": {
+     "pearson_r": 0.4060708159563983,
+     "mse": 1.0330821391476315
+    },
+    "confidence_score": {
+     "pearson_r": 0.3943713843606077,
+     "mse": 1.1510144065130932
+    },
+    "facial_expression": {
+     "pearson_r": 0.379358885648395,
+     "mse": 1.169927656019459
+    },
+    "overall_performance": {
+     "pearson_r": 0.41450769735653337,
+     "mse": 1.422157450278033
+    },
+    "macro_r": 0.38662316592472834,
+    "personality_r": 0.36170155972089096,
+    "interview_r": 0.41154477212856566
+   },
+   "late_fusion": {
+    "openness": {
+     "pearson_r": 0.41145279087430475,
+     "mse": 1.1388495054760948
+    },
+    "conscientiousness": {
+     "pearson_r": 0.2696511929173544,
+     "mse": 0.7512816436439175
+    },
+    "extraversion": {
+     "pearson_r": 0.34823110873007446,
+     "mse": 0.9723374806117341
+    },
+    "agreeableness": {
+     "pearson_r": 0.25989058115089947,
+     "mse": 1.8222944119029285
+    },
+    "neuroticism": {
+     "pearson_r": 0.18655770768556568,
+     "mse": 0.2407153128169871
+    },
+    "overall_personality": {
+     "pearson_r": 0.28150431109610163,
+     "mse": 1.8508557264505123
+    },
+    "interview_score": {
+     "pearson_r": 0.39827002926096605,
+     "mse": 1.165172955921991
+    },
+    "answer_score": {
+     "pearson_r": 0.3937904148030981,
+     "mse": 1.170559520690039
+    },
+    "speaking_skills": {
+     "pearson_r": 0.3755244432032444,
+     "mse": 1.071950338907624
+    },
+    "confidence_score": {
+     "pearson_r": 0.30520004065090733,
+     "mse": 1.2698903334790417
+    },
+    "facial_expression": {
+     "pearson_r": 0.31490363409128175,
+     "mse": 1.2984790100958792
+    },
+    "overall_performance": {
+     "pearson_r": 0.36273751413636013,
+     "mse": 1.5102827418456606
+    },
+    "macro_r": 0.3256428140500132,
+    "personality_r": 0.29288128207571673,
+    "interview_r": 0.35840434602430965
+   },
+   "beh_rf_durctrl": {
+    "openness": {
+     "pearson_r": 0.2970013737362867
+    },
+    "conscientiousness": {
+     "pearson_r": 0.22096582664646217
+    },
+    "extraversion": {
+     "pearson_r": 0.2489401380578105
+    },
+    "agreeableness": {
+     "pearson_r": 0.22310543143383207
+    },
+    "neuroticism": {
+     "pearson_r": 0.21091204980542258
+    },
+    "overall_personality": {
+     "pearson_r": 0.26831686909246194
+    },
+    "interview_score": {
+     "pearson_r": 0.2982508739869401
+    },
+    "answer_score": {
+     "pearson_r": 0.2379084304020159
+    },
+    "speaking_skills": {
+     "pearson_r": 0.2896783993707874
+    },
+    "confidence_score": {
+     "pearson_r": 0.3147590207496627
+    },
+    "facial_expression": {
+     "pearson_r": 0.2506462673184436
+    },
+    "overall_performance": {
+     "pearson_r": 0.2903261936694095
+    },
+    "macro_r": 0.26256757285579463,
+    "personality_r": 0.24487361479537936,
+    "interview_r": 0.2802615309162098
+   },
+   "beh_plus_dur": {
+    "openness": {
+     "pearson_r": 0.4769555899912978,
+     "mse": 1.0575377906522418
+    },
+    "conscientiousness": {
+     "pearson_r": 0.3625975837380847,
+     "mse": 0.6962936500870734
+    },
+    "extraversion": {
+     "pearson_r": 0.4078476387642122,
+     "mse": 0.8649517160144943
+    },
+    "agreeableness": {
+     "pearson_r": 0.3506122800207544,
+     "mse": 1.6662327744925693
+    },
+    "neuroticism": {
+     "pearson_r": 0.2818903040380685,
+     "mse": 0.2116680483496161
+    },
+    "overall_personality": {
+     "pearson_r": 0.4315577114442535,
+     "mse": 1.6040062446747725
+    },
+    "interview_score": {
+     "pearson_r": 0.459977687669647,
+     "mse": 1.0813899081432423
+    },
+    "answer_score": {
+     "pearson_r": 0.48239528492350764,
+     "mse": 1.0427033728633535
+    },
+    "speaking_skills": {
+     "pearson_r": 0.46467675810521203,
+     "mse": 0.960549035331485
+    },
+    "confidence_score": {
+     "pearson_r": 0.4131742569524342,
+     "mse": 1.1272388698808022
+    },
+    "facial_expression": {
+     "pearson_r": 0.41295451873757477,
+     "mse": 1.1339697849515253
+    },
+    "overall_performance": {
+     "pearson_r": 0.44387394836912425,
+     "mse": 1.3733380904302441
+    },
+    "macro_r": 0.4157094635628476,
+    "personality_r": 0.3852435179994451,
+    "interview_r": 0.44617540912625
+   },
+   "duration_only": {
+    "openness": {
+     "pearson_r": 0.28083642995256336,
+     "mse": 1.3105191836152077
+    },
+    "conscientiousness": {
+     "pearson_r": 0.23079893308924102,
+     "mse": 0.7972609688748753
+    },
+    "extraversion": {
+     "pearson_r": 0.1960605608776824,
+     "mse": 1.0720461627910167
+    },
+    "agreeableness": {
+     "pearson_r": 0.21028930529267026,
+     "mse": 1.9051238609137822
+    },
+    "neuroticism": {
+     "pearson_r": 0.13748194360031174,
+     "mse": 0.2335387498781341
+    },
+    "overall_personality": {
+     "pearson_r": 0.26016397302031724,
+     "mse": 1.8889550508374748
+    },
+    "interview_score": {
+     "pearson_r": 0.24621853460029317,
+     "mse": 1.4032195580140143
+    },
+    "answer_score": {
+     "pearson_r": 0.3379253416272504,
+     "mse": 1.2694071082800094
+    },
+    "speaking_skills": {
+     "pearson_r": 0.2587611016318558,
+     "mse": 1.2617508361299452
+    },
+    "confidence_score": {
+     "pearson_r": 0.20553294014043655,
+     "mse": 1.371880760412878
+    },
+    "facial_expression": {
+     "pearson_r": 0.1960473973112416,
+     "mse": 1.423312545423425
+    },
+    "overall_performance": {
+     "pearson_r": 0.2529801791633928,
+     "mse": 1.666560891654053
+    },
+    "macro_r": 0.2344247200256047,
+    "personality_r": 0.21927185763879767,
+    "interview_r": 0.2495775824124117
+   },
+   "_meta": {
+    "n_tr": 1401,
+    "n_va": 212,
+    "n_te": 398,
+    "text_dim": 800,
+    "n_beh_dims": 22
+   },
+   "_p_F_vs_text": {
+    "mean_p": 0.49908379143761455
+   },
+   "_p_F_vs_beh": {
+    "mean_p": 0.4984174579376978
+   }
+  },
+  "789": {
+   "text_rf": {
+    "openness": {
+     "pearson_r": 0.34720850851588037,
+     "mse": 1.426550059898226
+    },
+    "conscientiousness": {
+     "pearson_r": 0.29223943095660815,
+     "mse": 0.6145747937530841
+    },
+    "extraversion": {
+     "pearson_r": 0.31800678564925794,
+     "mse": 1.1856145029712508
+    },
+    "agreeableness": {
+     "pearson_r": 0.3404379885577145,
+     "mse": 1.2156087932070934
+    },
+    "neuroticism": {
+     "pearson_r": 0.22028816785135621,
+     "mse": 0.2525123062370433
+    },
+    "overall_personality": {
+     "pearson_r": 0.3620839602385518,
+     "mse": 1.1558771233816862
+    },
+    "interview_score": {
+     "pearson_r": 0.2788497559302011,
+     "mse": 1.2319069300307866
+    },
+    "answer_score": {
+     "pearson_r": 0.3563390420352786,
+     "mse": 1.0795841054575113
+    },
+    "speaking_skills": {
+     "pearson_r": 0.3195413929827994,
+     "mse": 1.6881256991923044
+    },
+    "confidence_score": {
+     "pearson_r": 0.3347028998620403,
+     "mse": 0.8212883459131076
+    },
+    "facial_expression": {
+     "pearson_r": 0.3109684983296918,
+     "mse": 1.178969989099159
+    },
+    "overall_performance": {
+     "pearson_r": 0.39300088901489016,
+     "mse": 0.8532153066961845
+    },
+    "macro_r": 0.3228056099936892,
+    "personality_r": 0.31337747362822815,
+    "interview_r": 0.33223374635915026
+   },
+   "beh_rf": {
+    "openness": {
+     "pearson_r": 0.2218205557375982,
+     "mse": 1.5448659567854433
+    },
+    "conscientiousness": {
+     "pearson_r": 0.23268519869464482,
+     "mse": 0.6349272984542428
+    },
+    "extraversion": {
+     "pearson_r": 0.24839752075287908,
+     "mse": 1.240691392740082
+    },
+    "agreeableness": {
+     "pearson_r": 0.2547608821246404,
+     "mse": 1.2954153173321512
+    },
+    "neuroticism": {
+     "pearson_r": 0.245300493609106,
+     "mse": 0.2486736207006921
+    },
+    "overall_personality": {
+     "pearson_r": 0.2765079941911278,
+     "mse": 1.2371231095439146
+    },
+    "interview_score": {
+     "pearson_r": 0.22602135477362995,
+     "mse": 1.2721941907798586
+    },
+    "answer_score": {
+     "pearson_r": 0.2519426894324334,
+     "mse": 1.1642762959701611
+    },
+    "speaking_skills": {
+     "pearson_r": 0.2727316687651503,
+     "mse": 1.7339074235605598
+    },
+    "confidence_score": {
+     "pearson_r": 0.30624012807476286,
+     "mse": 0.8458360488467459
+    },
+    "facial_expression": {
+     "pearson_r": 0.25269342304415854,
+     "mse": 1.2265600860204378
+    },
+    "overall_performance": {
+     "pearson_r": 0.28103359275195905,
+     "mse": 0.9438039496158108
+    },
+    "macro_r": 0.2558446251626742,
+    "personality_r": 0.24657877418499932,
+    "interview_r": 0.26511047614034905
+   },
+   "fus_rf": {
+    "openness": {
+     "pearson_r": 0.34263823531420834,
+     "mse": 1.432234575871659
+    },
+    "conscientiousness": {
+     "pearson_r": 0.30921744368751375,
+     "mse": 0.6063384030851561
+    },
+    "extraversion": {
+     "pearson_r": 0.34609561928337,
+     "mse": 1.1593493114793347
+    },
+    "agreeableness": {
+     "pearson_r": 0.3569901787909129,
+     "mse": 1.198653022769964
+    },
+    "neuroticism": {
+     "pearson_r": 0.28366788854572134,
+     "mse": 0.24464905075634655
+    },
+    "overall_personality": {
+     "pearson_r": 0.3924233539050225,
+     "mse": 1.1234967176009574
+    },
+    "interview_score": {
+     "pearson_r": 0.32088594211563926,
+     "mse": 1.1839582806229492
+    },
+    "answer_score": {
+     "pearson_r": 0.3774501599885174,
+     "mse": 1.058115000210941
+    },
+    "speaking_skills": {
+     "pearson_r": 0.35362701348843445,
+     "mse": 1.6426572513927753
+    },
+    "confidence_score": {
+     "pearson_r": 0.392476289115272,
+     "mse": 0.7797462432138837
+    },
+    "facial_expression": {
+     "pearson_r": 0.3215401919612851,
+     "mse": 1.16918775944232
+    },
+    "overall_performance": {
+     "pearson_r": 0.41706429411060447,
+     "mse": 0.8326384340720041
+    },
+    "macro_r": 0.3511730508588751,
+    "personality_r": 0.3385054532544581,
+    "interview_r": 0.3638406484632921
+   },
+   "late_fusion": {
+    "openness": {
+     "pearson_r": 0.3473732403775424,
+     "mse": 1.511824310062035
+    },
+    "conscientiousness": {
+     "pearson_r": 0.30167472182530247,
+     "mse": 0.6157118230739024
+    },
+    "extraversion": {
+     "pearson_r": 0.2826168043103963,
+     "mse": 1.3111814885556816
+    },
+    "agreeableness": {
+     "pearson_r": 0.35123686728535014,
+     "mse": 1.3046170468709317
+    },
+    "neuroticism": {
+     "pearson_r": 0.24083255759118188,
+     "mse": 0.24919822557289772
+    },
+    "overall_personality": {
+     "pearson_r": 0.36982181830521516,
+     "mse": 1.1926485974361039
+    },
+    "interview_score": {
+     "pearson_r": 0.3089679924721284,
+     "mse": 1.2645764243150899
+    },
+    "answer_score": {
+     "pearson_r": 0.3460342785698283,
+     "mse": 1.156956802500034
+    },
+    "speaking_skills": {
+     "pearson_r": 0.33098862958576936,
+     "mse": 1.7533281683445916
+    },
+    "confidence_score": {
+     "pearson_r": 0.3846068020744102,
+     "mse": 0.8002417629137438
+    },
+    "facial_expression": {
+     "pearson_r": 0.2966540047437347,
+     "mse": 1.2584090927246023
+    },
+    "overall_performance": {
+     "pearson_r": 0.4204613610390344,
+     "mse": 0.8862937654020682
+    },
+    "macro_r": 0.33177242318165784,
+    "personality_r": 0.31559266828249805,
+    "interview_r": 0.34795217808081763
+   },
+   "beh_rf_durctrl": {
+    "openness": {
+     "pearson_r": 0.1385464773935083
+    },
+    "conscientiousness": {
+     "pearson_r": 0.1695691301380601
+    },
+    "extraversion": {
+     "pearson_r": 0.17502945055313154
+    },
+    "agreeableness": {
+     "pearson_r": 0.19306839739482087
+    },
+    "neuroticism": {
+     "pearson_r": 0.24959357105336538
+    },
+    "overall_personality": {
+     "pearson_r": 0.21839544993770932
+    },
+    "interview_score": {
+     "pearson_r": 0.1659040734542911
+    },
+    "answer_score": {
+     "pearson_r": 0.17995519349853797
+    },
+    "speaking_skills": {
+     "pearson_r": 0.2004930819402917
+    },
+    "confidence_score": {
+     "pearson_r": 0.2640687861394718
+    },
+    "facial_expression": {
+     "pearson_r": 0.19192202959677143
+    },
+    "overall_performance": {
+     "pearson_r": 0.20875583216831142
+    },
+    "macro_r": 0.19627512277235593,
+    "personality_r": 0.19070041274509922,
+    "interview_r": 0.20184983279961258
+   },
+   "beh_plus_dur": {
+    "openness": {
+     "pearson_r": 0.3154387548839467,
+     "mse": 1.454748444351148
+    },
+    "conscientiousness": {
+     "pearson_r": 0.26568286854961376,
+     "mse": 0.626891929527699
+    },
+    "extraversion": {
+     "pearson_r": 0.3114445828062431,
+     "mse": 1.1868039210663637
+    },
+    "agreeableness": {
+     "pearson_r": 0.2994252619321892,
+     "mse": 1.2807758572686199
+    },
+    "neuroticism": {
+     "pearson_r": 0.22382704623455454,
+     "mse": 0.2512754357908848
+    },
+    "overall_personality": {
+     "pearson_r": 0.3204737250799296,
+     "mse": 1.2180136493518772
+    },
+    "interview_score": {
+     "pearson_r": 0.2592786410438514,
+     "mse": 1.300786794632963
+    },
+    "answer_score": {
+     "pearson_r": 0.2982277651966138,
+     "mse": 1.1583223421039153
+    },
+    "speaking_skills": {
+     "pearson_r": 0.34760437331183425,
+     "mse": 1.638029904396973
+    },
+    "confidence_score": {
+     "pearson_r": 0.3261849067154179,
+     "mse": 0.8473931698266417
+    },
+    "facial_expression": {
+     "pearson_r": 0.28991118376032365,
+     "mse": 1.211506420164361
+    },
+    "overall_performance": {
+     "pearson_r": 0.3424154251550896,
+     "mse": 0.9198575647720636
+    },
+    "macro_r": 0.2999928778891339,
+    "personality_r": 0.28938203991441286,
+    "interview_r": 0.3106037158638551
+   },
+   "duration_only": {
+    "openness": {
+     "pearson_r": 0.24147206518646244,
+     "mse": 1.5754702379067105
+    },
+    "conscientiousness": {
+     "pearson_r": 0.15355424194075676,
+     "mse": 0.7084369141003053
+    },
+    "extraversion": {
+     "pearson_r": 0.2193098992112671,
+     "mse": 1.2976107825677619
+    },
+    "agreeableness": {
+     "pearson_r": 0.16757264112402523,
+     "mse": 1.4894172433512658
+    },
+    "neuroticism": {
+     "pearson_r": 0.06475829671350172,
+     "mse": 0.28651568056251964
+    },
+    "overall_personality": {
+     "pearson_r": 0.19424976313751288,
+     "mse": 1.433822389511748
+    },
+    "interview_score": {
+     "pearson_r": 0.14119234372474876,
+     "mse": 1.5687068536907327
+    },
+    "answer_score": {
+     "pearson_r": 0.21965845150358293,
+     "mse": 1.296294524283808
+    },
+    "speaking_skills": {
+     "pearson_r": 0.2516671899486464,
+     "mse": 1.8133846231280109
+    },
+    "confidence_score": {
+     "pearson_r": 0.17531823671425367,
+     "mse": 1.0030170702790402
+    },
+    "facial_expression": {
+     "pearson_r": 0.13880630823973464,
+     "mse": 1.4625122064772271
+    },
+    "overall_performance": {
+     "pearson_r": 0.25878252613476616,
+     "mse": 1.0392621604934218
+    },
+    "macro_r": 0.18552849696493823,
+    "personality_r": 0.17348615121892105,
+    "interview_r": 0.1975708427109554
+   },
+   "_meta": {
+    "n_tr": 1411,
+    "n_va": 211,
+    "n_te": 389,
+    "text_dim": 800,
+    "n_beh_dims": 22
+   },
+   "_p_F_vs_text": {
+    "mean_p": 0.48829751790771275
+   },
+   "_p_F_vs_beh": {
+    "mean_p": 0.49491920706313514
+   }
+  },
+  "1024": {
+   "text_rf": {
+    "openness": {
+     "pearson_r": 0.33293537995032385,
+     "mse": 0.925400459310555
+    },
+    "conscientiousness": {
+     "pearson_r": 0.34287055235235925,
+     "mse": 0.47603354459280117
+    },
+    "extraversion": {
+     "pearson_r": 0.27021830697511867,
+     "mse": 0.9267353546895272
+    },
+    "agreeableness": {
+     "pearson_r": 0.29975675298232746,
+     "mse": 1.1552291505446286
+    },
+    "neuroticism": {
+     "pearson_r": 0.22587974088740984,
+     "mse": 0.18087547703704235
+    },
+    "overall_personality": {
+     "pearson_r": 0.38722523264397496,
+     "mse": 0.824830979758848
+    },
+    "interview_score": {
+     "pearson_r": 0.32092660328096545,
+     "mse": 1.2237643393530326
+    },
+    "answer_score": {
+     "pearson_r": 0.3793160430352924,
+     "mse": 0.961394823352872
+    },
+    "speaking_skills": {
+     "pearson_r": 0.34831911873411364,
+     "mse": 1.0654400250759222
+    },
+    "confidence_score": {
+     "pearson_r": 0.35254165496660683,
+     "mse": 0.8671197681598088
+    },
+    "facial_expression": {
+     "pearson_r": 0.3066604472875643,
+     "mse": 1.0341755803859414
+    },
+    "overall_performance": {
+     "pearson_r": 0.3816183711780067,
+     "mse": 0.8782286513293742
+    },
+    "macro_r": 0.32902235035617194,
+    "personality_r": 0.309814327631919,
+    "interview_r": 0.34823037308042487
+   },
+   "beh_rf": {
+    "openness": {
+     "pearson_r": 0.38276867555488914,
+     "mse": 0.882871318198449
+    },
+    "conscientiousness": {
+     "pearson_r": 0.29647398491430416,
+     "mse": 0.4969665815293238
+    },
+    "extraversion": {
+     "pearson_r": 0.35818946891978154,
+     "mse": 0.8680684046790049
+    },
+    "agreeableness": {
+     "pearson_r": 0.2770992075313166,
+     "mse": 1.1816635872930465
+    },
+    "neuroticism": {
+     "pearson_r": 0.31606149650679616,
+     "mse": 0.17181358008362102
+    },
+    "overall_personality": {
+     "pearson_r": 0.4046962734676591,
+     "mse": 0.8109450105269098
+    },
+    "interview_score": {
+     "pearson_r": 0.3599456120403491,
+     "mse": 1.185643244599151
+    },
+    "answer_score": {
+     "pearson_r": 0.3636782310659139,
+     "mse": 0.9759260763816934
+    },
+    "speaking_skills": {
+     "pearson_r": 0.3538562042832271,
+     "mse": 1.0719339347564072
+    },
+    "confidence_score": {
+     "pearson_r": 0.4314872531577197,
+     "mse": 0.8057749939230693
+    },
+    "facial_expression": {
+     "pearson_r": 0.37859939808660653,
+     "mse": 0.9701941414183729
+    },
+    "overall_performance": {
+     "pearson_r": 0.4214147579829108,
+     "mse": 0.8428856582753583
+    },
+    "macro_r": 0.3620225469592895,
+    "personality_r": 0.3392148511491244,
+    "interview_r": 0.3848302427694545
+   },
+   "fus_rf": {
+    "openness": {
+     "pearson_r": 0.3681050639906926,
+     "mse": 0.8980724108533726
+    },
+    "conscientiousness": {
+     "pearson_r": 0.3438346310520693,
+     "mse": 0.4778386358809441
+    },
+    "extraversion": {
+     "pearson_r": 0.3636113996933644,
+     "mse": 0.8597776822802514
+    },
+    "agreeableness": {
+     "pearson_r": 0.31990119730352,
+     "mse": 1.1424915433120442
+    },
+    "neuroticism": {
+     "pearson_r": 0.336413966117579,
+     "mse": 0.16976531726545718
+    },
+    "overall_personality": {
+     "pearson_r": 0.440657767316053,
+     "mse": 0.7801781912968412
+    },
+    "interview_score": {
+     "pearson_r": 0.3659928292106009,
+     "mse": 1.1819009109420695
+    },
+    "answer_score": {
+     "pearson_r": 0.3965537569380049,
+     "mse": 0.9494197003694136
+    },
+    "speaking_skills": {
+     "pearson_r": 0.3913831795875653,
+     "mse": 1.0292847252212416
+    },
+    "confidence_score": {
+     "pearson_r": 0.43815480195517553,
+     "mse": 0.8000192482879459
+    },
+    "facial_expression": {
+     "pearson_r": 0.35569152443794616,
+     "mse": 0.9968182659057543
+    },
+    "overall_performance": {
+     "pearson_r": 0.4324529181708155,
+     "mse": 0.8355569204768326
+    },
+    "macro_r": 0.37939608631444893,
+    "personality_r": 0.3620873375788798,
+    "interview_r": 0.396704835050018
+   },
+   "late_fusion": {
+    "openness": {
+     "pearson_r": 0.43011952645665774,
+     "mse": 0.8459578480118477
+    },
+    "conscientiousness": {
+     "pearson_r": 0.36474778008698194,
+     "mse": 0.47667970850694374
+    },
+    "extraversion": {
+     "pearson_r": 0.34531500778825164,
+     "mse": 0.8809678839563918
+    },
+    "agreeableness": {
+     "pearson_r": 0.3237694745596099,
+     "mse": 1.1626963745697927
+    },
+    "neuroticism": {
+     "pearson_r": 0.218123472021131,
+     "mse": 0.1850388908140428
+    },
+    "overall_personality": {
+     "pearson_r": 0.4509647877997962,
+     "mse": 0.7850067902070419
+    },
+    "interview_score": {
+     "pearson_r": 0.37788908041746877,
+     "mse": 1.172286838531762
+    },
+    "answer_score": {
+     "pearson_r": 0.41378790477177085,
+     "mse": 0.9468529465122976
+    },
+    "speaking_skills": {
+     "pearson_r": 0.36983371855506614,
+     "mse": 1.0494433726377899
+    },
+    "confidence_score": {
+     "pearson_r": 0.4239692984749007,
+     "mse": 0.8163237888751486
+    },
+    "facial_expression": {
+     "pearson_r": 0.3639056645370009,
+     "mse": 0.996264084411494
+    },
+    "overall_performance": {
+     "pearson_r": 0.40481501659886593,
+     "mse": 0.8632854613236213
+    },
+    "macro_r": 0.3739367276722918,
+    "personality_r": 0.3555066747854047,
+    "interview_r": 0.3923667805591789
+   },
+   "beh_rf_durctrl": {
+    "openness": {
+     "pearson_r": 0.3059295716209285
+    },
+    "conscientiousness": {
+     "pearson_r": 0.22163830095018175
+    },
+    "extraversion": {
+     "pearson_r": 0.2944241702756835
+    },
+    "agreeableness": {
+     "pearson_r": 0.19713792643652342
+    },
+    "neuroticism": {
+     "pearson_r": 0.2858323590732483
+    },
+    "overall_personality": {
+     "pearson_r": 0.32897101799605244
+    },
+    "interview_score": {
+     "pearson_r": 0.27800089101552755
+    },
+    "answer_score": {
+     "pearson_r": 0.2512716281302774
+    },
+    "speaking_skills": {
+     "pearson_r": 0.26741032398483006
+    },
+    "confidence_score": {
+     "pearson_r": 0.35910667908146937
+    },
+    "facial_expression": {
+     "pearson_r": 0.297178868667647
+    },
+    "overall_performance": {
+     "pearson_r": 0.3386561024170593
+    },
+    "macro_r": 0.28546315330411903,
+    "personality_r": 0.272322224392103,
+    "interview_r": 0.29860408221613516
+   },
+   "beh_plus_dur": {
+    "openness": {
+     "pearson_r": 0.38429285590327383,
+     "mse": 0.8871860334614488
+    },
+    "conscientiousness": {
+     "pearson_r": 0.36510283967773477,
+     "mse": 0.4683024931894098
+    },
+    "extraversion": {
+     "pearson_r": 0.371395789537895,
+     "mse": 0.8569834690281656
+    },
+    "agreeableness": {
+     "pearson_r": 0.3000847916542854,
+     "mse": 1.165469218579101
+    },
+    "neuroticism": {
+     "pearson_r": 0.31957453840312805,
+     "mse": 0.17131614126661832
+    },
+    "overall_personality": {
+     "pearson_r": 0.4121389049133601,
+     "mse": 0.8122199566470953
+    },
+    "interview_score": {
+     "pearson_r": 0.37890983484252716,
+     "mse": 1.1693258770675996
+    },
+    "answer_score": {
+     "pearson_r": 0.4505677542820148,
+     "mse": 0.8947935712342175
+    },
+    "speaking_skills": {
+     "pearson_r": 0.4081831537044357,
+     "mse": 1.0134769367170318
+    },
+    "confidence_score": {
+     "pearson_r": 0.4339291752675827,
+     "mse": 0.8035992928081166
+    },
+    "facial_expression": {
+     "pearson_r": 0.3943188510054623,
+     "mse": 0.9571532148361008
+    },
+    "overall_performance": {
+     "pearson_r": 0.44139839588028634,
+     "mse": 0.8300740346509221
+    },
+    "macro_r": 0.3883247404226655,
+    "personality_r": 0.3587649533482795,
+    "interview_r": 0.4178845274970515
+   },
+   "duration_only": {
+    "openness": {
+     "pearson_r": 0.23558024964889587,
+     "mse": 1.0445467180162107
+    },
+    "conscientiousness": {
+     "pearson_r": 0.2590639581108001,
+     "mse": 0.5222534941942892
+    },
+    "extraversion": {
+     "pearson_r": 0.14741528853793381,
+     "mse": 1.0336734065387334
+    },
+    "agreeableness": {
+     "pearson_r": 0.20760511499642784,
+     "mse": 1.2765536894961176
+    },
+    "neuroticism": {
+     "pearson_r": 0.16333815063691112,
+     "mse": 0.1966782723771155
+    },
+    "overall_personality": {
+     "pearson_r": 0.26999718987886767,
+     "mse": 0.9660609964017275
+    },
+    "interview_score": {
+     "pearson_r": 0.19934491862787146,
+     "mse": 1.3897749743124739
+    },
+    "answer_score": {
+     "pearson_r": 0.3726827159287932,
+     "mse": 0.9828674526453064
+    },
+    "speaking_skills": {
+     "pearson_r": 0.24910096376277902,
+     "mse": 1.1972277361162447
+    },
+    "confidence_score": {
+     "pearson_r": 0.290626359631106,
+     "mse": 0.9263779421432915
+    },
+    "facial_expression": {
+     "pearson_r": 0.2653010537809509,
+     "mse": 1.1011506085244152
+    },
+    "overall_performance": {
+     "pearson_r": 0.2861129329394144,
+     "mse": 1.003255579610018
+    },
+    "macro_r": 0.24551407470672926,
+    "personality_r": 0.21383332530163943,
+    "interview_r": 0.27719482411181917
+   },
+   "_meta": {
+    "n_tr": 1390,
+    "n_va": 214,
+    "n_te": 407,
+    "text_dim": 800,
+    "n_beh_dims": 22
+   },
+   "_p_F_vs_text": {
+    "mean_p": 0.4970847909378644
+   },
+   "_p_F_vs_beh": {
+    "mean_p": 0.5000416458437448
+   }
+  }
+ }
+}

@@ -1,0 +1,47 @@
+## 1. Abstract issues
+
+The abstract contains several claims contradicted by the reported experiments:
+
+- **“two public interview benchmarks”** — only **one**, RecruitView, was used.
+- **“consistent improvements”** — false. CueCoT has negative macro correlation (\(r=-0.1283\)), is far below RF (\(r=0.3829\)), and its advantage over LLM Direct is not significant (\(p=0.085\)).
+- **“each reasoning step contributes”** — unsupported unless the ablations establish statistically reliable gains; the supplied results do not.
+- **“human evaluation shows…”** — false; no human evaluation was conducted.
+- **“significantly more interpretable and trustworthy”** — false for the same reason.
+- **“align with human evaluator logic”** — unsupported and difficult to reconcile with negative correlations with human ratings.
+- **“robustness of the CoT reasoning process”** — inter-model agreement (\(r=0.742\)) establishes agreement, not correctness or robustness to behavioral input.
+- The feature-shuffling result (\(\Delta r=0.009\)) indicates that the model largely **ignores the proposed behavioral cues**, undermining the central bridging/grounding claim.
+
+If only one word can be changed, the mandatory correction is:
+
+> **“two” \(\rightarrow\) “one”**
+
+However, that does not make the abstract accurate; the improvement and human-evaluation claims require substantive rewriting or deletion.
+
+**Additional table error:** GPT-5.6 Direct’s macro correlation should be  
+\[
+(-0.1280-0.1754)/2=-0.1517,
+\]
+not \(-0.0511\). This also changes the ordering of the three LLM methods.
+
+## 2. `huang2024crmf`
+
+I cannot identify a credible standalone 2024 paper titled **“CRMF: CCA-based Robust Manifold Fusion for Cross-modal Learning”** by Yifei Huang. The entry is highly suspicious: it has no arXiv identifier, DOI, venue, or complete author list.
+
+CRMF appears instead to be a method/baseline associated with the **RecruitView** work. Unless the authors can supply a verifiable DOI, proceedings record, or arXiv ID, this citation should be treated as **fabricated or misattributed** and replaced with the RecruitView citation or a precise description of an in-paper baseline.
+
+## 3. Year corrections
+
+- **HireNet:**  
+  - arXiv preprint: **2017** is valid for arXiv:1707.08069.  
+  - Peer-reviewed AAAI publication: **2019**.  
+  Cite 2019 if referring to the AAAI paper; otherwise retain 2017 explicitly as the preprint.
+
+- **“Multimodal Analysis of Body Communication in Job Interviews”:** **ICMI 2013**, not 2012. The author list should also be checked; Jean-Marc Odobez appears to be omitted.
+
+- **Malik et al., “Explainable Multimodal Interview Assessment…”:** **2023**, not 2022, for the matching public record. The exact title and venue/arXiv metadata should be verified rather than citing only “arXiv preprint.”
+
+## 4. Overall assessment
+
+- **Biggest weakness:** The empirical evidence contradicts the central contribution. CueCoT is negatively correlated with human judgments, does not significantly outperform direct prompting, and is nearly invariant to shuffled behavioral features. The abstract then materially overstates the evidence, including a nonexistent human evaluation.
+
+- **Biggest strength:** The feature-shuffling and cross-model controls are informative. They expose an important negative result: different LLMs agree with each other while relying mainly on shared priors rather than the behavioral evidence. Reframed as a careful failure analysis or cautionary study of ungrounded LLM reasoning in interview assessment, the work could be valuable.

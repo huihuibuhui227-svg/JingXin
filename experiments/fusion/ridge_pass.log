@@ -1,0 +1,11 @@
+行 2011 | 无文本 0 | meta 缺失 0
+[seed 42] text=0.238 beh=0.070 fus=0.082
+[seed 123] text=0.272 beh=0.059 fus=0.067
+[seed 456] text=0.309 beh=0.018 fus=0.004
+[seed 789] text=0.343 beh=0.052 fus=0.054
+[seed 1024] text=0.384 beh=0.098 fus=0.110
+=== Ridge 汇总 ===
+  text  0.3092±0.0516
+  beh   0.0594±0.0260
+  fus   0.0635±0.0352
+  fus-text=-0.2457 fus-beh=+0.0041 seeds(fus>t,fus>b)={'text': 0, 'beh': 4}
