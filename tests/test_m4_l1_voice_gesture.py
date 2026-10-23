@@ -254,6 +254,70 @@ def test_source_on_disk_is_false_without_a_session_id():
     assert l1_voice._source_on_disk("") is False
 
 
+def test_series_in_hand_does_not_still_say_run_an_extraction(tmp_path, monkeypatch):
+    """★ 序列**已经在手**时,那两条不许再说「跑一次提取就有」。
+
+    ## 这条是怎么来的(2026-10-24,补完 31 场序列之后实测)
+
+    场 `20260929_205448_8b75` 补齐序列后 V 族 10/12 有值,剩下两条
+    (`pause_ratio` / `response_latency_sec`)仍报 `not_extracted` ——
+    而那个码的提示是「跑一次提取即可,**不用重录**」。提取早就跑完了。
+    再跑一百次它们也出不来:
+
+    * `pause_ratio` 是 `1/voiced_ratio − 1`(实测 r = 0.9990),**恒等变换**,
+      本仓故意不产出;
+    * `response_latency_sec` 要「提问结束」时刻,整场录音没有题目边界。
+
+    ⟹ 上一版把「模态缺失」改成「还没提取」修的是**方向反了**;
+       这一版修的是**永远跑不完**。两次都是同一个病:判词比事实更狠。
+
+    红法:删掉 `l1_voice` 里 `if series:` 那一段 ⟹ 本条红。
+    """
+    from report_frontend import l1_indicators, l1_voice, voice_series
+
+    sid = "20261024_030000_cc12"
+    monkeypatch.setenv("JINGXIN_RECORDINGS_DIR", str(tmp_path))
+    _fake_recording(tmp_path, sid, with_camera=True)
+
+    # 只给序列,**不给语音日志** —— 正是补完提取之后的正式场。
+    series = [voice_series.VoiceSeries(
+        session_id=sid, index=None, frame_sec=0.1,
+        f0=np.where(np.arange(300) % 9 == 0, np.nan,
+                    120.0 + 10.0 * np.sin(np.arange(300) / 5.0)),
+        voiced_prob=np.ones(300), rms=np.full(300, 0.05), source="camera.webm")]
+
+    inds = {i.name: i for i in
+            l1_voice.compute_voice_indicators(None, series=series, session_id=sid)}
+
+    # 序列在 ⟹ 那 8 条必须出值(否则这条测试的前提就不成立)
+    n_val = sum(1 for i in inds.values() if i.has_value)
+    assert n_val > 0, "序列在,至少序列那几条必须出值"
+
+    assert inds["pause_ratio"].gap == l1_indicators.GAP_NOT_PRODUCED
+    assert inds["response_latency_sec"].gap == l1_indicators.GAP_WINDOW_NONE
+    for name in ("pause_ratio", "response_latency_sec"):
+        assert inds[name].gap != l1_indicators.GAP_NOT_EXTRACTED, (
+            f"{name} 报 not_extracted,但提取已经跑过了 —— 提示会让人白跑一趟")
+
+
+def test_without_series_the_same_two_still_blame_the_missing_extraction(
+        tmp_path, monkeypatch):
+    """反方向对照:序列**不在**时,这两条仍该指向"还没提取"(那是真的)。
+
+    没有这一条,上面那条可能只是"永远给 not_produced / window_none"。
+    """
+    from report_frontend import l1_indicators, l1_voice
+
+    sid = "20261024_030000_dd34"
+    monkeypatch.setenv("JINGXIN_RECORDINGS_DIR", str(tmp_path))
+    _fake_recording(tmp_path, sid, with_camera=True)
+
+    inds = {i.name: i for i in
+            l1_voice.compute_voice_indicators(None, series=None, session_id=sid)}
+    for name in ("pause_ratio", "response_latency_sec"):
+        assert inds[name].gap == l1_indicators.GAP_NOT_EXTRACTED, name
+
+
 def test_every_gap_kind_has_a_human_explanation():
     """每个缺口码都必须有人话解释 —— 不许把英文常量直接渲染给读者看。
 
@@ -331,6 +395,68 @@ def test_hand_visible_ratio_is_a_lower_bound_because_empty_is_not_zero():
     hv = inds["hand_visible_ratio_l"]
     assert hv.value == pytest.approx(0.25)
     assert "下界" in hv.formula
+
+
+def test_one_observed_frame_out_of_387_does_not_claim_387_observations():
+    """★★ 一场里 `hand_visible_left` 只有 **1 行**有值 ⟹ 不许报 `n_valid=387`。
+
+    ## 这条是怎么来的(2026-10-24,生产 500)
+
+    场 `20260928_202928_3d8f` 的手势日志 **387 行**:
+    `torso_jitter` 0 个非空、`shoulder_width` 0 个非空、
+    `hand_visible_left` **1 个非空**。旧写法报 `n_valid=n_total=387` ——
+    等于宣称"387 帧都看过了"。
+
+    于是 `l1_quality.validate()` 的守卫
+    「模态 `usable_ratio == 0` ⟹ 依赖它的指标不许有值」**抓不到它**:
+    守卫看的是模态覆盖率(0),指标却自称证据充分。整个
+    `/api/report/structured` 抛 `ValueError`,这一场报告打不开。
+    实测全语料 **2/52 场**会 500,这是其中一场。
+
+    病根与 `pose_valid_ratio` 那条同源:**把证据说多**。
+    空串的意思是"不知道"(坑 2),不是一次观测 —— 它只能进分母。
+
+    红法:把 `n_valid=n_obs` 改回 `n_valid=n_total` ⟹ 本条红
+    (`n_valid` 断言失败);把 `if n_obs < 2` 那一支删掉 ⟹ 也红
+    (会报出一个只建立在 1 帧上的下界)。
+    """
+    n = 387
+    left = [np.nan] * n
+    left[0] = 1.0                    # 只有 1 行有观测 —— 真实素材的形状
+    df = _gesture_df(n=n, hand_visible_left=left,
+                     torso_jitter=[np.nan] * n, shoulder_width=[np.nan] * n)
+    t = pd.Series(np.arange(n, dtype=float))
+    inds = {i.name: i for i in l1_gesture.compute_gesture_indicators(
+        df, _ws((-1.0, 999.0)), t)}
+
+    hv = inds["hand_visible_ratio_l"]
+    assert not hv.has_value, (
+        f"387 行里只有 1 行有值,却报出了 {hv.value} —— "
+        f"这条下界只建立在 1 次观测上")
+    assert hv.gap == GAP_NO_SAMPLES, hv.gap
+
+
+def test_hand_visible_ratio_counts_only_the_rows_that_carried_a_value():
+    """反方向对照:观测够多时照常出值,但 `n_valid` 报**有值的行数**。
+
+    没有这一条,上面那条可能只是"永远报 no_samples"。
+
+    40 帧里 10 帧写了 1、其余 30 帧空串 ⟹ 下界仍是 0.25,
+    但"这条结论建立在几次观测上"是 **10**,不是 40。
+    """
+    n = 40
+    left = [np.nan] * n
+    for i in range(10):
+        left[i] = 1.0
+    df = _gesture_df(n=n, hand_visible_left=left)
+    t = pd.Series(np.arange(n, dtype=float))
+    inds = {i.name: i for i in l1_gesture.compute_gesture_indicators(
+        df, _ws((-1.0, 999.0)), t)}
+
+    hv = inds["hand_visible_ratio_l"]
+    assert hv.has_value and hv.value == pytest.approx(0.25)
+    assert hv.n_valid == 10, f"有观测的是 10 行,不是 {hv.n_valid}"
+    assert hv.n_total == n
 
 
 def test_rates_without_a_timestamp_column_are_no_samples_not_a_guessed_fps():

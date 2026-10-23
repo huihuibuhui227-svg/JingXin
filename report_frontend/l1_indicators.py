@@ -62,10 +62,22 @@ GAP_NOT_STORED = "not_stored"              # 上游只存了聚合量,这一层�
 #: V 族 10/12 —— 报「模态缺失」会让人去查一个没坏的东西,真正该做的是跑一次提取。
 #: 本仓为此栽过太多次「判词比事实更狠」,所以单列一个码。
 GAP_NOT_EXTRACTED = "not_extracted"        # 素材在盘上,派生序列还没生成
+#: **我们故意不算它** —— 不是缺素材、不是缺产出方,是这条量没有独立信息。
+#:
+#: 目前只有 `pause_ratio`:实测 13 场 A 档,它与 `1/voiced_ratio − 1` 的 r = 0.9990,
+#: 是**恒等变换**。留着它会让读者以为多了一条证据,而实际只是同一条换了张皮
+#: (本仓对零额外信息的东西一向是标出来,见 `evidence_gate` 里 `speech_ratio`)。
+#:
+#: ★ 为什么单列一个码(2026-10-24):补齐 31 场序列之后,`pause_ratio` 与
+#:   `response_latency_sec` 仍报 `not_extracted`,而前端的提示是「跑一次提取即可」——
+#:   提取早就跑完了。判词比事实更狠的第二种形态:上一版说「查采集」(方向反了),
+#:   这一版说「再跑一次提取」(永远跑不完)。读者需要的是**这条量为什么不在**,
+#:   而不是一句会让人白跑一趟的补救建议。
+GAP_NOT_PRODUCED = "not_produced"          # 本层故意不产出,理由已登记
 
 KINDS = (GAP_UNCALIBRATED, GAP_COLUMN_EMPTY, GAP_MODALITY_MISSING,
          GAP_TIME_UNUSABLE, GAP_WINDOW_NONE, GAP_NO_SAMPLES, GAP_NOT_STORED,
-         GAP_NOT_EXTRACTED)
+         GAP_NOT_EXTRACTED, GAP_NOT_PRODUCED)
 
 
 @dataclass

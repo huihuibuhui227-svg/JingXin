@@ -271,13 +271,34 @@ def _for_window(sub: pd.DataFrame, window: str, thr: dict[str, int]) -> list[L1I
         name = f"hand_visible_ratio_{side}"
         if col in sub.columns:
             # ⚠️ 空串 ≠ 0(见模块 docstring 坑 2)⟹ 只能算下界。
-            got[name] = measured(
-                name, "G3_visibility", _SPECS[name][1], (col,), window,
-                "无量纲(下界)",
-                value=float(pd.to_numeric(sub[col], errors="coerce").fillna(0)
-                            .astype(float).gt(0).sum()) / n_total,
-                n_valid=n_total, n_total=n_total,
-                threshold=thr.get("head_pose", 30))
+            #
+            # ★ `n_valid` 必须报**真的带了观测的帧数**,不是 `n_total`。
+            #
+            # 2026-10-24 实测(生产 500):场 `20260928_202928_3d8f` 的手势日志
+            # 387 行里,`torso_jitter` / `shoulder_width` **0 个非空**、
+            # `hand_visible_left` **只有 1 行有值**。旧写法把这个 1/387 的读数
+            # 报成 `n_valid=387`(等于宣称 387 帧都看过),于是它活过了
+            # `l1_quality.validate()` 的守卫「模态 `usable_ratio=0` ⟹ 不许有值」,
+            # 整个 `/api/report/structured` 抛 `ValueError`。
+            #
+            # 病根与 `pose_valid_ratio` 那条一样:**把证据说多**。
+            # 空串的意思是"不知道"(坑 2),不是一次观测 —— 它只能进分母,
+            # 不能进 `n_valid`。所以下界的值照旧按 `n_total` 算(那才是下界),
+            # 但"这条结论建立在几次观测上"要如实报成非空帧数。
+            obs = pd.to_numeric(sub[col], errors="coerce").notna()
+            n_obs = int(obs.sum())
+            if n_obs < 2:
+                # 与同函数其余指标同一个门槛:两条观测才算"算过一次"。
+                # 1 行有值 ⟹ 这一列在本窗口内**基本没被写过**,报缺失而不是报下界。
+                got[name] = _un(name, GAP_NO_SAMPLES, window)
+            else:
+                got[name] = measured(
+                    name, "G3_visibility", _SPECS[name][1], (col,), window,
+                    "无量纲(下界)",
+                    value=float(pd.to_numeric(sub[col], errors="coerce")
+                                .fillna(0).astype(float).gt(0).sum()) / n_total,
+                    n_valid=n_obs, n_total=n_total,
+                    threshold=thr.get("head_pose", 30))
         else:
             got[name] = _un(name, GAP_NO_SAMPLES, window)
 

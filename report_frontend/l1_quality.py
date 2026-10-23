@@ -28,8 +28,8 @@ from dataclasses import dataclass, field
 from report_frontend import session_timeline
 from report_frontend.l1_indicators import (
     CONFIDENCE, GAP_COLUMN_EMPTY, GAP_MODALITY_MISSING, GAP_NO_SAMPLES,
-    GAP_NOT_EXTRACTED, GAP_NOT_STORED, GAP_TIME_UNUSABLE, GAP_UNCALIBRATED,
-    GAP_WINDOW_NONE, KINDS, L1Indicator,
+    GAP_NOT_EXTRACTED, GAP_NOT_PRODUCED, GAP_NOT_STORED, GAP_TIME_UNUSABLE,
+    GAP_UNCALIBRATED, GAP_WINDOW_NONE, KINDS, L1Indicator,
 )
 
 #: 每个指标族依赖哪些模态。**这是唯一的登记处** —— 别处不许再抄一份。
@@ -61,6 +61,7 @@ GAP_EXPLANATION = {
     GAP_NO_SAMPLES: "这个窗口里没有有效观测",
     GAP_NOT_STORED: "上游只存了聚合量,这一层需要的粒度没落盘",
     GAP_NOT_EXTRACTED: "素材在盘上,派生序列还没生成(跑一次提取就有,不用重录)",
+    GAP_NOT_PRODUCED: "本层故意不产出这一条 —— 它与另一条指标是恒等变换,没有额外信息",
 }
 
 

@@ -60,8 +60,8 @@ import numpy as np
 import pandas as pd
 
 from report_frontend.l1_indicators import (
-    GAP_MODALITY_MISSING, GAP_NO_SAMPLES, GAP_NOT_EXTRACTED, GAP_NOT_STORED,
-    L1Indicator, measured, unavailable,
+    GAP_MODALITY_MISSING, GAP_NO_SAMPLES, GAP_NOT_EXTRACTED, GAP_NOT_PRODUCED,
+    GAP_NOT_STORED, GAP_WINDOW_NONE, L1Indicator, measured, unavailable,
 )
 
 FAMILY = "V"
@@ -87,6 +87,22 @@ ORDER = tuple(_SPECS)
 
 #: 能精确产出的 4 条。其余一律 `not_stored`,理由见模块 docstring 的表。
 _MEASURABLE = ("speech_rate", "pause_rate_per_min", "pause_ratio", "response_latency_sec")
+
+#: **序列缓存救不了**的日志侧指标 —— 各自的真实缺法不同,所以码也不同。
+#:
+#: * `pause_ratio`:`1/voiced_ratio − 1`(r = 0.9990),**恒等变换** ⟹
+#:   本仓故意不产出(理由在 `l1_voice_series` 里)⟹ `not_produced`;
+#: * `response_latency_sec`:要「提问结束」时刻,而整场录音**没有题目边界**
+#:   ⟹ 与「切不出回答窗口」是同一件事 ⟹ `window_none`。
+#:
+#: ★ 为什么必须分开(2026-10-24 实测踩到):把 31 场序列补齐之后,这两条**仍然**
+#:   报 `not_extracted`,而前端的提示是「跑一次提取即可,不用重录」。提取已经跑过了
+#:   —— 再跑一百次它们也出不来。判词比事实更狠的第二种形态:
+#:   上一版说「查采集」(方向反了),这一版说「再跑一次提取」(永远跑不完)。
+_NOT_EXTRACTABLE_GAP = {
+    "pause_ratio": GAP_NOT_PRODUCED,
+    "response_latency_sec": GAP_WINDOW_NONE,
+}
 
 
 def _col(df: pd.DataFrame, name: str) -> pd.Series | None:
@@ -196,6 +212,14 @@ def compute_voice_indicators(voice: pd.DataFrame | None,
         # ★ `speech_rate` 还能救:它的两个输入都不是语音日志 ——
         #   字数在批量转写里,有声秒在帧序列里。实测 13/13 场 A 档都能算。
         got0["speech_rate"] = _speech_rate_from_transcript(session_id, series, thresholds)
+        # ★ 但**序列已经在了**的时候,这两条不许沿用"跑一次提取就有"的判词:
+        #   2026-10-24 实测(31 场序列补齐之后)`pause_ratio` / `response_latency_sec`
+        #   仍报 `not_extracted`,而提取早就跑完了 —— 再跑一百次它们也出不来。
+        #   判词比事实更狠的第二种形态:上一版说「查采集」(方向反了),
+        #   这一版说「再跑一次提取」(永远跑不完)。见 `_NOT_FIXABLE_BY_EXTRACTION`。
+        if series:
+            for _n, _g in _NOT_EXTRACTABLE_GAP.items():
+                got0[_n] = _un(_n, _g)
         return [got0[n] for n in ORDER]
 
     thr = thresholds or {}
