@@ -60,7 +60,7 @@ import numpy as np
 import pandas as pd
 
 from report_frontend.l1_indicators import (
-    GAP_MODALITY_MISSING, GAP_NO_SAMPLES, GAP_NOT_STORED,
+    GAP_MODALITY_MISSING, GAP_NO_SAMPLES, GAP_NOT_EXTRACTED, GAP_NOT_STORED,
     L1Indicator, measured, unavailable,
 )
 
@@ -139,6 +139,23 @@ def _speech_rate_from_transcript(session_id: str | None, series: list | None,
                     value=chars / voiced, n_valid=1, n_total=1, threshold=thr)
 
 
+def _source_on_disk(session_id: str | None) -> bool:
+    """本场**有没有可用于重算序列的音频**。没有 `session_id` ⟹ False。
+
+    只回答"素材在不在",**不提取** —— 报告是读侧,不许有副作用。
+    判据交给 `voice_series.audio_source`(它认得逐题音频与整场 `camera.webm`),
+    不在这里另写一份"文件存不存在"的逻辑:本仓为此栽过太多次
+    (`jx_check_session` 曾自带一份 ffprobe 量具)。
+    """
+    if not session_id:
+        return False
+    try:
+        from report_frontend import voice_series
+        return voice_series.audio_source(session_id)[0] != "none"
+    except Exception:  # noqa: BLE001 - 读盘出错按"没有"处理,别让报告炸掉
+        return False
+
+
 def compute_voice_indicators(voice: pd.DataFrame | None,
                              thresholds: dict[str, int] | None = None,
                              series: list | None = None,
@@ -159,11 +176,20 @@ def compute_voice_indicators(voice: pd.DataFrame | None,
     #   所以这里**先**把日志侧的 4 条判死,**再**把序列侧合进来。
     from report_frontend import l1_voice_series
     if voice is None and not series:
-        # 既没有日志、也没有序列 ⟹ 这个模态**确实不在**,12 条一起报"模态缺失"。
-        # (不能报 `not_stored`:那是"上游只存了聚合量"的意思,而这里根本没有上游产物。)
-        return [_un(n, GAP_MODALITY_MISSING) for n in ORDER]
+        # 既没有日志、也没有序列 —— 但**这还不足以说"模态缺失"**。
+        # ★ 2026-10-24 实测:场 `20260929_205448_8b75` 的 `camera.webm` 在盘上,
+        #   34 秒就能算出 V 族 10/12,而载荷写着「V 族 12 条全部不可出」+ `modality_missing`
+        #   —— 前端对 `modality_missing` 的提示是「**补救:查采集**」。采集没坏,
+        #   坏的是"还没跑提取"。判词比事实更狠,人会去查一个没坏的东西。
+        #   所以先问一句"素材在不在":在 ⟹ `not_extracted`(跑一次就有,不用重录);
+        #   不在 ⟹ 才是真的 `modality_missing`。
+        gap = GAP_NOT_EXTRACTED if _source_on_disk(session_id) else GAP_MODALITY_MISSING
+        return [_un(n, gap) for n in ORDER]
     if voice is None or voice.empty:
-        gap = GAP_MODALITY_MISSING if voice is None else GAP_NO_SAMPLES
+        # ⚠️ `voice is None` 时(本场没有日志文件)也走 `not_extracted` 的判据 ——
+        #    否则 24 场正式场(日志 0 行、录音都在)会在这里又被判成"模态缺失"。
+        gap = (GAP_NOT_EXTRACTED if _source_on_disk(session_id)
+               else GAP_MODALITY_MISSING) if voice is None else GAP_NO_SAMPLES
         got0: dict[str, L1Indicator] = {
             n: _un(n, gap) for n in ORDER if n not in l1_voice_series.SERIES_NAMES}
         got0.update(l1_voice_series.compute_from_series(series, thresholds, n_total=0))

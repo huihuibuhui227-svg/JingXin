@@ -135,7 +135,7 @@ def _pick_voice(logs: dict):
     return None
 
 
-def voice_gap_note(voice, voice_inds) -> str | None:
+def voice_gap_note(voice, voice_inds, session_id: str | None = None) -> str | None:
     """没有语音日志时的那句说明 —— **按载荷里真有值的条数说**。
 
     ## 为什么必须数,不能写死
@@ -144,6 +144,17 @@ def voice_gap_note(voice, voice_inds) -> str | None:
     整场录音重算出的序列在,它们就出得来。原先这里写死「V 族 12 条全部不可出」,
     而实测场 `20260928_180131_8102` 的载荷里 V 族 **10/12 有值**,同一份 `gaps`
     里前面还写着「voice 模态来自原始音频重算」—— 自相矛盾,且会渲染到界面上。
+
+    ## 为什么还要 `session_id`(2026-10-24 补)
+
+    0 条有值时,「全部不可出」这句话本身没错,但它**不告诉人下一步做什么**。
+    两种 0 条的成因补救动作完全相反:
+
+    * 盘上**有**录音 ⟹ 跑一次提取就有(**不用重录**);
+    * 盘上**没有**录音 ⟹ 才是真的没这个模态,该查采集。
+
+    实测场 `20260929_205448_8b75`:录音在,34 秒能算出 10 条,而报告只说
+    「12 条全部不可出」—— 读者会以为这场废了。
 
     返回 `None` 表示"有语音日志",不该说这句话。
     """
@@ -155,6 +166,10 @@ def voice_gap_note(voice, voice_inds) -> str | None:
     if n_val:
         return (f"本场没有 voice 日志 —— V 族 {n_all} 条里 {n_val} 条由整场录音重算得出,"
                 f"其余 {n_all - n_val} 条不可出")
+    if l1_voice._source_on_disk(session_id):
+        # ⚠️ 别说"不可出"就完事 —— 素材在,缺的只是那次提取。
+        return (f"本场没有 voice 日志,V 族 {n_all} 条**目前**都没有值 —— "
+                f"但整场录音在盘上,**跑一次序列提取就能出**(不用重录)")
     return f"本场没有 voice 日志 —— V 族 {n_all} 条全部不可出"
 
 
@@ -267,7 +282,8 @@ def compute_session_l1(session_id: str,
             gaps.append("本场没有 ASR 转写 —— T 族 3 条全部不可出"
                         "(可跑 tools/jx_transcribe_recordings.py 生成)")
         _vg = voice_gap_note(_pick_voice(logs), [i for i in inds
-                                                 if i.family.startswith("V")])
+                                                 if i.family.startswith("V")],
+                             session_id=session_id)
         if _vg:
             gaps.append(_vg)
         return L1Result(session_id, tl, ws, inds, gaps,
@@ -396,7 +412,7 @@ def compute_session_l1(session_id: str,
     if voice is not None and series is None:
         gaps.append("语音日志在,但没有帧级序列缓存 —— V 族 8 条序列指标报 not_stored"
                     "(可跑 report_frontend/voice_series.extract_session 生成)")
-    _vg = voice_gap_note(voice, voice_inds)
+    _vg = voice_gap_note(voice, voice_inds, session_id=session_id)
     if _vg:
         gaps.append(_vg)
 

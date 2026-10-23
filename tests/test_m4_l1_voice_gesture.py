@@ -152,6 +152,121 @@ def test_voice_missing_reports_modality_missing_for_all_twelve():
     assert all(i.gap == "modality_missing" for i in inds)
 
 
+# ── 「模态缺失」与「还没提取」必须分开 ──────────────────────────────────
+
+def _fake_recording(root, sid: str, *, with_camera: bool) -> None:
+    """在 `root` 下造一场会话目录。`with_camera=False` 造一个空目录。"""
+    d = root / sid / "media"
+    d.mkdir(parents=True)
+    if with_camera:
+        (d / "camera.webm").write_bytes(b"not-a-real-webm")
+
+
+def test_audio_on_disk_but_not_extracted_is_not_reported_as_modality_missing(
+        tmp_path, monkeypatch):
+    """★ 录音在盘上、序列还没生成 ⟹ `not_extracted`,**不是** `modality_missing`。
+
+    ## 钉的是什么
+
+    2026-10-24 实测场 `20260929_205448_8b75`:`camera.webm` 在盘上,跑一次
+    `voice_series.extract_session` 只要 34 秒,之后 V 族 **10/12 有值**。
+    而改之前载荷里 12 条全是 `modality_missing` —— 前端对那个码的提示是
+    「补救:**查采集**」。采集没坏,人会去查一个没坏的东西。
+
+    两个码的补救动作相反:
+    * `not_extracted` ⟹ 跑一次提取(**不用重录**);
+    * `modality_missing` ⟹ 真的没这个模态,该查采集。
+
+    红法:把 `_source_on_disk` 那一支删掉、恒返回 `modality_missing` ⟹ 本条红。
+    """
+    from report_frontend import l1_indicators, l1_voice
+
+    sid = "20261024_020000_cd34"
+    monkeypatch.setenv("JINGXIN_RECORDINGS_DIR", str(tmp_path))
+    _fake_recording(tmp_path, sid, with_camera=True)
+
+    inds = l1_voice.compute_voice_indicators(None, session_id=sid)
+    assert len(inds) == 12
+    assert all(i.gap == l1_indicators.GAP_NOT_EXTRACTED for i in inds), (
+        "录音在盘上却报成 modality_missing —— 读的人会去查采集,而该做的是跑提取")
+
+
+def test_no_audio_at_all_is_still_modality_missing(tmp_path, monkeypatch):
+    """反方向对照:盘上**真没有**录音 ⟹ 仍然 `modality_missing`。
+
+    没有这一条,上一条可能只是"永远报 not_extracted"。
+    """
+    from report_frontend import l1_indicators, l1_voice
+
+    sid = "20261024_020000_ef56"
+    monkeypatch.setenv("JINGXIN_RECORDINGS_DIR", str(tmp_path))
+    _fake_recording(tmp_path, sid, with_camera=False)
+
+    inds = l1_voice.compute_voice_indicators(None, session_id=sid)
+    assert all(i.gap == l1_indicators.GAP_MODALITY_MISSING for i in inds)
+
+
+def test_the_gap_note_tells_the_reader_the_recording_is_still_there(tmp_path, monkeypatch):
+    """★ 0 条有值时,那句说明必须指出「录音还在,跑一次提取就有」。
+
+    句子本身没错(确实一条都不可出),但它**不告诉人下一步做什么**。
+    读者会以为这一场废了,而实际只差一次 34 秒的提取。
+
+    红法:把 `voice_gap_note` 的 `_source_on_disk` 分支删掉 ⟹ 本条红。
+    """
+    from report_frontend import l1_session, l1_voice
+
+    sid = "20261024_020000_aa78"
+    monkeypatch.setenv("JINGXIN_RECORDINGS_DIR", str(tmp_path))
+    _fake_recording(tmp_path, sid, with_camera=True)
+
+    inds = l1_voice.compute_voice_indicators(None, session_id=sid)
+    msg = l1_session.voice_gap_note(None, inds, session_id=sid)
+
+    assert msg and "跑一次序列提取就能出" in msg, msg
+    assert "不用重录" in msg, f"必须明说不用重录,否则人会去重录:{msg}"
+
+
+def test_the_gap_note_does_not_promise_extraction_when_there_is_no_audio(
+        tmp_path, monkeypatch):
+    """没有录音时**不许**说"跑一次提取就有" —— 那会让人白跑一遍。
+
+    反方向对照,防上一条退化成恒真。
+    """
+    from report_frontend import l1_session, l1_voice
+
+    sid = "20261024_020000_bb90"
+    monkeypatch.setenv("JINGXIN_RECORDINGS_DIR", str(tmp_path))
+    _fake_recording(tmp_path, sid, with_camera=False)
+
+    inds = l1_voice.compute_voice_indicators(None, session_id=sid)
+    msg = l1_session.voice_gap_note(None, inds, session_id=sid)
+
+    assert msg and "跑一次序列提取" not in msg, f"没有录音却让人去提取:{msg}"
+    assert "全部不可出" in msg
+
+
+def test_source_on_disk_is_false_without_a_session_id():
+    """没有 `session_id` 时不许去猜 —— 直接 False(报告层没有"扫最新一场"这条路)。"""
+    from report_frontend import l1_voice
+
+    assert l1_voice._source_on_disk(None) is False
+    assert l1_voice._source_on_disk("") is False
+
+
+def test_every_gap_kind_has_a_human_explanation():
+    """每个缺口码都必须有人话解释 —— 不许把英文常量直接渲染给读者看。
+
+    ⚠️ 这条在**新增一个码时**才有意义:2026-10-24 加 `not_extracted` 时,
+    `l1_quality.GAP_EXPLANATION` 与前端 `GAP_LABEL` 都是手维护的字典,
+    漏一处就是界面上冒出一个英文单词。
+    """
+    from report_frontend import l1_indicators, l1_quality
+
+    missing = [k for k in l1_indicators.KINDS if k not in l1_quality.GAP_EXPLANATION]
+    assert not missing, f"这些缺口码没有中文解释:{missing}"
+
+
 # ── G 族 ─────────────────────────────────────────────────────────────────
 
 def _gesture_df(n=40, **over):

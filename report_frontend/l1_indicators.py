@@ -55,9 +55,17 @@ GAP_TIME_UNUSABLE = "time_unusable"        # 时间轴不可重建(spec M4.0)
 GAP_WINDOW_NONE = "window_none"            # 没有可用的回答窗口(戊-15)
 GAP_NO_SAMPLES = "no_samples"              # 窗口里一条观测都没有
 GAP_NOT_STORED = "not_stored"              # 上游只存了聚合量,这一层的粒度产不出来
+#: **素材在、只是没算** —— 与 `modality_missing` 是两回事,补救动作也相反。
+#:
+#: `modality_missing` 说「本场没有这个模态」,读者该去查采集;
+#: 而实测场 `20260929_205448_8b75` 的 `camera.webm` 好好地在盘上,34 秒就能算出
+#: V 族 10/12 —— 报「模态缺失」会让人去查一个没坏的东西,真正该做的是跑一次提取。
+#: 本仓为此栽过太多次「判词比事实更狠」,所以单列一个码。
+GAP_NOT_EXTRACTED = "not_extracted"        # 素材在盘上,派生序列还没生成
 
 KINDS = (GAP_UNCALIBRATED, GAP_COLUMN_EMPTY, GAP_MODALITY_MISSING,
-         GAP_TIME_UNUSABLE, GAP_WINDOW_NONE, GAP_NO_SAMPLES, GAP_NOT_STORED)
+         GAP_TIME_UNUSABLE, GAP_WINDOW_NONE, GAP_NO_SAMPLES, GAP_NOT_STORED,
+         GAP_NOT_EXTRACTED)
 
 
 @dataclass
