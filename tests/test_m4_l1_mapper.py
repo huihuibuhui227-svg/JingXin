@@ -65,7 +65,11 @@ def test_slot_map_covers_exactly_the_fourteen_old_slots():
 
 @pytest.mark.parametrize("slot,why_fragment", [
     ("symmetry_score", "对称"),
-    ("fluency_score", "产出方"),
+    # ⚠️ 2026-10-24 由「产出方」改为「零额外信息」:这一条的结论从
+    #    "全系统没人算它"升级成"**不该有人算它**" —— VAD 流畅度的三个分量
+    #    在本仓都已有现成指标,其中「平均连续发声长度」与 `pause_rate_per_min`
+    #    是**代数恒等**(实测残差 4.4e-16)。理由的完整推导见「甲、3」。
+    ("fluency_score", "零额外信息"),
     ("left_hand_spread", "可见性"),
     ("shrug_level", "稳定性"),
     ("eye_contact", "未确认"),

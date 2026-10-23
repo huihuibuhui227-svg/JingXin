@@ -94,7 +94,21 @@ SLOT_MAP: dict[str, tuple[str | None, str]] = {
     "symmetry_score": (
         None, "L1 没有面部对称性指标"),
     "fluency_score": (
-        None, "全系统没有产出方(见 research_mapper.NO_PRODUCER)"),
+        None,
+        # ★ 2026-10-24 裁定:不产出,**理由从"等标定集"改为"零额外信息"**。
+        #   把"真 VAD 流畅度分"拆成它实际能算的三个量,逐条都有现成的:
+        #     发声占比        → `voiced_ratio`
+        #     平均连续发声长度 → **恒等于** `60 / pause_rate_per_min`(实测残差 4.4e-16)
+        #     发音速率        → `speech_rate`
+        #   VAD 唯一还能给的是不流畅事件(嗯/呃、重复、改口),而那是**转写文本**里的,
+        #   `l1_text.self_repair_rate` 已经在数。
+        #   ⟹ 写一个 `fluency_score` 只会造出第二个"流畅度"量、与 `self_repair_rate`
+        #   抢同一个构念,且一个新数都不产生。与 `pause_ratio` 那次裁定同族
+        #   (那里 `r = 0.9990` 判为 `voiced_ratio` 的恒等变换 ⟹ `GAP_NOT_PRODUCED`)。
+        #   ⚠️ 因此这一维的死权重 **4/7 是确定的**,不是"暂时"。
+        "零额外信息:VAD 流畅度的三个分量里,发声占比=voiced_ratio、平均连续发声长度"
+        "恒等于 60/pause_rate_per_min、发音速率=speech_rate;不流畅事件在转写文本里"
+        "(self_repair_rate 已在数)⟹ 写它只会造出第二个流畅度量"),
     "pitch_variation": (
         "pitch_variability_per_sec", "同构念:音高的变化量"),
     "pause_duration": (

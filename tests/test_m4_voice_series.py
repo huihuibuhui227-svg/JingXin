@@ -243,3 +243,39 @@ def test_pause_ratio_is_deliberately_not_produced():
     got = lvs.compute_from_series([s])
     assert "pause_ratio" not in got
     assert "pause_ratio" not in lvs.SERIES_NAMES
+
+
+# ── 8. 「甲-3」裁定的承重证据:平均连续发声长度 ≡ 60 / pause_rate_per_min ──
+
+def test_mean_voiced_run_length_is_the_reciprocal_of_pause_rate():
+    """★★ **代数恒等**,不是"高度相关" —— 这条是 `fluency_score` 不产出的依据。
+
+    ## 为什么需要这条测试
+
+    2026-10-24 裁定「不为 `fluency_score` 引入 VAD 依赖」,理由是 VAD 流畅度分
+    的三个分量在本仓都已有现成指标。其中「平均连续发声长度」
+    (`voiced_sec ÷ 停顿段数`)不是"相关",而是 `pause_rate_per_min` 的**精确倒数**:
+
+        pause_rate_per_min = 停顿段数 ÷ (voiced_sec / 60)
+        ⟹ 60 / pause_rate_per_min = voiced_sec ÷ 停顿段数
+
+    如果哪天有人把 `pause_rate_per_min` 的分母改成整段时长(它以前就是整段分钟),
+    这个恒等式当场断掉,而「甲-3」的裁定理由会**静默失效** —— 那时"VAD 能多给一个数"
+    这句话就重新成立了。所以这条钉子守的不是公式,是**那条裁定的前提**。
+
+    ⚠️ 别拿回归去验它:自变量里含 `pause_rate_per_min`、因变量是它的倒数,
+    线性回归对这种非线性恒等本来就拟合不好(我实测 R² 只有 0.863,而真值是 1)。
+    **恒等式按代数验,不按回归验。**
+
+    红法:把 `pause_rate_per_min` 的分母从 `voiced_sec_total` 改成 `duration` ⟹ 本条红。
+    """
+    s = _series(pattern="..VVVVVVVV..VVV..VVVV", frame_sec=0.1)
+    got = lvs.compute_from_series([s], thresholds={"pause": 2}, n_total=0)
+    rate = got["pause_rate_per_min"].value
+    assert rate > 0, "夹具前提:这条序列必须至少有一个停顿区间"
+    voiced_sec = s.voiced_sec
+    runs = lvs.pause_runs(s.voiced_flag, s.frame_sec, vs.MIN_PAUSE_SEC)
+    mlr = voiced_sec / len(runs)
+    assert mlr == pytest.approx(60.0 / rate, rel=1e-12), (
+        f"平均连续发声长度 {mlr} 秒 与 60/pause_rate_per_min {60.0 / rate} 秒 不等 —— "
+        "「甲-3」判 `fluency_score` 零额外信息的前提断了")
