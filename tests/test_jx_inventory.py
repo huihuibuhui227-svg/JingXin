@@ -32,7 +32,10 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-FORMAL_NAME = "20260929_180047-2-廖怡涵-261210823-金融8班__20260929_180047_6fee"
+# ⚠️ **假名 + 假学号。** 判据只看形状(`-序号-姓名-学号-学院`),不看真值 ⟹
+# 没有理由把真实候选人的姓名学号写进测试。本仓是**公开仓库**,
+# 而 `~/JingXin/recordings/` 下是真实受访者(2026-10-24 发现)。
+FORMAL_NAME = "20260929_180047-2-示例甲-000000001-示例学院__20260929_180047_6fee"
 
 
 @pytest.fixture(scope="module")
@@ -123,7 +126,41 @@ def test_recycle_and_void_dirs_are_not_in_the_material_table(inv, tmp_path):
     body = "\n".join(rows)
     for junk in ("_回收站", "_已作废", "NONE", "_试跑"):
         assert junk not in body, f"{junk} 不是素材,不该进表:\n{body}"
-    assert FORMAL_NAME in body
+    assert "候选A" in body, f"正式场应当进表(脱敏后叫 候选A):\n{body}"
+
+
+# ── 3.5 目录名脱敏 ────────────────────────────────────────────────────────
+
+def test_real_names_and_student_ids_are_redacted_in_the_table(inv, tmp_path):
+    """★ 素材表里的**真实姓名与学号不许出现** —— 本仓是公开仓库。
+
+    2026-10-24 发现:重刷后的 `docs/资源总览.md` 把 24 场正式素材的
+    `-序号-姓名-学号-学院` 目录名整列了出来,即真实受访大学生的姓名 + 学号。
+    `git` 一推上去就撤不回来。
+
+    这条钉的是**生成器**而不是文档本身:文档是生成物,手改下次就回来。
+
+    红法:把 `sessions_table` 里的 `redact(d.name)` 改回 `d.name` ⟹ 本条红。
+    """
+    real = "20260929_180047-2-张三-261210823-金融8班__20260929_180047_6fee"
+    (tmp_path / real).mkdir()
+    body = "\n".join(inv.sessions_table(tmp_path))
+    assert "张三" not in body, f"真实姓名进了表:\n{body}"
+    assert "261210823" not in body, f"真实学号进了表:\n{body}"
+    # 代号要能替代它,且学号**位数保留**(位数本身是判据的一部分)
+    assert "候选A" in body, body
+    assert "000000000" in body, f"学号应换成同长度占位符:\n{body}"
+
+
+def test_redaction_keeps_the_shape_readable(inv):
+    """脱敏后仍要能看出「这是正式场」—— 只换姓名学号,不动序号与学院。"""
+    real = "20260929_180047-2-张三-261210823-金融8班__20260929_180047_6fee"
+    inv._assign_codes([Path(real)])
+    out = inv.redact(real)
+    assert "20260929_180047-2-" in out
+    assert "金融8班" in out
+    assert "000000000" in out
+    assert out.count("候选") == 1
 
 
 # ── 3 问题数口径 ──────────────────────────────────────────────────────────

@@ -248,6 +248,55 @@ def classify_session(d: Path, in_trial_dir: bool) -> tuple[str, str, int, bool]:
     return "正式", why, nq, has_tr
 
 
+def redact(name: str) -> str:
+    """**脱敏**:把目录名里的真实姓名/学号换掉,只留可判读的形状。
+
+    ## 为什么必须在生成器里做
+
+    `docs/资源总览.md` 是**提交进仓库**的,而本仓的 GitHub 远端是**公开仓库**
+    (`private=False`,2026-10-24 实测)。素材目录名形如
+    `-序号-姓名-学号-学院` —— 那是真实受访大学生的**姓名 + 学号**,属第三方
+    个人信息,`git` 历史一旦推上去就撤不回来。
+
+    而这张表**不需要**真名也能用:读者要看的是"哪些场次存在、档位、题数、
+    有多少帧",不是"谁"。所以姓名换成 `候选A/B/C…`、学号换成同长度的占位符 ——
+    **长度保留**,因为学号位数本身是判据的一部分(9–10 位)。
+
+    顺序按目录名排序后编号,同一份素材每次生成得到同一个代号。
+
+    ⚠️ 只脱敏**展示**。盘上的目录名一个字节都不动 —— 下游
+    (`corpus` / `session_meta` / 留存账本)全靠真名里的学号对齐。
+    """
+    m = FORMAL_PATTERN_LOCAL.search(name)
+    if not m:
+        return name
+    sid_part = name.split("__")[-1] if "__" in name else name
+    return name.replace(m.group(1), "候选" + _CODE.get(m.group(2), "?"), 1) \
+               .replace(m.group(2), "0" * len(m.group(2)), 1)
+
+
+#: 学号 → 代号字母(按出现顺序发号,稳定)。`redact` 用。
+_CODE: dict[str, str] = {}
+
+
+def _assign_codes(dirs) -> None:
+    """给每个**真实学号**发一个稳定代号:A、B、C…(按目录名排序)。"""
+    _CODE.clear()
+    letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    seen: list[str] = []
+    for d in sorted(dirs, key=lambda p: p.name):
+        m = FORMAL_PATTERN_LOCAL.search(d.name)
+        if m and m.group(2) not in seen:
+            seen.append(m.group(2))
+    for i, sid in enumerate(seen):
+        _CODE[sid] = letters[i] if i < len(letters) else f"Z{i}"
+
+
+#: 与 `report_frontend.corpus.FORMAL_PATTERN` 同一个形状。这里**只**用于脱敏,
+#: 不参与"是不是正式场"的判定(那个必须走 `_is_formal`,单一来源)。
+FORMAL_PATTERN_LOCAL = re.compile(r"-\d+-([一-龥]{2,4})-(\d{9,10})-([一-龥]+)")
+
+
 def sessions_table(root: Path, in_trial_dir: bool = False) -> list[str]:
     out = []
     if not root.exists():
@@ -258,6 +307,7 @@ def sessions_table(root: Path, in_trial_dir: bool = False) -> list[str]:
     # 43 行 vs 实际 41 个有效目录)。
     dirs = sorted(p for p in root.iterdir()
                   if p.is_dir() and p.name != "NONE" and not p.name.startswith("_"))
+    _assign_codes(dirs)
     for d in dirs:
         tier, why, nq, has_tr = classify_session(d, in_trial_dir)
         media = d / "media"
@@ -276,7 +326,7 @@ def sessions_table(root: Path, in_trial_dir: bool = False) -> list[str]:
             }.items() if v
         )
         out.append(
-            f"| `{d.name}` | **{tier}** | {nq if nq else '—'} | "
+            f"| `{redact(d.name)}` | **{tier}** | {nq if nq else '—'} | "
             f"{'✅' if has_tr else '—'} | {webm} | {nf:,} | {has} | {why} |"
         )
     return out
@@ -462,6 +512,10 @@ def main() -> int:
           f"`{_FORMAL_FALLBACK[0]}`。两份正则当前若一致,表还是对的;但**判据从此有两份**,")
         A("将来一改就会漂。修 `sys.path` 或补齐依赖。")
         A("")
+    A("**目录名已脱敏**:真实姓名 → `候选A/B/C…`、学号 → 同长度的 `0`。"
+      "本表要的是「哪些场次、能不能用」,不是「谁」;而这是公开仓库。")
+    A("盘上的目录名不动 —— 下游(`corpus` / `session_meta` / 留存账本)全靠真名里的学号对齐。")
+    A("")
     A("**「问题数」一列的口径**:优先 `questions.jsonl` 行数(即 `session_meta.read_questions()`")
     A("读的那份,M4 切窗口用的也是它),没有才退回 `meta.json` 的 `questions` 块。")
     A("`—` = 两处都没有 —— 这些场次的问题时刻不存在于本目录,不是「0 题」。")
