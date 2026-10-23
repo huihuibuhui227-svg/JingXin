@@ -233,19 +233,27 @@ def build_windows(session_id: str, origin_wall: float,
     empty = [w.index for w in windows if w.duration_sec <= 0]
 
     segments = audio_answer_segments(session_id)
-    gap = None
+    # ⚠️ 零长窗口必须**独立**成句,不能挂在 if/elif 链尾。
+    # 原实现把它放在 `elif empty` 第三位 ⟹ 「有 answer_audio 且段数相等」时
+    # 前两条都不成立、第三条被跳过?不对 —— 前两条不成立时第三条**会**执行;
+    # 真正的漏法是前两条**有一条成立**时(最常见:段数与窗口数对不上),
+    # 零长窗口就被那条更响的消息盖掉,而它才是"这一题没有任何观测"的原因。
+    # 现在两条消息各自独立拼接,谁也盖不住谁。
+    notes: list[str] = []
     if segments and len(segments) != len(usable):
-        gap = (f"answer_audio 段 {len(segments)} 条 vs 可用题窗口 {len(usable)} 个 —— "
-               f"对不上;窗口仍按 ask_end 切(不按顺序硬配),但语音行的归属要复核")
+        notes.append(f"answer_audio 段 {len(segments)} 条 vs 可用题窗口 {len(usable)} 个 —— "
+                     f"对不上;窗口仍按 ask_end 切(不按顺序硬配),但语音行的归属要复核")
     elif not segments:
         # **没有逐题回答音频 = 一种采集模式,不是缺陷。**
         # 原来这里会走上面的"段 0 条 vs 窗口 N 个 —— 对不上",于是"只有提问标记、
         # 没有每题音频"的场次**每一场都永久带一条假缺陷**,把真缺陷稀释掉。
         # 逐题窗口照常可用(F/G 按题切);但没有 reaction_time ⟹ 反应延迟不可出。
-        gap = ("本场没有逐题回答音频(只有提问标记)⟹ 逐题窗口照常可用,"
-               "但没有 reaction_time,response_latency_sec 不可出")
-    elif empty:
-        gap = f"题 {empty} 的窗口时长为 0(相邻两题 ask_end 相同或倒序),该窗口内不会有任何观测"
+        notes.append("本场没有逐题回答音频(只有提问标记)⟹ 逐题窗口照常可用,"
+                     "但没有 reaction_time,response_latency_sec 不可出")
+    if empty:
+        notes.append(f"题 {empty} 的窗口时长为 0(相邻两题 ask_end 相同或倒序),"
+                     f"该窗口内不会有任何观测")
+    gap = ";".join(notes) if notes else None
     if not wall_reliable:
         extra = "本场墙钟不可信(见 timebase),窗口边界带同等量级误差"
         gap = f"{gap};{extra}" if gap else extra
