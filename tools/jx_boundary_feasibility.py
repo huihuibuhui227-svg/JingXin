@@ -95,7 +95,7 @@ def survey(recordings: Path = RECORDINGS, transcripts: Path = TRANSCRIPTS) -> di
 
     # ⚠️ 三分类,不是两分类。`cover is None` 有两种来路,必须分开:
     #   · 没有转写 ⟹ 没转过,不是"截断";
-    #   · 有转写但没有观测账本(实测 `孙偲齐`/`吴思诚` 两场)⟹ **无法核算**,
+    #   · 有转写但没有观测账本(实测 2 场)⟹ **无法核算**,
     #     不是"覆盖 0%"。把这两种并进"截断"会把 2 场误报成音频损坏。
     full = [r for r in rows if r["cover"] is not None and r["cover"] >= FULL_COVER]
     trunc = [r for r in rows if r["cover"] is not None and r["cover"] < FULL_COVER]
