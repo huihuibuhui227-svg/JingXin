@@ -13,6 +13,7 @@
 import csv
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from report_frontend.data_loader import LogDataLoader
@@ -176,11 +177,62 @@ def test_l1_engine_replaces_the_false_algorithm_statement(isolated):
         assert "推断" not in dim["algorithm"], (key, dim["algorithm"])
 
 
-def test_l1_engine_payload_carries_no_scoring_keys(isolated):
+def test_l1_engine_payload_carries_no_scoring_keys(monkeypatch):
     """★ 没有标定样本 ⟹ 载荷里不许出现 `score` / `level` / `percentile`。
 
     红法:在 `build_l1_report` 的维度字典里加一行 `"score": ...` ⟹ 本条红。
     类型层是"悄悄加回来"的最后一道闸,但类型只在前端;后端也要有一条。
+
+    ⚠️ **2026-10-23 修**:本条原先走空数据端点,而空数据下每个维度的 `stats`
+       都是 `{}` ⟹ 内层那个 `percentile` 循环**一次都没进过**。测试显示"通过",
+       但它声称要守的那个键根本没被检查过(覆盖率守卫 `test_no_assert_is_dead`
+       抓到第 193 行的 assert 从未执行 —— 不是测试写错,是**测试是空转的**)。
+       现在把 `compute_session_l1` 换成一份**真有值**的结果,让 `stats` 非空;
+       空数据那一路另立一条(见文件末尾),它只钉自己真能覆盖的顶层键。
+    """
+    from report_frontend import l1_report
+    from report_frontend.l1_indicators import L1Indicator
+    from report_frontend.l1_session import L1Result
+    from report_frontend.event_windows import WindowSet
+    from report_frontend.session_timeline import Timebase, TimebaseStatus
+
+    face = Timebase(modality="face", status=TimebaseStatus.OK,
+                    t_sec=pd.Series([0.0, 1.0]), n_frames=2,
+                    wall_back_steps=0, drift_sec=0.0)
+    result = L1Result(
+        session_id=_SID,
+        timebase=type("T", (), {"modalities": {"face": face}})(),
+        windows=WindowSet(session_id=_SID, granularity="session",
+                          windows=[], n_questions=0),
+        # `gaze_stability` 是 `gaze_direction_x_std` 槽的 L1 对应(同构念),
+        # 有值 ⟹ `logical_thinking` 维度的 `stats` 里会出现一个键。
+        indicators=[L1Indicator(
+            name="gaze_stability", family="F2_gaze", formula="f",
+            required_l0=("a",), window="session", unit="",
+            value=0.83, n_valid=628, n_total=700, confidence="高", gap=None)],
+    )
+    monkeypatch.setattr(l1_report, "compute_session_l1", lambda *a, **k: result)
+    payload = l1_report.build_l1_report(_SID)
+
+    assert "total_score" not in payload and "total_level" not in payload
+    checked = 0
+    for key, dim in payload["dimensions"].items():
+        assert "score" not in dim and "level" not in dim, key
+        for stat in dim["stats"].values():
+            checked += 1
+            assert "percentile" not in stat, (key, stat)
+    # 地板先于结论:循环一次没进 ⟹ 本条的 `percentile` 断言等于没跑。
+    assert checked > 0, (
+        "一个 stat 都没检查到 —— 本条又变回空转了(构造的指标没进 stats)。")
+
+
+def test_l1_engine_empty_payload_has_no_scores_at_all(isolated):
+    """空数据下 L1 载荷:连 `stats` 都是空的,更不该有分数键。
+
+    红法:在 `build_l1_report` 的顶层加 `"total_score"` ⟹ 本条红。
+
+    ⚠️ 本条**不**声称验证了 `stats` 里的 `percentile` —— 空数据下那个循环不执行,
+    它由上面那条有值版本负责。把两者分开,是为了让"哪条守住了什么"看得见。
     """
     body = isolated([("face_au_log_NONE.csv", [_row("NONE", None)])]) \
         .get(f"/api/report/structured?session_id={_SID}").get_json()
@@ -189,8 +241,8 @@ def test_l1_engine_payload_carries_no_scoring_keys(isolated):
     assert "total_score" not in res and "total_level" not in res
     for key, dim in res["dimensions"].items():
         assert "score" not in dim and "level" not in dim, key
-        for stat in dim["stats"].values():
-            assert "percentile" not in stat, (key, stat)
+    # 空数据 ⟹ 每个维度的 stats 都是 {}。写出来,免得下一个人以为这里验过 percentile。
+    assert all(not d["stats"] for d in res["dimensions"].values())
 
 
 def test_unknown_engine_is_a_400_not_a_silent_fallback(client):
