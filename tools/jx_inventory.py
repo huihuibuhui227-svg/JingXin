@@ -4,9 +4,9 @@
 为什么是脚本而不是手写文档:散文里的数会静默过期(本项目实测 7 次)。
 本文件里**所有数字都是当场算出来的**,没有一个是手打的;重跑一次就刷新。
 
-用法:
-    ~/miniconda3/envs/jingxin/bin/python tools/jx_inventory.py            # 写 docs/资源总览.md
-    ~/miniconda3/envs/jingxin/bin/python tools/jx_inventory.py --check    # 只比对,不改文件(退出码 1 = 过期)
+用法(本仓解释器按机器自动识别,也可用 `JX_PY` 指定):
+    tools/jx_inventory.py            # 写 docs/资源总览.md
+    tools/jx_inventory.py --check    # 只比对,不改文件(退出码 1 = 过期)
 """
 from __future__ import annotations
 
@@ -19,9 +19,42 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "docs" / "资源总览.md"
-RECORDINGS = Path.home() / "shared" / "jingxin_recordings"
-SHARED = Path.home() / "shared"
-FRONTEND = Path.home() / "JingXin-frontend"
+
+
+def _pick(env: str, *candidates: str | Path) -> Path:
+    """按顺序取第一个**存在**的路径;环境变量优先,都不存在时返回第一个候选。
+
+    为什么不再写死**一个**绝对路径:本仓有两个工作副本,路径布局不同 ——
+
+    | | 笔记本(WSL) | 服务器 gpuserver |
+    |---|---|---|
+    | 解释器 | `~/miniconda3/envs/jingxin` | `~/anaconda3/envs/jingxin` |
+    | 前端 | `~/JingXin-frontend` | `~/JingXin/frontend` |
+    | 素材 | `~/shared/jingxin_recordings` | `~/JingXin/recordings` |
+
+    写死本机那一套的后果实测过:在服务器上重刷出来的「环境」一节变成
+    `~/miniconda3/...` + 版本全空 + 「未装」——**生成器把错的机器描述写成了事实**,
+    比文档过期更糟(过期至少一眼看得出)。见 [[jingxin-two-working-copies]]。
+    """
+    override = os.environ.get(env)
+    if override:
+        return Path(override).expanduser()
+    paths = [Path(c).expanduser() for c in candidates]
+    for p in paths:
+        if p.exists():
+            return p
+    return paths[0]
+
+
+PY = _pick("JX_PY",
+           Path.home() / "miniconda3/envs/jingxin/bin/python",
+           Path.home() / "anaconda3/envs/jingxin/bin/python",
+           sys.executable)
+RECORDINGS = _pick("JX_RECORDINGS", Path.home() / "shared" / "jingxin_recordings",
+                   Path.home() / "JingXin" / "recordings")
+SHARED = _pick("JX_SHARED", Path.home() / "shared", Path.home() / "JingXin")
+FRONTEND = _pick("JX_FRONTEND", Path.home() / "JingXin-frontend",
+                 Path.home() / "JingXin" / "frontend")
 
 SKIP_DIRS = {"__pycache__", ".git", ".idea", ".pytest_cache", "results", "node_modules", ".venv"}
 # 只统计这些后缀的行数 —— 排除 .json/.csv 之类,否则 data/ 一进来数字就没意义
@@ -158,7 +191,7 @@ def main() -> int:
     A("# JingXin 资源总览(自动生成)")
     A("")
     A("> **本文件由 `tools/jx_inventory.py` 生成 —— 不要手改。**")
-    A("> 改完重跑:`~/miniconda3/envs/jingxin/bin/python tools/jx_inventory.py`")
+    A(f"> 改完重跑:`{PY} tools/jx_inventory.py`")
     A("> 所有数字当场算出;手写一个数就会过期(本项目实测 7 次)。")
     A("")
     A(f"_生成时间:{sh('date', '+%Y-%m-%d %H:%M:%S')}_")
@@ -169,7 +202,7 @@ def main() -> int:
     # ── 1 环境 ───────────────────────────────────────────────
     A("## 1. 环境")
     A("")
-    py = str(Path.home() / "miniconda3/envs/jingxin/bin/python")
+    py = str(PY)
     A(f"| | |")
     A("|---|---|")
     A(f"| 本仓 Python | `{py}`(conda env `jingxin`) |")
