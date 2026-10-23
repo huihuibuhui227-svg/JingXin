@@ -64,6 +64,19 @@ def test_verdict_without_a_camera_verdict_fact_does_not_crash():
     assert v
 
 
+def test_unmeasurable_says_cannot_judge_not_disqualified():
+    """★ 量不出来 **≠** 录坏了。
+
+    `capture_health.probe` 在没装 ffprobe / 文件读不懂时返回 `unknown`。
+    若把它归进"不够格",人会去重录一场可能完全正常的素材 —— 而真实情况是
+    量具不在。判词必须是「判不了」,而且**不许**出现「不够格」。
+    """
+    v = cs.verdict(_rows_for_camera(False), _facts("unmeasurable"))
+    assert "判不了" in v
+    assert "不够格" not in v
+    assert "不等于录坏了" in v
+
+
 def test_a_passing_camera_row_is_not_reported_as_a_hard_failure():
     v = cs.verdict(_rows_for_camera(True), _facts("ok"))
     assert "不够格" not in v
@@ -72,7 +85,12 @@ def test_a_passing_camera_row_is_not_reported_as_a_hard_failure():
 @pytest.mark.skipif(subprocess.run(["which", "ffprobe"], capture_output=True).returncode != 0,
                     reason="没有 ffprobe")
 def test_a_real_audio_only_file_is_recognised_as_missing_video(tmp_path):
-    """用真文件验一次:只造音轨 ⟹ 探到的 codec 列表里没有视频编码。"""
+    """用真文件验一次:只造音轨 ⟹ 判成 `no_video_track`,并说音频可用。
+
+    ⚠️ 这条走的是**判据那一层**(`_camera_verdict`),不是自己再调一次 ffprobe ——
+    本文件此前直接调 `_ffprobe_codecs`,于是"工具判成哪一档"这件事**没被验过**,
+    只验了 ffprobe 会说话。2026-10-24 把量具收进 `capture_health` 后一并改掉。
+    """
     f = tmp_path / "a.webm"
     r = subprocess.run(
         ["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
@@ -80,6 +98,77 @@ def test_a_real_audio_only_file_is_recognised_as_missing_video(tmp_path):
         capture_output=True, text=True, timeout=120)
     if r.returncode != 0 or not f.exists():
         pytest.skip(f"ffmpeg 造不出样本:{r.stderr[:200]}")
-    codes = cs._ffprobe_codecs(f)
-    assert "opus" in codes
-    assert not any(c in codes for c in ("vp8", "vp9", "h264")), codes
+    verdict, detail = cs._camera_verdict(f)
+    assert verdict == "no_video_track", (verdict, detail)
+    assert "音频可用" in detail
+
+
+@pytest.mark.skipif(subprocess.run(["which", "ffprobe"], capture_output=True).returncode != 0,
+                    reason="没有 ffprobe")
+def test_a_real_a_v_file_is_judged_ok(tmp_path):
+    """反方向对照:音视频都在 ⟹ `ok`。没有这一条,上面那条可能只是"恒判坏"。"""
+    f = tmp_path / "av.webm"
+    r = subprocess.run(
+        ["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc=size=64x64:rate=10:duration=1",
+         "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+         "-c:v", "libvpx", "-b:v", "100k", "-c:a", "libopus", "-y", str(f)],
+        capture_output=True, text=True, timeout=180)
+    if r.returncode != 0 or not f.exists():
+        pytest.skip(f"ffmpeg 造不出样本:{r.stderr[:200]}")
+    verdict, detail = cs._camera_verdict(f)
+    assert verdict == "ok", (verdict, detail)
+
+
+# ── 量具只有一处 ──────────────────────────────────────────────────────────
+
+def test_the_tool_does_not_carry_its_own_ffprobe_implementation():
+    """★ 同一个问题不许有两份实现。
+
+    这里曾有一份自己的 `_ffprobe_codecs`(判「`vp8` 与 `opus` 都在吗」),而采集端
+    `capture_health` 也要判同一件事。两份实现**必然分叉** —— 换编码器时一处认、
+    一处不认,而"看着都对"最难查。本仓为此栽过太多次,所以现在量具只留
+    `capture_health.probe` 一份,本工具只负责把事实翻成判词。
+
+    红法:把 `_camera_verdict` 改回自己调 ffprobe ⟹ 本条红。
+    """
+    import inspect
+
+    # ⚠️ 只查 `_camera_verdict` 这一个函数体里的 `subprocess`,**不是**整个文件的字符串
+    #    —— 本文件的注释里必须能写「ffprobe」这三个字(要解释为什么不再自己调它)。
+    #    第一版写成 `"ffprobe" not in 全文`,于是注释里提一句就红,那是在测注释。
+    body = inspect.getsource(cs._camera_verdict)
+    assert "subprocess" not in body, "本工具不该再自己调 ffprobe —— 量具在 capture_health"
+    assert "capture_health" in body
+    assert not hasattr(cs, "_ffprobe_codecs"), "旧的自带量具必须删掉,不许留着并存"
+
+
+def test_camera_verdict_goes_through_capture_health(tmp_path, monkeypatch):
+    """`_camera_verdict` 必须**真的**用 `capture_health.probe` 的结果,不是自己再量。
+
+    打桩成"只有视频没有音频" ⟹ 判词必须是 `no_audio_track`。若它还自己调
+    ffprobe,桩打不上,判词会是 `unmeasurable` 或 `ok`,当场红。
+    """
+    import capture_health
+
+    f = tmp_path / "x.webm"
+    f.write_bytes(b"whatever")
+    monkeypatch.setattr(capture_health, "probe", lambda p: {
+        "status": "warn", "has_video": True, "has_audio": False,
+        "codecs": ["vp8"], "findings": ["没有音轨"]})
+    verdict, detail = cs._camera_verdict(f)
+    assert verdict == "no_audio_track", (verdict, detail)
+    assert "转写" in detail
+
+
+def test_camera_verdict_passes_through_unknown_as_unmeasurable(tmp_path, monkeypatch):
+    """`probe` 说 `unknown` ⟹ 本工具必须说「量不出来」,不许猜成缺轨。"""
+    import capture_health
+
+    f = tmp_path / "y.webm"
+    f.write_bytes(b"whatever")
+    monkeypatch.setattr(capture_health, "probe", lambda p: {
+        "status": "unknown", "has_video": None, "has_audio": None,
+        "codecs": [], "findings": ["没装 ffprobe"]})
+    verdict, detail = cs._camera_verdict(f)
+    assert verdict == "unmeasurable", (verdict, detail)
+    assert "没装 ffprobe" in detail

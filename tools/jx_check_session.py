@@ -18,6 +18,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+# 仓库根:本文件在 `tools/` 下,而它现在要 `import capture_health`(仓库根那个模块)。
+# ⚠️ 少了这一行,按 `python tools/jx_check_session.py` 跑时 `sys.path[0]` 是 `tools/`
+#    ⟹ `ImportError: No module named capture_health`,而**按 `-m` 跑又没事** ——
+#    这种"换个调用方式就坏"的坑本仓踩过(`jx_inventory` 的 `FORMAL_PATTERN`)。
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 def _first_dir(*cands: Path) -> Path:
     """按候选顺序取第一个存在的目录;都不存在则返回第一个(报错时看得出期望值)。
 
@@ -111,22 +117,41 @@ def _detect_rate(csv_path: Path) -> tuple[int, int, float]:
     return len(rows), hit, hit / len(rows)
 
 
-def _ffprobe_codecs(path: Path) -> list[str]:
-    try:
-        out = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries", "stream=codec_name",
-             "-of", "csv=p=0", str(path)],
-            capture_output=True, text=True, timeout=60, check=True).stdout
-        return [c.strip() for c in out.splitlines() if c.strip()]
-    except Exception as e:  # noqa: BLE001 - 探针失败就是判据不过,原因照实写
-        return [f"<ffprobe 失败: {e}>"]
+def _camera_verdict(cam: Path) -> tuple[str, str]:
+    """→ `(verdict, 人话说明)`。**量具只有一处**:`capture_health.probe`。
+
+    ⚠️ 这里曾经自己写了一份 `_ffprobe_codecs`,判「`vp8` 与 `opus` 都在吗」。
+    同一个问题在采集端(`capture_health`)也要判一次,而**两份实现必然分叉** ——
+    比如换编码器时一处认、一处不认。本仓为此栽过太多次,所以现在只留一份量具,
+    这里只负责把事实翻成判词。
+
+    判词分三档,**补救动作不同**(见下方调用处的说明)。
+    """
+    import capture_health
+
+    r = capture_health.probe(cam)
+    mb = cam.stat().st_size / 1e6
+    if r.get("status") == "unknown":
+        # 量不出来 ≠ 没有视频轨。不许把它归进任何一档"录坏了"。
+        why = "；".join(r.get("findings") or ["原因未知"])
+        return "unmeasurable", f"camera.webm {mb:.1f} MB,**量不出来**:{why}"
+    if not r.get("has_video"):
+        return "no_video_track", (
+            f"camera.webm {mb:.1f} MB,**只有音轨没有视频轨**(流={r.get('codecs')})"
+            f" —— 文件是录下来的,但视觉那一整块没有;"
+            f"音频可用,视觉指标与面部/手势全不可出")
+    if not r.get("has_audio"):
+        return "no_audio_track", (
+            f"camera.webm {mb:.1f} MB,**只有视频轨没有音轨**(流={r.get('codecs')})"
+            f" —— 转写与语音指标全不可出")
+    return "ok", f"camera.webm {mb:.1f} MB, 流={r.get('codecs')}"
 
 
 def _session_id(d: Path) -> str:
     """目录名 → **真** session_id(拼日志文件名要用它)。
 
     ⚠️ 新素材的目录名形如
-    `20260929_195403-2-姬欣怡-261640123-投资学__20260929_195403_040b`,
+    `20260929_195403-2-姬某-000000000-投资学__20260929_195403_040b`,
     而**真 session_id 是 `__` 之后那段**(`20260929_195403_040b`)。
     此前直接拿目录名当 sid ⟹ 拼出
     `face_au_log_20260929_195403-2-姬欣怡-...__20260929_195403_040b.csv`,
@@ -198,28 +223,14 @@ def check(dir_name: str) -> tuple[list[Row], dict]:
         facts["camera_verdict"] = "no_file"
         rows.append(Row("原生视频", False, "media/camera.webm **不存在** —— §8.4 第 2 条:没走到结束页"))
     else:
-        codes = _ffprobe_codecs(cam)
-        mb = cam.stat().st_size / 1e6
-        ok = "vp8" in codes and "opus" in codes
-        if not ok:
-            missing = [x for x in ("vp8", "opus") if x not in codes]
-            # 缺 vp8 ⟹ 视觉全不可用;缺 opus ⟹ 音频/转写全不可用。轻重不一样。
-            if missing == ["vp8"]:
-                facts["camera_verdict"] = "no_video_track"
-                detail = (f"camera.webm {mb:.1f} MB,**只有音轨没有视频轨**(流={codes})"
-                          f" —— 文件是录下来的,但视觉那一整块没有;"
-                          f"音频可用,视觉指标与面部/手势全不可出")
-            elif missing == ["opus"]:
-                facts["camera_verdict"] = "no_audio_track"
-                detail = (f"camera.webm {mb:.1f} MB,**只有视频轨没有音轨**(流={codes})"
-                          f" —— 转写与语音指标全不可出")
-            else:
-                facts["camera_verdict"] = "other"
-                detail = f"camera.webm {mb:.1f} MB,缺 {missing}(流={codes})"
-            rows.append(Row("原生视频", False, detail))
+        verdict, detail = _camera_verdict(cam)
+        facts["camera_verdict"] = verdict
+        if verdict == "unmeasurable":
+            # ⚠️ 这一档**不是**"录坏了",是"没量成"(没装 ffprobe / 文件读不懂)。
+            #    判成硬失败会让人去重录一场可能完全正常的素材 ⟹ 给 warn。
+            rows.append(Row("原生视频", False, detail, warn=True))
         else:
-            facts["camera_verdict"] = "ok"
-            rows.append(Row("原生视频", ok, f"camera.webm {mb:.1f} MB, 流={codes}"))
+            rows.append(Row("原生视频", verdict == "ok", detail))
 
     # ── 4. 面部 / 手势:帧数 + 检出率 ─────────────────────────────────
     for mod, csv_name in (("face", f"face_au_log_{sid}.csv"),
@@ -351,6 +362,11 @@ def verdict(rows: list[Row], facts: dict) -> str:
         if cam == "no_audio_track":
             return ("不够格 —— camera.webm 在,但**只有视频轨没有音轨**;"
                     "转写与语音指标全不可出")
+        if cam == "unmeasurable":
+            # 与上面三档不同:**没量成不等于录坏了**。说成"不够格"会让人去重录
+            # 一场可能完全正常的素材 —— 先修量具(装 ffprobe)再判。
+            return ("**判不了** —— camera.webm 在,但这次量不出它的流;"
+                    "这不等于录坏了。先确认 ffprobe 可用,再跑一遍")
         return "不够格 —— 原生视频不合判据"
     if n_q and n_q < MIN_ANSWERS:
         return f"不够格 —— 只答了 {n_q} 题,低于门槛 {MIN_ANSWERS}(正式要 {EXPECTED_QUESTIONS})"
