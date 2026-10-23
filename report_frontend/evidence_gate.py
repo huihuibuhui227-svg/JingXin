@@ -169,7 +169,17 @@ QUARANTINE: dict[str, Quarantine] = {
         "从没出现过;另一条路(AU7 强度列)逐帧 ≡ 1 − avg_ear(四场 max|diff|=1.1e-16)"
         "⟹ 零额外信息。两条源列都已标 M3.2 删列",
         "需要一个真会产出这个标签的来源 —— 现无;若将来 AU7 有独立产出方,连同槽一起重新登记"),
-    "speech_ratio": Quarantine("自指阈值,87.9% 恰为 1.0", "M3 真 VAD"),
+    # ★ 2026-10-18 补:实测**全语料 100%**(52/52 个语音日志文件)都是 1.0,
+    #   比原记录的 87.9% 更彻底 —— 这一列已经完全没有信息量。
+    #   "真 VAD"**已经有了**:`report_frontend/voice_series.py` 从原始音频重算逐帧
+    #   `f0`(pyin),`voiced_flag = isfinite(f0)` 就是逐帧浊音判定,
+    #   `l1_voice_series.compute_from_series` 据此产出 `voiced_ratio`(实测 0.19~0.88)。
+    #   ⟹ 本列的替代品是 `voiced_ratio`,**不是**把 `speech_ratio` 修好 ——
+    #   自指阈值这条病因改不掉,只能换掉。
+    "speech_ratio": Quarantine(
+        "自指阈值,实测**全语料 100%** 恰为 1.0(52/52 文件)",
+        "已可替代:`voice_series` 的逐帧浊音判定 ⟹ L1 的 `voiced_ratio`"
+        "(实测 0.19~0.88)。本列本身不必修"),
     # ✅ 2026-10-03 **解封 `eye_contact`**(本组余 5 条)。它自己写的 unblock
     #    (「M3 改 feature_engine 的 eye_contact 口径」)已达成,而且这次是
     #    **连消费方一起验过**的 —— 当年栽的正是"只核了生产方那一半":
@@ -263,7 +273,36 @@ QUARANTINE: dict[str, Quarantine] = {
         "`{prefix}_energy_level = stats[energy_mean_mean]`,纯改名别名),所以同一条判据、"
         "同一个病:采集链未受控 ⟹ 水平不可比",
         "同 `energy_mean`:没有对应里程碑;「会话内归一」不是一条能兑现的路(见该条说明)"),
-    "is_valid": Quarantine("恒 1 且下游从未使用", "M3 改真掩码"),
+    # ★ 2026-10-18 **更正事实与理由**(原理由写的是「恒 1 且下游从未使用」)。
+    #   实测:`is_valid` **只存在于手势日志**(面部日志 92 列里没有这一列),
+    #   而手势日志 52 个文件 **22277 行全是 `False`,一行 `True` 都没有** ——
+    #   不是"恒 1",是"恒 0"。
+    #
+    #   根因已定位,是**传参缺键**,不是"掩码没做好":
+    #   `gesture_analysis/api/app.py` 调用 `infer_emotion` 时手搓了四个字典
+    #   (`{"resilience_score": …}` / `{"shoulder_score": …}` / 两个 `{"arm_score": …}`),
+    #   **里面没有 `is_valid` 键**;而 `emotion_analyzer._is_valid_result` 的第一句就是
+    #   `if not result.get('is_valid', False): return False` ⟹ 恒 False。
+    #   于是 `used_features` 恒 `"none"`、`overall_score` 走默认值、
+    #   `emotion_state` 恒 `中性`、`feedback` 恒同一句(跨 49 场零变化,已实测)。
+    #   ⟹ 原 unblock「M3 改真掩码」指向的不是这个病;改掩码不会让它变成 True。
+    #
+    #   ★ 而且**即使修好传参,也不该拿它当"姿态数据有效性"** ——
+    #   它量的是"手势**情绪推断**拿到了有效输入",不是"这一帧有姿态数据"。
+    #   `report_frontend/l1_gesture.py` 的 `pose_valid_ratio` 因此取真正被用的四列
+    #   (`torso_jitter` / 肩 jitter / `shoulder_width`)的非空占比,并有用例钉住
+    #   (`tests/test_m4_l1_voice_gesture.py`)。两者本就不是一件事,所以永久封停。
+    "is_valid": Quarantine(
+        "实测恒 **False**(手势日志 22277/22277 行;面部日志无此列)。根因是 "
+        "`infer_emotion` 的入参字典缺 `is_valid` 键,`_is_valid_result` 因此恒 False ⟹ "
+        "`used_features`/`overall_score`/`emotion_state`/`feedback` 四列同时退化为常量。"
+        "且它量的是「情绪推断是否拿到有效输入」,不是「这一帧有无姿态数据」",
+        "永不 —— 修好传参也只让情绪推断活过来,不会让它变成数据有效性掩码;"
+        "姿态数据是否存在请用 `torso_jitter` 等列的非空占比", permanent=True),
+    "used_features": Quarantine(
+        "跨 49 场恒 `\"none\"`(与 `is_valid` 恒 False 同源)", "永不", permanent=True),
+    "feedback": Quarantine(
+        "跨 49 场恒同一句(与 `is_valid` 恒 False 同源)", "永不", permanent=True),
 }
 
 _THRESHOLD_FILE = Path(__file__).resolve().parent / "evidence_thresholds.json"
