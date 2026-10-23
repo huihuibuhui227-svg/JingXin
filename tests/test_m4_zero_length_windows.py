@@ -95,3 +95,50 @@ def test_zero_length_window_alone(tmp_path):
     _audio(tmp_path, 2)
     ws = ew.build_windows(SID, ORIGIN, session_end_sec=100.0)
     assert "时长为 0" not in (ws.gap or "")
+
+# ── 末窗右边界早于最后一题 ask_end ──────────────────────────────────────
+#
+# 这一条与"相邻两题撞在一起"是**两个不同的缺陷**,补救动作也不同:
+# 前者的根在台账,后者的根在**调用方给的 session_end_sec**。
+# 2026-10-24 实测:三个模态全都不可用时 `l1_session` 兜底传 `session_end_sec=0.0`,
+# 而台账末题的 ask_end 是距原点 288.7 秒 ⟹ 末窗变成 `[288.7, 0.0)`、时长 −288.7 秒。
+
+
+def test_end_before_last_ask_end_does_not_produce_a_negative_window(tmp_path):
+    """★ 右边界早于末题 ask_end 时,末窗**不许**是倒置区间。
+
+    红法:删掉 `build_windows` 里的 `end_clamped` 收口 ⟹ 本条红
+    (末窗时长 −288.7)。
+    """
+    _questions(tmp_path, [10.0, 40.0, 288.7])
+    ws = ew.build_windows(SID, ORIGIN, session_end_sec=0.0)
+    assert all(w.duration_sec >= 0 for w in ws.windows), \
+        [(w.index, w.t_start, w.t_end, w.duration_sec) for w in ws.windows]
+    assert "早于最后一题的" in (ws.gap or ""), ws.gap
+
+
+def test_inverted_window_would_have_emptied_the_union_denominator(tmp_path):
+    """★ 倒置窗口的**真实后果**:并集口径下 F/G 的分母静默变空。
+
+    这不是"多一个负数"的观感问题 —— `contains()` 左闭右开,
+    `t >= 288.7 and t < 0.0` 恒假,末窗一帧都取不到;而并集右边界取的就是
+    末窗的 `t_end` ⟹ 整个并集跟着倒置,一场会话的 F/G 全部分母为 0。
+
+    红法:同上(删 `end_clamped`) ⟹ 并集 `t_end < t_start`,本条红。
+    """
+    _questions(tmp_path, [10.0, 40.0, 288.7])
+    ws = ew.build_windows(SID, ORIGIN, session_end_sec=0.0)
+    u = ws.answer_union()
+    assert len(u.windows) == 1
+    assert u.windows[0].t_end >= u.windows[0].t_start, u.windows[0]
+    # 并集必须仍覆盖末窗起点 —— 收口到 ask_end 而不是砍掉这一题。
+    assert u.windows[0].t_end >= 288.7
+
+
+def test_clip_session_end_never_inverts_the_last_window():
+    """`clip_session_end` 是同一类缺陷的第二处入口,一并守住下界。"""
+    ws = ew.WindowSet(SID, ew.ANSWER_GRANULARITY,
+                      [ew.AnswerWindow(index=0, t_start=100.0, t_end=200.0)])
+    out = ew.clip_session_end(ws, 50.0)
+    assert out.windows[-1].duration_sec >= 0
+    assert out.windows[-1].t_end == 100.0

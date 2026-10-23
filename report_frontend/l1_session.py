@@ -52,6 +52,13 @@ class L1Result:
     #: 只在题数 ≥ 2 时出现 —— 单题没有"离散度"可言,硬给一个 0 是把"没测"说成"很稳"。
     #: **它不是会话级值**:会话级那 38 条在 `indicators` 里,口径是回答帧并集。
     dispersion: dict = field(default_factory=dict)
+    #: 本场是否用了 `voice_series`(整场录音逐帧重算的 f0/rms 序列)。
+    #:
+    #: ★ 为什么需要它:`l1_quality.validate()` 用"模态在不在时间轴上"来判断
+    #: "指标能不能有值",而 **series 是 voice 的第二个数据源**,不经日志。
+    #: 没有 voice 日志的场次,V 族仍可能有 9 条值;不把这件事告诉校验,
+    #: 它会把这些值判成"自称有值"并抛错(2026-10-24 实测踩到)。
+    series_available: bool = False
 
     def by_name(self, name: str) -> list[L1Indicator]:
         return [i for i in self.indicators if i.name == name]
@@ -249,12 +256,11 @@ def compute_session_l1(session_id: str,
         #   "没有时间原点"这一个原因把 V 族**全部**报成 `modality_missing`,
         #   连序列那 8 条一起 —— 而下面的正路分支是传的。2026-10-24 由
         #   `test_missing_voice_log_gap_counts_the_series_that_still_produced` 抓出。
+        _series = voice_series.load_series(session_id)
         inds = (l1_face.compute_face_indicators(None, ws, None)
                 + l1_gesture.compute_gesture_indicators(None, ws, None)
                 + l1_voice.compute_voice_indicators(
-                    _pick_voice(logs),
-                    series=voice_series.load_series(session_id),
-                    session_id=session_id)
+                    _pick_voice(logs), series=_series, session_id=session_id)
                 + l1_text.compute_text_indicators(
                     transcript_chars.text(session_id)))
         if transcript_chars.text(session_id) is None:
@@ -265,7 +271,8 @@ def compute_session_l1(session_id: str,
         if _vg:
             gaps.append(_vg)
         return L1Result(session_id, tl, ws, inds, gaps,
-                        coverage=l1_quality.modality_coverage(logs))
+                        coverage=l1_quality.modality_coverage(logs),
+                        series_available=_series is not None)
 
     face = logs.get("face")
     face_tb = tl.modalities.get("face")
@@ -402,4 +409,5 @@ def compute_session_l1(session_id: str,
 
     return L1Result(session_id, tl, ws, inds, gaps,
                     coverage=l1_quality.modality_coverage(logs),
-                    dispersion=dispersion)
+                    dispersion=dispersion,
+                    series_available=series is not None)

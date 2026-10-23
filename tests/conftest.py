@@ -44,6 +44,17 @@ os.environ.setdefault("JINGXIN_RECORDINGS_DIR", str(_RECORDINGS_TMP))
 # 就多 1 个;盘上已积 498 个)。文件被 gitignore ⟹ 进不了提交面,但 `visualize.py`
 # **按同一词根扫它给面板列文件** ⟹ 测试噪声出现在报告面板的文件列表里。
 # 钉子:`tests/test_log_isolation.py::test_assessment_log_root_is_redirected_out_of_repo`。
+# ── 语音帧序列缓存也挪出仓库(第四次、同一理由) ───────────────────────────
+#
+# `voice_series.series_dir()` 默认是 `<repo>/data/l0_series`。2026-10-24 实测:
+# `test_m4_l1_voice_gesture.py::test_missing_voice_log_gap_counts_the_series_that_still_produced`
+# 用真 `save_series` 造缓存,却没设 `JINGXIN_SERIES_DIR` ⟹ 往仓库里留下
+# `data/l0_series/20261024_010000_ab12.npz`。被 gitignore ⟹ 不进提交面,
+# 但它**会让同名的真实场次缓存被顶掉**,而且这套件读的目录就变成了"测试产物 + 真数据"混合。
+# 钉子:`tests/test_log_isolation.py::test_series_dir_is_redirected_out_of_repo`。
+_SERIES_TMP = Path(tempfile.mkdtemp(prefix="jingxin-test-series-"))
+os.environ.setdefault("JINGXIN_SERIES_DIR", str(_SERIES_TMP))
+
 try:
     from voice_interaction.pipeline import assessment_pipeline as _assessment_pipeline
 

@@ -139,6 +139,14 @@ class QualityReport:
     gaps: list[str] = field(default_factory=list)
     #: 每个模态的**实际**可用帧/行占比(见 `modality_coverage`)。
     coverage: dict[str, dict] = field(default_factory=dict)
+    #: 本场是否有 `voice_series`(`data/l0_series/<sid>.npz`)。
+    #:
+    #: ★ `timebase` 与 `coverage` **都只描述日志**。而 voice 还有第二个数据源:
+    #: 整场录音逐帧重算出的 series。没有 voice 日志的场次,V 族仍可能有值
+    #: (实测 12 条里 9 条能重算)—— 不把这件事告诉 `validate()`,
+    #: 它会把"日志没有、series 有"判成"自称有值",然后抛错。
+    #: 这是**校验的观测对象少了一个**,不是指标算错了。
+    series_available: bool = False
 
     @property
     def n_total(self) -> int:
@@ -164,6 +172,19 @@ class QualityReport:
         #   于是 `missing` 抓不到它,报告会照常说"face 已提供"。
         empty = {m for m, cov in self.coverage.items()
                  if cov.get("provided") and cov.get("usable_ratio", 0) == 0}
+        # ★ **另一个数据源**:`voice` 模态有一条不经日志的来路 ——
+        #   `voice_series`(`data/l0_series/<sid>.npz`,整场录音逐帧 f0/rms)。
+        #   实测:没有 voice 日志的场次,V 族 12 条里 9 条能由 series 重算。
+        #   这两条来路各自独立,`timebase.voice` 与 `coverage.voice` **都**只描述日志,
+        #   于是"日志没有、series 有"会被上面的 `missing` 判成"自称有值"。
+        #   这不是缺陷,是校验的**观测对象少了一个**。
+        #
+        #   ⚠️ 这个豁免是**窄的**:只对 `voice` 生效,且只在 series 真的存在时生效。
+        #   其余模态没有任何"日志之外"的来路,不该借这条口子。
+        series_backed = bool(self.series_available)
+        if series_backed:
+            missing.discard("voice")
+            empty.discard("voice")
         for row in self.indicators:
             fam = row["family"]
             dep = FAMILY_MODALITY.get(fam)
@@ -265,6 +286,9 @@ def build_quality_report(result) -> QualityReport:
         session_id=result.session_id,
         timebase=timebase,
         windows=windows,
+        # 从结果本身读,不在校验处再猜一次 —— `compute_session_l1` 是唯一
+        # 知道"series 到底有没有被用上"的地方。
+        series_available=bool(getattr(result, "series_available", False)),
         by_confidence=by_conf,
         by_gap=by_gap,
         families=families,

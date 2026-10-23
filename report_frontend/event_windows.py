@@ -219,7 +219,22 @@ def build_windows(session_id: str, origin_wall: float,
                               "提问台账里没有可用的 ask_end"))
 
     usable.sort(key=lambda q: (float(q["ask_end"]), int(q["index"])))
+    last_start = float(usable[-1]["ask_end"]) - origin_wall
     end = float(session_end_sec) if session_end_sec is not None else float("inf")
+
+    # ⚠️ 右边界**早于**最后一题的 ask_end ⟹ 末窗是一个**倒置**区间
+    # (`[288.7, 0.0)`、时长 −288.7 秒),不是"空窗口"。
+    #
+    # 触发路径是真实存在的:`l1_session` 在三个模态**全都不可用**时兜底给
+    # `session_end_sec=0.0`,而台账里最后一题的 ask_end 是距原点 288.7 秒
+    # (2026-10-24 实测复现)。后果比"少一个窗口"糟:`answer_union()` 把倒置区间
+    # 原样当成并集,而 `contains()` 是左闭右开 —— `t >= 288.7 and t < 0.0`
+    # 恒为假 ⟹ F/G 的分母**静默变成空集**,报告上只看到"没有值",看不出是
+    # 边界算错了。所以这里收口到 `ask_end`:宁可让末窗是零长(会被下面的
+    # `empty` 如实报出来),也不产出负时长。
+    end_clamped = end < last_start
+    if end_clamped:
+        end = last_start
 
     windows: list[AnswerWindow] = []
     for i, q in enumerate(usable):
@@ -250,9 +265,14 @@ def build_windows(session_id: str, origin_wall: float,
         # 逐题窗口照常可用(F/G 按题切);但没有 reaction_time ⟹ 反应延迟不可出。
         notes.append("本场没有逐题回答音频(只有提问标记)⟹ 逐题窗口照常可用,"
                      "但没有 reaction_time,response_latency_sec 不可出")
+    if end_clamped:
+        # 与"相邻两题撞在一起"分开说 —— 补救动作完全不同(那条改台账,这条改调用方)。
+        notes.append(f"会话结束时刻({float(session_end_sec):.1f}s)早于最后一题的 "
+                     f"ask_end({last_start:.1f}s)—— 末窗右边界已收到 ask_end;"
+                     f"否则末窗时长会是负数,并集口径下 F/G 的分母会静默变空")
     if empty:
-        notes.append(f"题 {empty} 的窗口时长为 0(相邻两题 ask_end 相同或倒序),"
-                     f"该窗口内不会有任何观测")
+        notes.append(f"题 {empty} 的窗口时长为 0(相邻两题 ask_end 相同或倒序,"
+                     f"或末窗被会话结束时刻截平),该窗口内不会有任何观测")
     gap = ";".join(notes) if notes else None
     if not wall_reliable:
         extra = "本场墙钟不可信(见 timebase),窗口边界带同等量级误差"
@@ -270,5 +290,8 @@ def clip_session_end(ws: WindowSet, session_end_sec: float) -> WindowSet:
         return ws
     last = ws.windows[-1]
     if last.t_end > session_end_sec:
-        last.t_end = session_end_sec
+        # 下界必须守住 `t_start` —— 否则这里也会造出倒置区间(与 `build_windows`
+        # 里那段注释是同一类)。会话结束时刻早于末窗起点时,末窗退化成零长,
+        # 由 `build_windows` 的 `empty` 消息如实报出。
+        last.t_end = max(float(session_end_sec), last.t_start)
     return ws

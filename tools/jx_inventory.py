@@ -20,6 +20,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "docs" / "资源总览.md"
 
+# ⚠️ **必须把仓库根塞进 sys.path。**
+#
+# `python tools/jx_inventory.py` 时 `sys.path[0]` 是 `tools/`,不是仓库根 ⟹
+# `from report_frontend.corpus import FORMAL_PATTERN` **必然** ModuleNotFoundError,
+# 而 `_is_formal` 的 except 分支会静默退回本地副本 —— 也就是说「正则只从一处取」
+# 这个设计**从来没有生效过**(2026-10-24 实测:每个目录一次导入失败,共 41 次)。
+# 更糟的是它不报错:两份正则当时恰好一样,所以没人看出来。
+# 与 `tools/jx_boundary_feasibility.py` 同一做法。
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 
 def _pick(env: str, *candidates: str | Path) -> Path:
     """按顺序取第一个**存在**的路径;环境变量优先,都不存在时返回第一个候选。
@@ -58,8 +69,27 @@ PY = _pick("JX_PY",
 # 有效目录 / 24 场正式素材一个都没进去 —— 而 `--check` 还报「是最新的」
 # (它比对的是同一份错根生成的结果)。这与 `_pick` docstring 里记的是同一类事故:
 # **生成器把错的机器描述写成了事实**。
-RECORDINGS = _pick("JX_RECORDINGS", Path.home() / "JingXin" / "recordings",
+# ⚠️ **两个开关都要认,而且必须与 `media_retention.root()` 对齐。**
+#
+# 本仓有两套名字:`tools/` 里的脚本读 `JX_RECORDINGS`(`jx_env.sh` 导出它),
+# 而**生产代码**读 `JINGXIN_RECORDINGS_DIR`(`media_retention.root()`,
+# systemd unit 里设的就是它,`corpus.audit_corpus()` 也走它)。
+#
+# 实测后果(2026-10-24):同一台机器、同一份盘,`JX_RECORDINGS=... jx_inventory.py`
+# 能列出 41 个目录,而 `corpus.audit_corpus()` 在同一 shell 里只看到 5 个 ——
+# 因为后者读的是没设过的 `JINGXIN_RECORDINGS_DIR`,退回 `~/shared/jingxin_recordings`
+# 那个只有 4 场旧试跑的空壳。**两个数都"对",但它们说的不是同一件事**,
+# 正是「量错了对象」那一类。这里让 `JX_RECORDINGS` 优先、`JINGXIN_RECORDINGS_DIR`
+# 次之 —— 与 `jx_env.sh` 的优先级一致。
+RECORDINGS = _pick("JX_RECORDINGS",
+                   os.environ.get("JINGXIN_RECORDINGS_DIR") or Path.home() / "JingXin" / "recordings",
+                   Path.home() / "JingXin" / "recordings",
                    Path.home() / "shared" / "jingxin_recordings")
+# 解析出来的根**回写**给生产代码那套开关 —— 否则本文件看到的盘与
+# `media_retention.root()` / `corpus.audit_corpus()` 看到的可以不是同一个目录
+# (见上一条注释里的实测)。`setdefault`:调用方显式设过的值优先。
+os.environ.setdefault("JINGXIN_RECORDINGS_DIR", str(RECORDINGS))
+
 SHARED = _pick("JX_SHARED", Path.home() / "shared", Path.home() / "JingXin")
 FRONTEND = _pick("JX_FRONTEND", Path.home() / "JingXin-frontend",
                  Path.home() / "JingXin" / "frontend")
@@ -127,19 +157,66 @@ def read_port(path: Path) -> str:
     return m.group(1) if m else "?"
 
 
+#: `_is_formal` 是否**退回过本地副本**。降级必须可见 —— 静默降级正是
+#: 「两处各持一份判据」这条事故的入口(见 `_is_formal` 的 docstring)。
+_FORMAL_FALLBACK: list[str] = []
+
+
 def _is_formal(d: Path) -> bool:
     """实名正式场?判据**只有目录名**,不是 `meta.json`。
 
     正则从 `report_frontend.corpus` 取,不在这里再抄一份 —— 抄了就会漂,
-    而「两处各持一份判据」正是本仓反复栽的形态。导入失败(缺依赖)时退回
-    同一个模式的本地副本,并把这件事写进产出(见调用方)。
+    而「两处各持一份判据」正是本仓反复栽的形态。
+
+    ⚠️ 导入失败时**退回本地副本,并记进 `_FORMAL_FALLBACK`** —— 调用方会把它
+    写进产出的第 5 节。原先这里只 `return` 不记录,而 `python tools/jx_inventory.py`
+    的 `sys.path[0]` 是 `tools/` ⟹ 每次都是降级路径,却一个字都没说
+    (2026-10-24 实测;`sys.path` 已在上方补上,但降级仍要可见 —— 万一将来
+    `report_frontend` 又缺依赖)。
     """
     try:
         from report_frontend.corpus import FORMAL_PATTERN
         return bool(FORMAL_PATTERN.search(d.name))
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 — 缺依赖不该让整个结构图生成不了
+        note = f"{type(exc).__name__}: {exc}"
+        if note not in _FORMAL_FALLBACK:
+            _FORMAL_FALLBACK.append(note)
         return bool(re.search(r"-\d+-([一-龥]{2,4})-(\d{9,10})-([一-龥]+)",
                               d.name))
+
+
+def _question_count(d: Path) -> tuple[int, str]:
+    """→ (问题数, 来源)。`questions.jsonl` **优先**,`meta.json` 兜底。
+
+    ## 为什么不能只看 `meta.json`
+
+    实测 41 个有效目录里 **12 个**两处数不一致,而且**全部**是「meta 里 0 条 /
+    jsonl 里有 1~8 条」—— 因为 `questions.jsonl` 是**采集时逐条追加**的账本,
+    而 `meta.json` 的 `questions` 块要事后填。正式场 24 场则**两个都没有**
+    (`—`),它们的问题时刻只存在别处。
+
+    `questions.jsonl` 优先的理由:它是 `session_meta.read_questions()` 读的那份
+    (即 M4 切窗口用的同一份),表里报的数必须与下游**同源**,否则读者会拿
+    「问题数 0」去解释「为什么没有逐题窗口」,而真相是问题数 8。
+    """
+    q = d / "questions.jsonl"
+    if q.exists():
+        try:
+            n = sum(1 for line in q.read_text(encoding="utf-8", errors="replace")
+                    .splitlines() if line.strip())
+            if n:
+                return n, "questions.jsonl"
+        except OSError:
+            pass
+    meta = d / "meta.json"
+    if meta.exists():
+        try:
+            n = len(json.loads(meta.read_text(encoding="utf-8")).get("questions") or [])
+            if n:
+                return n, "meta.json"
+        except Exception:
+            pass
+    return 0, "无"
 
 
 def classify_session(d: Path, in_trial_dir: bool) -> tuple[str, str, int, bool]:
@@ -160,19 +237,13 @@ def classify_session(d: Path, in_trial_dir: bool) -> tuple[str, str, int, bool]:
     —— 自相矛盾。判据必须只有一处。
     """
     has_tr = (d / "transcript.json").exists()
-    nq = 0
-    meta = d / "meta.json"
-    if meta.exists():
-        try:
-            nq = len(json.loads(meta.read_text(encoding="utf-8")).get("questions") or [])
-        except Exception:
-            nq = 0
+    nq, src = _question_count(d)
     if in_trial_dir:
         return "试跑", "在 `_试跑/` 下", nq, has_tr
     if not _is_formal(d):
         return "试跑", "目录名不是 `-序号-姓名-学号-学院`", nq, has_tr
-    why = f"目录名实名(问题数 {nq})" if nq else "目录名实名"
-    if not meta.exists():
+    why = f"目录名实名(问题数 {nq},来自 {src})" if nq else "目录名实名"
+    if not (d / "meta.json").exists():
         why += ";无 meta.json"
     return "正式", why, nq, has_tr
 
@@ -181,10 +252,13 @@ def sessions_table(root: Path, in_trial_dir: bool = False) -> list[str]:
     out = []
     if not root.exists():
         return ["_(该目录不存在)_"]
-    dirs = sorted(p for p in root.iterdir() if p.is_dir() and p.name != "NONE")
+    # ⚠️ `_回收站` / `_已作废` / `NONE` 不是素材 —— 与 `corpus.audit_corpus` **同一套**
+    # 排除规则。原先这里只排 `NONE` 和 `_试跑`(后者在循环里),于是那两个回收目录
+    # 作为「试跑 / 目录名不是 -序号-姓名-学号-学院」混进了根目录表(2026-10-24 实测:
+    # 43 行 vs 实际 41 个有效目录)。
+    dirs = sorted(p for p in root.iterdir()
+                  if p.is_dir() and p.name != "NONE" and not p.name.startswith("_"))
     for d in dirs:
-        if d.name == "_试跑":
-            continue
         tier, why, nq, has_tr = classify_session(d, in_trial_dir)
         media = d / "media"
         # ⚠️ 只数文件、**不取大小**。录屏在 `~/shared`(drvfs 挂载),逐文件 `stat` 实测
@@ -382,6 +456,15 @@ def main() -> int:
     A("`candidate` / `capture` 块**逐字相同**(同一台机器 + 同一个脚手架 `jx_new_session.py`)。")
     A("**可靠判据只有目录位置 / 目录名**(`_试跑/` 下一律是试跑)。按「meta.json 填得全不全」筛正式素材,")
     A("会把试跑一起筛进来 —— 这正是「量错了对象」那一类。")
+    A("")
+    if _FORMAL_FALLBACK:
+        A(f"⚠️ **正式场判据退回了本地正则副本** —— `report_frontend.corpus` 导入失败:"
+          f"`{_FORMAL_FALLBACK[0]}`。两份正则当前若一致,表还是对的;但**判据从此有两份**,")
+        A("将来一改就会漂。修 `sys.path` 或补齐依赖。")
+        A("")
+    A("**「问题数」一列的口径**:优先 `questions.jsonl` 行数(即 `session_meta.read_questions()`")
+    A("读的那份,M4 切窗口用的也是它),没有才退回 `meta.json` 的 `questions` 块。")
+    A("`—` = 两处都没有 —— 这些场次的问题时刻不存在于本目录,不是「0 题」。")
     A("")
     A("### 5.1 根目录")
     A("")

@@ -166,7 +166,7 @@ def _runs(mask: np.ndarray, min_frames: int) -> int:
 def _for_window(sub: pd.DataFrame, window: str, thr: dict[str, int]) -> list[L1Indicator]:
     n_total = len(sub)
     if n_total == 0:
-        return [_un(n, GAP_NO_SAMPLES) for n in ORDER]
+        return [_un(n, GAP_NO_SAMPLES, window) for n in ORDER]
 
     got: dict[str, L1Indicator] = {}
 
@@ -230,7 +230,7 @@ def _for_window(sub: pd.DataFrame, window: str, thr: dict[str, int]) -> list[L1I
     if frame_sec is None or not duration_min:
         for name in ("gesture_burst_rate_per_min_vs_baseline",
                      "postural_shift_rate_per_min_vs_baseline"):
-            got[name] = _un(name, GAP_NO_SAMPLES)
+            got[name] = _un(name, GAP_NO_SAMPLES, window)
     else:
         act_sig = None
         if cols:
@@ -243,7 +243,7 @@ def _for_window(sub: pd.DataFrame, window: str, thr: dict[str, int]) -> list[L1I
                 sig, col_name, direction=">",
                 provenance="自比基线(本人中位数+3·MAD);1 Hz 采样 ⟹ 最短段 2 s")
             if tau is None:
-                got[name] = _un(name, GAP_UNCALIBRATED)
+                got[name] = _un(name, GAP_UNCALIBRATED, window)
                 continue
             episodes = _runs(tau.mask(sig), min_frames)
             # ★ `n_valid` 报**段数**,不报帧数。
@@ -279,7 +279,7 @@ def _for_window(sub: pd.DataFrame, window: str, thr: dict[str, int]) -> list[L1I
                 n_valid=n_total, n_total=n_total,
                 threshold=thr.get("head_pose", 30))
         else:
-            got[name] = _un(name, GAP_NO_SAMPLES)
+            got[name] = _un(name, GAP_NO_SAMPLES, window)
 
     present = [_num(sub, c) is not None for c in POSE_COLS]
     if all(present):
@@ -294,28 +294,44 @@ def _for_window(sub: pd.DataFrame, window: str, thr: dict[str, int]) -> list[L1I
                 value=n_ok / n_total, n_valid=n_ok, n_total=n_total,
                 threshold=thr.get("head_pose", 30))
         else:
-            got["pose_valid_ratio"] = _un("pose_valid_ratio", GAP_NO_SAMPLES)
+            got["pose_valid_ratio"] = _un("pose_valid_ratio", GAP_NO_SAMPLES, window)
     else:
-        got["pose_valid_ratio"] = _un("pose_valid_ratio", GAP_NO_SAMPLES)
+        got["pose_valid_ratio"] = _un("pose_valid_ratio", GAP_NO_SAMPLES, window)
 
     for name in ORDER:
         if name not in got:
-            got[name] = _un(name, GAP_NO_SAMPLES)
+            got[name] = _un(name, GAP_NO_SAMPLES, window)
     return [got[n] for n in ORDER]
 
 
-def _un(name: str, gap: str) -> L1Indicator:
+#: 没有窗口时的窗口标签。与 `l1_face` 用的是同一个字面量(`"session"`),
+#: 也是 `event_windows.SESSION_GRANULARITY` 的值 —— 三处必须一致。
+_SESSION = "session"
+
+
+def _un(name: str, gap: str, window: str = _SESSION) -> L1Indicator:
+    """一条"不可出"的 G 族指标。
+
+    ⚠️ `window` **必须由调用方给**。这里原先写死 `"answer:0"` —— 后果是:
+    整场口径(没有台账,只有一个 `session` 窗口)下,G 族 7 条会带着
+    `answer:0` 的标签进报告,而同一份报告里 F 族 16 条带的是 `session`。
+    读者看到同一场里两个族"窗口不同",会以为逐题窗口生效了 ——
+    实际那是没算出来的占位值,连一题都没对上。
+
+    实测 `20260926_153202_2b11`:`{'answer:-1': 16, 'answer:0': 7, 'session': 15}`,
+    G 族 7 条全在 `answer:0`。这正是"标签比数先撒谎"。
+    """
     family, formula, cols = _SPECS[name]
-    return unavailable(name, family, formula, tuple(cols), "answer:0", "", gap)
+    return unavailable(name, family, formula, tuple(cols), window, "", gap)
 
 
 def _all_unavailable(windows: WindowSet, gap: str) -> list[L1Indicator]:
-    out: list[L1Indicator] = []
-    for w in windows.windows:
-        out.extend(_un(n, gap) for n in ORDER)
-    if not windows.windows:
-        out.extend(_un(n, gap) for n in ORDER)
-    return out
+    """整族不可出(没日志/没样本/时间轴不可信)。
+
+    窗口标签按**本场的实际口径**给:有窗口就逐题,没窗口就是会话级。
+    """
+    labels = [f"answer:{w.index}" for w in windows.windows] or [_SESSION]
+    return [_un(n, gap, lab) for lab in labels for n in ORDER]
 
 
 def indicator_names() -> tuple[str, ...]:

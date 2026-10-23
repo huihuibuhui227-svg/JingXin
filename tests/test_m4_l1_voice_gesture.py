@@ -80,7 +80,14 @@ def test_missing_voice_log_gap_counts_the_series_that_still_produced(tmp_path, m
     msg = next((g for g in result.gaps if "voice 日志" in g), "")
     assert msg, f"必须有一条说明没有语音日志:{result.gaps}"
     assert "全部不可出" not in msg, f"有 {n_val} 条有值,却说全部不可出:{msg}"
-    assert f"{n_val} 条" in msg, f"报的条数必须等于载荷里真有值的条数({n_val}):{msg}"
+    # ⚠️ 必须锚到**那个位置**上,不能用 `f"{n_val} 条" in msg` —— 那句话里有两个数
+    # (`{n_all} 条里 {n_val} 条…其余 {n_all-n_val} 条`),两个数对调、甚至只断言
+    # "出现过这个数字"都能绿。这里逐字比对整句,顺带把"其余"那个数也钉住。
+    from report_frontend import l1_voice
+    n_all = len(l1_voice.ORDER)
+    expect = (f"本场没有 voice 日志 —— V 族 {n_all} 条里 {n_val} 条由整场录音重算得出,"
+              f"其余 {n_all - n_val} 条不可出")
+    assert msg == expect, f"句子必须与载荷同源:\n期望:{expect}\n实际:{msg}"
 
 
 def test_voice_reports_exactly_four_values_and_eight_not_stored():

@@ -34,3 +34,21 @@ def test_logger_defaults_are_redirected_out_of_repo():
     import voice_interaction.utils.logger as vlog
 
     assert not _is_inside_repo(Path(vlog.LOGS_DIR)), f"voice LOGS_DIR 在仓库内:{vlog.LOGS_DIR}"
+
+
+def test_series_dir_is_redirected_out_of_repo():
+    """★ 语音帧序列缓存(`data/l0_series/`)也必须被兜住。
+
+    2026-10-24 实测泄漏:一条用真 `save_series` 的测试没设 `JINGXIN_SERIES_DIR`,
+    往仓库 `data/l0_series/` 写进了 `<假场次>.npz`。它被 gitignore,所以
+    `git status` 看不出来 —— 只能靠这条钉子。
+
+    红法:删掉 `tests/conftest.py` 里 `JINGXIN_SERIES_DIR` 那段 ⟹ 本条红。
+    """
+    from report_frontend import voice_series
+
+    d = Path(voice_series.series_dir())
+    assert not _is_inside_repo(d), (
+        f"series_dir() 指向仓库内({d})⟹ 跑测试会往 data/l0_series/ 里写缓存。"
+        "修法:`tests/conftest.py` 里像 `LOGS_DIR` 那样把它挪到临时目录。"
+    )
