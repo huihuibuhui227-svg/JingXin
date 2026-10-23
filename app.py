@@ -255,25 +255,48 @@ def get_structured_report():
     """
     try:
         from report_frontend.data_loader import LogDataLoader
-        from report_frontend.feature_engine import PsychologicalFeatureEngine
-        from report_frontend.research_mapper import ResearchCapabilityMapper
 
         # M2:报告要描述**哪一场**由调用方指定;不给就取最新一场(加载器会在报告头写明)。
         session_id = request.args.get("session_id") or None
         loader = LogDataLoader()
         data = loader.get_fused_latest_data(session_id)
 
-        # 空 data 也把链走完:实测 features={} → coverage 0/20、五维全 None、图表照常生成
-        engine = PsychologicalFeatureEngine(data)
-        features = engine.extract_all_features()
+        # ── M4.5:默认走 **L1 指标层**(2026-10-18 切换)────────────────────────
+        #
+        # 旧链(`feature_engine` → `research_mapper` 的 14 个模糊匹配槽)留着是因为
+        # 切换要能和旧结果并排看一轮;`?engine=legacy` 就能取到旧载荷。
+        #
+        # 为什么换:`research_mapper` 的槽是从扁平特征键里按**列名子串**模糊匹配的,
+        # 不保证量的是同一个东西(历史上「皱眉」就匹配到过从 micro_exp 字符串解析出的垃圾)。
+        # L1 每条指标有公式、有 `n_valid`、有置信度、有 gap,且逐条能对到规格。
+        #
+        # 顺带换掉一句**假陈述**:旧载荷每个维度都写着
+        # `algorithm: "加权线性组合 + 认知负荷推断"`,而这一层既没有加权组合
+        # (权重只用于删槽后的记账),也没有认知负荷推断(本仓不做推断)。
+        which = (request.args.get("engine") or "l1").strip().lower()
 
-        mapper = ResearchCapabilityMapper()
-        result = mapper.map_features_to_scores(features)
+        if which == "legacy":
+            from report_frontend.feature_engine import PsychologicalFeatureEngine
+            from report_frontend.research_mapper import ResearchCapabilityMapper
+
+            # 空 data 也把链走完:实测 features={} → coverage 0/20、五维全 None、图表照常生成
+            features = PsychologicalFeatureEngine(data).extract_all_features()
+            result = ResearchCapabilityMapper().map_features_to_scores(features)
+        elif which == "l1":
+            from report_frontend.l1_report import build_l1_report
+
+            # `logs` 直接给已经融合好的那份,不让 L1 层自己再去 `data/` 里找一遍
+            # (读取口径只有 `LogDataLoader` 一处)。
+            result = build_l1_report(loader.target_session, logs=data)
+        else:
+            return jsonify({"status": "error",
+                            "message": f"engine 只能是 l1 或 legacy,收到 {which!r}"}), 400
 
         return jsonify({
             "status": "success",
             "session_id": loader.target_session,
             "sources": loader.selected_sessions,
+            "engine": which,
             "result": result,
         })
 
