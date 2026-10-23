@@ -94,3 +94,82 @@ def test_second_upload_to_the_same_session_is_409(_isolated):
     assert ei.value.status_code == 409
     assert "拒绝覆盖" in ei.value.detail
     assert p.read_bytes() == before, "第一份必须逐字节没动"
+
+
+# ── 录完当场体检(docs/素材体检_2026-10-03.md §7.2)──────────────────────────
+#
+# 这一组的**方向是反的**:不是"体检工作正常",而是"体检再坏也不许动留存"。
+# 盘上已经有 2 场「文件里根本没有视频轨」的录像一路录到底(见 §7.2),所以体检
+# 必须存在;而一份原始录像不可再生,所以它**永远**不许把一次好上传变成失败。
+
+def test_probe_result_is_in_the_response_and_in_session_json(_isolated, monkeypatch):
+    """体检结果两处都要有:响应(前端当场提示)+ session.json(事后可查)。"""
+    import capture_health
+    monkeypatch.setattr(capture_health, "probe", lambda p: {
+        "status": "warn", "has_video": False, "has_audio": True,
+        "video_sec": None, "audio_sec": 178.2, "av_ratio": None,
+        "mean_luma": None, "codecs": ["opus"],
+        "findings": ["文件里没有视频轨"],
+    })
+    man = _isolated / SID / "session.json"
+    man.parent.mkdir(parents=True, exist_ok=True)
+    man.write_text('{"session_id": "%s", "logs": {}}' % SID, encoding="utf-8")
+
+    r = asyncio.run(voice_app.submit_session_media(session_id=SID, file=_FakeUpload(WEBM)))
+    assert r["stored"] is True
+    assert r["capture_health"]["status"] == "warn"
+    assert r["capture_health"]["has_video"] is False
+
+    import json as _json
+    saved = _json.loads(man.read_text(encoding="utf-8"))
+    assert saved["capture_health"]["status"] == "warn"
+    assert saved["logs"] == {}, "体检不许把清单里别的东西弄丢"
+
+
+def test_a_crashing_probe_does_not_fail_the_upload(_isolated, monkeypatch):
+    """★ 这条是本组的核心:探针炸了,**上传照样成功**。
+
+    红法:把端点里那个 `except Exception` 去掉 ⟹ 本测试红在 500/异常。
+    """
+    import capture_health
+
+    def boom(_p):
+        raise RuntimeError("ffprobe 神秘失败")
+
+    monkeypatch.setattr(capture_health, "probe", boom)
+    r = asyncio.run(voice_app.submit_session_media(session_id=SID, file=_FakeUpload(WEBM)))
+    assert r["status"] == "success" and r["stored"] is True
+    assert r["capture_health"] is None, "体检没跑成就明说没跑成,别编一个结果"
+    assert (_isolated / SID / "media" / "camera.webm").read_bytes() == WEBM
+
+
+def test_probe_can_be_switched_off(_isolated, monkeypatch):
+    """慢盘/无 ffmpeg 的机器上要能整段跳过 —— 但默认是**开**的。"""
+    monkeypatch.setenv("JINGXIN_CAPTURE_PROBE", "0")
+    called = []
+    import capture_health
+    monkeypatch.setattr(capture_health, "probe", lambda p: called.append(p) or {})
+    r = asyncio.run(voice_app.submit_session_media(session_id=SID, file=_FakeUpload(WEBM)))
+    assert r["stored"] is True
+    assert r["capture_health"] is None
+    assert called == [], "关掉了就不许再去读文件"
+
+
+def test_probe_defaults_to_on():
+    """默认**开** —— 默认关的话没人会记得去开,而那正是白录一场的成因。"""
+    import os as _os
+    env = _os.environ.pop("JINGXIN_CAPTURE_PROBE", None)
+    try:
+        assert voice_app._capture_probe_enabled() is True
+    finally:
+        if env is not None:
+            _os.environ["JINGXIN_CAPTURE_PROBE"] = env
+
+
+def test_garbage_webm_is_reported_unknown_but_still_stored(_isolated):
+    """真实路径:传一段**不是 webm** 的字节。ffprobe 读不懂 ⟹ unknown,不是"坏了"。"""
+    r = asyncio.run(voice_app.submit_session_media(session_id=SID, file=_FakeUpload(WEBM)))
+    assert r["stored"] is True
+    assert r["capture_health"] is not None
+    assert r["capture_health"]["status"] == "unknown", r["capture_health"]
+    assert r["capture_health"]["has_video"] is None, "没量成 ≠ 没有视频轨"

@@ -18,6 +18,7 @@ import io
 import numpy as np
 
 from logging_config import setup_logging
+import capture_health
 import media_retention
 import session_meta
 import session_purge
@@ -757,6 +758,17 @@ async def submit_session_question(session_id: str, body: QuestionWindow):
             "qid": rec["qid"], "index": rec["index"]}
 
 
+def _capture_probe_enabled() -> bool:
+    """录完体检开不开。默认**开**;`JINGXIN_CAPTURE_PROBE=0` 可关。
+
+    为什么默认开而不是默认关:它的全部价值在于**第一次录坏就当场知道**。
+    默认关的话,得先有人记得去开 —— 而那正是盘上那 2 场缺视频轨的场次
+    一路录到底的原因(没人看着,也没有任何提示)。
+    开关存在是为了在**慢盘/无 ffmpeg** 的机器上能整段跳过,不是为了"平时关着"。
+    """
+    return os.getenv("JINGXIN_CAPTURE_PROBE", "1").strip() not in ("0", "false", "False", "")
+
+
 @app.post("/session/{session_id}/media")
 async def submit_session_media(session_id: str, file: UploadFile = File(...)):
     """收前端 `MediaRecorder` 录的**原生音视频**,原样落 `media/camera.webm`(spec §5.3)。
@@ -772,6 +784,12 @@ async def submit_session_media(session_id: str, file: UploadFile = File(...)):
     `validate_session_id` 的 `ValueError` 已在下面显式转成 400,而
     `retain_uploaded_video` 自己吞掉中途写失败并返回 `None`。加那层包装只会
     把 400 吞成 500 —— 而 400/500 的区别正是"客户端发错了"与"服务器坏了"的区别。
+
+    **落盘之后**再跑一次录制体检(`capture_health.probe`),把结果放进响应的
+    `capture_health` 并写进 `session.json`。它**只报告,不阻塞**:体检跑挂、
+    `ffprobe` 不在、清单写不进去,上传照样回 `stored: true`。理由见
+    `docs/素材体检_2026-10-03.md` §7.2 —— 盘上已经有"文件里根本没有视频轨"
+    却一路录到底的场次,而当时没有任何提示。
     """
     try:
         sid = media_retention.validate_session_id(session_id)
@@ -815,8 +833,34 @@ async def submit_session_media(session_id: str, file: UploadFile = File(...)):
                else "落盘失败:" + "；".join(media_retention.degraded_reasons(sid)))
         return {"status": "success", "stored": False, "reason": why,
                 "session_id": sid, "bytes": len(data)}
+
+    # ── 录完当场体检(docs/素材体检_2026-10-03.md §7.2)───────────────────
+    # 盘上实测有 2 场**文件里根本没有视频轨**、1 场音轨只有视轨的十分之一,
+    # 而录的时候没有任何提示 —— 白录一场,原始素材不可再生。所以在这里补一句
+    # 「这一场真的录到了吗」。
+    #
+    # ★ 顺序与优先级:**留存已经成功**才走到这里,体检**绝不许**把成功变成失败。
+    #   `capture_health.probe` 自己吞掉所有异常;写不进 `session.json` 也只记日志。
+    #   丢掉一次体检 = 少一条提示;把一次好上传判成 500 = 丢一份不可再生的录像。
+    health = None
+    if _capture_probe_enabled():
+        try:
+            cam = media_retention.resolve_recording_dir(sid) / media_retention.MEDIA_SUBDIR \
+                / media_retention.CAMERA_FILENAME
+            # 同步读几百 MB 的文件:丢工作线程,别把事件循环钉住(整场识别也走这条)。
+            health = await asyncio.to_thread(capture_health.probe, cam)
+            logged = capture_health.record(
+                media_retention.resolve_recording_dir(sid) / "session.json", health)
+            logger.info("录制体检 %s: %s%s", sid, capture_health.summarize(health),
+                        "" if logged else "(session.json 没写成 —— 只在本次响应里)")
+        except Exception:  # noqa: BLE001 - 体检出任何事都不许影响留存的结果
+            logger.exception("录制体检跑挂了(留存不受影响)")
+            health = None
+
     return {"status": "success", "stored": True, "session_id": sid,
-            "bytes": rec["bytes"], "sha256": rec["sha256"], "file": rec["file"]}
+            "bytes": rec["bytes"], "sha256": rec["sha256"], "file": rec["file"],
+            "capture_health": health}
+
 
 
 @app.get("/session/{session_id}/summary")
