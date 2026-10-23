@@ -49,7 +49,7 @@ REPO = Path(__file__).resolve().parents[1]
 DEFAULT_RECORDINGS = Path.home() / "JingXin" / "recordings"
 OUT_DIR = REPO / "data" / "transcripts"
 
-# 带真实姓名的场次目录形如 `20260929_195403-2-姬欣怡-261640123-投资学__20260929_195403_040b`
+# 带真实姓名的场次目录形如 `20260929_195403-2-候选乙-000000000-投资学__20260929_195403_040b`
 NAMED_RE = re.compile(r"^\d{8}_\d{6}-\d+-")
 
 

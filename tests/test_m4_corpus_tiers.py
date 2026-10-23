@@ -63,9 +63,9 @@ def test_missing_face_log_is_unknown_not_zero():
 
 def test_formal_pattern_matches_real_names_and_rejects_hash_dirs():
     """实测 24 场正式场全部命中,15 场测试场全部不命中。"""
-    ok = "20260929_200333-2-张雅欣-261640124-投资学__20260929_200333_2e84"
+    ok = "20260929_200333-2-候选丙-000000000-投资学__20260929_200333_2e84"
     m = corpus.FORMAL_PATTERN.search(ok)
-    assert m and m.group(1) == "张雅欣" and m.group(2) == "261640124"
+    assert m and m.group(1) == "候选丙" and m.group(2) == "000000000"
 
     for bad in ("20260927_212143_95a8",
                 "20260928_210726-1-2-3-4__20260928_210726_1d00",
@@ -114,7 +114,7 @@ def test_audit_session_end_to_end(tmp_path, monkeypatch):
     pd.DataFrame({"pitch_mean": []}).to_csv(
         logs / "interview_emotion_log_x.csv", index=False)
 
-    sd = tmp_path / "20260929_200333-2-张雅欣-261640124-投资学__x"
+    sd = tmp_path / "20260929_200333-2-候选丙-000000000-投资学__x"
     (sd / "media").mkdir(parents=True)
     (sd / "media" / "camera.webm").write_bytes(b"fake")
 
@@ -122,7 +122,7 @@ def test_audit_session_end_to_end(tmp_path, monkeypatch):
     a = corpus.audit_session(sd, manifest={})
 
     assert a.session_id == "x"
-    assert a.formal is True and a.name == "张雅欣"
+    assert a.formal is True and a.name == "候选丙"
     assert a.tier == "B"
     assert a.voice_rows == 0 and a.has_whole_audio is True
     joined = ";".join(a.notes)
@@ -135,7 +135,7 @@ def test_media_reuploaded_in_segments_is_not_whole_audio(tmp_path, monkeypatch):
     ## 为什么
 
     `has_whole_audio` 原来只判 `(session_dir/"media"/"camera.webm").exists()`。
-    实测 13 场 A 档里**王语桐一场是 9 段录制拼接**:`retention.camera.jsonl` 有 9 条
+    实测 13 场 A 档里**候选己一场是 9 段录制拼接**:`retention.camera.jsonl` 有 9 条
     记录全指向同一个 `media/camera.webm`、`seq` 都是 1,但 9 个不同的大小与 sha256
     ⟹ 每段结束就整文件重传并覆盖,盘上只剩最后一段(实测 434.7 秒,而整场 6959 秒)。
     按"文件在不在"判,这一场会被标成"整场录音在 ⟹ V 族可从 camera.webm 重算" ——
@@ -153,7 +153,7 @@ def test_media_reuploaded_in_segments_is_not_whole_audio(tmp_path, monkeypatch):
         logs / "gesture_emotion_log_y.csv", index=False)
     pd.DataFrame({"pitch_mean": []}).to_csv(logs / "interview_emotion_log_y.csv", index=False)
 
-    sd = tmp_path / "20260928_180131-10-王语桐-261210225-金融学院__y"
+    sd = tmp_path / "20260928_180131-10-候选己-000000000-金融学院__y"
     (sd / "media").mkdir(parents=True)
     (sd / "media" / "camera.webm").write_bytes(b"fake")
     recs = [{"kind": "video", "modality": "camera", "seq": 1,
