@@ -102,6 +102,15 @@ import pytest
 #: 每个维度的死权重登记(与显示名一起写,免得键名与显示名对不上时读错行)。
 #: 键 = `mapping_rules` 的键。值 = (显示名, 该死权重, 为什么)。
 #:
+#: ⚠️ **这张表守的是旧引擎(`research_mapper.mapping_rules`),不是生产路径。**
+#: 2026-10-18 起 `/api/report/structured` 默认走 L1(`l1_mapper.DIMENSIONS`),
+#: 旧引擎只剩 `?engine=legacy` 对照用。两边的槽表**同名不同命**,实测五维里
+#: **四维**的数不一样(沟通表达流畅度 5/7 vs L1 的 4/7、行为表现活跃度 0.0 vs
+#: L1 的 1.0 整体消失 …)。要看生产路径那一份,用
+#: `l1_mapper.dead_weight_by_dimension()`,守卫在
+#: `tests/test_m4_l1_mapper.py::test_l1_dead_weight_matches_the_slot_map`。
+#: 两边都留着是因为旧路径**还在**,删了它对照就跑不了。
+#:
 #: ⚠️ 这份表**不是免罪符**,是**登记**:死权重变了就说明有人动了封停/生产者/待删名单,
 #: 那正是要**显式**看见的事(解封 `eye_contact` 时就该来这里改一行)。
 _DEAD_WEIGHT = {

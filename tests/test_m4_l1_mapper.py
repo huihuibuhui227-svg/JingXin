@@ -258,6 +258,96 @@ def test_every_kept_slot_is_classified_for_comparability():
     assert not (set(l1_mapper.NOT_COMPARABLE) & set(l1_mapper.COMPARABLE))
 
 
+def test_l1_dead_weight_matches_the_slot_map():
+    """★ **生产路径**(L1)每一维的死权重,与旧引擎那张表**不是同一个数**。
+
+    ## 这条是怎么来的(2026-10-24)
+
+    `tests/test_dimension_live_weight.py` 那张 `_DEAD_WEIGHT` 表守的是
+    `research_mapper.mapping_rules` —— **旧引擎**。而 `/api/report/structured`
+    从 2026-10-18 起默认走 L1(`l1_mapper.DIMENSIONS`),旧引擎只剩
+    `?engine=legacy` 对照用。两边的槽表同名不同命,实测差这么多:
+
+    | 维度 | 旧引擎 | **L1** | 差在哪 |
+    |---|---|---|---|
+    | 话语结构特征 | 0.0 | **0.0** | — |
+    | 情境行为稳定性 | 0.0 | **0.25** | `symmetry_score` 在 L1 没有同构念 |
+    | 沟通表达流畅度 | 5/7 | **4/7** | L1 只删 `fluency_score` 一条 |
+    | 行为表现活跃度 | 0.0 | **1.0**(维度整体消失) | 三个槽在 L1 全删 |
+    | 作答过程特征 | 0.0 | **0.4** | `n_chars` 在 L1 没有同构念 |
+
+    ⟹ 五维里**四维**不能拿旧表回答"生产路径上这一维能说什么"。
+
+    ⚠️ 也正因为这张表是"数槽",它**故意不查 `evidence_gate.QUARANTINE`** ——
+    封停表管的是旧引擎的特征键,而实测两条撞名的理由都不成立:
+    `pause_duration` 的封停理由是 rms 能量门(`prosody_extractor` 那条),
+    L1 走的是 pyin 的 `isfinite(f0)` + `MIN_PAUSE_SEC`(定义,非标定);
+    `gaze_stability` 的封停理由说"由 `gaze_deviation` 派生",L1 的输入列不是它。
+    实测 41 场里这两条分别出值 **37 / 27** 场 —— 封停并没有拦住 L1。
+
+    红法(实测):把 `symmetry_score` 的 `SLOT_MAP` 改回映射到某个 L1 名字
+    ⟹ 情境行为稳定性那一行的 0.25 变 0.0,本条红。
+    """
+    got = l1_mapper.dead_weight_by_dimension()
+    expect = {
+        "logical_thinking": ("话语结构特征", 0.0, []),
+        "stress_resilience": ("情境行为稳定性", 0.25, ["symmetry_score"]),
+        "communication_fluency": ("沟通表达流畅度", 4 / 7, ["fluency_score"]),
+        "confidence_level": ("行为表现活跃度", 1.0,
+                             ["left_hand_spread", "shrug_level", "eye_contact"]),
+        "cognitive_efficiency": ("作答过程特征", 0.4, ["n_chars"]),
+    }
+    assert set(got) == set(expect), (sorted(got), sorted(expect))
+    bad = []
+    for key, (display, dead, slots) in expect.items():
+        g_display, g_dead, g_slots = got[key]
+        if g_display != display:
+            bad.append(f"{key}: 显示名「{display}」→「{g_display}」")
+        if abs(g_dead - dead) > 1e-9:
+            bad.append(f"{key}: 死权重 {dead:.4f},实测 {g_dead:.4f}(死的槽:{g_slots})")
+        if sorted(g_slots) != sorted(slots):
+            bad.append(f"{key}: 死的槽 {slots},实测 {g_slots}")
+    assert not bad, "L1 死权重与登记不符:\n  " + "\n  ".join(bad)
+
+    # 两个方向都要能红:登记表本身必须能区分"删槽"与"没删"。
+    assert got["confidence_level"][1] == 1.0, (
+        "行为表现活跃度在 L1 上三个槽全删 ⟹ 死权重必须是 1.0(维度整体消失);"
+        f"实测 {got['confidence_level'][1]}")
+    assert got["logical_thinking"][1] == 0.0, "话语结构特征在 L1 上三个槽都在"
+
+
+def test_l1_mapping_does_not_consult_the_legacy_quarantine_table():
+    """★ L1 的槽映射**不许**引用 `evidence_gate.QUARANTINE` —— 那是旧引擎的登记。
+
+    这条不是"禁依赖"的洁癖,是防一个**已经发生过两次**的错:
+    把旧引擎的封停理由当成 L1 那条指标的算法说明(`pause_duration` /
+    `gaze_stability` 都撞名,理由都不成立,见 `dead_weight_by_dimension` 的 docstring)。
+    一旦有人"顺手"给 L1 加上封停检查,那两条会当场变死,而**没有一条理由成立**。
+
+    红法:在 `l1_mapper` 里 `from .evidence_gate import QUARANTINE` 并让
+    `map_l1_to_dimensions` 跳过命中项 ⟹ 本条红。
+    """
+    import ast
+    import inspect
+
+    src = inspect.getsource(l1_mapper)
+    # 查**导入语句**,不查子串 —— 本模块的 docstring 里就写着 `evidence_gate`
+    # (说明为什么不引用它),子串判据会把那段说明本身判成违规。
+    imported = set()
+    for node in ast.walk(ast.parse(src)):
+        if isinstance(node, ast.Import):
+            imported |= {a.name for a in node.names}
+        elif isinstance(node, ast.ImportFrom):
+            imported.add((node.module or "") + "." + "*")
+            imported |= {f"{node.module}.{a.name}" for a in node.names}
+    hits = {m for m in imported if "evidence_gate" in m}
+    assert not hits, (
+        f"`l1_mapper` 导入了 {sorted(hits)} —— 封停表管的是旧引擎的特征键,"
+        "两条撞名的理由都不成立(见 `dead_weight_by_dimension`)")
+    # 正向对照:上面那条断言只有在源码**真的**被解析到时有意义。
+    assert "SLOT_MAP" in src and "DIMENSIONS" in src, "读到的不是 l1_mapper 的源码"
+
+
 def test_comparability_notes_say_what_changed_not_just_that_it_changed():
     """★ 每条说明都要**说出换了什么**,不是只说"不可比"。
 

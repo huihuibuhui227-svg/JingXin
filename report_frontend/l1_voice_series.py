@@ -173,19 +173,28 @@ def compute_from_series(series, thresholds: dict[str, int] | None = None,
             n_valid=len(usable), n_total=n_total or len(usable),
             threshold=thr.get("pause", 2))
     if runs:
+        # ★ `n_valid` 报**停顿区间数**,不是帧数。
+        #
+        # 这两个分位数是从 `runs`(停顿区间)算的 —— 一条区间就是一个样本。
+        # 报帧数是**把证据说多**:实测场 `20260928_180131_8102` 报 `n_valid=13585`
+        # (帧数),而 p50 只建立在 **142 个停顿区间**上,两者差两个数量级。
+        # 读者看到 13585 会以为这条分位数有上万次观测支撑。
+        #
+        # 与 `hand_visible_ratio`(387 帧里 1 帧有值却报 n_valid=387)同源,
+        # 也与本仓对率量的既有裁定一致(见 `l1_gesture`:率的证据单位是"段"不是"帧")。
+        # `n_total` 仍报帧数 —— 分母是"看了多少帧",这一点没错。
+        n_pause = len(runs)
         out["pause_duration_p50"] = measured(
             "pause_duration_p50", *_SPECS["pause_duration_p50"][:2],
             ("f0", "frame_sec"), "session", "秒",
             value=float(np.percentile(runs, 50)),
-            n_valid=frames_total if whole else len(usable),
-            n_total=frames_total if whole else (n_total or len(usable)),
+            n_valid=n_pause, n_total=frames_total,
             threshold=thr.get("pause", 2))
         out["pause_duration_p90"] = measured(
             "pause_duration_p90", *_SPECS["pause_duration_p90"][:2],
             ("f0", "frame_sec"), "session", "秒",
             value=float(np.percentile(runs, 90)),
-            n_valid=frames_total if whole else len(usable),
-            n_total=frames_total if whole else (n_total or len(usable)),
+            n_valid=n_pause, n_total=frames_total,
             threshold=thr.get("pause", 2))
 
     # ── 音高 ──────────────────────────────────────────────────────────────

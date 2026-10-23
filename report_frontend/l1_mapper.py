@@ -183,6 +183,57 @@ DIMENSIONS: dict[str, dict] = {
 }
 
 
+def dead_weight_by_dimension() -> dict[str, tuple[str, float, list[str]]]:
+    """每一维在 **L1 路径**上还有多少声明权重是死的。返回 `{键: (显示名, 死权重, 死的槽)}`。
+
+    ## 为什么必须单独算一份,不能沿用 `tests/test_dimension_live_weight.py` 那张表
+
+    那张表守的是 `research_mapper.mapping_rules` —— **旧引擎**。2026-10-18 起
+    `/api/report/structured` 默认走 L1(`app.py` 的 `engine=l1`),旧引擎只剩
+    `?engine=legacy` 对照用。两边的槽表**同名不同命**:
+
+    | 维度 | 旧引擎死权重 | **L1 死权重** | 差在哪 |
+    |---|---|---|---|
+    | 话语结构特征 | 0.0 | **0.0** | 一致 |
+    | 情境行为稳定性 | 0.0 | **0.25** | `symmetry_score` 在 L1 没有同构念 ⟹ 删槽 |
+    | 沟通表达流畅度 | 5/7 ≈ 0.714 | **4/7 ≈ 0.571** | L1 只删 `fluency_score` 一条 |
+    | 行为表现活跃度 | 0.0 | **1.0**(维度整体消失) | 三个槽在 L1 全删 |
+    | 作答过程特征 | 0.0 | **0.4** | `n_chars` 在 L1 没有同构念 ⟹ 删槽 |
+
+    ⟹ 拿旧引擎那张表去回答"生产路径上这一维能说什么",**五维里四维是错的**。
+    本函数与 `tests/test_m4_l1_mapper.py::test_l1_dead_weight_matches_the_slot_map`
+    一起把它钉住。
+
+    ## 为什么这里**不用** `evidence_gate.QUARANTINE`
+
+    封停表管的是**旧引擎的特征键**。实测(2026-10-24)两处名字撞上,但**理由不成立**:
+
+    * `pause_duration`:封停理由写的是「停顿 = 连续 `rms ≤ mean(rms)×0.3` 的帧段」
+      —— 那是 `prosody_extractor` 的能量门。L1 的 `pause_duration_p50` 走的是
+      **pyin 的 `isfinite(f0)`** + `MIN_PAUSE_SEC = 0.2`(那是**定义**不是标定,
+      见 `voice_series` 模块 docstring),压根不读 rms 门限 ⟹ 封停理由描述的
+      不是这条指标的算法。
+    * `gaze_stability`:封停理由写的是「由被封停的 `gaze_deviation` 派生」。
+      L1 这条是 `1 − std(gaze_direction_x) / 视频内极差`,输入列就不是
+      `gaze_deviation` ⟹ 同样不成立。
+
+    实测后果:41 场里 `pause_duration_p50` 出值 **37 场**、`pitch_variability_per_sec`
+    出值 **38 场**。所以"`pause_duration` 封停 ⟹ 这一维仍卡标定集"这句话
+    在 L1 路径上是**假陈述**,不能再拿来当死权重的理由。
+    ⚠️ 但这不等于那两条封停该删:它们管的旧引擎路径**还在**(`?engine=legacy`),
+    删掉它们会让旧路径当场放出被拦的量。两处各自成立,只是不能互相引用。
+    """
+    out: dict[str, tuple[str, float, list[str]]] = {}
+    for key, spec in DIMENSIONS.items():
+        dead, slots = 0.0, []
+        for slot, weight in spec["slots"].items():
+            if SLOT_MAP.get(slot, (None, ""))[0] is None:
+                dead += weight
+                slots.append(slot)
+        out[key] = (spec["name"], dead, slots)
+    return out
+
+
 def _clean(value):
     """把 `NaN` 归一成 `None`。
 
