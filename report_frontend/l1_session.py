@@ -359,7 +359,7 @@ def compute_session_l1(session_id: str,
         inds.extend(l1_gesture.compute_gesture_indicators(gest, ws_union, gest_tb.t_sec))
         # ★ 拼接场守卫:一场访谈可能是**多段录制**拼起来的。
         #
-        # 实测(2026-10-18,13 场 A 档):12 场是单段,但**王语桐一场是 9 段**。
+        # 实测(2026-10-18,13 场 A 档):12 场是单段,但**候选B一场是 9 段**。
         # 查证过程与结论:
         #   · `retention.camera.jsonl` 有 **9 条**记录,全指向同一个 `media/camera.webm`、
         #     `seq` 都是 1,但 9 个不同的大小与 sha256 ⟹ 每次都是**整文件重传并覆盖**;

@@ -7,7 +7,7 @@
 - `apply_crop(None)` 必须**原样返回**：全画幅是既有行为，能检出的场次一个字节
   都不许动（实测裁切会让 190 列里 142 列漂移）。
 - `probe_crop` 的取景选择：必须**试完整条阶梯取最好的**，而不是遇到第一个及格的
-  就收手（姬欣怡那场第一级够格但整场只有 79%）。
+  就收手（候选S那场第一级够格但整场只有 79%）。
 - 平手时保留**更不激进**的那一级。
 """
 from __future__ import annotations
@@ -298,7 +298,7 @@ def test_below_bar_requires_strictly_better_than_full():
 def test_below_bar_picks_the_best_not_the_first():
     """取**命中最多**的那级，不是阶梯里第一个够格的。
 
-    这条红了 ⟹ 会退化成"遇到第一个及格的收手"，实测姬欣怡那场就是这么吃亏的。
+    这条红了 ⟹ 会退化成"遇到第一个及格的收手"，实测候选S那场就是这么吃亏的。
     """
     picked = best_below_bar(_stat(full=0, center50=2, center40=3, center30=5))
     assert picked is not None and picked[0] == "center30"
