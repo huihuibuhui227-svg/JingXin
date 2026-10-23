@@ -48,6 +48,12 @@ ENV/
 # 家庭情况等个人信息 —— 误提交就是泄露。2026-10-03 新增本规则时实测:
 # 只忽略 logs/ 与 output/ 的话,data/transcripts/ 会以 `??` 出现在 status 里。
 **/data/transcripts/
+# 语音帧序列缓存(`voice_series.save_series` 的产物,逐场 .npz)。
+# 纯生成物,可由 `media/camera.webm` 重算(13 场约 445 秒),**不入库**:
+# 入库会让仓库体积随语料线性增长,而且重算结果才可信(缓存可能来自旧算法)。
+# 2026-10-18 新增 —— 此前只忽略了 logs/ output/ transcripts/,
+# 实测 `git status` 里 l0_series 的 20 个 .npz 会以 `??` 出现。
+**/data/l0_series/
 
 # 实验产物(生成物,约 1.1 GB / 1 万个文件;experiments/ 下的脚本仍未被跟踪,
 # 是否入库属论文线决定,故此处只忽略纯数据目录,不掩盖脚本的未跟踪状态)
