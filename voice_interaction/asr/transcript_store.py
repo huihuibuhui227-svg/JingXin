@@ -16,6 +16,7 @@ from .session import NONE_SESSION
 # 目录名规则(含"存过标注就叫 `<标签>__<sid>`")只允许有一处定义,见下面
 # `recording_dir` 的说明。别名导入:本模块自己也有一个 `recording_dir`。
 from media_retention import recording_dir as _shared_recording_dir
+import media_retention as _media_retention
 
 DEFAULT_ROOT = Path.home() / "shared" / "jingxin_recordings"          # D:\Shared\jingxin_recordings
 TRANSCRIPT_FILENAME = "transcript.json"        # spec §6.4:一个会话一个文件,累积写
@@ -83,7 +84,17 @@ def _session_lock(session_id: str) -> threading.Lock:
 
 
 def _root(root: str | Path | None) -> Path:
-    return Path(root) if root else Path(os.getenv("JINGXIN_RECORDINGS_DIR", DEFAULT_ROOT))
+    """录制根。`root=None`(生产那条路)时**委托给 `media_retention.root()`**。
+
+    ⚠️ 2026-10-24 起不再自己算回退:此前这里也写 `os.getenv(..., DEFAULT_ROOT)`,
+    于是"没设环境变量时读哪一份素材"有**两处**定义。服务器上 `DEFAULT_ROOT`
+    (`~/shared/jingxin_recordings`)是个空壳、真素材在 `~/JingXin/recordings`,
+    两处一旦不一致,报告与转写就会读到不同的盘 —— 而且是**静默**的。
+    现在只留 `media_retention.root()` 一处(见那边的 docstring)。
+    """
+    if root:
+        return Path(root)
+    return _media_retention.root()
 
 
 def recording_dir(session_id: str, root: str | Path | None = None) -> Path:

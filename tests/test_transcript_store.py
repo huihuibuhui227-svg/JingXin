@@ -70,6 +70,26 @@ def test_recording_dir_default_root_honours_env_override(tmp_path, monkeypatch):
     assert d.exists()
 
 
+def test_default_root_has_exactly_one_definition(tmp_path, monkeypatch):
+    """★ 没设环境变量时读哪份素材 —— **只许有一处定义**(`media_retention.root()`)。
+
+    2026-10-24 之前这里各算各的:两边都写 `os.getenv(..., DEFAULT_ROOT)`。
+    服务器上 `DEFAULT_ROOT`(`~/shared/jingxin_recordings`)是个只剩 4 场旧试跑的
+    空壳,真素材在 `~/JingXin/recordings` —— 两处一旦不一致,报告与转写读的
+    不是同一块盘,而且**静默**。
+
+    红法:把 `_root()` 改回自己读 `os.getenv(..., DEFAULT_ROOT)` ⟹ 本条红
+    (那时它会返回 `~/shared/...`,而 `media_retention.root()` 返回仓库旁那份)。
+    """
+    home = tmp_path / "home"
+    (home / "JingXin" / "recordings").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("JINGXIN_RECORDINGS_DIR", raising=False)
+    import media_retention
+    assert transcript_store._root(None) == media_retention.root()
+    assert transcript_store._root(None) == home / "JingXin" / "recordings"
+
+
 def test_manifest_records_expected_log_paths(tmp_path):
     p = transcript_store.ensure_manifest("20260924_153012_9f3c",
                                          {"engine": "funasr", "models": {}}, root=tmp_path)

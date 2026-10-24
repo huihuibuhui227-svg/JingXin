@@ -24,12 +24,50 @@ def _isolated_root(tmp_path, monkeypatch):
 
 
 def test_default_root_is_the_shared_volume():
-    """默认落点必须是 ~/shared/jingxin_recordings(→ /mnt/d)。
+    """**写**侧的默认落点必须是 ~/shared/jingxin_recordings(→ /mnt/d)。
 
     红法:把 DEFAULT_ROOT 改成仓库内的路径 —— 那会让原始媒体进 git,
     也会撑 WSL 的 ext4.vhdx(下一步 §4.7)。
     """
     assert media_retention.DEFAULT_ROOT == Path.home() / "shared" / "jingxin_recordings"
+
+
+def test_root_prefers_the_repo_local_recordings_when_env_is_unset(tmp_path, monkeypatch):
+    """★ **读**侧没设环境变量时,`~/JingXin/recordings` 优先于 `DEFAULT_ROOT`。
+
+    ## 为什么这条必须钉(2026-10-24 实测踩到)
+
+    服务器上 `~/JingXin/recordings` 是真素材(9.9 G / 41 个目录),
+    而 `~/shared/jingxin_recordings` **存在但基本是空壳**(只剩 4 场旧试跑,
+    另有 41 个空目录)。此前 `root()` 一律退回后者 ⟹ 同一台机器、同一份盘:
+
+        corpus.audit_corpus()  不设环境变量 → 「45 场 / 正式场 0」
+        corpus.audit_corpus()  设了环境变量 → 「41 场 / 正式场 24」
+
+    **两个数都"算对了",但说的不是同一件事** —— 报错倒还好,这种静默换一份
+    素材才是本项目反复栽的那一类。那晚我据此差点改错文档里的档位分布。
+
+    候选顺序与 `tools/jx_env.sh` / `jx_inventory.py` / `jx_av_span.py` 同一套。
+
+    红法:把 `root()` 改回 `os.getenv(..., DEFAULT_ROOT)` ⟹ 本条红。
+    """
+    home = tmp_path / "home"
+    (home / "JingXin" / "recordings").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("JINGXIN_RECORDINGS_DIR", raising=False)
+    assert media_retention.root() == home / "JingXin" / "recordings"
+
+
+def test_root_falls_back_to_default_when_neither_exists(tmp_path, monkeypatch):
+    """两个候选都没有时退回 `DEFAULT_ROOT`,**不**编一个不存在的仓库内路径。
+
+    红法:把回退那支改成无条件返回 `~/JingXin/recordings` ⟹ 本条红。
+    """
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("JINGXIN_RECORDINGS_DIR", raising=False)
+    assert media_retention.root() == media_retention.DEFAULT_ROOT
 
 
 def test_enabled_by_default_and_can_be_switched_off(monkeypatch):

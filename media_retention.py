@@ -44,8 +44,28 @@ def root() -> Path:
     """录制根。`JINGXIN_RECORDINGS_DIR` 可覆盖(与 transcript_store 同一开关)。
 
     每次调用都读环境变量,不用模块级常量 —— 否则测试没法在不重载模块的前提下换目录。
+
+    ⚠️ **没设环境变量时先探 `~/JingXin/recordings`**(2026-10-24 修)。
+    此前一律退回 `DEFAULT_ROOT`(即 `~/shared/jingxin_recordings`),而服务器上
+    那个目录**存在但基本是空壳**:只剩 4 场旧试跑,另有 41 个**空目录**。
+    后果不是报错,是**静默报出另一个数**:同一台机器、同一份盘,
+    `corpus.audit_corpus()` 不带环境变量时报「45 场 / 正式场 0」,
+    带上之后才是真值「41 场 / 正式场 24」。两个数都"算对了",但说的不是同一件事
+    —— 本项目反复栽的「量错了对象」。2026-10-24 夜里我自己就踩了一次,
+    并据此差点改错文档里的档位分布。
+
+    候选顺序与 `tools/jx_env.sh`、`tools/jx_inventory.py`、`tools/jx_av_span.py`
+    **同一套**(`~/JingXin/recordings` 优先)—— 四处此前只有这一处没对齐。
+
+    为什么不改 `DEFAULT_ROOT` 本身:那个常量表达的是"**新建**录制落哪",
+    与"**读**哪一份已有素材"是两件事;写侧仍应落在 `~/shared`(见
+    `test_default_root_is_the_shared_volume`)。
     """
-    return Path(os.getenv("JINGXIN_RECORDINGS_DIR", DEFAULT_ROOT))
+    env = os.getenv("JINGXIN_RECORDINGS_DIR")
+    if env:
+        return Path(env)
+    repo_local = Path.home() / "JingXin" / "recordings"
+    return repo_local if repo_local.is_dir() else DEFAULT_ROOT
 
 
 def enabled() -> bool:
