@@ -172,7 +172,9 @@ def test_degraded_lines_survive_a_restart(_isolated_root):
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(Path, "write_bytes", flaky)
         assert media_retention.retain_frame("s1", "face", b"x") is None
-    assert real is Path.write_bytes or True
+    # 原先写作 `assert real is Path.write_bytes or True` —— 恒真,永远不会红。
+    # 去掉 `or True` 才真能抓到「monkeypatch 泄漏到后续测试」这件事。
+    assert real is Path.write_bytes, "monkeypatch 没还原,后面所有落盘测试都会写进假实现"
 
     media_retention._reset_for_tests()                    # ← 等价于服务重启
     assert any("No space" in r for r in media_retention.degraded_reasons("s1"))

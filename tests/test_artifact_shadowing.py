@@ -120,11 +120,39 @@ def log_dir(tmp_path) -> Path:
 
 @pytest.fixture
 def produced_artifact(log_dir, monkeypatch):
-    """把产物落盘根目录指到那棵被扫描的树(生产里是 `<repo>/data/logs`),再真跑产出方。"""
+    """把产物落盘根目录指到那棵被扫描的树(生产里是 `<repo>/data/logs`),再真跑产出方。
+
+    ⚠️ **必须喂 prosody**:2026-10-24 起 `save_log()` 在**一行数据都没有时不写文件**
+    (盘上曾积 515 份纯表头产物,见 `test_assessment_note_is_not_an_empty_artifact.py`)。
+    本文件原先的前提是"产物是**空表**,所以被装载器丢掉" —— 那个前提已经不成立。
+    现在产物**有数据行**,于是它顶掉会话日志的威胁比从前更大:
+    唯一挡住它的就只剩文件名结构,这正是下面第一条要证的。
+    """
     from voice_interaction.pipeline import assessment_pipeline
 
     monkeypatch.setattr(assessment_pipeline, "ASSESSMENT_LOG_ROOT", log_dir)
-    return assessment_pipeline.InterviewAssessmentPipeline
+
+    def _produce(cls=None):
+        p = (cls or assessment_pipeline.InterviewAssessmentPipeline)()
+        p.add_qa_pair("请自我介绍", "我叫……",
+                      prosody_features=_fake_features(),
+                      prosody_analysis=_fake_analysis())
+        return p.save_log()
+
+    return _produce
+
+
+def _fake_features():
+    from types import SimpleNamespace
+    return SimpleNamespace(pitch_mean=180.0, pitch_std=22.0, pitch_trend=0.1,
+                           pitch_direction="stable", energy_mean=0.04, energy_std=0.01,
+                           speech_ratio=0.8, duration_sec=12.0, pause_duration_mean=0.4,
+                           pause_duration_max=1.2, pause_frequency=3.0)
+
+
+def _fake_analysis():
+    from types import SimpleNamespace
+    return SimpleNamespace(is_valid=True, feedback="")
 
 
 def test_save_log_output_is_invisible_to_the_modality_selector(log_dir, produced_artifact):
@@ -134,7 +162,7 @@ def test_save_log_output_is_invisible_to_the_modality_selector(log_dir, produced
     红在:把文件名改回 `interview_emotion_log_<时间戳>.csv`(修复前的形态)时,
     `match()` 返回一个 match 对象 → 本条立刻红并点名后果(见报告里的变异实验)。
     """
-    produced = Path(produced_artifact().save_log())
+    produced = Path(produced_artifact())
 
     assert produced.parent.is_relative_to(log_dir), (
         f"产物没落在被扫描的那棵树下({log_dir}),本测试会退化成恒真 —— 这正是第一版踩过的坑"
@@ -158,17 +186,20 @@ def test_session_log_wins_and_its_values_reach_the_feature_and_the_gate(log_dir,
     densities = [3.0, 4.5, 2.0, 6.0, 1.5, 5.5, 3.5, 7.0]
 
     log_dir = _build_logs_tree(log_dir, session_id, densities)
-    written = Path(produced_artifact().save_log())
+    written = Path(produced_artifact())
 
     # 前提自检 —— 三件事必须成立,否则本测试红不到点子上(或退化成恒真):
     # ① 产物真落盘了;② 它确实比会话日志**新**(它就是靠这点赢下选取的);
-    # ③ 它在 API 路径上只有表头(空表会被装载器丢掉,这正是"密度消失"的机制)。
+    # ③ 它**带着数据行**(2026-10-24 起空表不再落盘;有数据 ⟹ 顶掉会话日志的威胁更大)。
     assert written.exists(), "产出方没写出产物,本测试的前提不成立"
     assert _stamp_of(written.name) > _stamp_of(f"interview_emotion_log_{session_id}.csv"), (
         "产物不比会话日志新 —— 修复前的红不是本 bug 造成的,继续下去会变成空断言"
     )
     with written.open(newline="", encoding="utf-8") as f:
-        assert list(csv.DictReader(f)) == [], "产物带上了数据行,本测试的前提(空表被丢)变了"
+        assert len(list(csv.DictReader(f))) > 0, (
+            "产物是空表 —— 那么它被装载器丢掉是理所当然的,"
+            "本测试就证不到「文件名结构在挡它」这一件事"
+        )
 
     data = LogDataLoader(str(log_dir)).get_fused_latest_data()
 
@@ -209,11 +240,11 @@ def test_renamed_artifact_is_still_findable_by_its_consumer(log_dir, produced_ar
     from voice_interaction.pipeline.assessment_pipeline import ResearchAssessmentPipeline
     from voice_interaction.utils.visualize import _is_kind
 
-    produced = Path(produced_artifact().save_log())
+    produced = Path(produced_artifact())
     assert _is_kind(produced, "interview"), f"改名后 visualizer 找不到产物了:{produced}"
     assert not _is_kind(produced, "research"), "面试的产物被当成了科研的"
 
-    research_note = Path(ResearchAssessmentPipeline().save_log())
+    research_note = Path(produced_artifact(ResearchAssessmentPipeline))
     assert _is_kind(research_note, "research"), "改名的产物按目录分不出科研侧"
     assert not _is_kind(research_note, "interview")
 

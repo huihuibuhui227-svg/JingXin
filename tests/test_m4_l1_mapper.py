@@ -63,6 +63,31 @@ def test_slot_map_covers_exactly_the_fourteen_old_slots():
 
 # ── 2. 构念不同的必须删 ─────────────────────────────────────────────────
 
+def test_no_l1_indicator_is_counted_by_two_slots():
+    """★ 同一个 L1 指标不许喂两个槽 —— 那是把**一份**测量数两遍。
+
+    这条守卫在**旧引擎** `research_mapper` 上早就有
+    (`test_report_slot_columns.py::test_no_column_keyword_is_used_by_two_slots`),
+    但生产默认路径从 2026-10-18 起是 `l1_mapper`(`/api/report/structured` 默认
+    `engine=l1`),而 L1 侧**一条等价守卫都没有** —— 正是本仓「验证跑错了对象」
+    的形态:守的是对照用的旧路径,跑的是 L1。
+
+    后果不只是"数两遍":同一份测量进两个槽 ⟹ 该维度的证据链里有两条
+    **相关性 1.0** 的"独立证据",置信度取最弱那条也会被抬上去。
+
+    红法:把 `shrug_level` 映射到 `posture_stability`(与另一槽同一个 L1)⟹ 本条红。
+    """
+    seen: dict[str, str] = {}
+    for slot, (l1, _reason) in l1_mapper.SLOT_MAP.items():
+        if l1 is None:            # 删槽,没有对象可查
+            continue
+        assert l1 not in seen, (
+            f"{l1} 同时喂了 {seen.get(l1)!r} 和 {slot!r} —— 同一份测量被数了两遍")
+        seen[l1] = slot
+    # 地板:幸存槽数不许悄悄变少(有人把某个槽改成 None = 悄悄删槽,循环就少跑一次)
+    assert len(seen) == 8, f"幸存槽应 8 个,实得 {len(seen)}:{sorted(seen)}"
+
+
 @pytest.mark.parametrize("slot,why_fragment", [
     ("symmetry_score", "对称"),
     # ⚠️ 2026-10-24 由「产出方」改为「零额外信息」:这一条的结论从
@@ -140,7 +165,40 @@ def test_dimension_with_no_surviving_slot_vanishes_not_an_empty_shell():
     dims, vanished = l1_mapper.map_l1_to_dimensions([])
     assert "confidence_level" not in dims
     assert [v["key"] for v in vanished] == ["confidence_level"]
-    assert "左" not in vanished[0]["reason"] or "可见性" in vanished[0]["reason"]
+
+
+def test_dropped_slot_reasons_say_construct_mismatch_not_a_coverage_excuse():
+    """删槽理由必须是「**构念不同**」,不能是「这个没测到」。
+
+    ⚠️ 这条原先写成
+
+        assert "左" not in vanished[0]["reason"] or "可见性" in vanished[0]["reason"]
+
+    —— **恒真**,而且被删槽理由自己证伪了:理由串里既有「左」(来自
+    `left_hand_spread`)又有「可见性」,于是 `or` 右边永远成立,任何实现都通过。
+    它声称守的那条判据一次都没生效过(2026-10-23 `488c004` 引入至今)。
+
+    区别为什么重要:读者看到「没测到」会等下一次采集;真相是这条管线**不测这个构念**,
+    再采也不会有。两种话在报告里长得一样,含义相反。
+
+    红法:把任一槽的 reason 改成 `"左手没测到"` ⟹ 第一条断言红(没点名任何真实 L1);
+    改成 `"hand_visible_ratio_l 未采集"` ⟹ 第二条断言红。
+    """
+    _, vanished = l1_mapper.map_l1_to_dimensions([])
+    dropped = vanished[0]["dropped"]
+    # 地板:`confidence_level` 三个槽当前**全部**没有同构念的 L1。
+    # 没有这句,槽表被清空时下面的循环一次都不进,本测试静默全绿。
+    assert len(dropped) == 3, f"confidence_level 的删槽数变了:{dropped}"
+
+    known = _all_l1_names()
+    for d in dropped:
+        reason = d["reason"]
+        assert any(n in reason for n in known), (
+            f"{d['slot']} 的删槽理由没点名任何真实 L1 指标 —— "
+            f"读者无从知道「拿谁来顶替被否决了」:{reason!r}")
+        for excuse in ("没测到", "未采集", "无数据", "没有数据"):
+            assert excuse not in reason, (
+                f"{d['slot']} 用**覆盖**借口冒充构念理由:{reason!r}")
 
 
 # ── 5. 置信度取最弱 ─────────────────────────────────────────────────────

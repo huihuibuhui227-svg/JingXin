@@ -6,7 +6,7 @@
 - 生成多维度分析图 + 特征热力图
 - 自动保存到 data/output/voice_interaction/
 - 支持中英文（自动降级）
-- 空日志时生成示例数据
+- 空日志/单行日志时**拒绝出图**，不造示例数据（见 `visualize_voice_log`）
 
 作者：镜心项目 - 语音分析模块
 """
@@ -92,7 +92,14 @@ def ensure_output_dir():
 
 
 def generate_sample_data(n_questions: int = 10):
-    """生成示例数据（用于空日志测试）"""
+    """生成示例数据（用于空日志测试）。
+
+    ⚠️ **不要把它接回渲染路径。** 它产出的是一组随机假数,而
+    `visualize_voice_log` 曾经在日志为空时拿它顶替真数据 —— 后果是
+    「这一场没采到」被渲染成一张看起来正常的图。现在渲染路径遇到空日志
+    直接拒绝(`return False`),本函数只留给需要假数据的测试/演示用。
+    钉子:`tests/test_voice_visualize_refuses_to_fabricate.py` 的源码扫描那条。
+    """
     import pandas as pd
     import numpy as np
     np.random.seed(42)
@@ -229,7 +236,17 @@ def plot_heatmap(df, use_chinese: bool, output_path: Path):
 
 
 def visualize_voice_log(csv_path: Path, log_type: str):
-    """主可视化函数"""
+    """主可视化函数。
+
+    ⚠️ **没有数据就不画,也不造假。** 此前这里写着:日志为空或**只有一行**时,
+    打印一句「生成示例数据」,然后拿一组 `np.random.seed(42)` 造的 10 行假数顶替。
+    图照样画、照样存盘、函数照样 `return True` ⟹ 一条「这一场什么都没采到」的结论,
+    会被渲染成一张看起来正常的多维分析图。
+
+    现在:一行都没有 ⟹ 直接 `return False`;**只有一行** ⟹ 同样拒绝,但**说出原因**
+    (单行撑不起多维分析与热力图,硬画出来的是噪声不是结论)。两种情况都**一个文件都不写**。
+    钉子:`tests/test_voice_visualize_refuses_to_fabricate.py`。
+    """
     try:
         import pandas as pd
         import matplotlib
@@ -240,9 +257,12 @@ def visualize_voice_log(csv_path: Path, log_type: str):
 
     # 读取数据
     df = pd.read_csv(csv_path)
-    if df.empty or len(df) <= 1:
-        print("⚠️ 日志为空，生成示例数据...")
-        df = generate_sample_data()
+    if df.empty:
+        print(f"❌ 日志里一行数据都没有,不生成图表:{csv_path.name}")
+        return False
+    if len(df) < 2:
+        print(f"❌ 日志只有 {len(df)} 行,不足以画多维分析与热力图:{csv_path.name}")
+        return False
 
     df['timestamp'] = pd.to_datetime(df['timestamp'])
 

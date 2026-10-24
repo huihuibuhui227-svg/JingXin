@@ -31,6 +31,12 @@ ASSESSMENT_LOG_ROOT = Path(__file__).resolve().parents[2] / "data" / "logs"
 # 它的消费者是 `voice_interaction/utils/visualize.py`,那里按同一个词根匹配。
 NOTE_STEM = "assessment_note"
 
+# 产物的表头。两个 `save_log` 各抄一份会漂 —— 列名是契约,只能有一处定义。
+NOTE_HEADER = ("unix_timestamp,timestamp,pitch_mean,pitch_variation,pitch_trend,"
+               "pitch_direction,energy_mean,energy_variation,speech_ratio,duration_sec,"
+               "pause_duration_mean,pause_duration_max,pause_frequency,emotion,feedback,"
+               "question_index,is_valid\n")
+
 
 def _assessment_note_path(kind: str) -> Path:
     """本次调用的产物路径(时间戳命名:一次调用一份,不覆盖既有文件)。"""
@@ -77,6 +83,52 @@ class AssessmentPipeline:
             for qa in self.qa_pairs
             if qa.has_valid_answer
         ]
+
+    def _write_note(self, kind: str) -> str:
+        """落一份人类可读的评估产物;返回路径,**一行数据都没有时返回空串**。
+
+        ⚠️ **没有数据就不写文件**,不是"写一个只有表头的文件"。盘上曾经积了
+        515 份 `assessment_note_*.csv`、数据行 **0 行** —— 因为 `save_log` 只在
+        `qa.prosody_features and qa.prosody_analysis` 两者都有时写行,而活路径
+        `add_answer()` 一个 prosody 都不传(`add_qa_pair(question, answer)`)。
+        于是每答一题就多一个空文件,而调用方拿到路径后照报成功。
+
+        返回空串是本仓对"没产出"的既有口径:`generate_report_live` 失败时也是
+        `return ""`,调用方据此判红而不是判绿。钉子:
+        `tests/test_assessment_note_is_not_an_empty_artifact.py`。
+
+        两个子类原先各抄一份一模一样的写行逻辑(17 列、逐字段 f-string),
+        那是"改一处漏一处"的典型 —— 现在只有这一份。
+        """
+        rows = [qa for qa in self.qa_pairs
+                if qa.prosody_features and qa.prosody_analysis]
+        if not rows:
+            return ""
+
+        log_file = _assessment_note_path(kind)
+        with open(log_file, 'w', encoding='utf-8') as f:
+            f.write(NOTE_HEADER)
+            for i, qa in enumerate(rows):
+                features = qa.prosody_features
+                analysis = qa.prosody_analysis
+
+                timestamp = datetime.now().timestamp()
+                datetime_str = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")
+
+                # 情绪标签从 feedback 里取(旧口径,原样保留)
+                emotion = "积极"
+                if "兴奋" in analysis.feedback:
+                    emotion = "兴奋"
+                elif "积极" in analysis.feedback:
+                    emotion = "积极"
+
+                f.write(f"{timestamp},{datetime_str},{features.pitch_mean},{features.pitch_std},")
+                f.write(f"{features.pitch_trend},{features.pitch_direction},")
+                f.write(f"{features.energy_mean},{features.energy_std},{features.speech_ratio},")
+                f.write(f"{features.duration_sec},{features.pause_duration_mean},{features.pause_duration_max},")
+                f.write(f"{features.pause_frequency},{emotion},{analysis.feedback},{i},{analysis.is_valid}\n")
+
+        return str(log_file)
 
     def evaluate(self) -> AssessmentResult:
         """
@@ -135,42 +187,9 @@ class InterviewAssessmentPipeline(AssessmentPipeline):
         保存评估日志(人类可读版)
 
         返回:
-            日志文件路径
+            日志文件路径;**一行数据都没有时返回空串**(不写空文件,见 `_write_note`)
         """
-        import time
-
-        log_file = _assessment_note_path("interview")
-
-        # 写入日志（CSV格式）
-        with open(log_file, 'w', encoding='utf-8') as f:
-            # 写入CSV表头
-            f.write("unix_timestamp,timestamp,pitch_mean,pitch_variation,pitch_trend,pitch_direction,energy_mean,energy_variation,speech_ratio,duration_sec,pause_duration_mean,pause_duration_max,pause_frequency,emotion,feedback,question_index,is_valid\n")
-
-            # 写入每条记录
-            for i, qa in enumerate(self.qa_pairs):
-                if qa.prosody_features and qa.prosody_analysis:
-                    features = qa.prosody_features
-                    analysis = qa.prosody_analysis
-
-                    # 生成时间戳
-                    timestamp = time.time()
-                    datetime_str = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")
-
-                    # 获取情绪标签（从feedback中提取）
-                    emotion = "积极"  # 默认值
-                    if "兴奋" in analysis.feedback:
-                        emotion = "兴奋"
-                    elif "积极" in analysis.feedback:
-                        emotion = "积极"
-
-                    # 写入CSV行
-                    f.write(f"{timestamp},{datetime_str},{features.pitch_mean},{features.pitch_std},")
-                    f.write(f"{features.pitch_trend},{features.pitch_direction},")
-                    f.write(f"{features.energy_mean},{features.energy_std},{features.speech_ratio},")
-                    f.write(f"{features.duration_sec},{features.pause_duration_mean},{features.pause_duration_max},")
-                    f.write(f"{features.pause_frequency},{emotion},{analysis.feedback},{i},{analysis.is_valid}\n")
-
-        return str(log_file)
+        return self._write_note("interview")
 
     def get_next_question(self) -> Optional[str]:
         """
@@ -349,42 +368,9 @@ class ResearchAssessmentPipeline(AssessmentPipeline):
         保存评估日志(人类可读版)
 
         返回:
-            日志文件路径
+            日志文件路径;**一行数据都没有时返回空串**(不写空文件,见 `_write_note`)
         """
-        import time
-
-        log_file = _assessment_note_path("research")
-
-        # 写入日志（CSV格式）
-        with open(log_file, 'w', encoding='utf-8') as f:
-            # 写入CSV表头
-            f.write("unix_timestamp,timestamp,pitch_mean,pitch_variation,pitch_trend,pitch_direction,energy_mean,energy_variation,speech_ratio,duration_sec,pause_duration_mean,pause_duration_max,pause_frequency,emotion,feedback,question_index,is_valid\n")
-
-            # 写入每条记录
-            for i, qa in enumerate(self.qa_pairs):
-                if qa.prosody_features and qa.prosody_analysis:
-                    features = qa.prosody_features
-                    analysis = qa.prosody_analysis
-
-                    # 生成时间戳
-                    timestamp = time.time()
-                    datetime_str = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")
-
-                    # 获取情绪标签（从feedback中提取）
-                    emotion = "积极"  # 默认值
-                    if "兴奋" in analysis.feedback:
-                        emotion = "兴奋"
-                    elif "积极" in analysis.feedback:
-                        emotion = "积极"
-
-                    # 写入CSV行
-                    f.write(f"{timestamp},{datetime_str},{features.pitch_mean},{features.pitch_std},")
-                    f.write(f"{features.pitch_trend},{features.pitch_direction},")
-                    f.write(f"{features.energy_mean},{features.energy_std},{features.speech_ratio},")
-                    f.write(f"{features.duration_sec},{features.pause_duration_mean},{features.pause_duration_max},")
-                    f.write(f"{features.pause_frequency},{emotion},{analysis.feedback},{i},{analysis.is_valid}\n")
-
-        return str(log_file)
+        return self._write_note("research")
 
     def get_next_question(self) -> Optional[str]:
         """

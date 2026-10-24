@@ -118,7 +118,8 @@ SLOT_MAP: dict[str, tuple[str | None, str]] = {
     "shrug_level": (
         None, "posture_stability 量的是**姿态稳定性**,不是耸肩程度"),
     "eye_contact": (
-        None, "gaze_aversion_ratio 量的是偏离占比;与本槽构念的关系未确认,不顶替"),
+        # 名字必须是**真**的 L1 指标名(`gaze_aversion_ratio` 不存在,查不到)。
+        None, "gaze_aversion_ratio_vs_baseline 量的是偏离占比;与本槽构念的关系未确认,不顶替"),
     "n_chars": (
         None, "speech_rate 是**字/秒**(速率),不是回答字数(总量)"),
     "reaction_time": (
