@@ -126,7 +126,7 @@ def _mean_luma(path: Path) -> float | None:
     return sum(raw) / len(raw)
 
 
-def probe(path: str | Path) -> dict:
+def probe(path: str | Path, *, audio_only: bool = False) -> dict:
     """量一份录像。→ 一个**只含事实**的 dict,**永远不抛异常**。
 
     字段:
@@ -139,6 +139,11 @@ def probe(path: str | Path) -> dict:
       mean_luma   抽帧平均亮度,None = 量不到
       codecs      流表里探到的编码名(排查用)
       findings    人话列表 —— **每条都能直接照着修**
+
+    `audio_only`:本场受试者只同意音频,前端**根本没打开摄像头** ⟹ 没有视频轨是
+    **设计如此**,不是录坏了。不区分的话,每一场 audio-only 的 session.json 都会
+    带一条假的 warn,而假 warn 会淹掉真的录坏。默认 `False` —— 老调用方
+    (`tools/jx_check_session.py`)的行为一个字都不变。
     """
     p = Path(path)
     out: dict = {
@@ -174,7 +179,7 @@ def probe(path: str | Path) -> dict:
     if out["has_audio"]:
         out["audio_sec"] = _round(_span_sec(ffprobe, p, "a:0"))
 
-    if not out["has_video"]:
+    if not out["has_video"] and not audio_only:
         out["findings"].append(
             "**文件里没有视频轨** —— 视觉指标与面部/手势全不可出。"
             "这不是「脸检不到」,是压根没有画面;音频可能完整,别急着整场重录。")
@@ -200,7 +205,9 @@ def probe(path: str | Path) -> dict:
 
     if out["findings"]:
         out["status"] = STATUS_WARN
-    elif out["has_video"] and out["has_audio"]:
+    elif out["has_audio"] and (out["has_video"] or audio_only):
+        # ⚠️ `or audio_only`:只采声音的场次**按设计**没有视频轨,有一条音轨就是
+        #    这一场该有的全部。少了这半句,每一场 audio-only 都会落到 warn。
         out["status"] = STATUS_OK
     # 只剩一条轨且量不到时长 → 仍然是 warn(findings 非空),不会落到这里。
     return out

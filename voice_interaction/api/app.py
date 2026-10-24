@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 import asyncio
+import json
 import os
 import logging
 import wave
@@ -768,6 +769,25 @@ def _capture_probe_enabled() -> bool:
     return os.getenv("JINGXIN_CAPTURE_PROBE", "1").strip() not in ("0", "false", "False", "")
 
 
+def _session_is_audio_only(session_id: str) -> bool:
+    """本场受试者是不是**只同意了音频**。
+
+    读 `session.json` 里 `consent`(`session_meta.upsert_label` 写的)。前端在
+    `audio_only` 下**根本不打开摄像头**,所以这一场的 `camera.webm` 按设计没有
+    视频轨 —— 体检必须知道这件事,否则每一场 audio-only 都会带一条假的
+    「没有视频轨」warn,而假 warn 会淹掉真的录坏。
+
+    ⚠️ 读不到(文件不在、JSON 坏、没有 consent 键)一律 **False**。
+    猜成 audio-only 会把「真的没录到画面」放过 —— 那是这个修法最坏的方向。
+    """
+    try:
+        p = media_retention.resolve_recording_dir(session_id) / "session.json"
+        rec = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return rec.get("consent") == "audio_only"
+
+
 @app.post("/session/{session_id}/media")
 async def submit_session_media(session_id: str, file: UploadFile = File(...)):
     """收前端 `MediaRecorder` 录的**原生音视频**,原样落 `media/camera.webm`(spec §5.3)。
@@ -847,7 +867,13 @@ async def submit_session_media(session_id: str, file: UploadFile = File(...)):
             cam = media_retention.resolve_recording_dir(sid) / media_retention.MEDIA_SUBDIR \
                 / media_retention.CAMERA_FILENAME
             # 同步读几百 MB 的文件:丢工作线程,别把事件循环钉住(整场识别也走这条)。
-            health = await asyncio.to_thread(capture_health.probe, cam)
+            #
+            # ⚠️ `audio_only` 必须**当场从 session.json 读**:只同意了音频的场次
+            # 前端根本没开摄像头,`camera.webm` 按设计没有视频轨。不传这个参数,
+            # 每一场 audio-only 都会记一条假的「没有视频轨」warn —— 假 warn 会
+            # 淹掉真的录坏,而这个体检的全部价值就是让人第一眼看见真的录坏。
+            health = await asyncio.to_thread(
+                capture_health.probe, cam, audio_only=_session_is_audio_only(sid))
             logged = capture_health.record(
                 media_retention.resolve_recording_dir(sid) / "session.json", health)
             logger.info("录制体检 %s: %s%s", sid, capture_health.summarize(health),

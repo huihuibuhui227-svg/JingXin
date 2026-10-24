@@ -105,7 +105,11 @@ def test_second_upload_to_the_same_session_is_409(_isolated):
 def test_probe_result_is_in_the_response_and_in_session_json(_isolated, monkeypatch):
     """体检结果两处都要有:响应(前端当场提示)+ session.json(事后可查)。"""
     import capture_health
-    monkeypatch.setattr(capture_health, "probe", lambda p: {
+    # ⚠️ 替身要收 **kw:生产调用点现在传 `audio_only=...`(只采声音的场次不报
+    # 「没有视频轨」)。签名写窄了,替身会抛 TypeError,被端点那个
+    # 「体检出任何事都不许影响留存」的 except 吞掉 ⟹ 断言看到的是 None,
+    # 报出来的却是「体检没跑成」,和真正的缺陷毫无关系。
+    monkeypatch.setattr(capture_health, "probe", lambda p, **kw: {
         "status": "warn", "has_video": False, "has_audio": True,
         "video_sec": None, "audio_sec": 178.2, "av_ratio": None,
         "mean_luma": None, "codecs": ["opus"],
@@ -133,7 +137,7 @@ def test_a_crashing_probe_does_not_fail_the_upload(_isolated, monkeypatch):
     """
     import capture_health
 
-    def boom(_p):
+    def boom(_p, **kw):
         raise RuntimeError("ffprobe 神秘失败")
 
     monkeypatch.setattr(capture_health, "probe", boom)
@@ -148,7 +152,7 @@ def test_probe_can_be_switched_off(_isolated, monkeypatch):
     monkeypatch.setenv("JINGXIN_CAPTURE_PROBE", "0")
     called = []
     import capture_health
-    monkeypatch.setattr(capture_health, "probe", lambda p: called.append(p) or {})
+    monkeypatch.setattr(capture_health, "probe", lambda p, **kw: called.append(p) or {})
     r = asyncio.run(voice_app.submit_session_media(session_id=SID, file=_FakeUpload(WEBM)))
     assert r["stored"] is True
     assert r["capture_health"] is None
