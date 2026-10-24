@@ -62,6 +62,12 @@ def root(tmp_path, monkeypatch):
     logs = tmp_path / "logs"
     logs.mkdir()
     monkeypatch.setitem(panel.app.config, "LOGS_DIR", str(logs))
+    # ⚠️ `OUTPUT_DIR` 同理:`purge` 现在连**正文点名了这个 sid** 的报告一起删。
+    #    不换掉就会对着仓库里那 48 份真报告扫一遍 —— 今天没有一份提到测试 sid
+    #    (`20260928_212130_5b10`),但"今天没提到"不是判据。
+    out = tmp_path / "output"
+    out.mkdir()
+    monkeypatch.setitem(panel.app.config, "OUTPUT_DIR", str(out))
     mr._reset_for_tests()
     return r
 
@@ -679,7 +685,9 @@ def test_report_count_reads_the_html_body(client, root, tmp_path, monkeypatch):
     <YYYYMMDD_HHMMSS>.html`),不含 sid。
     """
     out = tmp_path / "output"
-    out.mkdir()
+    # ⚠️ 不 `mkdir()`:`root` 这个 fixture 已经建好了同一个路径并把它挂到了
+    #    `app.config['OUTPUT_DIR']` 上(报告落点隔离,见那个 fixture 的说明)。
+    assert out.is_dir()
     monkeypatch.setitem(panel.app.config, "OUTPUT_DIR", str(out))
     (out / "Research_Assessment_Report_20260928_120000.html").write_text(
         f"<html><body><p>本报告描述的是 {_SID} 这一场。</p></body></html>", encoding="utf-8")

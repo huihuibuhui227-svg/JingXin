@@ -116,3 +116,113 @@ def test_the_live_answer_path_never_produces_a_note(note_root):
 
     assert p.save_log() == ""
     assert not (note_root / "interview").exists() or not list((note_root / "interview").glob("*.csv"))
+
+
+# ── 端到端:端点本身不许每答一题落一个文件 ─────────────────────────────────
+
+def test_question_index_still_means_position_in_qa_pairs(note_root):
+    """`question_index` 必须是**这一题在整场里的位置**,不是过滤后的行号。
+
+    ⚠️ 这条是补的,补的原因是**我自己把它改坏了**:把两个子类里各抄一份的写行逻辑
+    合并到 `_write_note()` 时,顺手把
+    `for i, qa in enumerate(self.qa_pairs): if not (...): continue`
+    改成了 `rows = [qa for ...]; for i, qa in enumerate(rows)`。
+    空数据下两者等价,所以当时没红;一旦真有数据,第 2 题会被记成 `question_index=0`。
+
+    红法(实测):把 `enumerate(rows)` 改回去再跑 ⟹ 断言拿到 `"0"`,红。
+    形态与本仓记过多次的「散文里的数会静默过期」同族:重构时语义悄悄漂了,
+    而**没有一条测试盯着那个语义**。
+    """
+    p = ap.InterviewAssessmentPipeline()
+    # 第 1 题没有 prosody(活路径的形状),第 2 题有 —— 过滤后它排在行 0,但它是第 2 题。
+    p.add_qa_pair("第一题", "没有韵律的回答")
+    p.add_qa_pair("第二题", "有韵律的回答",
+                  prosody_features=_fake_features(),
+                  prosody_analysis=_fake_analysis())
+
+    out = p.save_log()
+    assert out, "有 prosody 却报空路径"
+    with open(out, encoding="utf-8", newline="") as f:
+        rows = list(csv.DictReader(f))
+    assert len(rows) == 1, f"只有 1 段带 prosody,却写了 {len(rows)} 行"
+    assert rows[0]["question_index"] == "1", (
+        f"第 2 题被记成 question_index={rows[0]['question_index']!r} —— "
+        f"它数的是过滤后的行号,不是题号")
+
+
+def _client():
+    import importlib
+    from fastapi.testclient import TestClient
+    app_mod = importlib.import_module("voice_interaction.api.app")
+    return TestClient(app_mod.app), app_mod
+
+
+@pytest.mark.parametrize("path,kind", [
+    ("/interview/answer", "interview"),
+    ("/research/answer", "research"),
+])
+def test_answer_endpoint_writes_no_artifact_per_question(note_root, monkeypatch, path, kind):
+    """★ 端到端钉子:每答一题**不许**尝试落产物。
+
+    这才是 515 份文件的真实来源 —— 四个 answer 端点各自在 `add_answer()` 之后
+    调了一次 `save_log()`,外面还套着 `except Exception: pass`(连失败都不出声)。
+    上面那些测 `save_log()` 本身的测试**证明不了**端点不再调它。
+
+    ⚠️ **红法(实测过,不是猜的)**:把 `save_log()` 加回 `/interview/answer`
+    ⟹ `calls` 非空,第二条断言红。注意**第一条(盘上没文件)不会红** ——
+    `_write_note` 现在无数据行就不写文件,所以"加回调用"这件事只体现在**接线**上。
+    这正是第一版踩的坑:只断言"盘上没多文件"的写法,在把调用加回去之后**照旧全绿**
+    (实测 8 passed),是个假守卫。两个断言缺一不可:
+      · `calls == []`  —— 守接线(本次改动);
+      · 盘上无文件     —— 守端状态(万一有人以后让 prosody 流进活路径,
+                          接线错会立刻变成每答一题一个文件)。
+    """
+    client, app_mod = _client()
+    assessment = (app_mod.interview_assessment if kind == "interview"
+                  else app_mod.research_assessment)
+    assessment.reset()
+
+    calls = []
+    real_save = assessment.save_log
+    monkeypatch.setattr(assessment, "save_log",
+                        lambda: calls.append(1) or real_save())
+
+    for i in range(3):
+        r = client.post(path, json={"answer": f"第{i+1}题的回答"})
+        assert r.status_code == 200, r.text
+
+    assert calls == [], (
+        f"答 {len(calls)} 题就调了 {len(calls)} 次 save_log —— "
+        f"每答一题落一个产物正是盘上那 515 份文件的来源")
+    produced = (sorted((note_root / kind).glob("*.csv"))
+                if (note_root / kind).is_dir() else [])
+    assert produced == [], (
+        f"答 3 题却写出了 {len(produced)} 个产物:{[x.name for x in produced]}")
+
+
+def test_evaluation_endpoint_is_where_the_artifact_lands(note_root, monkeypatch):
+    """对照:产物**该**在收尾(`/evaluation`)落一次 —— 别把功能一起删掉。
+
+    红法:把 `save_log()` 从 `/interview/evaluation` 也删掉 ⟹ `calls` 为空,本条红。
+    与上一条合起来才是完整的判据:**每答一题不落,收尾落一次**。
+    """
+    client, app_mod = _client()
+    app_mod.interview_assessment.reset()
+    for i in range(2):
+        assert client.post("/interview/answer",
+                           json={"answer": f"回答{i}"}).status_code == 200
+
+    calls = []
+    real_save = app_mod.interview_assessment.save_log
+    monkeypatch.setattr(app_mod.interview_assessment, "save_log",
+                        lambda: calls.append(1) or real_save())
+
+    r = client.get("/interview/evaluation")
+    assert r.status_code == 200, r.text
+    assert len(calls) == 1, f"收尾时 save_log 应被调 1 次,实得 {len(calls)} 次"
+    # 活路径不传 prosody ⟹ 产物无数据行 ⟹ 落盘路径是空串(而不是写个空文件)
+    assert r.json()["log_path"] == "", (
+        f"没有 prosody 却报了落盘路径:{r.json().get('log_path')!r}")
+    produced = (sorted((note_root / "interview").glob("*.csv"))
+                if (note_root / "interview").is_dir() else [])
+    assert produced == [], f"没有数据行却写出了文件:{[x.name for x in produced]}"

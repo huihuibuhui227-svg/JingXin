@@ -560,11 +560,11 @@ async def get_next_question():
 async def submit_answer(request: AnswerRequest):
     """提交文本回答"""
     try:
+        # ⚠️ 这里**不再**调 `save_log()`。每答一题调一次曾是盘上 515 份空产物的来源:
+        # 活路径不传 prosody ⟹ 每调一次多一个只有表头的 `assessment_note_*.csv`,
+        # 而 `except Exception: pass` 让它连失败都不出声。产物只在
+        # `/interview/evaluation` 收尾时落一次(见 `_write_note`)。
         interview_assessment.add_answer(request.answer)
-        try:
-            interview_assessment.save_log()
-        except Exception:
-            pass
         return {"status": "success", "message": "回答已记录"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"提交回答失败: {str(e)}")
@@ -641,10 +641,7 @@ async def submit_answer_audio(request: Request, audio: UploadFile = File(...),
             connective_density=density, connective_density_std=0.0, n_rows=1)
 
         interview_assessment.add_answer(text)
-        try:
-            interview_assessment.save_log()
-        except Exception:
-            pass
+        # 不在这里落产物 —— 理由见 `/interview/answer` 里的注释。
         return {"status": "success", "session_id": sid, "recognized_text": text,
                 "connective_density": density}
     except HTTPException:
@@ -723,7 +720,9 @@ async def discard_session(session_id: str):
        ⚠️ 这是使用者 2026-09-28 确认过的取舍,不是遗漏。
 
     实现在 `session_purge.purge_session`(与面板那条 purge 端点**共用同一份**)——
-    删两处:场次目录 + `data/logs/` 里那三份 CSV。
+    删四处:场次目录、`data/logs/` 里按 sid 落盘的 CSV、`data/output/` 里**正文
+    点名了这个 sid** 的报告及其独占图表、`data/l0_series/<sid>.npz`。
+    后两处是 2026-10-25 补的:此前只删前两处,于是「不留存」之后报告还在。
     """
     try:
         removed = session_purge.purge_session(session_id)
@@ -940,11 +939,8 @@ async def get_research_question():
 @app.post("/research/answer")
 async def submit_research_answer(request: AnswerRequest):
     try:
+        # 不在这里落产物 —— 理由见 `/interview/answer` 里的注释。
         research_assessment.add_answer(request.answer)
-        try:
-            research_assessment.save_log()
-        except Exception:
-            pass
         return {"status": "success", "message": "回答已记录"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"提交回答失败: {str(e)}")
@@ -1013,10 +1009,7 @@ async def submit_research_answer_audio(request: Request, audio: UploadFile = Fil
             connective_density=density, connective_density_std=0.0, n_rows=1)
 
         research_assessment.add_answer(text)
-        try:
-            research_assessment.save_log()
-        except Exception:
-            pass
+        # 不在这里落产物 —— 理由见 `/interview/answer` 里的注释。
         return {"status": "success", "session_id": sid, "recognized_text": text}
     except HTTPException:
         raise

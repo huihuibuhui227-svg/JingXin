@@ -100,7 +100,7 @@ class AssessmentPipeline:
         两个子类原先各抄一份一模一样的写行逻辑(17 列、逐字段 f-string),
         那是"改一处漏一处"的典型 —— 现在只有这一份。
         """
-        rows = [qa for qa in self.qa_pairs
+        rows = [(i, qa) for i, qa in enumerate(self.qa_pairs)
                 if qa.prosody_features and qa.prosody_analysis]
         if not rows:
             return ""
@@ -108,7 +108,10 @@ class AssessmentPipeline:
         log_file = _assessment_note_path(kind)
         with open(log_file, 'w', encoding='utf-8') as f:
             f.write(NOTE_HEADER)
-            for i, qa in enumerate(rows):
+            # ⚠️ `i` 是**在 qa_pairs 里的位置**,不是过滤后的行号。合并两处写行逻辑时
+            # 这里一度写成 `enumerate(rows)` —— 空数据下两者等价,所以没红;有数据时
+            # 第 2 题会被记成 0。钉子:`test_question_index_still_means_position_in_qa_pairs`。
+            for i, qa in rows:
                 features = qa.prosody_features
                 analysis = qa.prosody_analysis
 

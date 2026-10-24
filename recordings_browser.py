@@ -648,7 +648,15 @@ def recording_purge(sid: str):
     if (body.get("confirm") or "").strip() != sid:
         return jsonify({"error": f"要把 sid 照抄一遍才执行(收到 {body.get('confirm')!r})"}), 400
     try:
-        removed = session_purge.purge_session(sid, logs_dir=current_app.config.get("LOGS_DIR"))
+        removed = session_purge.purge_session(
+            sid,
+            logs_dir=current_app.config.get("LOGS_DIR"),
+            # ⚠️ 报告落点也必须传 —— `purge` 现在连**正文点名了这个 sid** 的报告
+            # 及其独占图表一起删。不传的话它会退回模块默认的 `data/output`,
+            # 而面板的落点是 `app.config['OUTPUT_DIR']`,两者今天是同一个目录,
+            # 所以**看不出来**;哪天分开了就会"面板报成功、报告还在"。
+            output_dir=current_app.config.get("OUTPUT_DIR"),
+        )
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except FileNotFoundError as e:

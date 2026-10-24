@@ -7,9 +7,21 @@
 场次目录没了、日志 CSV 还在,报告层于是看到一场**有日志没素材**的会话,
 看起来只是"这一场没采到",不是"这一场被作废了"。
 
-⚠️ **删的是两处**:
+⚠️ **删的是四处**(2026-10-25 扩的,原先只有前两处):
    · 场次目录(帧 / 音频 / 留存账本 / 标注)
    · `data/logs/` 里那三份(或更少)按 sid 落盘的 CSV
+   · `data/output/` 里**正文点名了这个 sid** 的报告,以及只被它引用的图表
+   · `data/l0_series/<sid>.npz`(f0/rms 逐帧序列)
+
+   后两处是审计实测补上的:原先只删前两处,于是用户点「不留存」、界面报成功、
+   场次目录没了 —— 而一份**正文里写着这个 sid** 的报告还躺在 `data/output/`
+   里(实测 42 份 / 17 个 sid)。docstring 说的是「当它没发生过」,那就得算派生品。
+   钉子:`tests/test_session_purge_leaves_no_trace.py`。
+
+⚠️ **仍然不碰**的两类,各有理由:
+   · `data/logs/jingxin.log*` —— 服务日志,按行交织了所有场次(实测 252 个 sid
+     在同几份文件里),删一行就得重写整份文件;要单独裁定。
+   · `NONE` 桶 —— 见 `purge_session` 里的显式拒绝。
 
 ⚠️ **这里没有回收站,是刻意的**。与 `/trash`(移进回收站)的分工:
    · `trash` —— 素材页上翻**旧**素材时点的「删除」。误点的代价必须可救。
@@ -55,6 +67,16 @@ def default_logs_dir() -> Path:
     return Path(__file__).parent / "data" / "logs"
 
 
+def default_output_dir() -> Path:
+    """报告与图表的落点(`report_frontend.report_generator` 的默认 `output_dir`)。"""
+    return Path(__file__).parent / "data" / "output"
+
+
+def default_series_dir() -> Path:
+    """`report_frontend.voice_series` 写 `<sid>.npz`(f0/rms 逐帧序列)的地方。"""
+    return Path(__file__).parent / "data" / "l0_series"
+
+
 def log_csvs(session_id: str, *, logs_dir: str | os.PathLike | None = None) -> list[Path]:
     """这一场的日志 CSV。名字是拼的,但 sid **先过了正则**。"""
     if not SID_PAT.fullmatch(session_id):
@@ -68,10 +90,14 @@ def log_csvs(session_id: str, *, logs_dir: str | os.PathLike | None = None) -> l
     return out
 
 
-def purge_session(session_id: str, *, logs_dir: str | os.PathLike | None = None) -> dict:
-    """真删一场。返回 `{"session_dir": …, "logs": [...]}`。
+def purge_session(session_id: str, *, logs_dir: str | os.PathLike | None = None,
+                  output_dir: str | os.PathLike | None = None,
+                  series_dir: str | os.PathLike | None = None) -> dict:
+    """真删一场。返回 `{"session_dir": …, "logs": [...], "reports": [...],
+    "charts": [...], "series": [...]}`。
 
-    `session_id` 不合法 → `ValueError`;目录与日志都不存在 → `FileNotFoundError`。
+    `session_id` 不合法 → `ValueError`;目录、日志、报告、序列**全都不存在**
+    → `FileNotFoundError`。
     """
     if session_id == NONE_BUCKET:
         # NONE 桶里是**所有没带 session_id 的请求**的素材,不属于任何一场。
@@ -90,15 +116,35 @@ def purge_session(session_id: str, *, logs_dir: str | os.PathLike | None = None)
     if resolved != root and not str(resolved).startswith(str(root) + os.sep):
         raise ValueError(f"解析出的目录在录制根之外:{d}")
 
-    removed = {"session_dir": None, "logs": []}
+    out_dir = Path(output_dir) if output_dir else default_output_dir()
+    ser_dir = Path(series_dir) if series_dir else default_series_dir()
+
+    # ★ **派生品也是这一场的数据**。docstring 的语义是「当它没发生过」,而实测
+    #   purge 原先只碰两处,盘上还留着 42 份**正文带 sid** 的报告(17 个不同 sid)、
+    #   它们引用的图表、以及 `<sid>.npz` 逐帧序列。用户点「不留存」、界面报成功、
+    #   场次目录没了 —— 但报告还在。钉子:`tests/test_session_purge_leaves_no_trace.py`。
+    reports = _reports_naming(session_id, out_dir)
+    charts = _charts_only_of(reports, out_dir)
+
+    removed = {"session_dir": None, "logs": [], "reports": [], "charts": [], "series": []}
     if d.is_dir():
         shutil.rmtree(d)
         removed["session_dir"] = d.name
     for p in log_csvs(session_id, logs_dir=logs_dir):
         p.unlink()                      # 删不掉就让异常冒上去 —— 不许"看着成功"
         removed["logs"].append(p.name)
+    for p in reports:
+        p.unlink()
+        removed["reports"].append(p.name)
+    for p in charts:
+        p.unlink()
+        removed["charts"].append(p.name)
+    npz = ser_dir / f"{session_id}.npz"
+    if npz.is_file():
+        npz.unlink()
+        removed["series"].append(npz.name)
 
-    if removed["session_dir"] is None and not removed["logs"]:
+    if not any(removed[k] for k in removed):
         raise FileNotFoundError(f"没有这一场:{session_id}")
     # ★ **删完要留印记**。不留的话,后续任何一次写入都会把这个 sid 的目录重新建出来
     #   (2026-09-28 实测:删完之后又来了一次 `/question`,于是录制根下多了一个只含
@@ -106,3 +152,64 @@ def purge_session(session_id: str, *, logs_dir: str | os.PathLike | None = None)
     mr.mark_purged(session_id)
     removed["tombstone"] = True
     return removed
+
+
+# 报告里引用图表的那条链是 `<iframe src="radar_chart_<epoch>.html">`。
+# ⚠️ 只认这三种前缀。实测 596 份非报告 HTML **没有一份正文含 sid** —— 所以图表
+#    只能顺着报告找,不能反过来"扫到哪个删哪个"。
+CHART_REF = re.compile(r"(?:radar_chart|evidence_\w+|gaze_trajectory)_\d+\.html")
+REPORT_GLOB = "Research_Assessment_Report_*.html"
+
+
+def _reports_naming(session_id: str, out_dir: Path) -> list[Path]:
+    """`out_dir` 里**正文点名了这个 sid** 的报告。
+
+    ⚠️ 判据是**正文里真的出现这个 sid**(`SID_IN_TEXT`,无锚点),不是文件名、
+    也不是"最近一份"。实测 48 份报告里有 6 份正文**不含任何 sid**(旧格式 /
+    生成时没拿到场次)—— 认不出归属的东西**不许猜**,猜错就是删别人的报告。
+    """
+    if not out_dir.is_dir():
+        return []
+    hits = []
+    for p in sorted(out_dir.glob(REPORT_GLOB)):
+        try:
+            txt = p.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue                    # 读不了就不动它 —— 宁可不删,不许删错
+        if session_id in SID_IN_TEXT.findall(txt):
+            hits.append(p)
+    return hits
+
+
+def _charts_only_of(reports: list[Path], out_dir: Path) -> list[Path]:
+    """这些报告引用的图表,**减去**还被别的(幸存的)报告引用的那些。
+
+    实测当前 288 份被引用的图表**没有一份被两个 sid 共用**,所以"减去"这一步
+    现在恒不生效 —— 但少它就会在报告层哪天改成共用图表时删掉别人报告里的图,
+    那种坏法在界面上只表现为破图,很难归因。
+    """
+    if not reports:
+        return []
+    wanted: set[str] = set()
+    for p in reports:
+        wanted |= set(CHART_REF.findall(p.read_text(encoding="utf-8", errors="ignore")))
+    if not wanted:
+        return []
+
+    doomed = {p.name for p in reports}
+    still_referenced: set[str] = set()
+    for p in out_dir.glob(REPORT_GLOB):
+        if p.name in doomed:
+            continue
+        try:
+            txt = p.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        still_referenced |= set(CHART_REF.findall(txt)) & wanted
+
+    out = []
+    for name in sorted(wanted - still_referenced):
+        p = out_dir / name
+        if p.is_file():
+            out.append(p)
+    return out
