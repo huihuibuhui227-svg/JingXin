@@ -19,8 +19,13 @@ ANS="${ANSARR[0]%/*}"
 LOGS=data/logs
 
 ok()   { printf '  \033[32m✓\033[0m %s\n' "$1"; }
-bad()  { printf '  \033[31m✗\033[0m %s\n' "$1"; }
+bad()  { printf '  \033[31m✗\033[0m %s\n' "$1"; FAIL=1; }
 head_() { printf '\n\033[1m── %s ──\033[0m\n' "$1"; }
+
+# 判红要真的判红(2026-10-25):旧版 `bad()` 只打一行红字,结尾**无条件**打印
+# 「完成」+ 一段"服务仍在后台跑"的说明 ⟹ 中间失败多少条,退出码都是 0。
+# 与 m26 同一天发现的同一形态(那条更糟:它结尾直接写「全部冒烟判据通过」)。
+FAIL=0
 
 # ── 前置:回答音频齐了没 ────────────────────────────────────────────────
 head_ "前置检查"
@@ -108,13 +113,13 @@ curl -s -o /tmp/t7_gesture.json -w "  gesture HTTP %{http_code}\n" -X POST http:
 
 # ── 核一:落盘 ──────────────────────────────────────────────────────────
 head_ "核一 · 落盘"
-if [ -d "$HOME/shared/jingxin_recordings/$SID" ]; then
-  ls -l "$HOME/shared/jingxin_recordings/$SID/" | sed 's/^/    /'
+if [ -d "$JX_RECORDINGS/$SID" ]; then
+  ls -l "$JX_RECORDINGS/$SID/" | sed 's/^/    /'
   for f in session.json transcript.json; do
-    [ -f "$HOME/shared/jingxin_recordings/$SID/$f" ] && ok "$f 在" || bad "$f 缺"
+    [ -f "$JX_RECORDINGS/$SID/$f" ] && ok "$f 在" || bad "$f 缺"
   done
 else
-  bad "会话目录不存在:$HOME/shared/jingxin_recordings/$SID"
+  bad "会话目录不存在:$JX_RECORDINGS/$SID"
 fi
 
 # ── 核二:三份日志对上号 ────────────────────────────────────────────────
@@ -134,7 +139,7 @@ head_ "核三 · 原句不进仓库"
 PHRASE=$($PY - "$SID" <<'PYPHRASE'
 import json, sys, os
 sid = sys.argv[1]
-rec = os.environ.get("JX_RECORDINGS") or os.path.expanduser("~/shared/jingxin_recordings")
+rec = os.environ.get("JX_RECORDINGS") or os.path.expanduser("~/JingXin/recordings")
 p = os.path.join(rec, sid, "transcript.json")
 def first_text(o):
     if isinstance(o, dict):
@@ -196,3 +201,9 @@ cat <<EOF
   看日志: /tmp/t7_voice.log  /tmp/t7_face.log  /tmp/t7_gesture.log
   本次 SID: $SID   (存在 /tmp/t7_sid.txt)
 EOF
+if [ "$FAIL" = 0 ]; then
+  echo "  T7 验收通过"
+else
+  echo "  ★ T7 验收**没过** —— 见上面带 ✗ 的行"
+fi
+exit $FAIL
