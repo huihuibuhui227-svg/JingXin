@@ -1,6 +1,7 @@
 # report_frontend/report_generator.py
 
 import os
+import re
 import webbrowser
 import pandas as pd
 from datetime import datetime
@@ -361,6 +362,75 @@ class ReportGenerator:
         </div>
         """
 
+    def _render_l1_audit_text(self, result: Dict[str, Any]) -> str:
+        """把载荷里那四组「这份报告能说什么」的前提印出来。
+
+        前端 `L1IndicatorTable` 全都渲染了(它的注释原话:放在表格上方而不是折叠里,
+        因为这些是"这份报告能说什么"的前提),而 HTML 报告**一个都没印**:
+
+        | 载荷字段 | 它回答的问题 | 不印的后果 |
+        |---|---|---|
+        | `l1.gaps` | 本场素材层面的限制(拼接、没有提问台账、没有 ASR) | 读者把只覆盖最后 7 分钟的数当成整场 |
+        | `l1.comparability_notes` | 哪些槽名与旧报告相同但统计量换了 | 读者把两份报告的数相减 |
+        | `l1.low_confidence_notes` | 置信度为什么只有"低" | 读者无从判断这个数能不能用 |
+        | `l1.windows` | 整场一个窗口,还是逐回答一个窗口 | 两个口径的 F/G 值被当成同一件事 |
+
+        ⚠️ 全部来自载荷,**渲染层不另写一份**(否则迟早分叉)。
+        四组都空时不印任何标题 —— 空标题会被读成"这里该有内容但丢了"。
+        钉子:`tests/test_html_report_carries_the_audit_text.py`。
+        """
+        l1 = result.get("l1") or {}
+
+        def _plain(t: str) -> str:
+            # 载荷里的这几句是**开发者写的注释体**,带 `**` / 反引号。
+            # 前端 `L1IndicatorTable.plain()` 做同一件事(纯文本界面里它们是噪音)。
+            return re.sub(r"\*\*|`", "", t)
+
+        def _ul(items) -> str:
+            return "<ul>" + "".join(f"<li>{_plain(str(i))}</li>" for i in items) + "</ul>"
+
+        blocks: list[str] = []
+
+        gaps = l1.get("gaps") or []
+        if gaps:
+            blocks.append(
+                "<div class='l1-audit'><h3>本场报告的限制（素材层面，不是算错）</h3>"
+                + _ul(gaps) + "</div>")
+
+        # 印**人话版**:审计版(`comparability_notes`)里是「旧槽键 → L1指标名：…」,
+        # 那 6 个内部指标名不该出现在交付物正文里(前端同理由 `plain()` 之外还要换表)。
+        # 载荷没发人话版时退回审计版 —— 宁可露出英文,也不许把这一条吞掉。
+        notes = (l1.get("comparability_notes_plain")
+                 or l1.get("comparability_notes") or [])
+        if notes:
+            blocks.append(
+                "<div class='l1-audit'><h3>与旧引擎报告对比时注意</h3>"
+                "<p>下列槽名相近，但统计量已更换，两边的数<strong>不可相减</strong>。</p>"
+                + _ul(notes) + "</div>")
+
+        low = l1.get("low_confidence_notes") or []
+        if low:
+            blocks.append(
+                "<div class='l1-audit'><h3>置信度为「低」的原因（素材限制，不是算错）</h3>"
+                + _ul(low) + "</div>")
+
+        w = l1.get("windows") or {}
+        if w.get("granularity"):
+            is_answer = w["granularity"] == "answer"
+            text = (f"逐回答窗口（{w.get('n_windows', '?')} 个）" if is_answer
+                    else "整场一个窗口")
+            outside = {k: n for k, n in (w.get("frames_outside") or {}).items()
+                       if isinstance(n, (int, float)) and n > 0}
+            extra = ""
+            if outside:
+                extra = ("；不在任何回答窗口内的帧：" +
+                         " · ".join(f"{k} {n} 帧" for k, n in outside.items()) +
+                         "（这些帧不计入 F/G 的分母）")
+            blocks.append(
+                f"<div class='l1-audit'><h3>统计口径</h3><p>{text}{extra}</p></div>")
+
+        return "".join(blocks)
+
     def _build_html_report(self, result: Dict[str, Any], chart_paths: Dict[str, Any],
                            features: Dict[str, Any], data: Dict[str, pd.DataFrame],
                            static_images: List[str],
@@ -443,6 +513,10 @@ class ReportGenerator:
                         {basis_html}
                     </div>
                 </div>
+
+                <!-- 这份报告能说什么的前提:限制 / 比较陷阱 / 低置信理由 / 统计口径。
+                     前端 L1IndicatorTable 早就印了,交付物不该少说这四句。 -->
+                {self._render_l1_audit_text(result)}
 
                 <!-- 逐维观测明细:过门指标 + 未过门缺口 -->
                 <div class="card">
