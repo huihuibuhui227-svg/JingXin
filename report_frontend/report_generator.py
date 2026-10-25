@@ -61,10 +61,14 @@ def _interval_text(interval) -> str:
     return f"{interval[0]} – {interval[1]}"
 
 
-# 模态键 → 报告里给人看的名字(键名来自 data_loader 的统一化,见那边的 key 映射)。
+#: 模态键 → 报告里给人看的名字(键名来自 data_loader 的统一化,见那边的 key 映射)。
+#:
+#: ⚠️ `voice` 这一项是**模态级**名字,与上面两个文件名不同:日志按「面试 / 科研」
+#:    分两个文件,而 L1 的 V 族不分。`modality_summary` 用的是模态名,所以要有它。
 _MODALITY_LABELS = {
     "face": "面部",
     "gesture": "手势",
+    "voice": "语音",
     "voice_interview": "语音（面试）",
     "voice_research": "语音（科研）",
 }
@@ -124,45 +128,94 @@ def sources_disclosure(sources: Dict[str, Dict], target: Optional[str] = None,
         fam = _LOG_KEY_TO_MODALITY.get(key, key)
         return summary.get(fam)
 
-    def _produced_line(label: str, key: str) -> Optional[str]:
-        got = _produced(key)
+    def _file_status(key: str, info: Dict) -> str:
+        """**一个日志文件**的三态 —— 逐文件的事实,措辞与原来一致。"""
+        label = _MODALITY_LABELS.get(key, key)
+        if info["status"] == "loaded":
+            return f"{label} · 已读入（{info['rows']} 行）"
+        if info["status"] == "unreadable":
+            return f"{label} · 未读到数据（这个文件里一行数据都没有）"
+        return f"{label} · 缺失"
+
+    def _file_detail(key: str, info: Dict) -> str:
+        """文件层面的**中性**描述 —— 只在"指标由第二个数据源算出来"时用。
+
+        为什么不复用 `_file_status`:那句里的「未读到数据」会让读者以为这一维废了,
+        而紧挨着的上一句刚说「算出了 10/12 条」。同一段里一冷一热,读者只会记住冷的那句。
+        这里只陈述可核对的事实:这个文件几行、在不在。
+        """
+        label = _MODALITY_LABELS.get(key, key)
+        if info["status"] == "loaded":
+            return f"{label} · {info['rows']} 行"
+        if info["status"] == "unreadable":
+            return f"{label} · 0 行（文件在）"
+        return f"{label} · 没有这个文件"
+
+    def _produced_line(keys: list[str]) -> Optional[str]:
+        """这个**模态**算出了几条 —— 按模态说**一次**,不按文件说 N 次。
+
+        ## 为什么必须按模态去重
+
+        日志按「面试 / 科研」分两个文件键,而 L1 的 V 族**不分** ——
+        12 条指标是同一套,`modality_summary` 只有一个 `voice`。
+        逐文件印就会变成「面试语音算出了 10/12」+「科研语音算出了 10/12」,
+        读起来像两个模态各有 10 条,而实际是**同一批 10 条被数了两遍**。
+
+        文件名也不能当标签:V 族不区分面试/科研,挂着文件名会让人以为两者各有 12 条。
+
+        文件级的事实不丢 —— 附在括号里(哪份在、哪份没有),只是不再冒充模态级结论。
+        """
+        got = None
+        for k in keys:
+            got = _produced(k)
+            if got:
+                break
         if not got or not got.get("n_measured"):
             return None
+        fam = _LOG_KEY_TO_MODALITY.get(keys[0], keys[0])
+        label = _MODALITY_LABELS.get(fam, fam)
+        files = "、".join(_file_detail(k, items[k]) for k in keys)
         note = f"（{got['source_note']}）" if got.get("source_note") else ""
         return (f"{label} · <strong>日志没有数据，但这个模态算出了 "
-                f"{got['n_measured']} / {got['n_total']} 条指标</strong>{note}")
+                f"{got['n_measured']} / {got['n_total']} 条指标</strong>{note}"
+                f"<br><span style=\"opacity:0.8;\">　文件层面：{files}</span>")
 
     lines = (["本场会话：<strong>（无 —— 本场没有任何日志）</strong>"] if target is None
              else [f"本场会话：<strong>{target}</strong>"])
     if not items:
         lines.append("本报告没有装配任何模态日志。")
 
-    for key, info in sorted(items.items()):
-        label = _MODALITY_LABELS.get(key, key)
-        if info["status"] == "loaded":
-            lines.append(f"{label} · 已读入（{info['rows']} 行）")
-        elif info["status"] == "unreadable":
-            # ⚠️ 措辞别冤枉文件。此前这句写的是"文件在，但读不出来：空文件或损坏",
-            #    而最常见的情形**根本不是损坏** —— 是这一场压根没有提交过回答
-            #    (从「实时分析」页录的那些就是:那条路没有题库、不提交回答,
-            #    语音模态因此结构上为空,交接日志 §8.1-4 记过)。两件事的处置完全不同:
-            #    一个是"设计如此",一个是"去查文件"。分不开就会让人去追一个不存在的故障。
-            #
-            # ⚠️ 更要紧的是:日志空 ≠ 这个模态没有量。语音可由整场录音重算 ——
-            #    有值时先说这件事,别让读者带着"文件可能损坏"的印象往下读。
-            got = _produced_line(label, key)
-            if got:
-                lines.append(got)
-            else:
+    # 按**模态**分组 —— 语音的两个文件键归一组(理由见 `_produced_line`)。
+    groups: Dict[str, list[str]] = {}
+    for key in sorted(items):
+        groups.setdefault(_LOG_KEY_TO_MODALITY.get(key, key), []).append(key)
+
+    for _fam, keys in groups.items():
+        if any(items[k]["status"] == "loaded" for k in keys):
+            # 这个模态的日志读进来了 ⟹ 逐文件报事实(两份文件可能一有一无)。
+            lines.extend(_file_status(k, items[k]) for k in keys)
+            continue
+
+        got = _produced_line(keys)
+        if got:
+            # 日志全空,但指标由第二个数据源算出来了 —— 别让读者带着
+            # 「文件可能损坏」的印象往下读(实测缺陷,见 docstring)。
+            lines.append(got)
+            continue
+
+        # 日志全空、指标也一条没算出来 ⟹ 保留原措辞。那是真的:该去查采集。
+        for k in keys:
+            label = _MODALITY_LABELS.get(k, k)
+            if items[k]["status"] == "unreadable":
+                # ⚠️ 措辞别冤枉文件。此前这句写的是"文件在，但读不出来：空文件或损坏",
+                #    而最常见的情形**根本不是损坏** —— 是这一场压根没有提交过回答
+                #    (从「实时分析」页录的那些就是:那条路没有题库、不提交回答,
+                #    语音模态因此结构上为空,交接日志 §8.1-4 记过)。两件事的处置完全不同:
+                #    一个是"设计如此",一个是"去查文件"。分不开就会让人去追一个不存在的故障。
                 lines.append(f'<strong style="color:#A23B72;">{label} · 未读到数据</strong>'
                              f'（日志文件在，但一行数据都没有。常见原因是本场'
                              f'<strong>没有提交过逐题回答</strong> —— 例如从「实时分析」页录的，'
                              f'那条路没有题库；若本场确实答过题，那才是文件损坏。）')
-        else:
-            # 同上:盘上连日志文件都没有,但指标可能由第二个数据源算出来了。
-            got = _produced_line(label, key)
-            if got:
-                lines.append(got)
             else:
                 lines.append(f"{label} · 缺失（本场没有这个模态的日志）")
 

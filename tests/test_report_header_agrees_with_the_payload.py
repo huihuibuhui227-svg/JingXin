@@ -170,6 +170,54 @@ def test_the_recompute_note_only_appears_when_the_log_really_was_empty(tmp_path,
         f"日志有 {len(voice)} 行,却说值是重算来的:{summary['voice']}")
 
 
+def test_the_produced_line_is_printed_once_per_modality_not_once_per_log_file():
+    """★ 红法:去掉按模态去重那一步 ⟹ 红。
+
+    ## 实测(2026-10-25 深夜,服务器上重生成的真报告)
+
+    修好上面那条之后,报告头变成:
+
+        语音（面试） · 日志没有数据，但这个模态算出了 10 / 12 条指标（由整场录音重算得出）
+        语音（科研） · 日志没有数据，但这个模态算出了 10 / 12 条指标（由整场录音重算得出）
+
+    **同一批 10 条指标被报了两次**,读起来像两个模态各算出了 10 条。
+
+    根因:日志按「面试 / 科研」分两个文件键(`voice_interview` / `voice_research`),
+    而 L1 的 V 族**不分** —— 12 条指标是同一套,`modality_summary` 只有一个 `voice`。
+    三态是**逐文件**的事实(两个文件各说各的没错),但"算出了几条"是**逐模态**的,
+    说两遍就是把同一份证据数了两次 —— 本仓对这件事一向是标出来(见
+    `evidence_gate` 里 `pause_ratio` 的处置)。
+
+    ⟹ 有值那句按**模态**去重,且标签用模态名(`语音`),不用文件名。
+    """
+    html = sources_disclosure(
+        {"voice_interview": {"session_id": _SID, "status": "unreadable", "rows": 0},
+         "voice_research": {"session_id": _SID, "status": "unreadable", "rows": 0}},
+        _SID, modality_summary=_voice_summary(10))
+
+    n = html.count("10 / 12")
+    assert n == 1, (
+        f"同一批 10 条指标报了 {n} 次 —— 读者会以为有两个模态各算出了 10 条:{html}")
+    # 标签必须是模态名:V 族不区分面试/科研,挂着文件名会让人以为两者各有 12 条。
+    assert "语音（面试） · <strong>日志没有数据" not in html, html
+    assert "语音 · <strong>日志没有数据" in html, f"标签没用模态名:{html}"
+
+
+def test_two_log_files_with_different_statuses_still_report_their_own_status():
+    """★ 回归地板:三态是**逐文件**的事实,去重只许去重"算出了几条"那句。
+
+    面试日志读到了、科研日志没有 —— 这是两条不同的事实,都得说。
+    红法:把整个循环按模态去重(而不是只去重 produced 那句)⟹ 红。
+    """
+    html = sources_disclosure(
+        {"voice_interview": {"session_id": _SID, "status": "loaded", "rows": 40},
+         "voice_research": {"session_id": _SID, "status": "missing", "rows": 0}},
+        _SID, modality_summary=_voice_summary(10))
+
+    assert "语音（面试） · 已读入（40 行）" in html, html
+    assert "语音（科研） · 缺失" in html, html
+
+
 # ── 走完整路径:头与缺口必须说同一件事 ──────────────────────────────────
 
 def _write_log(log_dir: Path, filename: str, rows: list) -> Path:
