@@ -222,7 +222,12 @@ def build_l1_report(session_id: str, logs: dict | None = None) -> dict:
             #   而后者才是读者要的那句话(置信度本身不回答它)。
             "low_confidence_notes": explain_confidence(quality),
             # ★ 与旧引擎报告对比时的那句提醒。见 `l1_mapper.NOT_COMPARABLE`。
+            #   **两个版本都发**:`comparability_notes` 是审计版(带槽键与 L1 指标名,
+            #   核对口径的人要查);`comparability_notes_plain` 是给人读版(交付物与
+            #   界面都印这一版)。只发审计版 ⟹ 两个出口都会漏内部指标名;
+            #   只发人话版 ⟹ 映射查不到。分层的决定权在载荷,不在渲染层。
             "comparability_notes": l1_mapper.comparability_notes(),
+            "comparability_notes_plain": l1_mapper.comparability_notes_plain(),
             "gaps": list(result.gaps),
             # ★ 裁定①(2026-10-24):会话级 38 条的口径是**回答帧并集**,
             #   逐题那份只作**离散度**层,不冒充会话级值。见 `l1_session.dispersion_of`。

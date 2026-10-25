@@ -235,6 +235,59 @@ def comparability_notes() -> list[str]:
     return out
 
 
+#: 每个"不可比"的槽 → **给人读的一句话**:旧的那份数的是什么,新的数的是什么。
+#:
+#: ## 为什么又分一层(与 `DROP_REASON` 同一个理由)
+#:
+#: `comparability_notes()` 的每一条形如
+#:
+#:     connective_density → discourse_marker_rate：旧 = **不同**标记出现过几次…
+#:
+#: 前端 `L1IndicatorTable` 和 HTML 报告**两边都原样印了** —— 于是交付物正文里
+#: 出现 `connective_density`、`discourse_marker_rate` 等 6 个内部指标名
+#: (2026-10-25 晚由 `test_dropped_slot_reasons_in_the_report_are_plain_chinese`
+#: 抓到)。读者不认识槽键,也不需要认识。
+#:
+#: ⟹ 两处各有各的话:这里说「旧报告数的是 A,新报告数的是 B」,
+#: `NOT_COMPARABLE` / `comparability_notes()` 留审计用的槽键与指标名。
+#: 钉子:`tests/test_report_numbers_and_reasons_are_readable.py`。
+#:
+#: ⚠️ 键必须与 `NOT_COMPARABLE` **逐条对齐**(`test_the_plain_comparability_notes_cover_every_slot`)。
+#: 漏登记的槽会退回审计原话 —— 宁可露出英文,也不许把这一条吞掉。
+PLAIN_WHAT: dict[str, str] = {
+    "connective_density":
+        "旧报告数的是「出现过几种不同的连接词」,新报告数的是「连接词一共出现多少次」",
+    "gaze_direction_x_std":
+        "旧报告数的是视线的原始波动幅度,新报告数的是相对本场自身范围折算后的稳定性",
+    "au4_frown":
+        "旧报告数的是皱眉动作的绝对强度,新报告数的是相对本人平静状态偏离了多少",
+    "au23_lip_compression":
+        "旧报告数的是唇部压缩的绝对强度,新报告数的是相对本人平静状态偏离了多少",
+    "left_wrist_jitter_world":
+        "旧报告只数左腕的抖动,新报告把腕、肘、肩六列的抖动合在一起数",
+    "pause_duration":
+        "旧报告数的是停顿的平均长度,新报告数的是停顿的中位长度",
+}
+
+
+def comparability_notes_plain() -> list[str]:
+    """比较陷阱的**给人读版**(交付物与界面都印这一版)。
+
+    未登记 `PLAIN_WHAT` 的槽退回审计原话 —— 与 `drop_reason()` 同一取向。
+    """
+    out: list[str] = []
+    for slot, why in NOT_COMPARABLE.items():
+        l1, _ = SLOT_MAP.get(slot, (None, ""))
+        if l1 is None:
+            continue
+        plain = PLAIN_WHAT.get(slot)
+        if plain is None:
+            out.append(f"{slot} → {l1}：{why}")
+        else:
+            out.append(f"{slot_label(slot)}：{plain}")
+    return out
+
+
 DIMENSIONS: dict[str, dict] = {
     "logical_thinking": {
         "name": "话语结构特征",

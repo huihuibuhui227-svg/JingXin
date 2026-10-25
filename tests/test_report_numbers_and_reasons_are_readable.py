@@ -170,3 +170,90 @@ def test_the_audit_reason_is_not_lost():
                     if l1 is None and len(r) > 20}
     assert len(long_reasons) >= 5, (
         f"`SLOT_MAP` 的删槽理由被削短了,审计细节丢了:{long_reasons}")
+
+
+# ---------------------------------------------------------------------------
+# ③ 比较陷阱那段:2026-10-25 晚才发现**同一类泄漏**还在另一处
+# ---------------------------------------------------------------------------
+# `l1.comparability_notes` 的每一条都是 `旧槽键 → L1指标名：理由`。
+# 前端 `L1IndicatorTable` 与 HTML 报告**两边都原样印了**,于是交付物里出现
+# `connective_density → discourse_marker_rate` 这样的串 —— 6 个内部指标名。
+#
+# 这与 ② 是同一个毛病:审计标识符(槽键、L1 指标名)属于核对口径的人,
+# 读者要的只是「旧的那份数的是 A,新的数的是 B,两个数不能相减」。
+
+
+def test_comparability_notes_say_it_in_plain_chinese():
+    """★ 红法:删掉 `comparability_notes_plain()` 或让它退回审计版 ⟹ 这里红。
+
+    地板:当前有 6 条比较陷阱(见 `NOT_COMPARABLE`)。地板缺了,下面循环
+    一次都不进,本测试静默全绿。
+    """
+    notes = l1_mapper.comparability_notes_plain()
+    assert len(notes) == len(l1_mapper.NOT_COMPARABLE), (
+        f"给人读的比较陷阱条数不对:{notes}")
+    known = _all_l1_names()
+    bad = [n for n in notes if any(k in n for k in known)]
+    assert not bad, "给人读的比较陷阱里还带着内部指标名:\n  " + "\n  ".join(bad)
+    bad_marks = [n for n in notes if "**" in n or "`" in n or "→" in n]
+    assert not bad_marks, "还带着注释体记号或箭头:\n  " + "\n  ".join(bad_marks)
+
+
+def test_the_plain_comparability_notes_still_say_what_changed():
+    """★ 红法:把 `PLAIN_WHAT` 某条写成「口径变了」这类空话 ⟹ 这里红。
+
+    这是内容判据 —— 「不可比」三个字对读者没有用,他要知道**两边各数的是什么**。
+    与 `test_comparability_notes_say_what_changed_not_just_that_it_changed`
+    对审计版的要求一致,只是换成人话。
+    """
+    notes = l1_mapper.comparability_notes_plain()
+    for n in notes:
+        assert "旧" in n and "新" in n, f"没说清旧新各数什么:{n}"
+        assert len(n) >= 16, f"太短,读者看不出差别:{n}"
+
+
+def test_the_plain_comparability_notes_cover_every_slot():
+    """★ 红法:让 `PLAIN_WHAT` 漏一个槽、退回审计原话 ⟹ 这里红。
+
+    漏登记时**宁可露出审计原话也不许吞掉那一条**(本仓的固定取向),
+    但那份露出必须被测试发现,否则第 7 个槽会悄悄带着内部指标名进交付物。
+    """
+    missing = sorted(set(l1_mapper.NOT_COMPARABLE) - set(l1_mapper.PLAIN_WHAT))
+    assert not missing, f"这些槽没有给人读的比较说明:{missing}"
+
+
+def test_the_audit_comparability_notes_are_not_lost():
+    """★ 红法:把 `comparability_notes()` 改成返回人话版 ⟹ 这里红。
+
+    分层不是删掉审计细节 —— 核对口径的人仍要能查到「哪个旧槽键对到了哪条 L1 指标」。
+    """
+    notes = l1_mapper.comparability_notes()
+    assert all("→" in n for n in notes), notes
+
+
+def test_the_payload_carries_both_versions_of_the_comparability_notes():
+    """★ 红法:让载荷只发审计版(或只发人话版)⟹ 这里红。
+
+    载荷是**两个出口的共同来源**:前端报告页与 HTML 交付物都从它读。
+    只发审计版 ⟹ 两个出口都漏内部指标名;只发人话版 ⟹ 核对口径的人查不到映射。
+    """
+    rec = build_l1_report(_SID, logs={})
+    l1 = rec["l1"]
+    assert l1["comparability_notes"] == l1_mapper.comparability_notes(), (
+        "载荷里的审计版被换掉了 —— 核对口径的人要能查到槽键→指标名")
+    assert l1["comparability_notes_plain"] == l1_mapper.comparability_notes_plain(), (
+        "载荷里没有给人读的比较说明 —— 两个出口会各自去编一份")
+
+
+def test_the_report_prints_the_plain_comparability_notes(recordings):
+    """★ 红法:把 HTML 报告改回印 `comparability_notes` ⟹ 这里红。
+
+    与 `test_dropped_slot_reasons_in_the_report_are_plain_chinese` 同一个理由:
+    交付物正文里不该出现 `connective_density → discourse_marker_rate` 这种串。
+    """
+    html = ReportGenerator(output_dir=str(recordings)).generate_report(_SID)
+    assert html, "报告没生成 —— 本测试的前提不成立"
+    body = _text_of(open(html, encoding="utf-8").read())
+    assert "不可相减" in body, "比较陷阱那段没进报告 —— 本测试退化为空断言"
+    for line in l1_mapper.comparability_notes_plain():
+        assert line[:14] in body, f"给人读的比较说明没进报告:{line}"
