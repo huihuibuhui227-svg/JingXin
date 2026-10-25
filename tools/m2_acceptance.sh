@@ -16,7 +16,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/jx_env.sh"
 PY="$JX_PY"
 
 ok()  { printf '  \033[32m✓\033[0m %s\n' "$1"; }
-bad() { printf '  \033[31m✗\033[0m %s\n' "$1"; }
+# 判红要真的判红(2026-10-25):旧版 `bad()` 只打一行红字,而结尾的 `exit $RC`
+# 只装了**第 ⑤ 步**的结果 ⟹ 第 ①②③④ 步挂多少条,退出码照样是 0。
+# 与 m26/t7 同一天发现的同一形态(m26 最糟:结尾直接说"全部通过")。
+FAIL=0
+bad() { printf '  \033[31m✗\033[0m %s\n' "$1"; FAIL=1; }
 h()   { printf '\n\033[1m── %s ──\033[0m\n' "$1"; }
 
 jx_require JX_FACE_FRAME "验收用的面部帧"; jx_require JX_GESTURE_FRAME "验收用的手势帧"
@@ -65,7 +69,14 @@ for m in face_au_log interview_emotion_log gesture_emotion_log; do
 done
 
 h "⑤ 出报告,并断言覆盖 ≠ 0、且点名的是这一场"
-$PY -m report_frontend.report_generator --session-id "$SID" 2>&1 | grep -E "目标会话|📥|⚠️" | sed 's/^/  /'
+# ⚠️ 输出先落文件再 grep,不直接 `| grep`(2026-10-25):
+#   `report_generator` 会 `webbrowser.open`,而它可能拉起的子进程会继承 stdout
+#   ⟹ 与 m2 第 24 行同族的"管道等不到 EOF"。落文件就没有 EOF 可等。
+#   同时也拿到**生成器自己的退出码**(它没产出报告时是 1,见 report_generator.main)。
+$PY -m report_frontend.report_generator --session-id "$SID" > /tmp/m2_report.log 2>&1
+GEN_RC=$?
+grep -E "目标会话|📥|⚠️|✅|❌" /tmp/m2_report.log | sed 's/^/  /'
+[ "$GEN_RC" = 0 ] && ok "生成器退出码 0" || bad "生成器退出码 $GEN_RC(没产出报告)"
 REPORT=$(ls -t data/output/Research_Assessment_Report_*.html | head -1)
 $PY - "$REPORT" "$SID" <<'PY'
 import re, sys
@@ -95,4 +106,12 @@ h "完成"
 echo "  本次 SID: $SID"
 echo "  停服务:   for p in 8000 8001 8002 5000 5173; do fuser -k \$p/tcp; done"
 echo "  ⚠️ 这个脚本验的是**契约层**(按前端的调用顺序)。真正点界面那半要你在浏览器里做。"
-exit $RC
+# 退出码 = 第 ⑤ 步的报告断言 AND 前面每一步累积的 FAIL。
+# (旧版只有 `exit $RC`,所以第 ①②③④ 步挂多少条都是 0 —— 与 m26/t7 同一形态。)
+[ "$RC" = 0 ] || FAIL=1
+if [ "$FAIL" = 0 ]; then
+  echo "  M2 验收通过"
+else
+  echo "  ★ M2 验收**没过** —— 见上面带 ✗ 的行"
+fi
+exit $FAIL

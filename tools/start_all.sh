@@ -45,7 +45,17 @@ start() {  # start <port> <desc> <cwd> <cmd...>
   # ★ 必须 `setsid`:否则这些服务留在**调用方的进程组**里 —— 终端一 Ctrl-Z、
   #   或被父进程清理时,它们会变成 T 态(端口在听却不回话,看着像崩溃)甚至直接死。
   #   2026-09-27 实测:不带 setsid 时,起完的五个服务在父 shell 退出后全部消失。
-  ( cd "$cwd" && setsid "$@" > "/tmp/jx_$port.log" 2>&1 < /dev/null & )
+  #
+  # ⚠️ 重定向必须加在**整组外面**,不能只加在 `setsid` 上(2026-10-25 实测)。
+  #   旧写法 `( cd "$cwd" && setsid "$@" > log 2>&1 </dev/null & )` 里,`&&` 那条
+  #   后台列表还多套一层子 shell,它**继承了调用方的 stdout**,且要等 setsid 起完才退。
+  #   外层 `( )` 立刻返回、脚本退出,它成了孤儿 —— 仍然握着那条管道的写端 ⟹
+  #   调用方 `bash tools/start_all.sh | grep ...` **永远等不到 EOF**。
+  #   这正是 m2_acceptance.sh 第 24 行,也是《开发者文档》§8 第 12 条那条"已知卡死点"。
+  #   隔离实验(`&&` 是唯一变量,三轮稳定):无 cd 的 `setsid ... &` 立刻返回;
+  #   带 `cd /tmp &&` 的不返回;带 `cd /tmp;` 的立刻返回。
+  #   钉子:`tests/test_launcher_does_not_hold_the_callers_pipe.py`。
+  ( cd "$cwd" && setsid "$@" ) > "/tmp/jx_$port.log" 2>&1 < /dev/null &
   UP+=("$desc(:$port)")
 }
 

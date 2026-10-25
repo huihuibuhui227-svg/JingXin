@@ -34,7 +34,7 @@ ROOT = Path(__file__).resolve().parent.parent
 TOOLS = ROOT / "tools"
 
 #: 真·端到端验收脚本(会用 curl 打服务、会判红)。`start_all.sh` / `jx_*.sh` 不是验收。
-ACCEPTANCE = ("m21_acceptance.sh", "m2_acceptance.sh", "m26_media_acceptance.sh",
+ACCEPTANCE = ("m2_acceptance.sh", "m21_acceptance.sh", "m26_media_acceptance.sh",
               "t7_acceptance.sh")
 
 #: 十位数以上、形似 Unix 秒的整数字面量。**只查会执行的行**(注释里的示例不算)。
@@ -87,3 +87,34 @@ def test_no_acceptance_script_hardcodes_a_wall_clock_timestamp():
                 bad.append(f"{name}:{lineno} 写死了时间戳 {m.group(0)} —— {line.strip()}")
     assert not bad, ("以下时间戳会随日期过期(量程闸是「离此刻 1 天内」):\n  "
                      + "\n  ".join(bad))
+
+
+def test_every_bad_call_feeds_the_exit_code():
+    """★ 红法:把 `bad()` 里的 `FAIL=1` 删掉 ⟹ 这里红。
+
+    `exit $FAIL` 只在**有东西真的置位**时才有意义。2026-10-25 发现 `m2_acceptance.sh`
+    是这条的另一半:`bad()` 只打一行红字,结尾是 `exit $RC` —— 而 `$RC` 只装了
+    **第 ⑤ 步**的结果 ⟹ 第 ①②③④ 步挂多少条,退出码都是 0。
+    (与 m26/t7 同一天、同一形态;m26 最糟:结尾直接说"全部冒烟判据通过"。)
+
+    判据:凡是调用了 `bad` 的脚本,`bad()` 的定义里必须**置位**某个变量
+    (形如 `X=1`),且最后一行 `exit` 引用的正是那个变量。
+    """
+    problems = []
+    for name in ACCEPTANCE:
+        text = _text(name)
+        if not re.search(r"(?m)^\s*bad\(\)", text):
+            continue  # 不用 bad 的脚本(如 m21 直接 echo)由上面那条管
+        m = re.search(r"(?ms)^bad\(\)\s*\{(.*?)^\}", text) or \
+            re.search(r"(?m)^bad\(\)\s*\{(.*)\}\s*$", text)
+        assert m, f"{name} 有 `bad()` 调用但找不到它的定义"
+        body = m.group(1)
+        setter = re.search(r"\b([A-Za-z_]\w*)=1\b", body)
+        if not setter:
+            problems.append(f"{name}: `bad()` 只打印,不置位 ⟹ 失败不影响退出码")
+            continue
+        var = setter.group(1)
+        last = _code_lines(text)[-1][1]
+        if var not in last:
+            problems.append(f"{name}: `bad()` 置位 {var},但结尾 `{last.strip()}` 没引用它")
+    assert not problems, "以下脚本的失败判定传不到退出码:\n  " + "\n  ".join(problems)
