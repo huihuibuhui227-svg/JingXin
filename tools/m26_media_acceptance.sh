@@ -7,11 +7,17 @@
 # 把 POST /session/{sid}/media、POST /session/{sid}/question 与收尾对账串起来跑通。
 # **它不替代 §7.7。**
 set -uo pipefail
-PY=~/miniconda3/envs/jingxin/bin/python
+# ⚠️ 解释器与仓库根**都从 `jx_env.sh` 解析**,不在这里写死。
+#    2026-10-25 实测:此前写的是 `PY=~/miniconda3/envs/jingxin/bin/python` +
+#    `cd ~/jingxin`,而服务器上前者是 `~/anaconda3/...`、后者是 `~/JingXin/jingxin`
+#    ⟹ 脚本第一行就废,而报错落在「① 原生视频上传 ❌ 没存下」上,看着像上传坏了。
+#    钉子:`tests/test_tools_resolve_paths_by_machine.py`。
+source "$(dirname "${BASH_SOURCE[0]}")/jx_env.sh"
+PY="$JX_PY"
 WORK=$(mktemp -d); PORT=8093
 export JINGXIN_RECORDINGS_DIR="$WORK/rec" JINGXIN_DATA_DIR="$WORK/data"
 mkdir -p "$JINGXIN_RECORDINGS_DIR" "$JINGXIN_DATA_DIR"
-cd ~/jingxin
+cd "$REPO"
 $PY -m uvicorn voice_interaction.api.app:app --host 127.0.0.1 --port $PORT \
   > "$WORK/server.log" 2>&1 &
 SRV=$!
