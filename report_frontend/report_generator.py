@@ -6,6 +6,7 @@ import pandas as pd
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 from .data_loader import LogDataLoader
+from . import l1_mapper
 from .l1_report import build_l1_report
 from .visualizer import ReportVisualizer
 
@@ -324,6 +325,42 @@ class ReportGenerator:
         # 于是同一批字符串会在报告里出现两遍。缺口现在只有逐维这一处来源(带维度归属)。
         return "".join(parts)
 
+    def _render_vanished_dimensions(self, result: Dict[str, Any]) -> str:
+        """整维消失的那一维要**说出来** —— 前端说了,交付物也得说。
+
+        L1 的构念对账判定 `行为表现活跃度` 的三个槽没有同构念的 L1 指标 ⟹
+        它整个不进 `dimensions`,而进 `vanished_dimensions`。前端 `ReportViewer`
+        为此专门加了一块卡片,注释原话是「不渲染的话报告会**悄悄少一块**,
+        而少的那块恰好是『测不到的东西』—— 那是最该说出来的部分」。
+
+        但本文件原先只遍历 `result["dimensions"]` ⟹ **HTML 报告里那一维凭空消失**。
+        同一场会话:界面上说"这一维整维未出",下载的 HTML 说"只有四个维度"。
+
+        ⚠️ 措辞必须是「本层不测」而不是「本场没测到」—— 后者让人等下一场,
+        前者才是实话。逐槽理由走 `l1_mapper.drop_reason`(人话那层),
+        槽名走 `slot_label`,内部键不出现在交付物里。
+        钉子:`tests/test_html_report_shows_vanished_dimensions.py`。
+        """
+        vanished = result.get("vanished_dimensions") or []
+        if not vanished:
+            return ""
+        items = "".join(
+            f"<li><strong>{v['display_name']}</strong>"
+            f"(声明了 {v['n_slots']} 个指标槽,全部没有同构念的 L1 指标)"
+            f"<ul>" + "".join(
+                f"<li>{l1_mapper.slot_label(d['slot'])}:本层不测这一条 —— "
+                f"{l1_mapper.drop_reason(d['slot'])}</li>"
+                for d in v.get("dropped", [])) + "</ul></li>"
+            for v in vanished)
+        return f"""
+        <div id="vanished-dimensions">
+            <h3>整维未出(当前管线没有对应的可测量)</h3>
+            <p>下面这一维<strong>不是本场没测到</strong>,是它要量的东西当前管线都不测 ——
+            再采一百次也不会有,别等它。</p>
+            <ul>{items}</ul>
+        </div>
+        """
+
     def _build_html_report(self, result: Dict[str, Any], chart_paths: Dict[str, Any],
                            features: Dict[str, Any], data: Dict[str, pd.DataFrame],
                            static_images: List[str],
@@ -410,6 +447,7 @@ class ReportGenerator:
                 <!-- 逐维观测明细:过门指标 + 未过门缺口 -->
                 <div class="card">
                     <h2>📑 行为指标观测明细</h2>
+                    {self._render_vanished_dimensions(result)}
                     {deep_analysis_html}
                 </div>
 

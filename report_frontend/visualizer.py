@@ -74,6 +74,13 @@ class ReportVisualizer:
         passed_counts = []
         slot_counts = []
 
+        # 整维消失的那些维度:轴上要写**它自己的名字**,不能写「未知」。
+        # 「未知」读起来是"这一场没测到"(⟹ 等下一场),而真相是"这一维量的东西
+        # 当前管线都不测"(⟹ 别再等)。两种话在图上长得一样,含义相反。
+        # 钉子:`tests/test_html_report_shows_vanished_dimensions.py`。
+        vanished_names = {v["key"]: v["display_name"]
+                          for v in (result.get('vanished_dimensions') or [])}
+
         dim_order = ['logical_thinking', 'stress_resilience', 'communication_fluency', 'confidence_level',
                      'cognitive_efficiency']
 
@@ -86,7 +93,9 @@ class ReportVisualizer:
                 passed_counts.append(int(got))
                 slot_counts.append(int(total))
             else:
-                categories.append("未知")
+                # 消失的维度也画一根轴(值 0):读者要能在同一张图上看出
+                # "五个维度里有一个整维没出",而不是以为这张图只有四根轴。
+                categories.append(vanished_names.get(key, key))
                 passed_counts.append(0)
                 slot_counts.append(0)
 

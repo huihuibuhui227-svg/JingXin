@@ -110,6 +110,24 @@ def _gap_lines(dim) -> list[str]:
     return out
 
 
+def _printable_vanished(v: dict) -> dict:
+    """消失的维度 → 前端**能直接印**的形状。
+
+    逐槽补 `human_name`(中文槽名)与 `plain_reason`(一句话结论),
+    审计字段 `slot` / `reason` 原样保留 —— 分层,不是删掉。
+    见 `build_l1_report` 里 `vanished_dimensions` 那段说明。
+    """
+    return {
+        **v,
+        "dropped": [
+            {**d,
+             "human_name": l1_mapper.slot_label(d["slot"]),
+             "plain_reason": l1_mapper.drop_reason(d["slot"])}
+            for d in v.get("dropped", [])
+        ],
+    }
+
+
 def build_l1_report(session_id: str, logs: dict | None = None) -> dict:
     """跑一场 → `/api/report/structured` 的 `result`。"""
     result = compute_session_l1(session_id, logs=logs)
@@ -166,7 +184,13 @@ def build_l1_report(session_id: str, logs: dict | None = None) -> dict:
         "dimensions": dimensions,
         # 消失的维度必须能看见 —— 否则读者会以为"这一场没测到",而真相是
         # "这个维度量的东西当前管线都不测"。
-        "vanished_dimensions": vanished,
+        #
+        # ⚠️ 逐槽补 `human_name` / `plain_reason`(2026-10-25):前端 `ReportViewer`
+        # 直接印 `d.slot` 与 `d.reason`,而那是**审计细节** —— 内部键 + 内部指标名
+        # + markdown 星号。前端没有、也不该有槽名对照表(两张表迟早分叉),
+        # ⟹ 人话只能由载荷给。审计字段 `slot` / `reason` **原样保留**。
+        # 钉子:`tests/test_vanished_dimensions_are_printable.py`。
+        "vanished_dimensions": [_printable_vanished(v) for v in vanished],
         "summary_narrative": NO_COMPOSITE,
         "coverage": {
             "n_slots": n_slots,
