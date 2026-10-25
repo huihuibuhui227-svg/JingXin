@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import subprocess
 import threading
@@ -46,6 +47,25 @@ app.register_blueprint(recordings_browser.bp)
 # (没有把报告挪进子目录,是因为读它的地方不止这一处:面板自己的打开流程、
 #  `--session-id` 直接跑、以及 §5 的验收判据都按现在这个位置写。)
 REPORT_FOLDER = "reports"          # 前端用这个别名请求根下的报告
+
+#: 「什么算一份报告」—— **只在这里定义一次**。
+#:
+#: 根目录下混着三类产物,而它们的名字长得不像但都在 `*.html` 里:
+#:   · `Research_Assessment_Report_*.html`  14 份 —— 报告本体
+#:   · `radar_chart_*.html`                 15 份 —— 单份 4.8 MB 的 plotly 图
+#:   · `evidence_*.html`                    55 份 —— 旧引擎的逐维证据图(产出方已摘除)
+#:
+#: 这个判据此前被三处消费,而三处各写各的:`Home.tsx` 与 `ReportsList.tsx` 在前端
+#: 各自 `filter(/Assessment_Report.*\.html$/)`,而 `templates/dashboard.html`
+#: **一处都没写**。而那张卡片取 `slice(0, 6)` 且按名字**倒序** —— 小写 `r`(114)
+#: 排在大写 `R`(82)前面,所以**就算请求发出去**,那 6 个 iframe 也全是雷达图。
+#: (2026-10-26 实测:它其实连请求都没发,原因是另一个缺陷 —— `'report': ''`
+#:  被 `if (!folder) return` 当成 falsy 拦掉了,见 `dashboard.html` 的 `folderMap`。
+#:  两个缺陷叠在一起,所以此前没人发现接口这一层也错。)
+#:
+#: 判据收在后端,`/api/files/reports` 只回报告。前端那两处过滤留着是幂等的,
+#: 但事实只有这一份。
+REPORT_FILENAME_RE = re.compile(r"Assessment_Report.*\.html$", re.IGNORECASE)
 
 # 任务状态追踪
 task_status = {}
@@ -116,13 +136,19 @@ def get_files(folder_name):
 
     files = []
     for f in os.listdir(folder_path):
-        if f.lower().endswith(('.png', '.jpg', '.jpeg', '.html')):
-            files.append({
-                "name": f,
-                # URL 必须跟着**真实位置**走:别名目录下的文件在根上,
-                # 写成 /output/reports/<f> 会 404(静态路由按 OUTPUT_DIR 相对解析)
-                "url": f"{url_prefix}/{f}"
-            })
+        if not f.lower().endswith(('.png', '.jpg', '.jpeg', '.html')):
+            continue
+        # 报告别名只回**报告**。根目录下还躺着 radar_chart_*.html(每份 4.8 MB)
+        # 与 evidence_*.html(旧引擎证据图),它们也叫 .html —— 原样返回的话,
+        # 面板那张卡片取前 6 个 iframe 全是雷达图(见 `REPORT_FILENAME_RE` 上方说明)。
+        if folder_name == REPORT_FOLDER and not REPORT_FILENAME_RE.search(f):
+            continue
+        files.append({
+            "name": f,
+            # URL 必须跟着**真实位置**走:别名目录下的文件在根上,
+            # 写成 /output/reports/<f> 会 404(静态路由按 OUTPUT_DIR 相对解析)
+            "url": f"{url_prefix}/{f}"
+        })
     files.sort(key=lambda x: x['name'], reverse=True)
     return jsonify(files)
 

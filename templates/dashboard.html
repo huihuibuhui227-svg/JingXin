@@ -104,11 +104,18 @@
         // 加载文件列表
         async function loadFiles(module) {
             // 映射模块名到文件夹名
+            // ⚠️ `'report'` 的值**必须非空**。它原来是 `''`(注释写着"报告直接在
+            //    output 根目录"),而下一行是 `if (!folder) return` —— 空字符串是
+            //    falsy,于是这张卡片的 gallery 永远停在「加载中...」,**一次 fetch
+            //    都没发过**(2026-10-26 打开面板核对时发现:此前以为它只是装错了
+            //    文件,实际是根本没装)。
+            //    根目录的别名是 `reports`(见 `app.REPORT_FOLDER`),不是 `report` ——
+            //    模块名叫 `report` 是给按钮用的,两者不同名。
             const folderMap = {
                 'face': 'face_expression',
                 'gesture': 'gesture_analysis',
                 'voice': 'voice_interaction',
-                'report': '' // 报告直接在 output 根目录或特定逻辑
+                'report': 'reports'
             };
             
             const folder = folderMap[module];
