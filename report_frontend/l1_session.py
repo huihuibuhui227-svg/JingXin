@@ -296,7 +296,12 @@ def compute_session_l1(session_id: str,
         #   "没有时间原点"这一个原因把 V 族**全部**报成 `modality_missing`,
         #   连序列那 8 条一起 —— 而下面的正路分支是传的。2026-10-24 由
         #   `test_missing_voice_log_gap_counts_the_series_that_still_produced` 抓出。
-        _series = voice_series.load_series(session_id)
+        # ★ 用 `ensure_series` 而不是 `load_series`(2026-10-26):缓存没生成时
+        #   报告路径**自己提一次**(34 秒),而不是让读者去跑一个他不知道的工具。
+        #   实测那一场:6/14 → 8/14、语音 4/12 → 12/12、沟通表达流畅度 0/3 → 2/3。
+        #   边界(不许改素材、没有音频不试、提取失败照出报告)写在
+        #   `voice_series.ensure_series` 的 docstring 里。
+        _series = voice_series.ensure_series(session_id)
         inds = (l1_face.compute_face_indicators(None, ws, None)
                 + l1_gesture.compute_gesture_indicators(None, ws, None)
                 + l1_voice.compute_voice_indicators(
@@ -426,7 +431,10 @@ def compute_session_l1(session_id: str,
     # 否则会报"没有 voice 日志"而其实有(踩过,12 条全被误判成 modality_missing)。
     voice = _pick_voice(logs)
     # 序列是**派生缓存**:读不到就返回 None,那 8 条退回 `not_stored`(不猜)。
-    series = voice_series.load_series(session_id)
+    # ⚠️ 2026-10-26:改成 `ensure_series` —— 缓存没生成时**当场提一次**。
+    #   理由见 `voice_series.ensure_series` 的 docstring(使用者那一场
+    #   「沟通表达流畅度」整维证据不足,只是因为这一步没人做)。
+    series = voice_series.ensure_series(session_id)
     # 语音**日志**没有、但整场录音重算出的序列在 ⟹ voice 模态其实在。
     # 补一条时间轴,否则质量报告的硬不变量会(正确地)拦下"有值但模态不存在"。
     if "voice" not in tl.modalities and series:

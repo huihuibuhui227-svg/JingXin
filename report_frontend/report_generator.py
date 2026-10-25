@@ -7,9 +7,8 @@ import pandas as pd
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 from .data_loader import LogDataLoader
-from . import l1_mapper
+from . import l1_mapper, l1_quality
 from .l1_report import build_l1_report
-from .visualizer import ReportVisualizer
 
 
 #: 维度数 → 中文数字。只到六维就够(当前最多五维,消失一维后四维);
@@ -61,6 +60,75 @@ def _interval_text(interval) -> str:
     return f"{interval[0]} – {interval[1]}"
 
 
+def _fmt_compact(v) -> str:
+    """**图表标签**用的短数字 —— 末尾的 0 去掉,位数按量级选。
+
+    与 `_fmt_num` 的区别只在"要不要保留定长小数":表格里定长便于纵向对齐,
+    而图上的直接标注是散文式的(`0.25` 比 `0.2500` 好读,`3` 比 `3.000` 好读)。
+
+    ⚠️ 同样**只用于渲染**,载荷里的 `raw_value` 保持原始 float。
+    """
+    if v is None:
+        return "—"
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return str(v)
+    if x != x:                        # NaN
+        return "—"
+    if x == 0:
+        return "0"
+    a = abs(x)
+    if a >= 1000:
+        s = f"{x:.0f}"
+    elif a >= 10:
+        s = f"{x:.1f}"
+    elif a >= 1:
+        s = f"{x:.2f}"
+    elif a >= 0.01:
+        s = f"{x:.3f}"
+    elif a >= 0.0001:
+        s = f"{x:.4f}"
+    else:
+        return f"{x:.2e}"
+    return s.rstrip("0").rstrip(".") if "." in s else s
+
+
+def _zero_note(item: Dict[str, Any]) -> str:
+    """一个 **0 值**旁边那句解释。非 0 返回空串。
+
+    ## 为什么 0 必须解释(2026-10-26 实测)
+
+    使用者那一场里 `smile_ratio` 是 `0.0`、`n_valid` 是 64 —— 表格上就印一个 `0`。
+    读者看到它会有两种读法,而两种都与事实不符:
+
+    * 「没测到」—— 不,测了 64 帧,分母是 542 帧;
+    * 「测出来是零」—— 也不精确,它是**一次都没有越过阈值**。
+
+    这两句对"这一场能说明什么"的含义完全不同,所以 0 旁边必须带一句人话。
+    ⚠️ 只对**真测过**的 0 说这句话;`n_valid` 为 0 的 0 是"没测到",那由缺口行负责,
+    不归这里(两处都说就成了同一件事说两遍)。
+    """
+    v = item.get("raw_value")
+    if v is None:
+        return ""
+    try:
+        if float(v) != 0:
+            return ""
+    except (TypeError, ValueError):
+        return ""
+    n = item.get("n_valid")
+    if n is None:
+        return ""
+    try:
+        n = int(n)
+    except (TypeError, ValueError):
+        return ""
+    if n <= 0:
+        return ""
+    return f"<span class=\"zero-note\">看过 {n} 个有效观测，一次也没超过阈值</span>"
+
+
 #: 模态键 → 报告里给人看的名字(键名来自 data_loader 的统一化,见那边的 key 映射)。
 #:
 #: ⚠️ `voice` 这一项是**模态级**名字,与上面两个文件名不同:日志按「面试 / 科研」
@@ -80,6 +148,78 @@ _LOG_KEY_TO_MODALITY = {
     "voice_interview": "voice",
     "voice_research": "voice",
 }
+
+
+#: 交付物的样式表。**与正文分开** —— 正文是 f-string,里面每个 `{` 都要转义,
+#: 把 CSS 单独放一份就不用给几十个大括号加反斜杠。
+#:
+#: 配色按 dataviz 的规矩来:一个蓝色系列 + 墨色文字,状态色不参与系列着色;
+#: 明暗两套**各自取步**(`#3987e5` / `#d95926` 是按深色底重新验过的,
+#: 不是把浅色那套自动翻转)。文字只用墨色三档,不穿系列色 —— 读者不该
+#: 靠颜色判断哪句话是"数据"。
+_CSS = """
+:root{
+  color-scheme: light dark;
+  --page:#f9f9f7; --surface:#fcfcfb;
+  --ink:#0b0b0b; --ink-2:#52514e; --ink-3:#898781;
+  --rule:#e1e0d9; --track:#e8e7e0;
+  --series-1:#2a78d6; --series-2:#eb6834;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --page:#141413; --surface:#1b1b19;
+         --ink:#f3f2ed; --ink-2:#bab8b1; --ink-3:#8c8a84;
+         --rule:#302f2b; --track:#2a2926;
+         --series-1:#3987e5; --series-2:#d95926; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--ink);
+  font-family:"Noto Sans SC","Microsoft YaHei",system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-size:15px;line-height:1.75;-webkit-font-smoothing:antialiased}
+.wrap{max-width:860px;margin:0 auto;padding:48px 24px 72px}
+header{border-bottom:1px solid var(--rule);padding-bottom:20px;margin-bottom:32px}
+h1{font-size:24px;line-height:1.3;margin:0 0 10px;font-weight:650;letter-spacing:.01em}
+.meta{color:var(--ink-3);font-size:13px}
+.sources{margin-top:14px;font-size:13px;color:var(--ink-2)}
+h2{font-size:17px;font-weight:650;margin:44px 0 14px}
+h3{font-size:15px;font-weight:600;margin:26px 0 8px}
+p{margin:0 0 12px}
+.lead{font-size:16.5px;line-height:1.7;max-width:44em;margin-bottom:22px}
+.hero{display:flex;align-items:baseline;gap:14px;margin:0 0 10px;flex-wrap:wrap}
+.cover-number{font-size:52px;font-weight:700;letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums;line-height:1}
+.hero-cap{color:var(--ink-2);font-size:14px}
+figure{margin:18px 0 6px}
+figcaption{color:var(--ink-3);font-size:12.5px;margin-top:10px}
+svg{display:block;width:100%;height:auto;overflow:visible}
+.label{fill:var(--ink-2);font-size:12.5px}
+.value{fill:var(--ink);font-size:12.5px;font-weight:600;font-variant-numeric:tabular-nums}
+.tick{fill:var(--ink-3);font-size:11px;font-variant-numeric:tabular-nums}
+.track{fill:var(--track)}
+.bar{fill:var(--series-1)}
+.range{stroke:var(--ink-3);stroke-width:2;stroke-linecap:round;opacity:.5}
+.median{fill:var(--ink)}
+.flat-note{fill:var(--ink-3);font-size:11px}
+.axis{stroke:var(--rule);stroke-width:1}
+table{border-collapse:collapse;width:100%;font-size:13.5px;margin:10px 0 16px}
+th,td{text-align:left;padding:7px 12px 7px 0;border-bottom:1px solid var(--rule);
+  vertical-align:top}
+th{color:var(--ink-3);font-weight:600;font-size:12.5px}
+td.num{font-variant-numeric:tabular-nums}
+.zero-note{display:block;color:var(--ink-3);font-size:12px;margin-top:2px}
+.note{color:var(--ink-2);font-size:13px}
+.gaps{color:var(--ink-2);font-size:13.5px}
+.gaps ul,.l1-audit ul{margin:6px 0 16px;padding-left:20px}
+.l1-audit{border-top:1px solid var(--rule);padding-top:14px;margin-top:22px;
+  font-size:13.5px;color:var(--ink-2)}
+.dim + .dim{border-top:1px solid var(--rule);padding-top:14px;margin-top:22px}
+details{border-top:1px solid var(--rule);margin-top:40px;padding-top:16px;
+  font-size:13.5px;color:var(--ink-2)}
+summary{cursor:pointer;color:var(--ink-2);font-weight:600;font-size:14px}
+footer{margin-top:52px;padding-top:16px;border-top:1px solid var(--rule);
+  color:var(--ink-3);font-size:12.5px}
+@media (max-width:560px){.wrap{padding:28px 16px 48px}.cover-number{font-size:40px}
+  table{font-size:12.5px}}
+"""
 
 
 def sources_disclosure(sources: Dict[str, Dict], target: Optional[str] = None,
@@ -291,13 +431,19 @@ class ReportGenerator:
             #   对照该在**数据层**做(`?engine=legacy` 仍在),不该让交付物分叉。
             #   钉子:`tests/test_html_report_uses_the_l1_engine.py`。
             result = build_l1_report(loader.target_session, logs=data)
-
-            viz = ReportVisualizer(output_dir=self.output_dir)
-            chart_paths = viz.generate_all_charts(result, df_face=data.get('face'))
             static_images = self._scan_static_images()
 
-            # `features` 是旧引擎的中间产物;L1 载荷自带逐槽值,渲染层不再需要它。
-            html_content = self._build_html_report(result, chart_paths, {}, data,
+            # ⚠️ 2026-10-26:`ReportVisualizer` 不再参与交付物。
+            #
+            # 它只产一张雷达图,半径是「每个维度过了几个槽」(3/2/0/0/1) ——
+            # 那不是任何行为量,而且落成 `radar_chart_<epoch>.html`(单份 4.8 MB,
+            # 内含整包 plotly),报告再用 `<iframe>` 引它 ⟹ **报告一拷走图就没了**。
+            # 使用者原话:「就一个雷达图,完全没有分析」。
+            #
+            # 现在图在 `_build_html_report` 里用内联 SVG 画:一份报告就是一个文件。
+            # `visualizer.py` 本身留着(它的单元测试还在,`?engine=legacy` 的对照
+            # 与历史产物清理也要它),只是**交付物这条路不再经过它**。
+            html_content = self._build_html_report(result, {}, {}, data,
                                                    static_images,
                                                    sources=loader.selected_sessions,
                                                    target=loader.target_session)
@@ -341,14 +487,12 @@ class ReportGenerator:
             # 与批量路径同一个引擎(理由见 `generate_report` 那段注释)。
             # 实时路径的 `logs` 来自三个服务的 `/summary`,形状与读盘那份相同。
             result = build_l1_report(session_id, logs=data)
-
-            viz = ReportVisualizer(output_dir=self.output_dir)
-            chart_paths = viz.generate_all_charts(result, df_face=data.get('face'))
             static_images = self._scan_static_images()
 
+            # 与批量路径同一条:图在报告里内联画(理由见 `generate_report` 那段)。
             # 实时路径的模态是**按这一个人的 session_id 去内存里取的**,不存在"每模态取最新"
             # 那种跨场拼接;所以来源就是这一个 id(逐个列出真正取到数据的模态)。
-            html_content = self._build_html_report(result, chart_paths, {}, data,
+            html_content = self._build_html_report(result, {}, {}, data,
                                                    static_images,
                                                    sources=live_sources(session_id, data),
                                                    target=session_id)
@@ -398,17 +542,23 @@ class ReportGenerator:
             """
 
         rows = "".join(
-            f"<tr><td>{e['human_name']}</td><td>{_fmt_num(e['raw_value'])}</td>"
+            f"<tr><td>{e['human_name']}</td>"
+            f"<td class=\"num\">{_fmt_num(e['raw_value'])}{_zero_note(e)}</td>"
             f"<td>{_interval_text(e.get('observed_interval'))}</td>"
-            f"<td>{e.get('n_valid', '—')}</td></tr>"
+            f"<td class=\"num\">{e.get('n_valid', '—')}</td></tr>"
             for e in dim["evidence_chain"]
         )
+        # 先给人话,再给表。表格是核对用的,而"这一维量到了哪几条"一句话就说完 ——
+        # 读者不该为了知道"有没有测到东西"去数表格行数(使用者原话:
+        # 「完全没有分析」;实测那版全篇只有三列表格)。
+        names = "、".join(str(e["human_name"]) for e in dim["evidence_chain"])
         gaps = "".join(f"<li>{g}</li>" for g in dim.get("evidence_gaps", []))
         gaps_block = f"<p>未过门的指标：</p><ul>{gaps}</ul>" if gaps else ""
         return f"""
         <h3>{dim['display_name']}</h3>
         <p>过门指标 {dim['matched_indicators']}；置信度：<strong>{dim['confidence']}</strong>。
         （该维度目前无独立效标，仅供行为描述）</p>
+        <p class="note">量到了这几条：{names}。</p>
         <table><thead><tr><th>指标</th><th>原始值</th><th>本场会话内观测区间</th>
         <th>有效样本量</th></tr></thead>
         <tbody>{rows}</tbody></table>
@@ -471,7 +621,7 @@ class ReportGenerator:
         """
 
     def _coverage_heading(self, result: Dict[str, Any]) -> str:
-        """「本次观测覆盖」那张雷达图的标题 —— **维度数从载荷算,不是字面量**。
+        """「本次观测覆盖」那张图的标题 —— **维度数从载荷算,不是字面量**。
 
         这里原先写死 `📊 五维证据覆盖`。旧引擎给满五维,所以那句一直对;
         L1 引擎下 `行为表现活跃度` 整维消失 ⟹ 正文里只有**四个**维度,
@@ -480,11 +630,228 @@ class ReportGenerator:
         ⚠️ 数的是 `dimensions`,**不含** `vanished_dimensions`:消失的那一维
         在正文里另有一块说明(「本层不测」),把它算进"本次观测"会让读者
         以为它出了值。钉子:`tests/test_the_report_stops_saying_wrong_things.py`。
+
+        ⚠️ 2026-10-26 摘掉了开头的 📊:标题里塞 emoji 是模板腔,而且这一节
+        现在是一张真图(内联 SVG),不需要用符号冒充图标。
         """
         n = len(result.get("dimensions") or {})
-        return f"📊 {_CN_NUM.get(n, n)}维证据覆盖（{n} 个维度）"
+        return f"{_CN_NUM.get(n, n)}维证据覆盖（{n} 个维度）"
 
-    def _render_l1_audit_text(self, result: Dict[str, Any]) -> str:
+    def _lead_sentence(self, result: Dict[str, Any]) -> str:
+        """报告开头那句人话结论 —— **每一个数都从载荷算**,不写固定文案。
+
+        ## 为什么要它(2026-10-26)
+
+        使用者原话:「完全没有分析」。实测那版报告全篇只有三列表格
+        (原始值 / 未采集到会话内变异信息 / 有效样本量),读者读完不知道
+        "这一场到底量到了什么"。
+
+        结论句要回答的正是那件事,而且必须**跟着载荷变**:
+        换一份覆盖数不同的载荷,这句话就得跟着换。判据是两条载荷渲染出的
+        正文**逐字不同**(`tests/test_report_says_something_to_a_person.py`)——
+        渲染层自己编一句固定文案,载荷一变它就是假话(本仓记过多次的形态)。
+
+        ⚠️ 不评级、不给分:这里说的是"量到了几条",不是"这个人怎么样"。
+        """
+        cov = result.get("coverage") or {}
+        dims = result.get("dimensions") or {}
+        n_passed = cov.get("n_passed", 0)
+        n_slots = cov.get("n_slots", 0)
+        n_dropped = cov.get("n_dropped", 0)
+
+        def _pair(dim: Dict[str, Any]) -> tuple[int, int]:
+            got, _, total = str(dim.get("matched_indicators", "0/0")).partition("/")
+            try:
+                return int(got), int(total)
+            except (TypeError, ValueError):
+                return 0, 0
+
+        # 最完整 / 最薄的两维 —— 用 `matched_indicators` 的分子比分母,
+        # 不用绝对条数(维度声明的槽数不同,比绝对条数会把"槽多"读成"量得多")。
+        ranked = sorted(dims.values(), key=lambda d: (_pair(d)[0] / (_pair(d)[1] or 1)),
+                        reverse=True)
+        sentences: list[str] = []
+
+        if not dims:
+            sentences.append("这一场没有任何维度产出可核对的行为量。")
+        elif not n_passed:
+            sentences.append(
+                f"这一场在 {len(dims)} 个维度上一个指标槽都没过证据门"
+                f"(共 {n_slots} 个槽)—— 不是「没测」,是测到的还不足以支撑读数,"
+                f"逐条原因见下。")
+        else:
+            best = ranked[0]
+            b_got, b_tot = _pair(best)
+            sentences.append(
+                f"这一场在 {len(dims)} 个维度上量到了 <strong>{n_passed} / {n_slots}</strong> "
+                f"个指标槽,其中最完整的是「{best.get('display_name', '')}」"
+                f"({b_got} / {b_tot})。")
+            if len(ranked) > 1:
+                worst = ranked[-1]
+                w_got, w_tot = _pair(worst)
+                if (w_got, w_tot) != (b_got, b_tot):
+                    sentences.append(
+                        f"最薄的是「{worst.get('display_name', '')}」({w_got} / {w_tot})。")
+
+        if n_dropped:
+            sentences.append(
+                f"另有 {n_dropped} 个槽在本层没有对应的可测量,已整条剔除 —— "
+                f"它们不是「这一场没测到」,见下方「整维未出」。")
+        cap = cov.get("confidence_cap")
+        if cap and cap != "无":
+            sentences.append(f"所有读数的置信度上限是「{cap}」。")
+        return "".join(sentences)
+
+    def _figure_coverage(self, result: Dict[str, Any]) -> str:
+        """图一:**每个维度量到了几条** —— 横向条形,一条一维。
+
+        ## 为什么这张图该存在
+
+        原先那张雷达图的半径是"每个维度过了几个槽",即同一个数换了张皮。
+        雷达图只在"形状"本身有意义时才成立;这里的维度之间没有可比的量纲
+        (维度声明的槽数不同),所以正确的形态是**条形** —— 它回答"哪一维量得全、
+        哪一维薄",一眼看完。
+
+        单系列 ⟹ **不要图例**(标题已经说了这是什么);数值直接标在条尾
+        (dataviz:选择性直接标注,不给每个点都写数)。
+
+        返回内联 SVG 字符串;**不落盘、不引外部文件** —— 报告拷走图还在。
+        """
+        dims = result.get("dimensions") or {}
+        if not dims:
+            return ""
+        rows: list[tuple[str, int, int]] = []
+        for dim in dims.values():
+            got, _, total = str(dim.get("matched_indicators", "0/0")).partition("/")
+            try:
+                rows.append((str(dim.get("display_name", "")), int(got), int(total)))
+            except (TypeError, ValueError):
+                rows.append((str(dim.get("display_name", "")), 0, 0))
+
+        label_w, bar_w, row_h, pad_top = 132, 380, 34, 10
+        width = label_w + bar_w + 96
+        height = pad_top * 2 + row_h * len(rows)
+        parts: list[str] = [
+            f'<svg viewBox="0 0 {width} {height}" role="img" '
+            f'aria-label="每个维度通过证据门的指标槽数">']
+        for i, (name, got, total) in enumerate(rows):
+            y = pad_top + i * row_h
+            cy = y + row_h / 2
+            ratio = (got / total) if total else 0.0
+            w = max(2.0, bar_w * ratio) if got else 0.0
+            parts.append(f'<text class="label" x="0" y="{cy + 4:.1f}">{name}</text>')
+            # 轨道画满整条 —— 读者要能看出"分母有多长",否则 3/3 与 3/14 长得一样。
+            parts.append(f'<rect class="track" x="{label_w}" y="{cy - 5:.1f}" '
+                         f'width="{bar_w}" height="10" rx="4"/>')
+            if w:
+                parts.append(f'<rect class="bar" x="{label_w}" y="{cy - 5:.1f}" '
+                             f'width="{w:.1f}" height="10" rx="4"/>')
+            parts.append(f'<text class="value" x="{label_w + bar_w + 10}" '
+                         f'y="{cy + 4:.1f}">{got} / {total}</text>')
+        parts.append("</svg>")
+        return "".join(parts)
+
+    def _figure_dispersion(self, result: Dict[str, Any]) -> str:
+        """图二:**逐题离散度** —— 每条指标在八道题之间差多少。
+
+        ## 数据早就在载荷里,报告从没印过
+
+        `l1.dispersion` 是 20 条指标的逐题中位 / IQR / 最小 / 最大,
+        `/api/report/structured` 一直在发,前端 `L1IndicatorTable` 一直在渲染 ——
+        只有 HTML 交付物一个字都没提。它回答的正是读者最想问的那件事:
+        **这个读数稳不稳**(同一场里,换个题目它变不变)。
+
+        ## 为什么是"小倍数"而不是一张散点
+
+        20 条指标的单位各不相同(占比、次/分钟、赫兹、秒)。**放在同一条 x 轴上
+        就是双轴的变种** —— 位置毫无意义。所以每行各自成轴:左端是本场最小值、
+        右端是最大值,刻度就标在两端。⟹ 行与行之间**只比形状,不比长短**,
+        这句话必须写在图注里,否则读者会横向比。
+
+        ⚠️ 每个数都是载荷里的原值(`min` / `median` / `max`),渲染层不重算。
+        """
+        disp = ((result.get("l1") or {}).get("dispersion") or {})
+        if not disp:
+            return ""
+        rows = [(name, d) for name, d in disp.items() if isinstance(d, dict)]
+        if not rows:
+            return ""
+
+        label_w, plot_w, row_h, pad_top = 128, 360, 34, 10
+        width = label_w + plot_w + 96
+        height = pad_top * 2 + row_h * len(rows)
+        parts: list[str] = [
+            f'<svg viewBox="0 0 {width} {height}" role="img" '
+            f'aria-label="每条指标在题与题之间的分布">']
+        for i, (name, d) in enumerate(rows):
+            try:
+                lo, mid, hi = float(d["min"]), float(d["median"]), float(d["max"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            y = pad_top + i * row_h
+            cy = y + row_h / 2
+            label = l1_quality.indicator_label(name)
+            parts.append(f'<text class="label" x="0" y="{cy + 4:.1f}">{label}</text>')
+            parts.append(f'<rect class="track" x="{label_w}" y="{cy - 1:.1f}" '
+                         f'width="{plot_w}" height="2" rx="1"/>')
+
+            # ★ 各题取到同一个值时(`min == max`),这一行**没有左右可言**。
+            #
+            # 实测那一场 20 行里有 6 行如此:四条是"每道题都是 0"(一次也没超过
+            # 阈值),`pose_valid_ratio` 是"每道题都是 1"。按常规画法会得到
+            # 一条零长度线 + 两个**重叠在同一点**的端点标签 —— 读者看到的是
+            # 一个糊掉的「00」,而真相恰恰是这一行**最稳**。
+            # ⟹ 点放正中,只标一个数,并在旁边说明"各题相同"。
+            flat = (hi == lo)
+            if flat:
+                cx = label_w + plot_w / 2
+                parts.append(f'<circle class="median" cx="{cx:.1f}" cy="{cy:.1f}" '
+                             f'r="4.5"/>')
+                parts.append(f'<text class="tick" x="{cx:.1f}" y="{cy - 8:.1f}" '
+                             f'text-anchor="middle">{_fmt_compact(lo)}</text>')
+                parts.append(f'<text class="flat-note" x="{width - 4}" '
+                             f'y="{cy + 4:.1f}" text-anchor="end">各题相同</text>')
+                continue
+
+            span = hi - lo
+            # 两侧各留 6% 的余量,免得端点标签压在边界上被裁掉。
+            x0, x1 = lo - span * 0.06, hi + span * 0.06
+            scale = plot_w / (x1 - x0)
+
+            def _x(v: float) -> float:
+                return label_w + (v - x0) * scale
+
+            parts.append(f'<line class="range" x1="{_x(lo):.1f}" y1="{cy:.1f}" '
+                         f'x2="{_x(hi):.1f}" y2="{cy:.1f}"/>')
+            parts.append(f'<circle class="median" cx="{_x(mid):.1f}" cy="{cy:.1f}" '
+                         f'r="4.5"/>')
+            # 三个数都标出来:这一行的轴是**本行自己的**,不标数就只剩形状。
+            parts.append(f'<text class="tick" x="{_x(lo):.1f}" y="{cy - 8:.1f}" '
+                         f'text-anchor="middle">{_fmt_compact(lo)}</text>')
+            parts.append(f'<text class="tick" x="{_x(hi):.1f}" y="{cy - 8:.1f}" '
+                         f'text-anchor="middle">{_fmt_compact(hi)}</text>')
+            parts.append(f'<text class="value" x="{width - 4}" y="{cy + 4:.1f}" '
+                         f'text-anchor="end">{_fmt_compact(mid)}</text>')
+        parts.append("</svg>")
+        return "".join(parts)
+
+    @staticmethod
+    def _n_flat_rows(result: Dict[str, Any]) -> int:
+        """离散度里有几行「各题取到同一个值」—— 图注要说这个数。"""
+        disp = ((result.get("l1") or {}).get("dispersion") or {})
+        n = 0
+        for d in disp.values():
+            if not isinstance(d, dict):
+                continue
+            try:
+                if float(d["min"]) == float(d["max"]):
+                    n += 1
+            except (KeyError, TypeError, ValueError):
+                continue
+        return n
+
+    def _render_l1_audit_text(self, result: Dict[str, Any],
+                              only: Optional[tuple] = None) -> str:
         """把载荷里那四组「这份报告能说什么」的前提印出来。
 
         前端 `L1IndicatorTable` 全都渲染了(它的注释原话:放在表格上方而不是折叠里,
@@ -500,8 +867,18 @@ class ReportGenerator:
         ⚠️ 全部来自载荷,**渲染层不另写一份**(否则迟早分叉)。
         四组都空时不印任何标题 —— 空标题会被读成"这里该有内容但丢了"。
         钉子:`tests/test_html_report_carries_the_audit_text.py`。
+
+        ## `only`(2026-10-26):四组不都得印在正文
+
+        使用者原话:「科研报告上面全是更上一次比怎么这么样」。那指的是
+        `comparability_notes` —— 它是**引擎迁移说明**,每份报告都有、与这一场无关。
+        内容不删(复核要查),但必须收进折叠附录 ⟹ 正文只印前三维,
+        附录单独印它。`only=None`(默认)仍是四组全印,直接调用的测试照旧。
         """
         l1 = result.get("l1") or {}
+
+        def _want(key: str) -> bool:
+            return only is None or key in only
 
         def _plain(t: str) -> str:
             # 载荷里的这几句是**开发者写的注释体**,带 `**` / 反引号。
@@ -514,7 +891,7 @@ class ReportGenerator:
         blocks: list[str] = []
 
         gaps = l1.get("gaps") or []
-        if gaps:
+        if gaps and _want("gaps"):
             blocks.append(
                 "<div class='l1-audit'><h3>本场报告的限制（素材层面，不是算错）</h3>"
                 + _ul(gaps) + "</div>")
@@ -524,7 +901,7 @@ class ReportGenerator:
         # 载荷没发人话版时退回审计版 —— 宁可露出英文,也不许把这一条吞掉。
         notes = (l1.get("comparability_notes_plain")
                  or l1.get("comparability_notes") or [])
-        if notes:
+        if notes and _want("comparability"):
             blocks.append(
                 "<div class='l1-audit'><h3>与旧引擎报告对比时注意</h3>"
                 "<p>下列槽名相近，但统计量已更换，两边的数<strong>不可相减</strong>。</p>"
@@ -536,13 +913,13 @@ class ReportGenerator:
         #    载荷没发人话版时退回审计版(宁可露英文,不许把这一段吞掉)。
         low = (l1.get("low_confidence_notes_plain")
                or l1.get("low_confidence_notes") or [])
-        if low:
+        if low and _want("low_confidence"):
             blocks.append(
                 "<div class='l1-audit'><h3>置信度为「低」的原因（素材限制，不是算错）</h3>"
                 + _ul(low) + "</div>")
 
         w = l1.get("windows") or {}
-        if w.get("granularity"):
+        if w.get("granularity") and _want("windows"):
             is_answer = w["granularity"] == "answer"
             text = (f"逐回答窗口（{w.get('n_windows', '?')} 个）" if is_answer
                     else "整场一个窗口")
@@ -563,11 +940,21 @@ class ReportGenerator:
                            static_images: List[str],
                            sources: Optional[Dict[str, Dict]] = None,
                            target: Optional[str] = None) -> str:
+        """整份交付物。**一个文件、内联 SVG、先人话后表格。**
 
-        def get_chart_iframe(path, height="500"):
-            if not path or not os.path.exists(path): return '<div class="placeholder">图表缺失</div>'
-            return f'<iframe src="{os.path.basename(path)}" width="100%" height="{height}px" frameborder="0"></iframe>'
+        ## 2026-10-26 重做的四件事(使用者原话见模块顶)
 
+        | 原来 | 现在 |
+        |---|---|
+        | 只有三列表格 | 开头一段**从载荷算出来的**结论句,再往下才是表 |
+        | 就一张雷达图(半径 = 过了几个槽) | 两张内联 SVG:每维覆盖条形 + 逐题离散度 |
+        | `<iframe>` 引 4.8 MB 的 plotly 文件 | 图内联在报告里,拷走一份就是一个文件 |
+        | 引擎迁移说明印在正文(读者读成"跟上一次比") | 收进折叠附录,正文只留本场自己的限制 |
+
+        `chart_paths` / `features` / `data` / `static_images` 四个参数**保留但不用**:
+        `_build_html_report(result, {}, features, {}, [])` 有 5 个位置参数的老调用方
+        (`tests/test_report_layer.py`),签名不能改。
+        """
         deep_analysis_html = self._generate_deep_text_analysis(features, result)
 
         # 头部聚合呈现:只讲事实(spec §5.4 / §5.6)。
@@ -585,98 +972,112 @@ class ReportGenerator:
         basis_html = (f"<ul>{basis_items}</ul>" if basis_items
                       else "<p>本次会话没有指标通过证据门。</p>")
 
-        # 证据链贡献度图已随评分层摘除(见 `visualizer.generate_all_charts` 里的说明)——
-        # 逐槽的诚实呈现是下面那些维度块里的表(原始值 + 区间 + 有效样本量 + 置信度)。
-        # `chart_paths['evidence']` 现在恒为空(见 `generate_all_charts`),不再进 HTML。
+        fig_cov = self._figure_coverage(result)
+        fig_disp = self._figure_dispersion(result)
+        n_disp = len(((result.get("l1") or {}).get("dispersion") or {}))
+        n_win = ((result.get("l1") or {}).get("windows") or {}).get("n_questions")
 
-        html = f"""
-        <!DOCTYPE html>
-        <html lang="zh-CN">
-        <head>
-            <meta charset="UTF-8">
-            <title>JingXin 面试行为观测报告</title>
-            <style>
-                :root {{ --primary: #2E86AB; --bg: #f4f7f6; }}
-                body {{ font-family: 'Microsoft YaHei', sans-serif; background: var(--bg); color: #333; margin: 0; padding: 20px; line-height: 1.8; }}
-                .container {{ max-width: 1100px; margin: 0 auto; }}
-                header {{ text-align: center; padding: 40px; background: linear-gradient(135deg, #2E86AB, #A23B72); color: white; border-radius: 10px; margin-bottom: 30px; }}
-                h1 {{ margin: 0; font-size: 2.5em; }}
-                .score-board {{ display: flex; gap: 20px; margin: 20px 0; }}
-                .score-card {{ background: white; padding: 20px; border-radius: 10px; text-align: center; box-shadow: 0 2px 5px rgba(0,0,0,0.1); flex: 1; }}
-                .cover-number {{ font-size: 3em; font-weight: bold; color: var(--primary); }}
-                .card {{ background: white; padding: 30px; margin-bottom: 25px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }}
-                h2 {{ border-left: 5px solid var(--primary); padding-left: 15px; color: var(--primary); }}
-                h3 {{ color: #444; border-bottom: 1px solid #eee; padding-bottom: 10px; }}
-                .chart-container {{ margin: 20px 0; border: 1px solid #eee; border-radius: 5px; }}
-                @media (max-width: 768px) {{ .score-board {{ flex-direction: column; }} }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <header>
-                    <h1>🔬 JingXin 面试行为观测报告</h1>
-                    <div>基于多模态行为量的结构化观测</div>
-                    <div style="margin-top:10px; font-size:0.9em; opacity:0.8;">
-                        {datetime.now().strftime("%Y-%m-%d %H:%M")} | {result['model_metadata']['version']}
-                    </div>
-                    <!-- 本报告由哪些日志装配(I4):跨场拼接必须让读者看得见 -->
-                    <div style="margin-top:8px; font-size:0.85em; opacity:0.95;">
-                        {sources_disclosure(sources or {}, target,
+        # 逐题离散度这一节**总要出现**,哪怕没有数 —— 空着消失会让人以为这一层不存在。
+        # 有数:图 + 图注。没数:说清为什么没有(整场一个窗口 / 每维只测了一次),
+        # 而不是留一个空标题。
+        if fig_disp:
+            q = f"{n_win} 道题" if n_win else "各题"
+            n_flat = self._n_flat_rows(result)
+            flat_note = ""
+            if n_flat:
+                flat_note = (f"\n            其中 {n_flat} 条在各题上是<b>同一个值</b>"
+                             f"(标着「各题相同」),它们是最稳的那一批;"
+                             f"值本身是 0 的,意思是每题都没超过阈值,不是没测到。")
+            disp_block = f"""
+            <h2>题与题之间稳不稳</h2>
+            <p class="note">同一个指标,{q}里各量了一次 —— 下图每一行是一条指标,
+            左端是本场最小值、右端是最大值,圆点是中位数(右侧数字)。
+            <strong>每行各有自己的刻度</strong>,所以请横向看"这一行散不散",
+            不要拿两行的长短互相比较。</p>
+            <figure>{fig_disp}
+            <figcaption>{n_disp} 条指标在题与题之间有两次以上测量。
+            只测了一次的指标不出现在这里 —— 单次测量没有"离散"可言,
+            给个 0 会把"没测"说成"很稳"。{flat_note}</figcaption></figure>
+            """
+        else:
+            why = ("这一场是整场一个窗口,没有逐题切分" if not n_win
+                   else "每条指标在每道题上都只测到一次")
+            disp_block = f"""
+            <h2>题与题之间稳不稳</h2>
+            <p class="note">这一场报不出逐题离散度:{why},所以没有题与题之间的
+            中位数、最小值、最大值可给。下面的所有读数都是<b>整场一个值</b>,
+            不是"每题一个值取平均"—— 两者不能混着读。</p>
+            """
+
+        cov_block = ""
+        if fig_cov:
+            cov_block = f"""
+            <h2>{self._coverage_heading(result)}</h2>
+            <p class="note">每一维声明的槽数不同(见右端的「量到 / 声明」),
+            所以请比"自己那一维填了多少",不要把两维的条长直接比大小。</p>
+            <figure>{fig_cov}
+            <figcaption>条形 = 通过证据门的指标槽数;浅色轨道 = 该维声明的全部槽数。
+            未过门的槽与原因逐条列在下面的维度明细里。</figcaption></figure>
+            """
+
+        # 「与旧引擎报告对比」是**引擎迁移说明**,每份报告都有、与这一场无关。
+        # 印在正文里必然被读成"跟上一次比怎么样"(使用者原话)。内容不删,收进附录。
+        appendix = self._render_l1_audit_text(result, only=("comparability",))
+        appendix_block = ""
+        if appendix:
+            appendix_block = f"""
+            <details>
+                <summary>附录：与旧引擎报告的对照说明（复核口径用，与这一场无关）</summary>
+                <p class="note">这一节讲的是<b>两代引擎</b>怎么量同一件事,
+                每一份报告都会印。它不描述这一场发生了什么,不必当成"跟上一次比"。</p>
+                {appendix}
+            </details>
+            """
+
+        return f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JingXin 面试行为观测报告</title>
+<style>{_CSS}</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>JingXin 面试行为观测报告</h1>
+  <div class="meta">{datetime.now().strftime("%Y-%m-%d %H:%M")} · 口径版本 {result['model_metadata']['version']}</div>
+  <div class="sources">{sources_disclosure(sources or {}, target,
                                             modality_summary=(result.get("l1") or {})
-                                            .get("modality_summary"))}
-                    </div>
-                </header>
+                                            .get("modality_summary"))}</div>
+</header>
 
-                <!-- 覆盖与依据:分数与档位已按 spec §5.4 :157-158 / §5.6 停止渲染 -->
-                <div class="score-board">
-                    <div class="score-card">
-                        <div>📊 本次观测覆盖</div>
-                        <div class="cover-number">{coverage['n_passed']} / {coverage['n_slots']}</div>
-                        <div>个指标槽通过证据门</div>
-                        <div style="color:var(--primary); font-weight:bold;">置信度上限：{coverage['confidence_cap']}</div>
-                    </div>
-                    <div class="score-card" style="flex:2; text-align:left;">
-                        <h3 style="margin:0 0 10px 0; border:none;">📝 综合总结</h3>
-                        <p style="margin:0;">{result['summary_narrative']}</p>
-                        <h3>依据：通过证据门的指标</h3>
-                        {basis_html}
-                    </div>
-                </div>
+<div class="hero">
+  <span class="cover-number">{coverage['n_passed']} / {coverage['n_slots']}</span>
+  <span class="hero-cap">个指标槽通过证据门 · 置信度上限：{coverage['confidence_cap']}</span>
+</div>
+<p class="lead">{self._lead_sentence(result)}</p>
+<p class="note">{result['summary_narrative']}</p>
 
-                <!-- 这份报告能说什么的前提:限制 / 比较陷阱 / 低置信理由 / 统计口径。
-                     前端 L1IndicatorTable 早就印了,交付物不该少说这四句。 -->
-                {self._render_l1_audit_text(result)}
+{cov_block}
+{disp_block}
 
-                <!-- 逐维观测明细:过门指标 + 未过门缺口 -->
-                <div class="card">
-                    <h2>📑 行为指标观测明细</h2>
-                    {self._render_vanished_dimensions(result)}
-                    {deep_analysis_html}
-                </div>
+<h2>每一维量到了什么</h2>
+{self._render_vanished_dimensions(result)}
+{deep_analysis_html}
 
-                <div class="card">
-                    <h3>{self._coverage_heading(result)}</h3>
-                    <div class="chart-container">{get_chart_iframe(chart_paths.get('radar'), '500')}</div>
-                </div>
-                <!-- 这里原来还有一行 `<h2>🔍 分维度证据链</h2>` + 逐维度的
-                     「证据链贡献度」图(每维一张卡)。图在 2026-10-04 随评分层一起
-                     摘除 —— 它们的 x 轴是 `contribution`(折算值 × 槽权重),即
-                     "对**维度分**的贡献",而维度分与复合分已从 payload 整层删掉
-                     (理由见 `research_mapper` 返回处那段注释)。逐槽的诚实呈现是
-                     上面「行为指标观测明细」里那几张表:原始值 + 本场观测区间 +
-                     有效样本量 + 置信度。
-                     ⚠️ 标题留到了 2026-10-25 深夜才摘 —— 报告末尾一直挂着一个
-                     **下面什么都没有**的二级标题,读者会以为内容丢了。
-                     钉子:`tests/test_the_report_stops_saying_wrong_things.py`。 -->
+<h2>依据：通过证据门的指标</h2>
+{basis_html}
 
-                <footer style="text-align:center; margin-top:50px; color:#888;">
-                    JingXin Multi-modal Assessment System | Auto-Generated Report
-                </footer>
-            </div>
-        </body>
-        </html>
-        """
-        return html
+{self._render_l1_audit_text(result, only=("gaps", "low_confidence", "windows"))}
+
+{appendix_block}
+
+<footer>JingXin 多模态行为观测 · 报告由系统自动生成 · 不含评分与评级</footer>
+</div>
+</body>
+</html>
+"""
 
 
 def main(argv: Optional[List[str]] = None) -> int:

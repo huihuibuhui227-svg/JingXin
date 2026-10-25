@@ -312,25 +312,81 @@ def build_quality_report(result) -> QualityReport:
 #: `pitch_range_semitone:` 等 5 个键,而同一份报告的维度表里,同一个指标印的是
 #: 中文槽名(「语调变化」「平均停顿时长」)⟹ 读者会以为是两个东西。
 #:
-#: 前两次(`comparability_notes`、删槽理由)的修法都是「载荷发两版」,这次照办。
+#: ## 2026-10-26:从 7 条扩到全部 38 条
 #:
-#: ⚠️ 只登记**会以「低」置信出现在报告里**的那几条(`LOW_CONFIDENCE_REASON` 的键)。
-#:    `test_every_low_confidence_indicator_has_a_chinese_name` 守这条。
-#:    不一次登记全部 35 条:名字必须与维度表里读者见过的那一版一致,
-#:    没在报告里出现过的指标没有"读者见过的那一版",现在编一个只会将来打架。
+#: 原来只登记「会以低置信出现」的那 7 条,理由是「没在报告里出现过的指标,
+#: 读者没有'见过的那一版',现在编一个只会将来打架」。
+#:
+#: 这条理由在**逐题离散度**进报告之后失效了:那张表一印就是 20 条指标,
+#: 读者会在同一份报告里同时看到它们 —— 没有中文名,那一整块就是英文键的表格。
+#: ⟹ 现在全部登记。与 `l1_mapper.SLOT_LABEL` 重叠的 8 条**逐字照抄槽名**
+#: (同一个量在两个出口必须同名),由
+#: `tests/test_indicator_names_agree_with_slot_names.py` 对账。
 INDICATOR_LABEL: dict[str, str] = {
+    # F 族(面部)
+    "smile_ratio": "微笑帧占比",
+    "smile_rate_per_min": "微笑次数",
+    "smile_duration_p50": "微笑持续时长",
+    "gaze_aversion_ratio_vs_baseline": "视线偏离占比",
+    "gaze_aversion_rate_per_min_vs_baseline": "视线偏离次数",
+    "gaze_stability": "视线稳定性",
+    "blink_rate_per_min": "眨眼频率",
+    "blink_duration_mean": "眨眼时长",
+    "head_motion_per_sec": "头部运动量",
+    "head_away_ratio_vs_baseline": "头部偏离占比",
+    "brow_furrow_ratio_vs_baseline": "皱眉",
+    "lip_compression_ratio_vs_baseline": "唇部压缩",
+    "au_activation_any_ratio": "面部动作活跃帧占比",
+    "au_variability_per_sec": "面部动作变化速度",
+    "micro_exp_rate_per_min": "微表情次数",
+    "micro_exp_duration_mean_sec": "微表情时长",
+    # G 族(手势)
+    "gesture_activity_per_sec": "腕部抖动",
+    "gesture_burst_rate_per_min_vs_baseline": "手势爆发频率",
+    "posture_stability": "姿态稳定性",
+    "postural_shift_rate_per_min_vs_baseline": "姿态变换频率",
+    "hand_visible_ratio_l": "左手可见占比",
+    "hand_visible_ratio_r": "右手可见占比",
+    "pose_valid_ratio": "姿态可读帧占比",
+    # V 族(语音)
     "speech_rate": "语音字数率",
+    "voiced_ratio": "发声占比",
     "pause_rate_per_min": "停顿频率",
+    "pause_duration_p50": "平均停顿时长",
+    "pause_duration_p90": "长停顿时长",
+    "pause_ratio": "停顿占比",
+    "response_latency_sec": "反应延迟",
+    "pitch_median": "音高中位数",
     "pitch_range_semitone": "音高跨度",
     "pitch_variability_per_sec": "语调变化",
+    "energy_median": "音量中位数",
     "energy_dynamics_per_sec": "能量变化速度",
-    "gesture_burst_rate_per_min_vs_baseline": "手势爆发频率",
-    "postural_shift_rate_per_min_vs_baseline": "姿态变换频率",
+    # T 族(转写文本)
+    "lexical_diversity": "用词丰富度",
+    "discourse_marker_rate": "连接词密度",
+    "self_repair_rate": "自我修正频率",
 }
+
+
+def indicator_label(name: str) -> str:
+    """指标名 → 中文名。**未登记的原样返回键名** —— 宁可露英文,也不许吞掉。"""
+    return INDICATOR_LABEL.get(name, name)
 
 
 #: 置信「低」的**原因**,按指标名。置信度只说"有多信",不说"为什么只有这么信" ——
 #: 后者才是读者要的那句话。**没有登记的指标不会瞎猜**,返回 `None`。
+#:
+#: ## 措辞规矩(2026-10-26)
+#:
+#: 使用者原话:「语音晦涩难懂,这怎么看」。实测正文里印着
+#: 「证据单位是**段数**」「n_valid=1」—— 前者是 markdown 星号(交付物不渲染),
+#: 后者是代码里的字段名。这一整段**直接进交付物正文**,所以:
+#:
+#: * 不写 `**`、反引号(交付物不渲染 markdown);
+#: * 不写 `n_valid` / `n_total` 这类字段名 —— 换成「只测了一次」;
+#: * 不点内部指标键 —— 换成中文名;
+#: * 不用 `⟹` / `→` 这类记号。
+#: 由 `tests/test_report_says_something_to_a_person.py` 扫正文。
 LOW_CONFIDENCE_REASON: dict[str, str] = {
     # ★ 2026-10-18 补两条。它们一直是「低」但**没有登记原因** ——
     #   报告上只写「置信 低」,不写为什么低。置信度只说"有多信",
@@ -339,26 +395,27 @@ LOW_CONFIDENCE_REASON: dict[str, str] = {
     #   所以它们**本来就该是「低」或「中」** —— 一条只有两三次事件的率,
     #   不该因为"看了 470 帧"就被判成证据充分。
     "gesture_burst_rate_per_min_vs_baseline": (
-        "证据单位是**段数**(观察到几次运动段),不是帧数。本场段数很少 ⟹ 率的"
-        "不确定度大。这不是算错:整场只出现了这么几次超本人基线的连续段。"),
+        "这一条数的是「动了几段」,不是「看了几帧」。整场只出现了两三次"
+        "超过本人基线的连续动作段,样本太少,频率的不确定度就大。"
+        "这不是算错:整场确实只动了这么几次。"),
     "postural_shift_rate_per_min_vs_baseline": (
-        "同上:证据单位是**段数**。本场段数很少 ⟹ 率的不确定度大。"
-        "⚠️ 本族与 `gesture_burst_rate_per_min_vs_baseline` 高度相关"
-        "(13 场里 9 场取到相同的整数段数)。"),
+        "同上:这一条数的是「动了几段」,整场只出现两三次,所以置信低。"
+        "另外它与「手势爆发频率」高度相关 —— 13 场里有 9 场两者取到相同的段数,"
+        "读的时候可以当成同一个信号。"),
     "speech_rate": (
-        "整场只有**一次**测量(转写字数 ÷ 有声秒数),n_valid=1 ⟹ 报不出跨样本一致性。"
-        "素材上没有任何题目边界可用,这是素材决定的,不是算错了。"
-        "⚠️ 分子是**全场混音**的字数(含面试官),不是考生一人的语速。"),
+        "整场只测了一次(总字数除以有声时长),没有第二个样本可以互相印证。"
+        "素材里没有任何题目边界可用,这是素材决定的,不是算错了。"
+        "另外:分子是全场混音的字数(含面试官),不是考生一个人的语速。"),
     "pause_rate_per_min": (
-        "整场只有**一次**测量(停顿段数 ÷ 有声分钟数),n_valid=1。"
-        "⚠️ 同样基于全场混音,停顿里包含面试官与考生之间的换手间隙。"),
+        "整场只测了一次(停顿段数除以有声分钟数),没有第二个样本可以互相印证。"
+        "另外:同样基于全场混音,停顿里包含面试官与考生之间的换手间隙。"),
     "pitch_range_semitone": (
-        "整场音频没有题目边界,本指标在整场只测量**一次**(首末 f0 之差),"
-        "n_valid=1 ⟹ 报不出跨样本一致性。这是素材决定的,不是算错了。"),
+        "整场音频没有题目边界,这一条在整场只测了一次(开头与结尾的音高之差),"
+        "没有第二个样本可以互相印证。这是素材决定的,不是算错了。"),
     "pitch_variability_per_sec": (
-        "同上:分母是「这一次测量」的时长,整场只有一次测量 ⟹ n_valid=1。"),
+        "同上:整场只测了一次,分母就是这一次测量的时长,没有第二个样本可以互相印证。"),
     "energy_dynamics_per_sec": (
-        "同上:整场只有一次测量 ⟹ n_valid=1。"),
+        "同上:整场只测了一次,没有第二个样本可以互相印证。"),
 }
 
 #: 这几条指标为什么**不**改成分窗多次测量 —— 这是使用者的裁定,写在这里免得后人反复问。

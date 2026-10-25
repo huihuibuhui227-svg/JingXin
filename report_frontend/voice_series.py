@@ -273,6 +273,57 @@ def _fit_length(a: np.ndarray, n: int) -> np.ndarray:
     return out
 
 
+def ensure_series(session_id: str | None) -> list[VoiceSeries] | None:
+    """**报告读侧要的那一份序列** —— 有缓存就读,没缓存就现提。
+
+    ## 为什么这条要在报告路径上
+
+    2026-10-26 实测:使用者新录一场,报告正文里「沟通表达流畅度」整维
+    **证据不足(0/3)」,而报告头说语音已读入。原因只是
+    `data/l0_series/<sid>.npz` 没生成 —— V 族 12 条里有 8 条只吃这份序列。
+
+    手动跑一次 `extract_session`(34 秒)之后,同一场:
+
+        覆盖 6/14 → 8/14 · 语音 4/12 → 12/12 · 沟通表达流畅度 0/3 → 2/3
+
+    报告里那句提示原本写着「跑一次提取就有,不用重录」—— 它指向一个
+    读者并不知道怎么跑的工具。**系统自己能做的事,不该推给使用者。**
+
+    ## 与「报告是读侧、不许有副作用」不冲突
+
+    `tools/jx_backfill_series.py` 那句约束的本意是"报告不许偷偷改写素材"。
+    `data/l0_series/*.npz` 是本模块自己声明的**派生缓存**:「可随时删、
+    可随时从音频重建」。生成它不改变任何事实来源 —— 输入相同则输出相同。
+
+    * 允许:从**已在盘上的音频**生成派生缓存;
+    * 禁止:改日志、改 CSV、改录像。
+
+    ## 三条边界
+
+    * 缓存已在 ⟹ **直接返回**,不重算(单场 34 秒,面板点十次就是六分钟);
+    * 没有音频 ⟹ **不试**(`audio_source` 回 `none`;那是真的模态缺失,
+      提取一万次也不会出东西,而且会白等);
+    * 提取抛错 ⟹ **返回 `None` 并让报告照出**(ffmpeg 缺失、音频损坏都可能)。
+      缺 8 条序列指标是**可报的缺口**,没有报告不可报。
+    """
+    if not session_id:
+        return None
+    cached = load_series(session_id)
+    if cached is not None:
+        return cached
+    try:
+        if audio_source(session_id)[0] == "none":
+            return None
+    except Exception:  # noqa: BLE001 - 读盘出错按"没有"处理,别让报告炸掉
+        return None
+    try:
+        got = extract_session(session_id)
+    except Exception as e:  # noqa: BLE001 - 提取失败是可报的缺口,不是致命错误
+        print(f"   ⚠️  语音序列提取失败({session_id}):{e} —— 8 条序列指标按缺口报")
+        return None
+    return got or None
+
+
 def extract_session(session_id: str, force: bool = False) -> list[VoiceSeries]:
     """提取并缓存。有逐题音频就逐题,否则退回整场录音。
 

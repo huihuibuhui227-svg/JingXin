@@ -88,10 +88,13 @@ def _vanished_block(html: str) -> str:
     `test_the_vanished_block_says_the_layer_does_not_measure_it` 当时**一写就绿**
     —— 因为别的维度的缺口行里本来就有「本层不测这一条」那句话。它声称守的
     「消失维度要说明原因」一次都没生效过,典型的空断言(本仓记过多次)。
+
+    ⚠️ 2026-10-26 换过提取方式:原来是 `</div>\\s*</div>`(靠"块后面紧跟外层卡片
+    的收口"),而报告改成无卡片布局之后那个模式**匹配不到任何东西** ——
+    测试报"没有这一块",而块其实好好地在正文里。判据不该依赖外层布局。
+    这一块内部没有任何嵌套 `<div>`,所以收到**自己的**第一个 `</div>` 就正好。
     """
-    m = re.search(r'(?s)<div id="vanished-dimensions".*?</div>\s*</div>', html)
-    if not m:
-        m = re.search(r'(?s)<div id="vanished-dimensions".*?(?=<h3|<h2|</div>\s*<div class="card")', html)
+    m = re.search(r'(?s)<div id="vanished-dimensions".*?</div>', html)
     assert m, "HTML 报告里没有「整维未出」那一块 —— 消失的维度仍然只字未提"
     return m.group(0)
 
