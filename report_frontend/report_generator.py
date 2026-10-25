@@ -6,9 +6,41 @@ import pandas as pd
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 from .data_loader import LogDataLoader
-from .feature_engine import PsychologicalFeatureEngine
-from .research_mapper import ResearchCapabilityMapper
+from .l1_report import build_l1_report
 from .visualizer import ReportVisualizer
+
+
+def _fmt_num(v) -> str:
+    """实测值 → 给人读的字符串。**小数位数按量级选,不一律两位。**
+
+    实测产出过 `3.4175334323922733`(float64 的内存映像)。前端
+    `L1IndicatorTable` 的 `fmtValue` 早就有一条按量级的规则,HTML 报告是
+    同一个数的另一个出口,不该有两套精度:
+
+    * ≥1000 取整;≥1 三位;≥0.001 四位;更小用科学计数。
+
+    ⚠️ **只在渲染处收**。载荷里的 `raw_value` 保持原始 float ——
+    前端要拿它排序/比较,在那里四舍五入就是丢测量结果。
+    钉子:`tests/test_report_numbers_and_reasons_are_readable.py`。
+    """
+    if v is None:
+        return "—"
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return str(v)
+    if x != x:                       # NaN
+        return "—"
+    if x == 0:
+        return "0"
+    a = abs(x)
+    if a >= 1000:
+        return f"{x:.0f}"
+    if a >= 1:
+        return f"{x:.3f}"
+    if a >= 0.001:
+        return f"{x:.4f}"
+    return f"{x:.2e}"
 
 
 def _interval_text(interval) -> str:
@@ -133,21 +165,29 @@ class ReportGenerator:
             if not data:
                 # 本场一个模态都没读到:**照样出报告**(spec §6 行 1/2 / 第 17 条)——
                 # 头里逐条列出缺什么,而不是让面板显示"什么都没发生"。
-                # 实测:空 data 下特征引擎给 0 个指标、映射器给 覆盖 0/20、五维全 None、
-                # 图表照常生成 —— 下面这条链本身是空的能跑的。
+                # 实测:空 data 下 L1 给 覆盖 0/14、逐维缺口照常列出、图表照常生成。
                 print("   ⚠️  本场没有任何可用日志,仍生成一份只含缺口的报告")
 
-            engine = PsychologicalFeatureEngine(data)
-            features = engine.extract_all_features()
-
-            mapper = ResearchCapabilityMapper()
-            result = mapper.map_features_to_scores(features)
+            # ★ 与 `/api/report/structured` **同一个引擎**(2026-10-25)。
+            #
+            #   2026-10-18 前端那条端点已切到 L1,而这里一直留在旧引擎
+            #   (`PsychologicalFeatureEngine` → `ResearchCapabilityMapper`)。
+            #   后果:同一场会话在界面上给出**两个互相矛盾的数** —— 前端报告页读
+            #   structured(2026-10-25 实测 7/14),而这里产出的 HTML 说 11/14。
+            #   差的那 4 个槽正是旧引擎把「手掌张开度 / 肩部放松度 / 眼神接触」算成
+            #   "填上了",而 L1 判定**当前管线根本不测**(见 `docs/下一步.md` 第 29 条)。
+            #   两份东西在「历史报告」列表里并排,谁也看不出它们量的是两套口径。
+            #
+            #   对照该在**数据层**做(`?engine=legacy` 仍在),不该让交付物分叉。
+            #   钉子:`tests/test_html_report_uses_the_l1_engine.py`。
+            result = build_l1_report(loader.target_session, logs=data)
 
             viz = ReportVisualizer(output_dir=self.output_dir)
             chart_paths = viz.generate_all_charts(result, df_face=data.get('face'))
             static_images = self._scan_static_images()
 
-            html_content = self._build_html_report(result, chart_paths, features, data,
+            # `features` 是旧引擎的中间产物;L1 载荷自带逐槽值,渲染层不再需要它。
+            html_content = self._build_html_report(result, chart_paths, {}, data,
                                                    static_images,
                                                    sources=loader.selected_sessions,
                                                    target=loader.target_session)
@@ -188,11 +228,9 @@ class ReportGenerator:
             if 'face' not in data:
                 print("   ⚠️  未获取到面部数据，继续使用其他模态生成报告")
 
-            engine = PsychologicalFeatureEngine(data)
-            features = engine.extract_all_features()
-
-            mapper = ResearchCapabilityMapper()
-            result = mapper.map_features_to_scores(features)
+            # 与批量路径同一个引擎(理由见 `generate_report` 那段注释)。
+            # 实时路径的 `logs` 来自三个服务的 `/summary`,形状与读盘那份相同。
+            result = build_l1_report(session_id, logs=data)
 
             viz = ReportVisualizer(output_dir=self.output_dir)
             chart_paths = viz.generate_all_charts(result, df_face=data.get('face'))
@@ -200,7 +238,7 @@ class ReportGenerator:
 
             # 实时路径的模态是**按这一个人的 session_id 去内存里取的**,不存在"每模态取最新"
             # 那种跨场拼接;所以来源就是这一个 id(逐个列出真正取到数据的模态)。
-            html_content = self._build_html_report(result, chart_paths, features, data,
+            html_content = self._build_html_report(result, chart_paths, {}, data,
                                                    static_images,
                                                    sources=live_sources(session_id, data),
                                                    target=session_id)
@@ -250,7 +288,7 @@ class ReportGenerator:
             """
 
         rows = "".join(
-            f"<tr><td>{e['human_name']}</td><td>{e['raw_value']}</td>"
+            f"<tr><td>{e['human_name']}</td><td>{_fmt_num(e['raw_value'])}</td>"
             f"<td>{_interval_text(e.get('observed_interval'))}</td>"
             f"<td>{e.get('n_valid', '—')}</td></tr>"
             for e in dim["evidence_chain"]
@@ -305,7 +343,7 @@ class ReportGenerator:
         coverage = result["coverage"]
         basis_items = "".join(
             f"<li>{slot['display_name']} · {slot['indicator']}："
-            f"原始值 {slot['raw_value']}；"
+            f"原始值 {_fmt_num(slot['raw_value'])}；"
             f"本场会话内观测区间 {_interval_text(slot['observed_interval'])}"
             f"（与原始值同量纲）；有效样本量 {slot['n_valid']}</li>"
             for slot in coverage["passed_slots"]

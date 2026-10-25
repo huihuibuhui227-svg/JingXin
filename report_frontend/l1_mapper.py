@@ -126,6 +126,73 @@ SLOT_MAP: dict[str, tuple[str | None, str]] = {
         "response_latency_sec", "同构念:问题结束到首次开口"),
 }
 
+#: 旧槽 → **中文名**。报告里给人看的就是这一列,不是左边的键。
+#:
+#: ⚠️ 这是**第二份**槽名登记处,但只登记名字、不登记映射 —— 名字必须与旧引擎
+#: (`research_mapper.mapping_rules` 里那个 label)逐字一致,由
+#: `tests/test_report_gaps_are_readable.py::test_slot_labels_agree_with_the_legacy_report`
+#: 逐条对账。为什么不从旧引擎读:那会让 L1 报告层反向依赖旧引擎的构造函数,
+#: 而旧引擎只剩 `?engine=legacy` 对照用 —— 一旦它被删,报告就断了。
+#: 为什么不并进 `SLOT_MAP`:`SLOT_MAP` 的元组已被多条测试按下标解包
+#: (`for slot, (l1, reason) in SLOT_MAP.items()`),改形状的收益不抵改动面。
+SLOT_LABEL: dict[str, str] = {
+    "connective_density": "连接词密度",
+    "gaze_direction_x_std": "视线稳定性",
+    "au4_frown": "皱眉",
+    "au23_lip_compression": "唇部压缩",
+    "left_wrist_jitter_world": "腕部抖动",
+    "symmetry_score": "面部对称性",
+    "fluency_score": "语音流畅度",
+    "pitch_variation": "语调变化",
+    "pause_duration": "平均停顿时长",
+    "left_hand_spread": "手掌张开度",
+    "shrug_level": "肩部放松度",
+    "eye_contact": "眼神接触比例",
+    "n_chars": "回答详尽度",
+    "reaction_time": "反应延迟",
+}
+
+
+def slot_label(slot: str) -> str:
+    """槽键 → 中文名。**未登记的槽原样返回键名** —— 宁可露出英文,也不许吞掉。"""
+    return SLOT_LABEL.get(slot, slot)
+
+
+#: 被删的槽 → **一句话的人话结论**(报告里印这个,不印 `SLOT_MAP` 的 `reason`)。
+#:
+#: ## 为什么要分层
+#:
+#: `SLOT_MAP` 的 `reason` 是**审计细节**:它点了 `voiced_ratio` /
+#: `self_repair_rate` 这类内部指标名,说明"拿谁来顶替被否决了"。核对口径的人
+#: 需要它,而且 `tests/test_m4_l1_mapper.py` 要求它必须点名真实 L1 指标。
+#:
+#: 但读者不需要。2026-10-25 实测报告里印出过这么一行:
+#:
+#:     语音流畅度:本层不测这一条 —— 零额外信息:VAD 流畅度的三个分量里,
+#:     发声占比=voiced_ratio、平均连续发声长度恒等于 60/pause_rate_per_min、
+#:     发音速率=speech_rate;不流畅事件在转写文本里(self_repair_rate 已在数)
+#:
+#: 一句话里四个内部指标名、一个恒等式。读者要的只是"这一条本层不测,别再等它"。
+#:
+#: ⟹ 两处各有各的话:这里说结论,`SLOT_MAP` 留细节。
+#: 钉子:`tests/test_report_numbers_and_reasons_are_readable.py`。
+DROP_REASON: dict[str, str] = {
+    "symmetry_score": "当前管线没有测面部对称性",
+    "fluency_score": "它要的数已经由别的指标各自算过一遍,再报一条只是把同一份证据数两遍",
+    "left_hand_spread": "当前管线只测手有没有被看到,不测手掌张开的幅度",
+    "shrug_level": "当前管线测的是姿态稳不稳,不是耸肩的幅度",
+    "eye_contact": "当前管线没有可对得上「眼神接触」的测法,不拿相邻的量顶替",
+    "n_chars": "当前管线测的是说话速率(字/秒),不是回答的总字数",
+}
+
+
+def drop_reason(slot: str) -> str:
+    """被删槽 → 人话结论。**未登记的槽退回 `SLOT_MAP` 的原话**(宁可啰嗦,不许吞掉)。"""
+    if slot in DROP_REASON:
+        return DROP_REASON[slot]
+    return SLOT_MAP.get(slot, (None, "未登记的槽"))[1]
+
+
 #: 5 个维度 → 其旧槽(权重原样照抄 `research_mapper`,以便重归一可复核)。
 #: ★ 保留下来、但**数值不可与旧引擎直接比较**的槽。
 #:

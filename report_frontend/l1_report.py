@@ -36,7 +36,7 @@ from __future__ import annotations
 import datetime as _dt
 
 from . import l1_mapper
-from .l1_quality import build_quality_report, explain_confidence
+from .l1_quality import GAP_EXPLANATION, build_quality_report, explain_confidence
 from .l1_session import compute_session_l1
 
 #: 版本串。改了载荷结构就动它 —— 报告里要能看出是哪一代口径。
@@ -56,10 +56,15 @@ def _evidence_item(slot: dict) -> dict:
     `observed_interval` 给空数组:L1 是**会话级**测量,一个指标本场只有一个值,
     没有"本场观测区间"可言。空数组是前端口径里"取不到区间"的写法,
     不是 0,也不是"区间是 [0,0]"。
+
+    `human_name` 用**槽的中文名**,不用 L1 的 `formula` ——
+    后者是给开发者核对算法的(两百多字,带 `⚠️` 和 markdown 粗体,还会点出
+    另一个内部键名),它该待在 `l1.indicators` 的审计链里,不该占着「指标」这一列。
+    钉子:`tests/test_report_gaps_are_readable.py::test_evidence_chain_names_are_not_raw_formulas`。
     """
     return {
         "feature": slot["l1"],
-        "human_name": slot["human_name"],
+        "human_name": l1_mapper.slot_label(slot["slot"]),
         "raw_value": slot["value"],
         "n_valid": slot["n_valid"],
         "std": None,
@@ -68,13 +73,40 @@ def _evidence_item(slot: dict) -> dict:
 
 
 def _gap_lines(dim) -> list[str]:
-    """维度 → 逐行缺口说明(字符串列表,前端按 `<li>` 渲染)。"""
+    """维度 → 逐行缺口说明(字符串列表,前端按 `<li>` 渲染)。
+
+    ## 印人话,不印内部记号
+
+    2026-10-25 实测产出过这样的行:
+
+        connective_density → discourse_marker_rate:not_stored
+        symmetry_score:删槽 —— L1 没有面部对称性指标
+
+    里面三样东西读者都不认识:内部槽键、缺口码常量、`→` 这个迁移记号。
+    它们只在**核对口径**时有用,不该进交付物。
+
+    * 槽名走 `l1_mapper.slot_label`(与旧引擎报告同名,免得读者以为是两批指标);
+    * 缺口码走 `l1_quality.GAP_EXPLANATION` —— **本函数不另抄一份**。
+      `l1_quality` 的模块注释原话就是「不许直接渲染 `gap` 的英文常量」,
+      抄第二份的后果可预见:新增一个码时改一处漏一处,界面上冒出英文单词。
+    * 删槽行必须点明「**本层不测**」:它与「测了这次没数据」是两件事,
+      后者补采/补缓存就有,前者再采一百次也不会有。混成一句会让人去追
+      一个不存在的数据。
+      钉子:`tests/test_report_gaps_are_readable.py`。
+    """
+    def _why(code: str | None) -> str:
+        # 未登记的码原样印出 —— 宁可露出英文,也不许把它当成"已测"或吞掉。
+        return GAP_EXPLANATION.get(code or "", code or "未说明原因")
+
     out: list[str] = []
     for d in dim.dropped:
-        out.append(f"{d['slot']}:删槽 —— {d['reason']}")
+        # 报告印**结论**,不印 `SLOT_MAP` 的审计细节(那里点着内部指标名,
+        # 读者用不上)。分层理由见 `l1_mapper.DROP_REASON`。
+        out.append(f"{l1_mapper.slot_label(d['slot'])}:本层不测这一条 —— "
+                   f"{l1_mapper.drop_reason(d['slot'])}")
     for s in dim.slots:
         if s["value"] is None:
-            out.append(f"{s['slot']} → {s['l1']}:{s['gap']}")
+            out.append(f"{l1_mapper.slot_label(s['slot'])}:{_why(s['gap'])}")
     return out
 
 
@@ -106,7 +138,10 @@ def build_l1_report(session_id: str, logs: dict | None = None) -> dict:
             passed_slots.append({
                 "dimension": key,
                 "display_name": dim.display_name,
-                "indicator": s["slot"],
+                # 「指标」列给人看的是**中文槽名**,不是内部键 ——
+                # 缺口行已经说人话了,这里再露 `connective_density`,
+                # 读者会把同一个指标当成两个东西。内部键在 `feature` 里留着。
+                "indicator": l1_mapper.slot_label(s["slot"]),
                 "feature": s["l1"],
                 "raw_value": s["value"],
                 "observed_interval": [],
