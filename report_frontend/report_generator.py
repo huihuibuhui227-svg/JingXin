@@ -541,11 +541,22 @@ class ReportGenerator:
             <ul>{gaps}</ul>
             """
 
+        # ★ 「本场会话内观测区间」这一列:整维都取不到区间时**整列不印**。
+        #
+        # 实测(2026-10-26 那一场):L1 的每个指标都是**整场一个值**,载荷里
+        # `observed_interval` 恒为空数组 ⟹ 这一列四行全是同一句
+        # 「未采集到会话内变异信息」。读者看到的是"四个指标都没测出变异",
+        # 而真相是"这一层本来就不产生区间"。**列在,但每格都是同一句废话**,
+        # 比不印更糟:它占着位置,还暗示"本该有、这次缺了"。
+        # ⟹ 一列全空就不印这一列,在表下说一句为什么。
+        has_interval = any(e.get("observed_interval")
+                           for e in dim["evidence_chain"])
         rows = "".join(
             f"<tr><td>{e['human_name']}</td>"
             f"<td class=\"num\">{_fmt_num(e['raw_value'])}{_zero_note(e)}</td>"
-            f"<td>{_interval_text(e.get('observed_interval'))}</td>"
-            f"<td class=\"num\">{e.get('n_valid', '—')}</td></tr>"
+            + (f"<td>{_interval_text(e.get('observed_interval'))}</td>"
+               if has_interval else "")
+            + f"<td class=\"num\">{e.get('n_valid', '—')}</td></tr>"
             for e in dim["evidence_chain"]
         )
         # 先给人话,再给表。表格是核对用的,而"这一维量到了哪几条"一句话就说完 ——
@@ -554,14 +565,19 @@ class ReportGenerator:
         names = "、".join(str(e["human_name"]) for e in dim["evidence_chain"])
         gaps = "".join(f"<li>{g}</li>" for g in dim.get("evidence_gaps", []))
         gaps_block = f"<p>未过门的指标：</p><ul>{gaps}</ul>" if gaps else ""
+        interval_th = "<th>本场会话内观测区间</th>" if has_interval else ""
+        interval_note = ("" if has_interval else
+                         "<p class=\"note\">每个指标在本场只测了一次,"
+                         "没有「场内的变异」可报 —— 所以不列区间。</p>")
         return f"""
         <h3>{dim['display_name']}</h3>
         <p>过门指标 {dim['matched_indicators']}；置信度：<strong>{dim['confidence']}</strong>。
         （该维度目前无独立效标，仅供行为描述）</p>
         <p class="note">量到了这几条：{names}。</p>
-        <table><thead><tr><th>指标</th><th>原始值</th><th>本场会话内观测区间</th>
+        <table><thead><tr><th>指标</th><th>原始值</th>{interval_th}
         <th>有效样本量</th></tr></thead>
         <tbody>{rows}</tbody></table>
+        {interval_note}
         {gaps_block}
         """
 
@@ -962,15 +978,19 @@ class ReportGenerator:
         # 那是把未标定标尺上的复合点分当对候选人的评定。改为:覆盖事实 + 依据 +
         # 区间,区间只能来自本场会话自己的测量(§5.5:没有真实常模就不给位置)。
         coverage = result["coverage"]
-        basis_items = "".join(
-            f"<li>{slot['display_name']} · {slot['indicator']}："
-            f"原始值 {_fmt_num(slot['raw_value'])}；"
-            f"本场会话内观测区间 {_interval_text(slot['observed_interval'])}"
-            f"（与原始值同量纲）；有效样本量 {slot['n_valid']}</li>"
-            for slot in coverage["passed_slots"]
-        )
-        basis_html = (f"<ul>{basis_items}</ul>" if basis_items
-                      else "<p>本次会话没有指标通过证据门。</p>")
+        # ⚠️ 2026-10-26:「依据:通过证据门的指标」那张平铺列表**整段删掉**。
+        #
+        # 它把每一个过门槽再列一遍(维度 · 指标 · 原始值 · 区间 · 样本量),
+        # 而「每一维量到了什么」那四张表逐字包含同样的五列 —— 同一批数字
+        # 在一份报告里印两遍。使用者原话:「简洁易懂」。
+        #
+        # 它还有一处更糟:每行都带一句「本场会话内观测区间 未采集到会话内变异信息
+        # (与原始值同量纲)」,读者会以为**每个指标都缺了区间**,而真相是
+        # L1 每个指标整场只有一个值,本来就没有"场内变异"。
+        #
+        # 覆盖数(几 / 几)在报告头的 hero 里,逐维明细在维度表里,
+        # 这条信息链没有断 —— 断的只是重复。
+        basis_html = ""
 
         fig_cov = self._figure_coverage(result)
         fig_disp = self._figure_dispersion(result)
@@ -1066,7 +1086,6 @@ class ReportGenerator:
 {self._render_vanished_dimensions(result)}
 {deep_analysis_html}
 
-<h2>依据：通过证据门的指标</h2>
 {basis_html}
 
 {self._render_l1_audit_text(result, only=("gaps", "low_confidence", "windows"))}

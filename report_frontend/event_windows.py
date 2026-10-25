@@ -263,8 +263,14 @@ def build_windows(session_id: str, origin_wall: float,
         # 原来这里会走上面的"段 0 条 vs 窗口 N 个 —— 对不上",于是"只有提问标记、
         # 没有每题音频"的场次**每一场都永久带一条假缺陷**,把真缺陷稀释掉。
         # 逐题窗口照常可用(F/G 按题切);但没有 reaction_time ⟹ 反应延迟不可出。
-        notes.append("本场没有逐题回答音频(只有提问标记)⟹ 逐题窗口照常可用,"
-                     "但没有 reaction_time,response_latency_sec 不可出")
+        #
+        # ⚠️ 2026-10-26 改措辞:原来点的是 `reaction_time` / `response_latency_sec`
+        #   两个内部键,直接印进交付物正文(使用者原话「语音晦涩难懂,这怎么看」)。
+        #   现在说中文名,并写清**这条限制此刻有没有实际影响** —— 实测那一场
+        #   `response_latency_sec` 明明有值(语音日志的 `reaction_time` 列 8 行齐全),
+        #   而报告却写着「不可出」:那是**这句模板在替一场它有值的数据断言**。
+        notes.append("本场没有逐题回答音频(只有提问标记)⟹ 逐题窗口照常可用;"
+                     "「反应延迟」只能取语音日志自带的首次开口时刻,不能按题重算")
     if end_clamped:
         # 与"相邻两题撞在一起"分开说 —— 补救动作完全不同(那条改台账,这条改调用方)。
         notes.append(f"会话结束时刻({float(session_end_sec):.1f}s)早于最后一题的 "

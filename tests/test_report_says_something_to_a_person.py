@@ -339,3 +339,61 @@ def test_no_internal_indicator_key_survives_in_the_report_body(html):
     body = _text_of(html)
     leaked = sorted(n for n in names if n in body)
     assert not leaked, f"正文里露出了内部指标键:{leaked}"
+
+
+# ---------------------------------------------------------------------------
+# ⑦ 同一批数字不许印两遍
+# ---------------------------------------------------------------------------
+
+def test_the_same_numbers_are_not_printed_twice(tmp_path, monkeypatch, isolated):
+    """★ 红法:把「依据:通过证据门的指标」那段平铺列表加回来 ⟹ 这里红。
+
+    ## 实测怎么发现的
+
+    那一版报告里,每个过门槽都印了两遍:一遍在「每一维量到了什么」的表里
+    (维度 · 指标 · 原始值 · 样本量),一遍在「依据」那段里
+    (维度 · 指标 · 原始值 · 区间 · 样本量)。同一批数字,一份报告。
+    使用者原话:「简洁易懂」。
+
+    更糟的是「依据」那段的每一行都带「本场会话内观测区间 未采集到会话内变异信息
+    (与原始值同量纲)」—— 读者会以为每个指标都缺了区间,而真相是 L1 每个指标
+    整场只有一个值,本来就没有"场内变异"。
+    """
+    # ⚠️ 必须用带证据的载荷:空载荷下一条指标都不过门,逐维表压根不渲染,
+    #    「只印一次」就退化成"一次都没印"的空断言。
+    body = _text_of(_render(tmp_path / "n", monkeypatch, _payload(1)))
+    # 两次是对的:一次在「量到了这几条：…」那句人话里,一次在维度表那一行。
+    # 第三次就说明又出现了一份重复的表。
+    assert body.count("连接词密度") == 2, (
+        f"「连接词密度」在正文里出现了 {body.count('连接词密度')} 次 —— "
+        "除了「量到了这几条」与维度表各一次,多出来的就是重复")
+    assert "依据：通过证据门的指标" not in body, (
+        "「依据」那段平铺列表还在 —— 它与逐维表逐字重复")
+    # 逐维表只有一份:表头「原始值」只该出现一次。
+    assert body.count("原始值") == 1, (
+        f"正文里有 {body.count('原始值')} 张指标表 —— 同一批数字印了不止一遍")
+
+
+def test_an_interval_column_that_is_always_empty_is_not_printed(
+        tmp_path, monkeypatch, isolated):
+    """★ 红法:把 `has_interval` 判据删掉(永远印这一列)⟹ 这里红。
+
+    L1 的每个指标都是**整场一个值**,`observed_interval` 恒为空数组。
+    整列印出来就是四行同一句「未采集到会话内变异信息」—— 读者会读成
+    "这一维什么都没测出变异",而真相是这一层不产生区间。
+    """
+    p = _payload(1)
+    for e in p["dimensions"]["logical_thinking"]["evidence_chain"]:
+        e["observed_interval"] = []
+    html = _render(tmp_path / "i", monkeypatch, p)
+    body = _text_of(html)
+    assert "未采集到会话内变异信息" not in body, (
+        "整列为空的区间列还在印 —— 四行同一句废话")
+    assert "没有「场内的变异」可报" in body, (
+        "撤掉这一列之后没给理由 —— 读者会以为这一段丢了")
+
+    # 另一侧:真有区间时必须照印,否则这条判据会退化成"永远不印"。
+    q = _payload(1)
+    q["dimensions"]["logical_thinking"]["evidence_chain"][0]["observed_interval"] = [3.0, 3.8]
+    body2 = _text_of(_render(tmp_path / "j", monkeypatch, q))
+    assert "3.0 – 3.8" in body2, "有区间时反而不印了"

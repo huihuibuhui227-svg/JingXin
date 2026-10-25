@@ -111,7 +111,15 @@ def test_no_answer_audio_is_a_capture_mode_not_a_mismatch(rec_dir):
     gap = ws.gap or ""
     assert "对不上" not in gap, f"没有逐题音频不该报成对不上:{gap}"
     assert "没有逐题回答音频" in gap, f"必须说清是哪种模式:{gap}"
-    assert "response_latency_sec" in gap, f"必须说清后果(反应延迟不可出):{gap}"
+    # ⚠️ 2026-10-26 改断言:原句点的是 `reaction_time` / `response_latency_sec`
+    #    两个内部键,并且断言「不可出」—— 而实测那一场 `response_latency_sec`
+    #    **有值**(语音日志自带的 `reaction_time` 列 8 行齐全)。这句模板在替一场
+    #    它有值的数据断言"不可出",而且两个键直接印进了交付物正文
+    #    (使用者原话「语音晦涩难懂」)。现在只要求说清**后果与限制**:
+    #    能取日志自带的时刻,不能按题重算。
+    assert "反应延迟" in gap, f"必须说清后果(反应延迟受影响):{gap}"
+    for key in ("response_latency_sec", "reaction_time"):
+        assert key not in gap, f"缺口说明里露着内部指标键 {key!r}:{gap}"
 
 
 def test_answer_audio_count_mismatch_is_still_reported(rec_dir):
