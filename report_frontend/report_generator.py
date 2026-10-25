@@ -566,9 +566,6 @@ class ReportGenerator:
         gaps = "".join(f"<li>{g}</li>" for g in dim.get("evidence_gaps", []))
         gaps_block = f"<p>未过门的指标：</p><ul>{gaps}</ul>" if gaps else ""
         interval_th = "<th>本场会话内观测区间</th>" if has_interval else ""
-        interval_note = ("" if has_interval else
-                         "<p class=\"note\">每个指标在本场只测了一次,"
-                         "没有「场内的变异」可报 —— 所以不列区间。</p>")
         return f"""
         <h3>{dim['display_name']}</h3>
         <p>过门指标 {dim['matched_indicators']}；置信度：<strong>{dim['confidence']}</strong>。
@@ -577,7 +574,6 @@ class ReportGenerator:
         <table><thead><tr><th>指标</th><th>原始值</th>{interval_th}
         <th>有效样本量</th></tr></thead>
         <tbody>{rows}</tbody></table>
-        {interval_note}
         {gaps_block}
         """
 
@@ -1040,6 +1036,19 @@ class ReportGenerator:
             未过门的槽与原因逐条列在下面的维度明细里。</figcaption></figure>
             """
 
+        # ★ 区间那一列为什么整份报告都没有 —— **整份说一次**,不是每个维度说一次。
+        #
+        # L1 每个指标整场只有一个值,`observed_interval` 恒为空 ⟹ 四张表都不印这一列。
+        # 原先那句话写在每个维度下面,同一句话出现四遍(实测渲染出来的正文)。
+        # 判据是"全部维度都没有区间",有一条有就照印、不说这句。
+        all_dims = list((result.get("dimensions") or {}).values())
+        no_interval_anywhere = bool(all_dims) and not any(
+            e.get("observed_interval") for d in all_dims
+            for e in (d.get("evidence_chain") or []))
+        interval_note = ("" if not no_interval_anywhere else
+                         "<p class=\"note\">下面每张表都不列「本场会话内观测区间」:"
+                         "每个指标在本场只测了一次,没有「场内的变异」可报。</p>")
+
         # 「与旧引擎报告对比」是**引擎迁移说明**,每份报告都有、与这一场无关。
         # 印在正文里必然被读成"跟上一次比怎么样"(使用者原话)。内容不删,收进附录。
         appendix = self._render_l1_audit_text(result, only=("comparability",))
@@ -1084,6 +1093,7 @@ class ReportGenerator:
 
 <h2>每一维量到了什么</h2>
 {self._render_vanished_dimensions(result)}
+{interval_note}
 {deep_analysis_html}
 
 {basis_html}

@@ -385,12 +385,24 @@ def test_an_interval_column_that_is_always_empty_is_not_printed(
     p = _payload(1)
     for e in p["dimensions"]["logical_thinking"]["evidence_chain"]:
         e["observed_interval"] = []
+    # ⚠️ 必须**两个维度**:一个维度的载荷下"每个维度说一遍"与"整份说一遍"
+    #    渲染出来都是 1 次,这条断言就守不住它声称的东西。
+    p["dimensions"]["behavioral_stability"] = {
+        **p["dimensions"]["logical_thinking"],
+        "display_name": "情境行为稳定性",
+        "evidence_chain": [dict(e) for e in
+                           p["dimensions"]["logical_thinking"]["evidence_chain"]],
+        "evidence_gaps": [],
+    }
     html = _render(tmp_path / "i", monkeypatch, p)
     body = _text_of(html)
     assert "未采集到会话内变异信息" not in body, (
         "整列为空的区间列还在印 —— 四行同一句废话")
-    assert "没有「场内的变异」可报" in body, (
-        "撤掉这一列之后没给理由 —— 读者会以为这一段丢了")
+    # ⚠️ 这句**整份报告说一次**。第一版写在每个维度下面,四维就是四遍 ——
+    #    删掉一列却又加回四行解释,等于换个地方啰嗦。
+    assert body.count("没有「场内的变异」可报") == 1, (
+        f"区间说明出现了 {body.count('没有「场内的变异」可报')} 次 —— "
+        "应该整份报告只说一次")
 
     # 另一侧:真有区间时必须照印,否则这条判据会退化成"永远不印"。
     q = _payload(1)
