@@ -12,6 +12,11 @@ from .l1_report import build_l1_report
 from .visualizer import ReportVisualizer
 
 
+#: 维度数 → 中文数字。只到六维就够(当前最多五维,消失一维后四维);
+#: 表外的数原样印阿拉伯数字 —— 宁可印 `7 个维度`,不许印一个错的中文数。
+_CN_NUM = {1: "一", 2: "二", 3: "三", 4: "四", 5: "五", 6: "六"}
+
+
 def _fmt_num(v) -> str:
     """实测值 → 给人读的字符串。**小数位数按量级选,不一律两位。**
 
@@ -362,6 +367,20 @@ class ReportGenerator:
         </div>
         """
 
+    def _coverage_heading(self, result: Dict[str, Any]) -> str:
+        """「本次观测覆盖」那张雷达图的标题 —— **维度数从载荷算,不是字面量**。
+
+        这里原先写死 `📊 五维证据覆盖`。旧引擎给满五维,所以那句一直对;
+        L1 引擎下 `行为表现活跃度` 整维消失 ⟹ 正文里只有**四个**维度,
+        而标题还写着「五维」—— 同一份报告自己跟自己矛盾,读者会以为少了一维。
+
+        ⚠️ 数的是 `dimensions`,**不含** `vanished_dimensions`:消失的那一维
+        在正文里另有一块说明(「本层不测」),把它算进"本次观测"会让读者
+        以为它出了值。钉子:`tests/test_the_report_stops_saying_wrong_things.py`。
+        """
+        n = len(result.get("dimensions") or {})
+        return f"📊 {_CN_NUM.get(n, n)}维证据覆盖（{n} 个维度）"
+
     def _render_l1_audit_text(self, result: Dict[str, Any]) -> str:
         """把载荷里那四组「这份报告能说什么」的前提印出来。
 
@@ -526,17 +545,19 @@ class ReportGenerator:
                 </div>
 
                 <div class="card">
-                    <h3>📊 五维证据覆盖</h3>
+                    <h3>{self._coverage_heading(result)}</h3>
                     <div class="chart-container">{get_chart_iframe(chart_paths.get('radar'), '500')}</div>
                 </div>
-
-                <h2>🔍 分维度证据链</h2>
-                <!-- 这里原来是逐维度的「证据链贡献度」图(每维一张卡)。
-                     2026-10-04 随评分层一起摘除 —— 那些图的 x 轴是 `contribution`
-                     (折算值 × 槽权重),即"对**维度分**的贡献",而维度分与复合分
-                     已从 payload 整层删掉(理由见 `research_mapper` 返回处那段注释)。
-                     逐槽的诚实呈现是上面「分维度证据链」那几张表里的
-                     原始值 + 本场观测区间 + 有效样本量 + 置信度。 -->
+                <!-- 这里原来还有一行 `<h2>🔍 分维度证据链</h2>` + 逐维度的
+                     「证据链贡献度」图(每维一张卡)。图在 2026-10-04 随评分层一起
+                     摘除 —— 它们的 x 轴是 `contribution`(折算值 × 槽权重),即
+                     "对**维度分**的贡献",而维度分与复合分已从 payload 整层删掉
+                     (理由见 `research_mapper` 返回处那段注释)。逐槽的诚实呈现是
+                     上面「行为指标观测明细」里那几张表:原始值 + 本场观测区间 +
+                     有效样本量 + 置信度。
+                     ⚠️ 标题留到了 2026-10-25 深夜才摘 —— 报告末尾一直挂着一个
+                     **下面什么都没有**的二级标题,读者会以为内容丢了。
+                     钉子:`tests/test_the_report_stops_saying_wrong_things.py`。 -->
 
                 <footer style="text-align:center; margin-top:50px; color:#888;">
                     JingXin Multi-modal Assessment System | Auto-Generated Report

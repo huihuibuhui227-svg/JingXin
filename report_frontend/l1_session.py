@@ -135,6 +135,31 @@ def _pick_voice(logs: dict):
     return None
 
 
+def series_gap_note(voice, series, session_id: str | None = None) -> str | None:
+    """「语音日志在,但序列缓存没生成」那句 —— **两条代码路径共用**。
+
+    ## 为什么要抽成函数
+
+    `compute_session_l1` 有两条路:有会话原点走主路,没有原点(正式场的常态)
+    走早退分支。这条限制原先**只写在主路上**,早退分支漏了 ——
+    于是同一场会话,有没有留存帧会决定这句提示出不出现,而缺的东西是同一个。
+
+    ## 为什么必须翻成人话
+
+    原句结尾是「V 族 8 条序列指标报 `not_stored`」—— 一个内部缺口码直接印进了
+    交付物(2026-10-25 深夜端到端看真实报告时发现)。别的缺口都走
+    `l1_quality.GAP_EXPLANATION`,这一条是手写字符串,所以逃过了那张表。
+
+    ⚠️ 改成人话 ≠ 少说:仍要说清**哪 8 条、为什么没值、怎么补**。
+    钉子:`tests/test_the_report_stops_saying_wrong_things.py`(扫全部缺口码)。
+    """
+    if voice is None or series is not None:
+        return None
+    return ("语音日志在,但帧级序列缓存还没生成 —— V 族 8 条序列指标这一场没有值"
+            "(" + l1_quality.GAP_EXPLANATION[l1_quality.GAP_NOT_EXTRACTED]
+            + ";入口 `report_frontend/voice_series.extract_session`)")
+
+
 def voice_gap_note(voice, voice_inds, session_id: str | None = None) -> str | None:
     """没有语音日志时的那句说明 —— **按载荷里真有值的条数说**。
 
@@ -286,6 +311,9 @@ def compute_session_l1(session_id: str,
                              session_id=session_id)
         if _vg:
             gaps.append(_vg)
+        _sg = series_gap_note(_pick_voice(logs), _series, session_id=session_id)
+        if _sg:
+            gaps.append(_sg)
         return L1Result(session_id, tl, ws, inds, gaps,
                         coverage=l1_quality.modality_coverage(logs),
                         series_available=_series is not None)
@@ -409,12 +437,12 @@ def compute_session_l1(session_id: str,
     voice_inds = l1_voice.compute_voice_indicators(voice, series=series,
                                                    session_id=session_id)
     inds.extend(voice_inds)
-    if voice is not None and series is None:
-        gaps.append("语音日志在,但没有帧级序列缓存 —— V 族 8 条序列指标报 not_stored"
-                    "(可跑 report_frontend/voice_series.extract_session 生成)")
-    _vg = voice_gap_note(voice, voice_inds, session_id=session_id)
-    if _vg:
-        gaps.append(_vg)
+    # 两条手写提示共用同一对函数 —— 早退分支也调它们,否则「有没有留存帧」
+    # 会决定这两句出不出现,而缺的东西是同一个。
+    for _note in (series_gap_note(voice, series, session_id=session_id),
+                  voice_gap_note(voice, voice_inds, session_id=session_id)):
+        if _note:
+            gaps.append(_note)
 
     # ── T 族(文本)—— 只依赖转写,与三个模态的日志无关 ──────────────────
     inds.extend(l1_text.compute_text_indicators(
