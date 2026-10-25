@@ -344,6 +344,52 @@ LOW_CONFIDENCE_DECISION = (
     "所以要么原样报低,要么另起一个新名字(如 *_per_30s)并同时改规格 —— 后者未做。")
 
 
+def modality_summary(report: QualityReport) -> dict[str, dict]:
+    """每个模态**到底算出了几条**指标 —— 报告头要说这句话,而它自己数不出来。
+
+    ## 为什么必须有这个
+
+    报告头看的是 `LogDataLoader.selected_sessions`,那**只描述日志文件**。
+    而语音有第二个数据源(`voice_series`,整场录音逐帧重算),不经日志。
+    实测场 `20260928_180131_8102`:语音日志 0 行,报告头写
+
+        语音（面试） · 未读到数据（…若本场确实答过题，那才是文件损坏。）
+
+    而同一份报告的正文里 V 族 **12 条有 10 条有值**。读者先看头,会以为这一场废了
+    —— 它其实是本场最完整的模态。两个出口对同一个模态说了两句相反的话,
+    这正是本仓第 15 条要消灭的形态。
+
+    ## 为什么不在这里重算
+
+    `build_quality_report` 已经把每条指标按族归好了(`families`),
+    这里只做**汇总与措辞**,不碰任何原始数据。
+
+    `source_note` 只在"值不是从日志来的"时非空 —— 那句话的作用是回答
+    "日志都没有,这些数哪来的"。有日志时不写,免得读者以为日志没用上。
+    """
+    out: dict[str, dict] = {}
+    for fam, info in report.families.items():
+        modality = info.get("modality")
+        if not modality:
+            continue
+        acc = out.setdefault(modality, {"n_total": 0, "n_measured": 0,
+                                        "source_note": ""})
+        acc["n_total"] += info["n"]
+        acc["n_measured"] += info["n_measured"]
+
+    # 语音的第二个数据源。`validate()` 早就为它开过豁免(`series_available`),
+    # 这里把同一件事说给读者听。
+    #
+    # ⚠️ 只在**日志真的没有行**时才说这句。有日志时说「由整场录音重算得出」
+    #    会反过来骗人(那些值其实是日志给的)。判据用 `coverage.voice.rows` ——
+    #    那是"日志有几行",不是"有几行可用"。
+    voice = out.get("voice")
+    log_rows = (report.coverage.get("voice") or {}).get("rows", 0)
+    if voice and voice["n_measured"] and report.series_available and not log_rows:
+        voice["source_note"] = "由整场录音重算得出"
+    return out
+
+
 def explain_confidence(report: QualityReport) -> list[str]:
     """把"置信低"翻译成一句人话。只对**有值但置信低**的指标说。"""
     out: list[str] = []

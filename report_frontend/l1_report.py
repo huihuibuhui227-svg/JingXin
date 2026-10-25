@@ -35,7 +35,7 @@ from __future__ import annotations
 
 import datetime as _dt
 
-from . import l1_mapper
+from . import l1_mapper, l1_quality
 from .l1_quality import GAP_EXPLANATION, build_quality_report, explain_confidence
 from .l1_session import compute_session_l1
 
@@ -213,6 +213,10 @@ def build_l1_report(session_id: str, logs: dict | None = None) -> dict:
             "by_confidence": dict(quality.by_confidence),
             "by_gap": dict(quality.by_gap),
             "modality_coverage": quality.coverage,
+            # ★ 每个模态**到底算出了几条**(2026-10-25)。报告头看的是日志文件的三态,
+            #   而语音有第二个数据源(整场录音重算),不经日志 —— 于是头说「未读到数据」、
+            #   正文说「V 族 10 条有值」。这句话由载荷给,渲染层不许自己数。
+            "modality_summary": l1_quality.modality_summary(quality),
             "timebase": quality.timebase,
             "windows": quality.windows,
             "indicators": quality.indicators,

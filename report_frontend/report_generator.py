@@ -69,8 +69,17 @@ _MODALITY_LABELS = {
     "voice_research": "语音（科研）",
 }
 
+#: 日志键 → L1 的**族模态名**(`l1_quality.FAMILY_MODALITY` 用的是后者)。
+#: 两者不同名是因为日志按"面试/科研"分文件,而 L1 的 V 族不分 —— 同一套指标。
+#: 这张表只用于把载荷里的 `modality_summary` 对上号,不做别的判断。
+_LOG_KEY_TO_MODALITY = {
+    "voice_interview": "voice",
+    "voice_research": "voice",
+}
 
-def sources_disclosure(sources: Dict[str, Dict], target: Optional[str] = None) -> str:
+
+def sources_disclosure(sources: Dict[str, Dict], target: Optional[str] = None,
+                       modality_summary: Optional[Dict[str, Dict]] = None) -> str:
     """披露「本报告描述的是哪一场、每个模态进来了没有」(M2 spec §5.2)。
 
     输入是 `LogDataLoader.selected_sessions`,值是三态之一:
@@ -88,11 +97,40 @@ def sources_disclosure(sources: Dict[str, Dict], target: Optional[str] = None) -
     实时路径的入参,第 17 条)。**为什么不从 items 里推第一个**:只有 NONE 桶、或连
     NONE 桶都没有时,items 是空的,推不出来 —— 而那正是最需要把话说清楚的情形。
     没给且 items 非空时退回"取第一个"(兼容直接调用本函数的调用方与测试)。
+
+    ## `modality_summary`(2026-10-25 补):日志三态**不是全部事实**
+
+    三态描述的是**日志文件**。语音还有第二个数据源:整场录音逐帧重算
+    (`voice_series`),不经日志。实测场 `20260928_180131_8102` 语音日志 0 行,
+    报告头说「未读到数据(…若本场确实答过题,那才是文件损坏)」,而正文里
+    V 族 12 条有 10 条有值 —— 同一个模态,两个出口说了相反的话。
+
+    载荷 (`l1.modality_summary`) 给出每个模态到底算出了几条,这里**照抄**:
+    有值 ⟹ 说「N/M 条有值」,不再提"损坏";一条都没有 ⟹ 保留原措辞(那是真的)。
+    渲染层不自己数 —— 它拿不到族与模态的归属(`l1_quality.FAMILY_MODALITY`)。
     """
     none_bucket = sources.get("none_bucket")
     items = {k: v for k, v in sources.items() if k != "none_bucket"}
     if target is None and items:
         target = next(iter(items.values()))["session_id"]
+
+    summary = modality_summary or {}
+
+    def _produced(key: str) -> Optional[Dict]:
+        """这个模态**算出了几条** —— 日志键 `voice_interview` 归到 `voice` 这一族。
+
+        没登记就返回 `None`(不猜)。判据只有这一处,两个分支共用。
+        """
+        fam = _LOG_KEY_TO_MODALITY.get(key, key)
+        return summary.get(fam)
+
+    def _produced_line(label: str, key: str) -> Optional[str]:
+        got = _produced(key)
+        if not got or not got.get("n_measured"):
+            return None
+        note = f"（{got['source_note']}）" if got.get("source_note") else ""
+        return (f"{label} · <strong>日志没有数据，但这个模态算出了 "
+                f"{got['n_measured']} / {got['n_total']} 条指标</strong>{note}")
 
     lines = (["本场会话：<strong>（无 —— 本场没有任何日志）</strong>"] if target is None
              else [f"本场会话：<strong>{target}</strong>"])
@@ -109,12 +147,24 @@ def sources_disclosure(sources: Dict[str, Dict], target: Optional[str] = None) -
             #    (从「实时分析」页录的那些就是:那条路没有题库、不提交回答,
             #    语音模态因此结构上为空,交接日志 §8.1-4 记过)。两件事的处置完全不同:
             #    一个是"设计如此",一个是"去查文件"。分不开就会让人去追一个不存在的故障。
-            lines.append(f'<strong style="color:#A23B72;">{label} · 未读到数据</strong>'
-                         f'（日志文件在，但一行数据都没有。常见原因是本场'
-                         f'<strong>没有提交过逐题回答</strong> —— 例如从「实时分析」页录的，'
-                         f'那条路没有题库；若本场确实答过题，那才是文件损坏。）')
+            #
+            # ⚠️ 更要紧的是:日志空 ≠ 这个模态没有量。语音可由整场录音重算 ——
+            #    有值时先说这件事,别让读者带着"文件可能损坏"的印象往下读。
+            got = _produced_line(label, key)
+            if got:
+                lines.append(got)
+            else:
+                lines.append(f'<strong style="color:#A23B72;">{label} · 未读到数据</strong>'
+                             f'（日志文件在，但一行数据都没有。常见原因是本场'
+                             f'<strong>没有提交过逐题回答</strong> —— 例如从「实时分析」页录的，'
+                             f'那条路没有题库；若本场确实答过题，那才是文件损坏。）')
         else:
-            lines.append(f"{label} · 缺失（本场没有这个模态的日志）")
+            # 同上:盘上连日志文件都没有,但指标可能由第二个数据源算出来了。
+            got = _produced_line(label, key)
+            if got:
+                lines.append(got)
+            else:
+                lines.append(f"{label} · 缺失（本场没有这个模态的日志）")
 
     if none_bucket:
         lines.append(f'<em>另有 NONE 桶 {none_bucket["rows"]} 行 —— '
@@ -513,7 +563,9 @@ class ReportGenerator:
                     </div>
                     <!-- 本报告由哪些日志装配(I4):跨场拼接必须让读者看得见 -->
                     <div style="margin-top:8px; font-size:0.85em; opacity:0.95;">
-                        {sources_disclosure(sources or {}, target)}
+                        {sources_disclosure(sources or {}, target,
+                                            modality_summary=(result.get("l1") or {})
+                                            .get("modality_summary"))}
                     </div>
                 </header>
 
