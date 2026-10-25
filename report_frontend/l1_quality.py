@@ -303,6 +303,32 @@ def build_quality_report(result) -> QualityReport:
     return report
 
 
+#: L1 指标名 → **中文名**。交付物与界面印这一列,不印左边的键。
+#:
+#: ## 为什么需要这张表
+#:
+#: `explain_confidence()` 拼的是 `{指标名}:{理由}`,而指标名是**审计键**。
+#: 2026-10-25 深夜实测:交付物正文里印出 `speech_rate:` / `pause_rate_per_min:` /
+#: `pitch_range_semitone:` 等 5 个键,而同一份报告的维度表里,同一个指标印的是
+#: 中文槽名(「语调变化」「平均停顿时长」)⟹ 读者会以为是两个东西。
+#:
+#: 前两次(`comparability_notes`、删槽理由)的修法都是「载荷发两版」,这次照办。
+#:
+#: ⚠️ 只登记**会以「低」置信出现在报告里**的那几条(`LOW_CONFIDENCE_REASON` 的键)。
+#:    `test_every_low_confidence_indicator_has_a_chinese_name` 守这条。
+#:    不一次登记全部 35 条:名字必须与维度表里读者见过的那一版一致,
+#:    没在报告里出现过的指标没有"读者见过的那一版",现在编一个只会将来打架。
+INDICATOR_LABEL: dict[str, str] = {
+    "speech_rate": "语音字数率",
+    "pause_rate_per_min": "停顿频率",
+    "pitch_range_semitone": "音高跨度",
+    "pitch_variability_per_sec": "语调变化",
+    "energy_dynamics_per_sec": "能量变化速度",
+    "gesture_burst_rate_per_min_vs_baseline": "手势爆发频率",
+    "postural_shift_rate_per_min_vs_baseline": "姿态变换频率",
+}
+
+
 #: 置信「低」的**原因**,按指标名。置信度只说"有多信",不说"为什么只有这么信" ——
 #: 后者才是读者要的那句话。**没有登记的指标不会瞎猜**,返回 `None`。
 LOW_CONFIDENCE_REASON: dict[str, str] = {
@@ -390,15 +416,29 @@ def modality_summary(report: QualityReport) -> dict[str, dict]:
     return out
 
 
-def explain_confidence(report: QualityReport) -> list[str]:
-    """把"置信低"翻译成一句人话。只对**有值但置信低**的指标说。"""
+def explain_confidence(report: QualityReport, plain: bool = False) -> list[str]:
+    """把"置信低"翻译成一句人话。只对**有值但置信低**的指标说。
+
+    ## `plain`(2026-10-25 补):印名字还是印键
+
+    * `plain=False`(默认)—— **审计版**,`{指标名}:{理由}`。核对口径的人查它;
+    * `plain=True`          —— **人话版**,`{中文名}:{理由}`,交付物与界面印这一版。
+
+    两版**条数、顺序、理由逐字相同**,差别只在名字(由
+    `test_the_plain_version_keeps_every_entry_and_only_swaps_the_name` 守着)。
+
+    ⚠️ 未登记中文名时**原样露出键名**,不许吞掉这一条 ——
+    宁可露英文,也不能让读者以为这条指标没有限制。
+    """
     out: list[str] = []
     for row in report.indicators:
         if row.get("confidence") != "低" or row.get("value") is None:
             continue
-        reason = LOW_CONFIDENCE_REASON.get(row.get("name", ""))
+        name = row.get("name", "")
+        reason = LOW_CONFIDENCE_REASON.get(name)
         if reason:
-            out.append(f"{row['name']}:{reason}")
+            label = INDICATOR_LABEL.get(name, name) if plain else name
+            out.append(f"{label}:{reason}")
     return out
 
 

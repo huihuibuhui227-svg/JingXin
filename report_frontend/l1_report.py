@@ -225,6 +225,11 @@ def build_l1_report(session_id: str, logs: dict | None = None) -> dict:
             #   后果是报告上只写「置信 低」,不写"为什么只有这么信";
             #   而后者才是读者要的那句话(置信度本身不回答它)。
             "low_confidence_notes": explain_confidence(quality),
+            # ★ 同一批理由的**给人读版**(2026-10-25):审计版把 `{指标名}:{理由}`
+            #   原样拼出来,而指标名是内部键 —— 实测交付物正文里印出了
+            #   `speech_rate:` / `pause_rate_per_min:` 等 5 个键,而维度表里
+            #   同一个指标印的是中文槽名。**两个版本都发**,分层的决定权在载荷。
+            "low_confidence_notes_plain": explain_confidence(quality, plain=True),
             # ★ 与旧引擎报告对比时的那句提醒。见 `l1_mapper.NOT_COMPARABLE`。
             #   **两个版本都发**:`comparability_notes` 是审计版(带槽键与 L1 指标名,
             #   核对口径的人要查);`comparability_notes_plain` 是给人读版(交付物与

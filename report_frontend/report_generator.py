@@ -530,7 +530,12 @@ class ReportGenerator:
                 "<p>下列槽名相近，但统计量已更换，两边的数<strong>不可相减</strong>。</p>"
                 + _ul(notes) + "</div>")
 
-        low = l1.get("low_confidence_notes") or []
+        # ⚠️ 印**人话版**:审计版是 `{指标名}:{理由}`,而指标名是内部键 ——
+        #    实测交付物正文里印出过 `speech_rate:` / `pause_rate_per_min:` 等 5 个键,
+        #    而维度表里同一个指标印的是中文槽名 ⟹ 读者会以为是两个东西。
+        #    载荷没发人话版时退回审计版(宁可露英文,不许把这一段吞掉)。
+        low = (l1.get("low_confidence_notes_plain")
+               or l1.get("low_confidence_notes") or [])
         if low:
             blocks.append(
                 "<div class='l1-audit'><h3>置信度为「低」的原因（素材限制，不是算错）</h3>"
