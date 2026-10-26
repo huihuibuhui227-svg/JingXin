@@ -366,6 +366,53 @@ def test_no_internal_indicator_key_survives_in_the_report_body(html):
 _JARGON = ("指标槽", "证据门", "过门", "同构念", "效标", "NONE 桶",
            "本层", "当前管线")
 
+#: 交付物正文里**不许出现**的推理记号。它们是我们写代码时的写法:
+#:
+#: | 记号 | 我们读成 | 读者看到 |
+#: |---|---|---|
+#: | `⟹` | 所以 | 一个不会念的符号 |
+#: | `→` | 变成 / 映射到 | 同上(且常出现在迁移对账里) |
+#:
+#: ⚠️ 2026-10-26 第三轮才清:前两轮清了词(指标槽 / 效标 / 本层),但**符号**
+#:    一直留着。实测正文「本场素材的限制」里印着
+#:    「本场没有逐题回答音频(只有提问标记)⟹ 逐题窗口照常可用」。
+#:    使用者问的是「说的是人话吗」—— 符号不是人话。
+_SYMBOLS = ("⟹", "→", "⇒")
+
+
+def test_the_body_carries_no_reasoning_symbols(tmp_path, monkeypatch, isolated):
+    """★ 红法:把 `_plain()` 里替换 `⟹` 的那两行删掉 ⟹ 这里红。
+
+    ## 这条守的是**渲染层**,不是产出层
+
+    产出层(谁写出这句话)由 `tests/test_m4_per_question_windows.py`
+    那条断言守着 —— 那里要求 `event_windows` 的缺口说明本身就不带符号。
+
+    但渲染层还得**再守一道**:载荷里的 `l1.gaps` 是开发者写的注释体,
+    将来任何一处新增的说明都可能带符号,而交付物是最后一道关口。
+    ⟹ 这里喂一份**带符号**的载荷,断言符号没到读者眼前。
+
+    ## ⚠️ 第一版是空断言,记在这里免得后人重犯
+
+    第一版喂的是**已经改好的**那句(不含符号),于是无论 `_plain()` 有没有
+    替换逻辑,它都是绿的 —— 变异实测确认过(把替换删掉,照样 20 passed)。
+    教训:断言"某个东西没出现"时,前提是**它本来会出现**。
+    """
+    p = _payload(1)
+    p["l1"]["gaps"] = [
+        "本场没有逐题回答音频(只有提问标记)⟹ 逐题窗口照常可用",
+        "旧槽键 → 新指标名:两边口径不同",
+    ]
+    body = _text_of(_render(tmp_path / "sym", monkeypatch, p))
+    assert "逐题回答音频" in body, (
+        "这句缺口说明没进正文 —— 本测试退化为空断言(见 docstring)")
+    found = {w: body.count(w) for w in _SYMBOLS if w in body}
+    assert not found, (
+        "交付物正文里还有推理记号 —— 读者看到的是不会念的符号:\n  "
+        + "\n  ".join(f"{w} × {n}" for w, n in found.items()))
+    # 另一侧:推理关系本身不能丢。换成"所以",不是删掉。
+    assert "所以" in body, "符号被删掉了而不是换成人话 —— 这句的意思缺了一环"
+
 
 def test_the_body_carries_no_internal_jargon(tmp_path, monkeypatch, isolated):
     """★ 红法:把任意一处措辞改回行话 ⟹ 这里红。

@@ -120,6 +120,11 @@ def test_no_answer_audio_is_a_capture_mode_not_a_mismatch(rec_dir):
     assert "反应延迟" in gap, f"必须说清后果(反应延迟受影响):{gap}"
     for key in ("response_latency_sec", "reaction_time"):
         assert key not in gap, f"缺口说明里露着内部指标键 {key!r}:{gap}"
+    # ⚠️ 2026-10-26 第三轮:这句直接进交付物正文的「本场素材的限制」那一段,
+    #    而上一版留着 `⟹` 这个推理记号。符号不是人话 —— 读者看到的是一个
+    #    不会念的字符。同一个毛病:写代码时的写法漏进了交付物。
+    for sym in ("⟹", "→", "⇒"):
+        assert sym not in gap, f"缺口说明里带着推理记号 {sym!r}:{gap}"
 
 
 def test_answer_audio_count_mismatch_is_still_reported(rec_dir):
