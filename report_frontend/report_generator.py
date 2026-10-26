@@ -696,9 +696,11 @@ class ReportGenerator:
         现在是一张真图(内联 SVG),不需要用符号冒充图标。
         ⚠️ 同日摘掉括注「(4 个维度)」:标题已经说了「四维」,括注是把同一个数
         再说一遍 —— 实测渲染出来读作「四维证据覆盖（4 个维度）」。
+        ⚠️ 同日把「证据覆盖」换成「各量到了多少」:「证据覆盖」是报告层的术语
+        (哪个指标过了证据门),而这张图回答的问题很直白 —— 每一维量到了几条。
         """
         n = len(result.get("dimensions") or {})
-        return f"{_CN_NUM.get(n, n)}维证据覆盖"
+        return f"{_CN_NUM.get(n, n)}维各量到了多少"
 
     def _lead_sentence(self, result: Dict[str, Any]) -> str:
         """报告开头那句人话结论 —— **每一个数都从载荷算**,不写固定文案。
@@ -957,7 +959,7 @@ class ReportGenerator:
         gaps = l1.get("gaps") or []
         if gaps and _want("gaps"):
             blocks.append(
-                "<div class='l1-audit'><h3>本场报告的限制（素材层面，不是算错）</h3>"
+                "<div class='l1-audit'><h3>本场素材的限制（是素材的问题，不是算错）</h3>"
                 + _ul(gaps) + "</div>")
 
         # 印**人话版**:审计版(`comparability_notes`)里是「旧槽键 → L1指标名：…」,
