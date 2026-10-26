@@ -64,7 +64,12 @@ def _gap_lines() -> list[str]:
     见 `tests/test_structured_report_endpoint.py` 的 `isolated` fixture。
     """
     payload = build_l1_report(_SID, logs={})
-    lines = [g for d in payload["dimensions"].values() for g in d["evidence_gaps"]]
+    # ⚠️ 2026-10-26:`evidence_gaps` 现在只装「本场没量到」那一类;
+    #    删槽(整套采集不测)分到了 `evidence_gaps_not_measured`。
+    #    本文件的多条断言守的是**两类都要说人话**,所以这里合并取。
+    lines = [g for d in payload["dimensions"].values()
+             for k in ("evidence_gaps", "evidence_gaps_not_measured")
+             for g in d.get(k, [])]
     assert lines, "一个缺口行都没有 —— 本测试退化为空断言"
     return lines
 
@@ -171,6 +176,50 @@ def test_dropped_slot_lines_say_the_layer_does_not_measure_it(gaps):
         f"{dropped}")
     for g in dropped:
         assert g.split(":")[0].strip(), f"删槽行没有槽名:{g!r}"
+
+
+def test_the_two_kinds_of_gap_are_not_merged_into_one_list(monkeypatch, tmp_path):
+    """★ 红法:把删槽行并回 `evidence_gaps` ⟹ 这里红。
+
+    ## 实测怎么发现的
+
+    2026-10-26 那一版报告的截图里,「情境行为稳定性」下面印着:
+
+        这次没量到可用数的指标：
+          · 面部对称性：这一条当前这套采集不测 —— 这套采集没有测面部左右对不对称
+
+    小标题说「**这次**没量到」(⟹ 下一场可能就有),条目说「**采集**不测」
+    (⟹ 再采一百次也没有)。同一段里两句相反的话 —— 而小标题更显眼,
+    读者会照它去追一个不存在的数据。
+
+    载荷本来就分得清(`dim.dropped` vs `dim.slots` 里 `value is None`),
+    是渲染层把两类拼回了同一个列表。这条守的就是那个区分。
+
+    ⚠️ 用**空数据**载荷:那时每维都有"本场没量到"的行(`value is None`),
+    两类的区分才有东西可查。全是删槽的维度(如消失的那一维)不在这里。
+    """
+    monkeypatch.setenv("JINGXIN_RECORDINGS_DIR", str(tmp_path / "no_rec"))
+    monkeypatch.setenv("JINGXIN_SERIES_DIR", str(tmp_path / "no_series"))
+    payload = build_l1_report(_SID, logs={})
+
+    both = 0
+    for key, dim in payload["dimensions"].items():
+        this_time = dim.get("evidence_gaps") or []
+        never = dim.get("evidence_gaps_not_measured") or []
+        if this_time and never:
+            both += 1
+        leaked = [g for g in this_time if "这套采集不测" in g]
+        assert not leaked, (
+            f"「{dim['display_name']}」的「本场没量到」列表里混进了删槽行 —— "
+            f"小标题说「这次」,条目说「采集不测」,两句相反:\n  "
+            + "\n  ".join(leaked))
+        leaked = [g for g in never if "这套采集不测" not in g]
+        assert not leaked, (
+            f"「{dim['display_name']}」的删槽列表里混进了别的缺口:\n  "
+            + "\n  ".join(leaked))
+    assert both, (
+        "没有任何一维同时有这两类缺口 —— 本测试退化为空断言"
+        "(两类的区分没有被真正检查到)")
 
 
 @pytest.fixture

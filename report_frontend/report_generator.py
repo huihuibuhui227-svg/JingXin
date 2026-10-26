@@ -579,10 +579,15 @@ class ReportGenerator:
         #    `evidence_chain` 为空。判据从"有没有分"改成"有没有证据",本来也更贴本仓的主张。
         if not dim["evidence_chain"]:
             gaps = "".join(f"<li>{g}</li>" for g in dim.get("evidence_gaps", []))
+            never = "".join(f"<li>{g}</li>"
+                            for g in dim.get("evidence_gaps_not_measured", []))
+            never_block = (f"<p>另有几条是整套采集都不测的（不是这一场没测到）：</p>"
+                           f"<ul>{never}</ul>" if never else "")
             return f"""
             <h3>{dim['display_name']}</h3>
             <p><strong>证据不足</strong> —— 本次未采集到足以评估该行为线索的有效样本。</p>
             <ul>{gaps}</ul>
+            {never_block}
             """
 
         # ★ 「本场会话内观测区间」这一列:整维都取不到区间时**整列不印**。
@@ -614,6 +619,16 @@ class ReportGenerator:
         #    数够不够用、数有多可信、这一维有没有独立标准可以对照。
         gaps_block = (f"<p>这次没量到可用数的指标：</p><ul>{gaps}</ul>"
                       if gaps else "")
+        # ⚠️ 2026-10-26:删槽行**不能**混进上面那个列表。
+        #    实测那一版印的是「这次没量到可用数的指标：· 面部对称性：这一条
+        #    当前这套采集不测」—— 小标题说"这次"(下一场可能就有),
+        #    条目说"采集不测"(再采一百次也没有),同一段两句相反的话。
+        #    载荷里这两类本来就分着(`evidence_gaps` / `evidence_gaps_not_measured`),
+        #    是渲染层把它们拼回了一起。
+        never = "".join(f"<li>{g}</li>"
+                        for g in dim.get("evidence_gaps_not_measured", []))
+        never_block = (f"<p>另有几条是整套采集都不测的（不是这一场没测到）：</p>"
+                       f"<ul>{never}</ul>" if never else "")
         interval_th = "<th>本场会话内观测区间</th>" if has_interval else ""
         return f"""
         <h3>{dim['display_name']}</h3>
@@ -624,6 +639,7 @@ class ReportGenerator:
         <th>有效样本量</th></tr></thead>
         <tbody>{rows}</tbody></table>
         {gaps_block}
+        {never_block}
         """
 
     def _generate_deep_text_analysis(self, features: Dict[str, Any], result: Dict[str, Any]) -> str:

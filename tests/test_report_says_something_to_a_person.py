@@ -104,8 +104,10 @@ def _payload(n_passed: int) -> dict:
                      "raw_value": 3.4, "n_valid": 301, "n_total": 301, "std": None,
                      "observed_interval": []},
                 ],
-                "evidence_gaps": ["面部对称性:这一条当前这套采集不测 —— "
-                                  "这套采集没有测面部左右对不对称"],
+                "evidence_gaps": ["皱眉:本场没有这个模态的日志"],
+                "evidence_gaps_not_measured": [
+                    "面部对称性:这一条当前这套采集不测 —— "
+                    "这套采集没有测面部左右对不对称"],
                 "confidence": "中", "matched_indicators": f"{n_passed}/2",
                 "stats": {},
             },
@@ -449,7 +451,43 @@ def test_an_interval_column_that_is_always_empty_is_not_printed(
 
 
 # ---------------------------------------------------------------------------
-# ⑧ 手机上图不能缩成看不清
+# ⑩ 两类缺口不许印在同一个标题下
+# ---------------------------------------------------------------------------
+
+def test_the_two_kinds_of_gap_get_two_headings(tmp_path, monkeypatch, isolated):
+    """★ 红法:把 `never_block` 删掉(或把它并回 `gaps_block`)⟹ 这里红。
+
+    ## 实测怎么发现的
+
+    那一版报告的截图里,「情境行为稳定性」下面印着:
+
+        这次没量到可用数的指标：
+          · 面部对称性：这一条当前这套采集不测 —— 这套采集没有测面部左右对不对称
+
+    小标题说「**这次**没量到」,条目说「**采集**不测」。两句相反的话挨在一起,
+    读者多半信小标题 —— 然后去追一个再采一百次也不会有的数。
+
+    ⚠️ 判据是「删槽那一行**不在**『这次没量到』的列表里」,而不是"两个小标题
+    都存在":后者在两类被合并后**照样绿**(只要那段还印着两句标题)。
+    这条用**位置**查:删槽行必须出现在第二个小标题之后。
+    """
+    body = _text_of(_render(tmp_path / "two", monkeypatch, _payload(1)))
+    i_this = body.find("这次没量到可用数的指标")
+    i_never = body.find("整套采集都不测的")
+    assert i_this >= 0, f"没有「这次没量到」那段:{body[:600]}"
+    assert i_never >= 0, "没有「整套采集都不测」那段 —— 删槽行又被并回了同一个列表"
+    assert i_never > i_this, "两个小标题的顺序反了(删槽那类该在后)"
+
+    assert "本场没有这个模态的日志" in body[i_this:i_never], (
+        "「本场没量到」那一条没在它该在的那一段里")
+    assert "面部左右对不对称" not in body[i_this:i_never], (
+        "删槽行印在了「这次没量到」下面 —— 两句相反的话挨在一起")
+    assert "面部左右对不对称" in body[i_never:], (
+        "删槽行整个不见了 —— 收进第二段不等于删掉")
+
+
+# ---------------------------------------------------------------------------
+# ⑪ 手机上图不能缩成看不清
 # ---------------------------------------------------------------------------
 
 def test_the_figures_scroll_instead_of_shrinking_on_a_phone(html):

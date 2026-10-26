@@ -93,21 +93,43 @@ def _gap_lines(dim) -> list[str]:
       后者补采/补缓存就有,前者再采一百次也不会有。混成一句会让人去追
       一个不存在的数据。
       钉子:`tests/test_report_gaps_are_readable.py`。
+
+    ## ⚠️ 2026-10-26:这两类**不能塞进同一个列表**
+
+    实测那一版报告里,「情境行为稳定性」下面印着:
+
+        这次没量到可用数的指标：
+          · 面部对称性：这一条当前这套采集不测 —— 这套采集没有测面部左右对不对称
+
+    小标题说「**这次**没量到」(⟹ 下一场可能就有),下面那条说「**采集**不测」
+    (⟹ 再采一百次也没有)。同一段里两句相反的话,读者只能信一句 ——
+    而他多半会信小标题,然后去追一个不存在的数据。
+
+    载荷本来就分得清(`dim.dropped` 是删槽,`dim.slots` 里 `value is None`
+    是本场没量到),混在一起是**渲染层丢掉了这个区分**。
+    ⟹ 现在两类分开给:`evidence_gaps`(本场没量到)与
+    `evidence_gaps_not_measured`(整套采集不测)。字段名保留 `evidence_gaps`
+    以免动前端契约;新增的第二个字段前端可以选用,不选也仍然是真话。
     """
     def _why(code: str | None) -> str:
         # 未登记的码原样印出 —— 宁可露出英文,也不许把它当成"已测"或吞掉。
         return GAP_EXPLANATION.get(code or "", code or "未说明原因")
 
     out: list[str] = []
-    for d in dim.dropped:
-        # 报告印**结论**,不印 `SLOT_MAP` 的审计细节(那里点着内部指标名,
-        # 读者用不上)。分层理由见 `l1_mapper.DROP_REASON`。
-        out.append(f"{l1_mapper.slot_label(d['slot'])}:这一条当前这套采集不测 —— "
-                   f"{l1_mapper.drop_reason(d['slot'])}")
     for s in dim.slots:
         if s["value"] is None:
             out.append(f"{l1_mapper.slot_label(s['slot'])}:{_why(s['gap'])}")
     return out
+
+
+def _not_measured_lines(dim) -> list[str]:
+    """维度 → 被删槽的说明(整套采集不测,**不是**这一场没量到)。
+
+    与 `_gap_lines` 分开的理由见那边 docstring 的「这两类不能塞进同一个列表」。
+    """
+    return [f"{l1_mapper.slot_label(d['slot'])}:这一条当前这套采集不测 —— "
+            f"{l1_mapper.drop_reason(d['slot'])}"
+            for d in dim.dropped]
 
 
 def _printable_vanished(v: dict) -> dict:
@@ -144,6 +166,9 @@ def build_l1_report(session_id: str, logs: dict | None = None) -> dict:
             "evidence_chain": [_evidence_item(s) for s in dim.slots
                                if s["value"] is not None],
             "evidence_gaps": _gap_lines(dim),
+            # 整套采集都不测的槽 —— **不是**这一场没量到。分开给的理由见
+            # `_gap_lines` docstring 里「这两类不能塞进同一个列表」。
+            "evidence_gaps_not_measured": _not_measured_lines(dim),
             "confidence": dim.confidence,
             "matched_indicators": dim.matched_indicators,
             # `stats` 只放实测值。**没有 percentile** —— 见模块 docstring。
