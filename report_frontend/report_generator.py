@@ -16,6 +16,43 @@ from .l1_report import build_l1_report
 _CN_NUM = {1: "一", 2: "二", 3: "三", 4: "四", 5: "五", 6: "六"}
 
 
+def _zh_punct(html: str) -> str:
+    """把**标签之外**的半角标点换成全角,让中文正文读起来不是拼出来的。
+
+    ## 为什么要这一道(2026-10-26)
+
+    实测那一版正文里 `,` 出现 48 次、`，` 17 次;`:` 20 次、`：` 17 次。
+    两种混着,读起来像机器把几段模板拼起来 —— 而报告是给人读的。
+
+    ## 为什么不能直接对整份 HTML 做替换
+
+    `style` / `script` / 标签**内部**的 `,` `:` `;` 是有语法的(CSS 声明分隔、
+    `class="a,b"`)。替换了会直接改坏样式与结构。所以先按标签切开,
+    只对文本节点替换。
+
+    ## 边界
+
+    * 只换 `,` `;` `:` —— 括号不动:代码式的 `(3 / 3)` 与中文式的
+      「(见右端)」在正文里本来就该按上下文选,统一换反而更怪。
+    * `:` 后面紧跟数字的不换(`10:29` 是时间,不是标点)。
+    * 已经全角的原样留着(幂等)。
+    """
+    def _fix(text: str) -> str:
+        text = text.replace(",", "，").replace(";", "；")
+        # 时间/版本号里的冒号不动:`10:29`、`l1:1`。
+        return re.sub(r":(?![0-9])", "：", text)
+
+    # 标签(含 style/script 整块)原样保留,只改中间的文本节点。
+    out: list[str] = []
+    pos = 0
+    for m in re.finditer(r"(?s)<(script|style)\b.*?</\1\s*>|<[^>]+>", html):
+        out.append(_fix(html[pos:m.start()]))
+        out.append(m.group(0))
+        pos = m.end()
+    out.append(_fix(html[pos:]))
+    return "".join(out)
+
+
 def _fmt_num(v) -> str:
     """实测值 → 给人读的字符串。**小数位数按量级选,不一律两位。**
 
@@ -1073,14 +1110,17 @@ class ReportGenerator:
         if appendix:
             appendix_block = f"""
             <details>
-                <summary>附录：与旧引擎报告的对照说明（复核口径用，与这一场无关）</summary>
+                <summary>附录：与旧引擎报告的对照说明（给复核数据的人看，与这一场无关）</summary>
                 <p class="note">这一节讲的是<b>两代引擎</b>怎么量同一件事,
                 每一份报告都会印。它不描述这一场发生了什么,不必当成"跟上一次比"。</p>
                 {appendix}
             </details>
             """
 
-        return f"""<!DOCTYPE html>
+        # 最后一道:正文里的半角标点换成全角(理由见 `_zh_punct`)。
+        # 放在**整份模板拼完之后**,只改标签之外的文本 —— 各段拼接处
+        # 也一并收口,不用在二十来处 f-string 里逐个手改。
+        return _zh_punct(f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -1092,7 +1132,7 @@ class ReportGenerator:
 <div class="wrap">
 <header>
   <h1>JingXin 面试行为观测报告</h1>
-  <div class="meta">{datetime.now().strftime("%Y-%m-%d %H:%M")} · 口径版本 {result['model_metadata']['version']}</div>
+  <div class="meta">{datetime.now().strftime("%Y-%m-%d %H:%M")} · 报告口径版本 {result['model_metadata']['version']}</div>
   <div class="sources">{sources_disclosure(sources or {}, target,
                                             modality_summary=(result.get("l1") or {})
                                             .get("modality_summary"))}</div>
@@ -1123,7 +1163,7 @@ class ReportGenerator:
 </div>
 </body>
 </html>
-"""
+""")
 
 
 def main(argv: Optional[List[str]] = None) -> int:

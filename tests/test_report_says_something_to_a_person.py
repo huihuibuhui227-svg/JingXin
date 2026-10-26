@@ -470,3 +470,41 @@ def test_the_figures_scroll_instead_of_shrinking_on_a_phone(html):
         "图没有可横向滚动的容器 —— 窄屏上整张图会被压扁")
     assert re.search(r"figure\s+svg\s*\{[^}]*min-width", css), (
         "图没有最小宽度 —— 窄屏上仍会被等比缩小,刻度文字跟着缩")
+
+
+# ---------------------------------------------------------------------------
+# ⑨ 中文正文里的标点
+# ---------------------------------------------------------------------------
+
+def test_the_chinese_prose_uses_full_width_punctuation(html):
+    """★ 红法:把 `_zh_punct` 那道收口删掉 ⟹ 这里红。
+
+    ## 实测怎么发现的
+
+    2026-10-26 那一版正文里 `,` 出现 **48 次**、`，` 17 次;`:` 20 次、`：` 17 次。
+    两种混着读起来像机器把几段模板拼起来 —— 各段 f-string 各写各的,
+    没有人对整份正文的标点负责。报告是给人读的。
+
+    ⚠️ 只查**正文**。`<style>` 里的 `,` 是 CSS 语法,换成全角会直接改坏样式
+    (`_zh_punct` 按标签切开正是为了这个)。
+    """
+    body = _body_before_appendix(html)
+    assert body.count(",") == 0, (
+        f"正文里还有 {body.count(',')} 个半角逗号 —— 与全角混着,像拼出来的")
+    assert body.count(";") == 0, f"正文里还有 {body.count(';')} 个半角分号"
+    # 冒号另说:时间 `10:29` 里的冒号必须留着。
+    stray = [m.group(0) for m in re.finditer(r".{6}:.{6}", body) if ":" in m.group(0)]
+    assert not [s for s in stray if not re.search(r"\d:\d", s)], (
+        f"正文里还有非时间的半角冒号:{stray[:3]}")
+
+
+def test_the_punctuation_pass_does_not_touch_markup(html):
+    """另一侧:标签属性与 CSS 里的半角标点**必须原样留着**,否则报告直接坏掉。
+
+    红法:让 `_zh_punct` 对整份 HTML 做 `str.replace` ⟹ 这里红
+    (CSS 的 `.a,.b{}` 会变成 `.a，.b{}`,样式失效)。
+    """
+    css = re.search(r"(?s)<style>(.*?)</style>", html).group(1)
+    assert "," in css or ";" in css, "CSS 里的标点被换掉了 —— 样式会失效"
+    assert "：root" not in css and "：" not in css.split("{")[0], (
+        "CSS 选择器里的冒号被换成了全角")
