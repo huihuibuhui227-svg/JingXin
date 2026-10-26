@@ -409,3 +409,27 @@ def test_an_interval_column_that_is_always_empty_is_not_printed(
     q["dimensions"]["logical_thinking"]["evidence_chain"][0]["observed_interval"] = [3.0, 3.8]
     body2 = _text_of(_render(tmp_path / "j", monkeypatch, q))
     assert "3.0 – 3.8" in body2, "有区间时反而不印了"
+
+
+# ---------------------------------------------------------------------------
+# ⑧ 手机上图不能缩成看不清
+# ---------------------------------------------------------------------------
+
+def test_the_figures_scroll_instead_of_shrinking_on_a_phone(html):
+    """★ 红法:把 `figure{overflow-x:auto}` / `svg{min-width}` 删掉 ⟹ 这里红。
+
+    ## 实测怎么发现的
+
+    在 400px 宽(手机)下截了图:整张离散度图被压进 400px,
+    `viewBox` 里 11px 的刻度文字渲染出来约 **7px** —— 数字还在,但看不清。
+    `svg{width:100%}` 在窄屏上就是"把整张图等比缩小",而图里的文字是
+    **绝对字号**,缩的是整个坐标系。
+
+    ⟹ 图放进可横向滚动的容器、并给它一个最小宽度:文字不缩水,读者横向滑动。
+    页面主体不许横向滚 —— 只有图滚。
+    """
+    css = re.search(r"(?s)<style>(.*?)</style>", html).group(1)
+    assert re.search(r"figure\s*\{[^}]*overflow-x\s*:\s*auto", css), (
+        "图没有可横向滚动的容器 —— 窄屏上整张图会被压扁")
+    assert re.search(r"figure\s+svg\s*\{[^}]*min-width", css), (
+        "图没有最小宽度 —— 窄屏上仍会被等比缩小,刻度文字跟着缩")

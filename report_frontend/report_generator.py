@@ -190,8 +190,7 @@ p{margin:0 0 12px}
 .hero-cap{color:var(--ink-2);font-size:14px}
 figure{margin:18px 0 6px}
 figcaption{color:var(--ink-3);font-size:12.5px;margin-top:10px}
-svg{display:block;width:100%;height:auto;overflow:visible}
-.label{fill:var(--ink-2);font-size:12.5px}
+svg{display:block;width:100%;height:auto;overflow:visible}.label{fill:var(--ink-2);font-size:12.5px}
 .value{fill:var(--ink);font-size:12.5px;font-weight:600;font-variant-numeric:tabular-nums}
 .tick{fill:var(--ink-3);font-size:11px;font-variant-numeric:tabular-nums}
 .track{fill:var(--track)}
@@ -219,6 +218,11 @@ footer{margin-top:52px;padding-top:16px;border-top:1px solid var(--rule);
   color:var(--ink-3);font-size:12.5px}
 @media (max-width:560px){.wrap{padding:28px 16px 48px}.cover-number{font-size:40px}
   table{font-size:12.5px}}
+/* 手机上整张 SVG 缩到 400px 宽,图内文字会跟着缩到 ~7px —— 看不清。
+   把图放进可横向滚动的容器:图保持自己的宽度,读者横向滑动看,文字不缩水。
+   只让图滚,页面主体不许横向滚。 */
+figure{overflow-x:auto}
+figure svg{min-width:560px}
 """
 
 
@@ -645,9 +649,11 @@ class ReportGenerator:
 
         ⚠️ 2026-10-26 摘掉了开头的 📊:标题里塞 emoji 是模板腔,而且这一节
         现在是一张真图(内联 SVG),不需要用符号冒充图标。
+        ⚠️ 同日摘掉括注「(4 个维度)」:标题已经说了「四维」,括注是把同一个数
+        再说一遍 —— 实测渲染出来读作「四维证据覆盖（4 个维度）」。
         """
         n = len(result.get("dimensions") or {})
-        return f"{_CN_NUM.get(n, n)}维证据覆盖（{n} 个维度）"
+        return f"{_CN_NUM.get(n, n)}维证据覆盖"
 
     def _lead_sentence(self, result: Dict[str, Any]) -> str:
         """报告开头那句人话结论 —— **每一个数都从载荷算**,不写固定文案。
