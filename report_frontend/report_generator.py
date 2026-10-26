@@ -1064,12 +1064,12 @@ class ReportGenerator:
             <h2>题与题之间稳不稳</h2>
             <p class="note">同一个指标,{q}里各量了一次 —— 下图每一行是一条指标,
             左端是本场最小值、右端是最大值,圆点是中位数(右侧数字)。
-            <strong>每行各有自己的刻度</strong>,所以请横向看"这一行散不散",
+            <strong>每行各有自己的刻度</strong>,所以请横向看「这一行散不散」,
             不要拿两行的长短互相比较。</p>
             <figure>{fig_disp}
             <figcaption>{n_disp} 条指标在题与题之间有两次以上测量。
-            只测了一次的指标不出现在这里 —— 单次测量没有"离散"可言,
-            给个 0 会把"没测"说成"很稳"。{flat_note}</figcaption></figure>
+            只测了一次的指标不出现在这里 —— 单次测量没有「离散」可言,
+            给个 0 会把「没测」说成「很稳」。{flat_note}</figcaption></figure>
             """
         else:
             why = ("这一场是整场一个窗口,没有逐题切分" if not n_win
@@ -1078,7 +1078,7 @@ class ReportGenerator:
             <h2>题与题之间稳不稳</h2>
             <p class="note">这一场报不出逐题离散度:{why},所以没有题与题之间的
             中位数、最小值、最大值可给。下面的所有读数都是<b>整场一个值</b>,
-            不是"每题一个值取平均"—— 两者不能混着读。</p>
+            不是「每题一个值取平均」—— 两者不能混着读。</p>
             """
 
         cov_block = ""
@@ -1086,7 +1086,7 @@ class ReportGenerator:
             cov_block = f"""
             <h2>{self._coverage_heading(result)}</h2>
             <p class="note">每一维要量的条数不同(见右端的「量到 / 一共」),
-            所以请比"自己那一维填了多少",不要把两维的条长直接比大小。</p>
+            所以请比「自己那一维填了多少」,不要把两维的条长直接比大小。</p>
             <figure>{fig_cov}
             <figcaption>条形 = 这一维量到可用数的条数;浅色轨道 = 这一维一共要量几条。
             没量到的那些与原因逐条列在下面的维度明细里。</figcaption></figure>
@@ -1114,7 +1114,7 @@ class ReportGenerator:
             <details>
                 <summary>附录：与旧引擎报告的对照说明（给复核数据的人看，与这一场无关）</summary>
                 <p class="note">这一节讲的是<b>两代引擎</b>怎么量同一件事,
-                每一份报告都会印。它不描述这一场发生了什么,不必当成"跟上一次比"。</p>
+                每一份报告都会印。它不描述这一场发生了什么,不必当成「跟上一次比」。</p>
                 {appendix}
             </details>
             """

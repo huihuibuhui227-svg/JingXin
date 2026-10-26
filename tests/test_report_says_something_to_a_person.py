@@ -492,6 +492,12 @@ def test_the_chinese_prose_uses_full_width_punctuation(html):
     assert body.count(",") == 0, (
         f"正文里还有 {body.count(',')} 个半角逗号 —— 与全角混着,像拼出来的")
     assert body.count(";") == 0, f"正文里还有 {body.count(';')} 个半角分号"
+    # ⚠️ 2026-10-26 补:直引号 `"` 也漏了。`_zh_punct` 当时只收 `,;:`,
+    #    正文里还剩 5 处 ASCII 直引号(「请比"自己那一维填了多少"」这类),
+    #    而同一份报告别处用的是「」。中文正文里两种引号混着,与半角逗号
+    #    是同一种毛病:各段 f-string 各写各的,没人对整份正文负责。
+    assert '"' not in body, (
+        f"正文里还有 {body.count(chr(34))} 个半角直引号 —— 中文正文该用「」")
     # 冒号另说:时间 `10:29` 里的冒号必须留着。
     stray = [m.group(0) for m in re.finditer(r".{6}:.{6}", body) if ":" in m.group(0)]
     assert not [s for s in stray if not re.search(r"\d:\d", s)], (
