@@ -102,7 +102,7 @@ def _gap_lines(dim) -> list[str]:
     for d in dim.dropped:
         # 报告印**结论**,不印 `SLOT_MAP` 的审计细节(那里点着内部指标名,
         # 读者用不上)。分层理由见 `l1_mapper.DROP_REASON`。
-        out.append(f"{l1_mapper.slot_label(d['slot'])}:本层不测这一条 —— "
+        out.append(f"{l1_mapper.slot_label(d['slot'])}:这一条当前这套采集不测 —— "
                    f"{l1_mapper.drop_reason(d['slot'])}")
     for s in dim.slots:
         if s["value"] is None:

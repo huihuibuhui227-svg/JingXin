@@ -126,8 +126,11 @@ def test_the_vanished_block_says_the_layer_does_not_measure_it(html):
     m = re.search(r"(?s)<p>(.*?)</p>", block)
     assert m, "「整维未出」那一块没有说明句"
     prose = _text_of(m.group(1))
-    assert ("本层不测" in prose) or ("当前管线都不测" in prose), (
-        f"块首那句没说清是「本层不测」还是「本场没测到」:{prose}")
+    # ⚠️ 2026-10-26 换措辞:原来守的是「本层不测」/「当前管线都不测」——
+    #    「本层」「管线」都是内部叫法。意思没变:这一维要量的东西
+    #    **当前这套采集根本没有**,不是这一场没测到。
+    assert ("这套采集" in prose and "根本没有" in prose) or ("当前管线都不测" in prose), (
+        f"块首那句没说清是「整套采集都不测」还是「本场没测到」:{prose}")
     assert "本场没测到" not in prose.replace("不是本场没测到", ""), (
         f"块首那句把它说成了「本场没测到」—— 读者会去等下一场:{prose}")
 

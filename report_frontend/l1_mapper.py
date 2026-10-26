@@ -177,12 +177,12 @@ def slot_label(slot: str) -> str:
 #: ⟹ 两处各有各的话:这里说结论,`SLOT_MAP` 留细节。
 #: 钉子:`tests/test_report_numbers_and_reasons_are_readable.py`。
 DROP_REASON: dict[str, str] = {
-    "symmetry_score": "当前管线没有测面部对称性",
+    "symmetry_score": "这套采集没有测面部左右对不对称",
     "fluency_score": "它要的数已经由别的指标各自算过一遍,再报一条只是把同一份证据数两遍",
-    "left_hand_spread": "当前管线只测手有没有被看到,不测手掌张开的幅度",
-    "shrug_level": "当前管线测的是姿态稳不稳,不是耸肩的幅度",
-    "eye_contact": "当前管线没有可对得上「眼神接触」的测法,不拿相邻的量顶替",
-    "n_chars": "当前管线测的是说话速率(字/秒),不是回答的总字数",
+    "left_hand_spread": "这套采集只测手有没有被看到,不测手掌张开的幅度",
+    "shrug_level": "这套采集测的是姿态稳不稳,不是耸肩的幅度",
+    "eye_contact": "这套采集没有能对得上「眼神接触」的测法,不拿相邻的量顶替",
+    "n_chars": "这套采集测的是说话速率(字/秒),不是回答的总字数",
 }
 
 

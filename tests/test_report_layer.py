@@ -1137,12 +1137,15 @@ def test_scored_dimension_follows_spec_5_4_shape_and_carries_5_6_caveat():
 
     html = _rendered_html(result, _MIXED)
 
-    for token in ("有效样本量", "观测区间", "置信度：", "无独立效标", "仅供行为描述"):
+    for token in ("有效样本量", "观测区间", "置信度", "没有独立的对照标准"):
         assert token in html, f"出分维度缺 {token}(spec §5.4 / §5.6)"
+    # ⚠️ 2026-10-26 换了措辞:原先是「无独立效标,仅供行为描述」——
+    #    「效标」是测量学词(外部对照标准),使用者原话「说的是人话吗」。
+    #    意思没变,守的仍是同一件事:**这一维的数不能当评价**,只是换了读者能懂的话。
     assert "归一值" not in html, "维度表仍在渲染未标定标尺上的归一化点分"
     # 缺口仍要逐维列出(spec §5.4 的 evidence_gaps)
     # ⚠️ 2026-10-03 缺口由 3 改 2:logical_thinking 删掉了 `focus_score` 槽 ⟹ 声明槽数 4 → 3。
-    assert len(dim["evidence_gaps"]) == 2 and "未过门的指标" in html
+    assert len(dim["evidence_gaps"]) == 2 and "这次没量到可用数的指标" in html
 
 
 def test_deep_analysis_summary_has_no_point_score_or_level():

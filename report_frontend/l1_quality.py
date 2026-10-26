@@ -61,7 +61,7 @@ GAP_EXPLANATION = {
     GAP_NO_SAMPLES: "这个窗口里没有有效观测",
     GAP_NOT_STORED: "上游只存了聚合量,这一层需要的粒度没落盘",
     GAP_NOT_EXTRACTED: "素材在盘上,派生序列还没生成(跑一次提取就有,不用重录)",
-    GAP_NOT_PRODUCED: "本层故意不产出这一条 —— 它与另一条指标是恒等变换,没有额外信息",
+    GAP_NOT_PRODUCED: "这一条故意不算 —— 它与另一条指标是同一个数换了个算法,多报一遍只是把同一份证据数两遍",
 }
 
 

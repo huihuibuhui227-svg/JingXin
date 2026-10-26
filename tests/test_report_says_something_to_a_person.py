@@ -104,7 +104,8 @@ def _payload(n_passed: int) -> dict:
                      "raw_value": 3.4, "n_valid": 301, "n_total": 301, "std": None,
                      "observed_interval": []},
                 ],
-                "evidence_gaps": ["面部对称性:本层不测这一条 —— 当前管线没有测面部对称性"],
+                "evidence_gaps": ["面部对称性:这一条当前这套采集不测 —— "
+                                  "这套采集没有测面部左右对不对称"],
                 "confidence": "中", "matched_indicators": f"{n_passed}/2",
                 "stats": {},
             },
@@ -112,7 +113,7 @@ def _payload(n_passed: int) -> dict:
         "vanished_dimensions": [{
             "key": "confidence_level", "display_name": "行为表现活跃度", "n_slots": 1,
             "dropped": [{"slot": "left_hand_spread", "human_name": "手掌张开度",
-                         "plain_reason": "当前管线只测手有没有被看到,不测手掌张开的幅度",
+                         "plain_reason": "这套采集只测手有没有被看到,不测手掌张开的幅度",
                          "reason": "x"}],
             "reason": "x",
         }],
@@ -155,16 +156,21 @@ def test_the_lead_sentence_is_derived_from_the_payload(tmp_path, monkeypatch, is
     a = _lead_paragraph(_render(tmp_path / "a", monkeypatch, _payload(0)))
     b = _lead_paragraph(_render(tmp_path / "b", monkeypatch, _payload(1)))
     assert a != b, "两个覆盖数不同的载荷渲染出了逐字相同的结论句 —— 它没有读载荷"
-    assert "0 / 3" in a or "0/3" in a or "一个指标槽都没过" in a, (
+    assert "0 / 3" in a or "0/3" in a, (
         f"覆盖数为 0 的那份,结论句没说出 0:{a}")
     assert "1 / 3" in b or "1/3" in b, f"覆盖数为 1 的那份,结论句没说出 1:{b}"
 
 
 def test_the_lead_sentence_says_the_coverage_in_words(html):
-    """结论句要把「量到几条 / 一共几条」说出来,读者不用去数格子。"""
+    """结论句要把「量到几条 / 一共几条」说出来,读者不用去数格子。
+
+    ⚠️ 2026-10-26 换措辞:原来认的是「个指标槽」——「槽」是内部叫法
+    (旧引擎按"指标槽"组织权重),读者不知道槽是什么。现在说「项指标」。
+    守的仍是同一件事:**分母要说明白**,读者得知道 14 指什么。
+    """
     body = _body_before_appendix(html)
     assert re.search(r"\d+\s*/\s*14", body), "正文里没有「N / 14」这个覆盖数"
-    assert "个指标槽" in body or "条指标" in body, (
+    assert "项指标" in body or "条指标" in body, (
         f"没说清分母是什么,读者不知道 14 指的是什么:{body[:400]}")
 
 
@@ -339,6 +345,37 @@ def test_no_internal_indicator_key_survives_in_the_report_body(html):
     body = _text_of(html)
     leaked = sorted(n for n in names if n in body)
     assert not leaked, f"正文里露出了内部指标键:{leaked}"
+
+
+#: 交付物正文里**不许出现**的行话。每一条都是内部叫法:
+#:
+#: | 词 | 内部含义 | 读者读成 |
+#: |---|---|---|
+#: | 指标槽 / 槽 | 旧引擎按「槽」组织权重,一个槽 = 一条待填指标 | 不知道槽是什么 |
+#: | 证据门 | 四道校验(G1–G4)的合称 | 不知道是什么门 |
+#: | 过门 | 通过了那四道校验 | 同上 |
+#: | 同构念 | 两个指标量的是同一个心理构念 | 术语 |
+#: | 效标 | 用来对照的外部标准 | 术语 |
+#: | NONE 桶 | 没带 session_id 的请求落的那个目录 | 不知道桶是什么 |
+#: | 本层 / 当前管线 | L1 这一层 / 现有的采集与计算流程 | 不知道有几层 |
+#:
+#: ⚠️ 这批词是 2026-10-26 第二轮才清完的。第一轮只换了「语音晦涩」那一段,
+#:    正文别处还留着 8 处 —— 使用者问的是「说的是人话吗」,不是「那一段是不是人话」。
+_JARGON = ("指标槽", "证据门", "过门", "同构念", "效标", "NONE 桶",
+           "本层", "当前管线")
+
+
+def test_the_body_carries_no_internal_jargon(tmp_path, monkeypatch, isolated):
+    """★ 红法:把任意一处措辞改回行话 ⟹ 这里红。
+
+    用**带证据的载荷**(`_payload(1)`)渲染 —— 空载荷下逐维表、条形图、
+    「量到了这几条」都不出现,`指标槽`/`过门` 本来就不会印,这条会退化成空断言。
+    """
+    body = _text_of(_render(tmp_path / "jargon", monkeypatch, _payload(1)))
+    found = {w: body.count(w) for w in _JARGON if w in body}
+    assert not found, (
+        "交付物正文里还有行话 —— 它们是内部叫法,读者不知道是什么:\n  "
+        + "\n  ".join(f"{w} × {n}" for w, n in found.items()))
 
 
 # ---------------------------------------------------------------------------

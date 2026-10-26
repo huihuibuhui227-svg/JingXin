@@ -194,4 +194,7 @@ def test_none_bucket_is_disclosed_when_the_target_session_is_loaded(tmp_path):
     loader.get_fused_latest_data(session_id=_NEW)
 
     html = sources_disclosure(loader.selected_sessions)
-    assert "NONE" in html, f"存在 NONE 桶却没在披露里点出来:{html}"
+    # ⚠️ 2026-10-26 换措辞:交付物里不再印「NONE 桶」(内部叫法),改成说清
+    #    **发生了什么**:这些行没带会话编号、归不到任何一场。守的仍是同一件事 ——
+    #    有帧没归入本场,必须让读者知道。
+    assert "没带会话编号" in html, f"存在 NONE 桶却没在披露里点出来:{html}"

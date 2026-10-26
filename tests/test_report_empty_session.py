@@ -78,7 +78,9 @@ def test_report_is_still_generated_when_only_the_none_bucket_exists(render):
     html = render(files=[("face_au_log_NONE.csv", [_none_row()])])
 
     assert "本场没有任何日志" in html, "只有 NONE 桶时没说清「本场根本没有日志」"
-    assert "NONE 桶 1 行" in html, "存在 NONE 桶却没在报告头点出来(spec §6 行 3)"
+    # ⚠️ 2026-10-26 换措辞:「NONE 桶」是内部叫法(那个目录就叫 `NONE`),
+    #    读者不知道桶是什么。守的仍是同一件事 —— 行数要在报告头点出来。
+    assert "1 行日志没带会话编号" in html, "存在 NONE 桶却没在报告头点出来(spec §6 行 3)"
 
 
 def test_report_is_still_generated_when_there_are_no_logs_at_all(render):
@@ -124,7 +126,7 @@ def test_disclosure_without_a_target_says_there_is_no_session():
         {"none_bucket": {"session_id": "NONE", "status": "present", "rows": 3}})
 
     assert "本场没有任何日志" in html
-    assert "NONE 桶 3 行" in html
+    assert "3 行日志没带会话编号" in html
 
 
 def test_cli_exits_nonzero_when_no_report_was_written(monkeypatch):

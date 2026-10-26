@@ -364,8 +364,11 @@ def sources_disclosure(sources: Dict[str, Dict], target: Optional[str] = None,
                 lines.append(f"{label} · 缺失（本场没有这个模态的日志）")
 
     if none_bucket:
-        lines.append(f'<em>另有 NONE 桶 {none_bucket["rows"]} 行 —— '
-                     f'那些请求没带 session_id，不属于本场，未参与计算。</em>')
+        # ⚠️ 2026-10-26:`NONE 桶` 是内部叫法(所有没带 session_id 的请求都落在这个
+        #    `NONE` 目录里),读者不知道桶是什么。说清**发生了什么**就够:
+        #    有 N 行日志没带会话编号 ⟹ 归不到任何一场 ⟹ 没算进本场。
+        lines.append(f'<em>另有 {none_bucket["rows"]} 行日志没带会话编号 —— '
+                     f'归不到任何一场，因此没算进本场。</em>')
 
     return "<br>".join(lines)
 
@@ -568,12 +571,17 @@ class ReportGenerator:
         # 「完全没有分析」;实测那版全篇只有三列表格)。
         names = "、".join(str(e["human_name"]) for e in dim["evidence_chain"])
         gaps = "".join(f"<li>{g}</li>" for g in dim.get("evidence_gaps", []))
-        gaps_block = f"<p>未过门的指标：</p><ul>{gaps}</ul>" if gaps else ""
+        # ⚠️ 2026-10-26 换措辞:「过门指标」「无独立效标」都是行话。
+        #    前者是证据门的内部叫法(读者不知道门是什么),后者是测量学词
+        #    (效标 = 用来对照的外部标准)。改成读者能直接懂的话,意思不变:
+        #    数够不够用、数有多可信、这一维有没有独立标准可以对照。
+        gaps_block = (f"<p>这次没量到可用数的指标：</p><ul>{gaps}</ul>"
+                      if gaps else "")
         interval_th = "<th>本场会话内观测区间</th>" if has_interval else ""
         return f"""
         <h3>{dim['display_name']}</h3>
-        <p>过门指标 {dim['matched_indicators']}；置信度：<strong>{dim['confidence']}</strong>。
-        （该维度目前无独立效标，仅供行为描述）</p>
+        <p>量到 {dim['matched_indicators']} 项 · 置信度「<strong>{dim['confidence']}</strong>」
+        · 这一维没有独立的对照标准，数只能描述行为，不能当评价。</p>
         <p class="note">量到了这几条：{names}。</p>
         <table><thead><tr><th>指标</th><th>原始值</th>{interval_th}
         <th>有效样本量</th></tr></thead>
@@ -621,17 +629,17 @@ class ReportGenerator:
             return ""
         items = "".join(
             f"<li><strong>{v['display_name']}</strong>"
-            f"(声明了 {v['n_slots']} 个指标槽,全部没有同构念的 L1 指标)"
+            f"(要量 {v['n_slots']} 项,当前这套采集一项都不测)"
             f"<ul>" + "".join(
-                f"<li>{l1_mapper.slot_label(d['slot'])}:本层不测这一条 —— "
+                f"<li>{l1_mapper.slot_label(d['slot'])}:这一条当前这套采集不测 —— "
                 f"{l1_mapper.drop_reason(d['slot'])}</li>"
                 for d in v.get("dropped", [])) + "</ul></li>"
             for v in vanished)
         return f"""
         <div id="vanished-dimensions">
-            <h3>整维未出(当前管线没有对应的可测量)</h3>
-            <p>下面这一维<strong>不是本场没测到</strong>,是它要量的东西当前管线都不测 ——
-            再采一百次也不会有,别等它。</p>
+            <h3>这一维整套采集都不测(不是这一场没测到)</h3>
+            <p>下面这一维<strong>不是本场没测到</strong>,是它要量的东西当前这套采集
+            根本没有 —— 再采一百次也不会有,别等它。</p>
             <ul>{items}</ul>
         </div>
         """
@@ -693,16 +701,17 @@ class ReportGenerator:
         if not dims:
             sentences.append("这一场没有任何维度产出可核对的行为量。")
         elif not n_passed:
+            # 0 也要把「0 / N」印出来 —— 「一个都没量到」与「量到 0 个」是同一件事,
+            # 但读者要能一眼对上下面的条形图(那里每条都是 0 / k)。
             sentences.append(
-                f"这一场在 {len(dims)} 个维度上一个指标槽都没过证据门"
-                f"(共 {n_slots} 个槽)—— 不是「没测」,是测到的还不足以支撑读数,"
-                f"逐条原因见下。")
+                f"这一场在 {len(dims)} 个维度上量到了 <strong>0 / {n_slots}</strong> 项指标"
+                f"—— 不是「没测」,是测到的还不足以支撑读数,逐条原因见下。")
         else:
             best = ranked[0]
             b_got, b_tot = _pair(best)
             sentences.append(
                 f"这一场在 {len(dims)} 个维度上量到了 <strong>{n_passed} / {n_slots}</strong> "
-                f"个指标槽,其中最完整的是「{best.get('display_name', '')}」"
+                f"项指标,其中最完整的是「{best.get('display_name', '')}」"
                 f"({b_got} / {b_tot})。")
             if len(ranked) > 1:
                 worst = ranked[-1]
@@ -713,8 +722,8 @@ class ReportGenerator:
 
         if n_dropped:
             sentences.append(
-                f"另有 {n_dropped} 个槽在本层没有对应的可测量,已整条剔除 —— "
-                f"它们不是「这一场没测到」,见下方「整维未出」。")
+                f"另有 {n_dropped} 项在当前这套采集里没有对应的测法,已整条剔除 —— "
+                f"它们不是「这一场没测到」,见下方「整套采集都不测」。")
         cap = cov.get("confidence_cap")
         if cap and cap != "无":
             sentences.append(f"所有读数的置信度上限是「{cap}」。")
@@ -751,7 +760,7 @@ class ReportGenerator:
         height = pad_top * 2 + row_h * len(rows)
         parts: list[str] = [
             f'<svg viewBox="0 0 {width} {height}" role="img" '
-            f'aria-label="每个维度通过证据门的指标槽数">']
+            f'aria-label="每个维度量到几条、一共要量几条">']
         for i, (name, got, total) in enumerate(rows):
             y = pad_top + i * row_h
             cy = y + row_h / 2
@@ -945,11 +954,13 @@ class ReportGenerator:
                        if isinstance(n, (int, float)) and n > 0}
             extra = ""
             if outside:
+                # ⚠️ 2026-10-26:原来写「不计入 F/G 的分母」—— F/G 是内部族名
+                #    (F = 面部、G = 手势),读者不知道那是什么。说模态名即可。
                 extra = ("；不在任何回答窗口内的帧：" +
                          " · ".join(f"{k} {n} 帧" for k, n in outside.items()) +
-                         "（这些帧不计入 F/G 的分母）")
+                         "（这些帧不算进「平均到每秒」那类数的分母）")
             blocks.append(
-                f"<div class='l1-audit'><h3>统计口径</h3><p>{text}{extra}</p></div>")
+                f"<div class='l1-audit'><h3>这一场是怎么切片的</h3><p>{text}{extra}</p></div>")
 
         return "".join(blocks)
 
@@ -1035,11 +1046,11 @@ class ReportGenerator:
         if fig_cov:
             cov_block = f"""
             <h2>{self._coverage_heading(result)}</h2>
-            <p class="note">每一维声明的槽数不同(见右端的「量到 / 声明」),
+            <p class="note">每一维要量的条数不同(见右端的「量到 / 一共」),
             所以请比"自己那一维填了多少",不要把两维的条长直接比大小。</p>
             <figure>{fig_cov}
-            <figcaption>条形 = 通过证据门的指标槽数;浅色轨道 = 该维声明的全部槽数。
-            未过门的槽与原因逐条列在下面的维度明细里。</figcaption></figure>
+            <figcaption>条形 = 这一维量到可用数的条数;浅色轨道 = 这一维一共要量几条。
+            没量到的那些与原因逐条列在下面的维度明细里。</figcaption></figure>
             """
 
         # ★ 区间那一列为什么整份报告都没有 —— **整份说一次**,不是每个维度说一次。
@@ -1089,7 +1100,7 @@ class ReportGenerator:
 
 <div class="hero">
   <span class="cover-number">{coverage['n_passed']} / {coverage['n_slots']}</span>
-  <span class="hero-cap">个指标槽通过证据门 · 置信度上限：{coverage['confidence_cap']}</span>
+  <span class="hero-cap">项指标量到了可用的数 · 置信度上限：{coverage['confidence_cap']}</span>
 </div>
 <p class="lead">{self._lead_sentence(result)}</p>
 <p class="note">{result['summary_narrative']}</p>

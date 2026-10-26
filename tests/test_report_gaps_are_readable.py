@@ -153,8 +153,12 @@ def test_dropped_slot_lines_say_the_layer_does_not_measure_it(gaps):
     * 「测了,这次没数据」—— 下次采集/补缓存就有。
 
     混成一句,读者会去追一个不存在的数据。所以删槽行必须**显式**带上前者那句话。
+
+    ⚠️ 2026-10-26 换措辞:原来是「本层不测这一条」——「本层」是分层架构的内部叫法
+    (L1 层 / L0 层),读者不知道有几层。现在说「这一条当前这套采集不测」,
+    判据本身没变:仍然是**采集方式决定的不可能有**,不是"这次没采到"。
     """
-    dropped = [g for g in gaps if "本层不测" in g]
+    dropped = [g for g in gaps if "这套采集不测" in g]
     # 地板**从槽表推导**,不写死数字:写死会过期,而且这里有个易漏点 ——
     # `confidence_level` 三个槽在 L1 全删 ⟹ 整个维度消失(`vanished_dimensions`),
     # 它的删槽行**不在** `dimensions` 里。所以"删槽总数"≠"报告里出现的删槽行数"。
