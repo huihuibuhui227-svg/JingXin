@@ -25,6 +25,9 @@ import pandas as pd
 from flask import Blueprint, Response, jsonify, request, send_file
 
 import media_retention
+# 鉴权**只有一处定义**(`recordings_browser`)。这里复用它的装饰器,不另写一份:
+# 两份鉴权一旦分叉,"哪一页受保护"就会变成一个要靠读代码回答的问题。
+from recordings_browser import _admin_required
 
 bp = Blueprint("data_export", __name__)
 
@@ -721,12 +724,22 @@ def chart_png(sid: str, module: str) -> bytes:
 
 
 # ── 路由 ───────────────────────────────────────────────────────────────────
+#
+# ⚠️ **每一条都要管理员**(2026-10-27 补)。此前五条全裸:未登录的 curl 就能拿到
+# 某一场的转写原文(含姓名/学号/院系)与三份原始 CSV,而**同一场**在素材页是 401。
+# 两条路对同一份数据给出不同保护,等于按最松的那条算。
+#
+# `allow_query=True` 只开给"浏览器自己取文件"的那三条(csv / transcript / chart):
+# `<a href download>` 与 `<img src>` 发不了自定义头 —— 与 `/video`、`/file`
+# 同一理由、同一代价(token 会进浏览器历史与服务端访问日志)。JSON 接口
+# (`/sessions`、`/files`)只认请求头。
 
 def _sid_or_400(sid: str) -> str:
     return media_retention.validate_session_id(sid)
 
 
 @bp.get("/api/export/sessions")
+@_admin_required()
 def export_sessions():
     """会话列表 + 个人信息 —— 导出页要按人对号，不能只有一串会话号。
 
@@ -758,6 +771,7 @@ def export_sessions():
 
 
 @bp.get("/api/export/<sid>/files")
+@_admin_required()
 def export_files(sid: str):
     try:
         return jsonify(list_payload(_sid_or_400(sid)))
@@ -766,6 +780,7 @@ def export_files(sid: str):
 
 
 @bp.get("/api/export/<sid>/csv/<key>")
+@_admin_required(allow_query=True)
 def export_csv(sid: str, key: str):
     try:
         path, download_name = csv_file(_sid_or_400(sid), key)
@@ -780,6 +795,7 @@ def export_csv(sid: str, key: str):
 
 
 @bp.get("/api/export/<sid>/transcript")
+@_admin_required(allow_query=True)
 def export_transcript(sid: str):
     fmt = (request.args.get("format") or "txt").strip().lower()
     try:
@@ -804,6 +820,7 @@ def export_transcript(sid: str):
 
 
 @bp.get("/api/export/<sid>/chart")
+@_admin_required(allow_query=True)
 def export_chart(sid: str):
     module = (request.args.get("module") or "").strip().lower()
     try:
