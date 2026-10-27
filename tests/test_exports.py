@@ -41,7 +41,7 @@ def session(tmp_path, monkeypatch):
     sess = tmp_path / f"1026-候选Y__{SID}"
     sess.mkdir()
     (sess / "label.json").write_text(json.dumps({
-        "session_id": SID, "name": "候选Y", "student_id": "241650137",
+        "session_id": SID, "name": "候选Y", "student_id": "900000001",
         "department": "计算机与人工智能学院", "serial": "1026",
     }, ensure_ascii=False), encoding="utf-8")
     (sess / "questions.jsonl").write_text(
@@ -70,7 +70,7 @@ def test_files_lists_what_is_on_disk(session):
 
 def test_transcript_txt_carries_subject_and_question(session):
     txt = exports.transcript_txt(session)
-    assert "候选Y" in txt and "241650137" in txt
+    assert "候选Y" in txt and "900000001" in txt
     assert "请描述一个你研究过的问题？" in txt
     assert "回答一" in txt
 

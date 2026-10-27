@@ -39,10 +39,10 @@ def _write_label(root, **fields) -> None:
 
 def test_prints_all_four_fields(tmp_path, monkeypatch):
     monkeypatch.setenv("JINGXIN_RECORDINGS_DIR", str(tmp_path))
-    _write_label(tmp_path, serial="1026", name="张三", student_id="241650137",
+    _write_label(tmp_path, serial="1026", name="张三", student_id="900000001",
                  department="计算机与人工智能学院")
     html = _subject_block(SID)
-    for want in ("张三", "241650137", "计算机与人工智能学院", "1026"):
+    for want in ("张三", "900000001", "计算机与人工智能学院", "1026"):
         assert want in html, f"报告头少了 {want}:{html}"
 
 
@@ -132,7 +132,7 @@ def test_generated_report_filename_carries_name_and_times(tmp_path, monkeypatch)
     rec = tmp_path / "rec"
     rec.mkdir()
     monkeypatch.setenv("JINGXIN_RECORDINGS_DIR", str(rec))
-    _write_label(rec, name="张三", student_id="241650137",
+    _write_label(rec, name="张三", student_id="900000001",
                  department="计算机与人工智能学院", serial="1026")
 
     log_dir = tmp_path / "logs"
