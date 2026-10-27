@@ -335,7 +335,8 @@ async def analyze_frame(
         request: Request,
         file: UploadFile = File(...),
         session_id: str = None,
-        fps: int = 30
+        fps: int = 30,
+        probe: bool = False
 ):
     """
     上传视频帧进行实时分析
@@ -380,13 +381,17 @@ async def analyze_frame(
             timestamp_ms = _clock_for(session_id).stamp_ms()
             # M2.6:先把这一帧的原始字节存一份,再算 —— 算的过程中抛异常也不丢素材。
             # 留存关掉时(默认开)这里什么都不做,行为与 M2.6 之前逐字节相同。
-            media_retention.retain_frame(session_id, "face", contents,
-                                         declared_ts=timestamp_ms, source="/analyze")
+            # ★ probe(开录前的设备自检):只做检测,**不留存、不写日志、不落取景决策**
+            #   —— 自检帧不该污染这一场的素材与 CSV。
+            if not probe:
+                media_retention.retain_frame(session_id, "face", contents,
+                                             declared_ts=timestamp_ms, source="/analyze")
 
             # 取景：整场只决定一次，必要时中央裁切放大（见 `_framing_for` 的说明）。
             # ⚠️ 顺序要紧：**放在 `retain_frame` 之后** —— 留存必须是上传的原始帧，
             #    与取景决策无关；这样全画幅永远留在盘上，随时可离线重提取。
-            crop = _framing_for(session_id, image, timestamp_ms)
+            crop = (None if probe else
+                    _framing_for(session_id, image, timestamp_ms))
 
             # 处理帧（`crop` 为 None 时 apply_crop 原样返回 ⟹ 全画幅路径零行为变化）
             result_obj, mesh_results, features_dict = pipeline.process_frame(
@@ -394,7 +399,7 @@ async def analyze_frame(
                 timestamp_ms)
 
             # 将帧数据写入 CSV 日志（供 report_frontend 批量读取）
-            if session_id in session_loggers:
+            if not probe and session_id in session_loggers:
                 try:
                     face_logger, _ = session_loggers[session_id]
                     face_logger.log(features_dict)
@@ -409,6 +414,7 @@ async def analyze_frame(
             return JSONResponse(content={
                 "status": "no_face",
                 "session_id": session_id,
+                "probe": probe,
                 "message": "未检测到人脸"
             })
 
@@ -419,10 +425,13 @@ async def analyze_frame(
         return JSONResponse(content={
             "status": "success",
             "session_id": session_id,
+            "probe": probe,
             "result": {
                 # 基础信息
                 "timestamp": features_dict.get("timestamp", 0),
                 "focus_score": features_dict.get("focus_score", 0),
+                # 面部尺度(0~1,脸高/画面高)—— 设备自检用它判断"是不是离得太远"。
+                "face_scale": features_dict.get("face_scale"),
 
                 # AU 特征
                 "au_features": {

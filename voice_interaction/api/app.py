@@ -65,6 +65,24 @@ app.add_middleware(
 tts_engine = TTSEngine()
 interview_assessment = InterviewAssessmentPipeline()
 research_assessment = ResearchAssessmentPipeline()
+
+
+def _reload_question_bank(pipeline, module: str) -> None:
+    """每开新一场都从 `data/question_bank.json` 重载题库。
+
+    ★ 读文件而不是缓存:使用者在面板上换完题库,**下一场就要生效**,不该为此
+      重启语音服务。文件不存在/读坏了 ⟹ 沿用内置题(启动时那份),并记一条日志;
+      题库坏掉不该让一场评估开不了。
+    """
+    try:
+        from question_bank import get_question_texts
+        qs = get_question_texts(module)
+        if qs:
+            pipeline.questions = qs
+    except Exception:
+        logger.exception("题库重载失败(沿用内置题) —— 检查 data/question_bank.json")
+
+
 voice_logger = VoiceLogger(log_type='interview')
 # 科研那条日志器同样要在**铸号时换成带号的那一个**(见 /research/start)。文件名是**构造函数**
 # 算的 —— 事后改 `.session_id` 只换首列、不换文件名(M1 记过这个坑),所以不能沿用现造的。
@@ -521,6 +539,7 @@ async def start_interview():
     global voice_logger
     try:
         interview_assessment.reset()
+        _reload_question_bank(interview_assessment, "interview")
         first_question = interview_assessment.get_next_question()
         if not first_question:
             raise HTTPException(status_code=500, detail="无法获取问题")
@@ -926,6 +945,7 @@ async def start_research_assessment():
     global research_logger
     try:
         research_assessment.reset()
+        _reload_question_bank(research_assessment, "research")
         first_question = research_assessment.get_next_question()
         if not first_question:
             raise HTTPException(status_code=500, detail="无法获取问题")

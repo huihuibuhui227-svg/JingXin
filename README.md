@@ -25,7 +25,7 @@
 |---|---|---|
 | `jingxin/` | 本仓库：后端 + 报告层 + 工具 | ✅ git |
 | `frontend/` | **另一个仓库**：React + Vite + TS 前端 | ✅ git（独立） |
-| `recordings/` | 44 场素材（视频/帧/留存账本）。**纯数据** | ❌ 不入库 |
+| `recordings/` | 40+ 场素材（视频/帧/留存账本）。**纯数据** | ❌ 不入库 |
 | `.env` | `JX_ADMIN_PASSWORD`。**故意留在仓库外** | ❌ |
 
 仓库内布局：
@@ -35,7 +35,8 @@ app.py                  Flask 报告面板(:5000)
 face_expression/        面部服务(:8000)   core/feature_extraction/au_calculator.py 出 iris 四列+AU
 gesture_analysis/       手势服务(:8002)
 voice_interaction/      语音服务(:8001)   asr/ 是转写缝(funasr_client → funasr_engine)
-report_frontend/        报告层:data_loader → feature_engine → research_mapper → evidence_gate → report_generator
+report_frontend/        报告层:data_loader → 回答窗口 → L1 指标(38 条) → 质量门 → 维度映射 → report_generator
+                         （旧引擎 feature_engine → research_mapper 仅 ?engine=legacy 对照）
 media_retention.py      留存与账本(三服务共用的横切模块)
 l0_columns.json         ★ L0 列表的唯一权威(86 列,status × maturity 两轴)
 tools/                  起服务 / 验收 / 结构图 / 会话审计 / 转写
@@ -204,3 +205,62 @@ git add <具体路径>        # ★ 禁止 git add -A
 
 > **最后一句**：这个系统的价值在于**它说的每句话都有依据**。
 > 改它的第一原则不是「让它多出分」，而是「别让它说不成立的话」。
+
+
+---
+
+## 2026-10-26 新增（本轮整改）
+
+### 新模块
+
+| 文件 | 作用 |
+|---|---|
+| `question_bank.py` | **多套题库**（面试/科研），每模块可存多套、选一套"当前生效"；参考答案可选（只存不用） |
+| `exports.py` | 数据导出：三份 CSV、转写 TXT/CSV/JSON、按模块 PNG 图表（matplotlib，列动态取） |
+| `face_expression` / `gesture_analysis` 的 `/analyze?probe=1` | 设备自检探针：**只检测，不落帧、不写 CSV、不落取景决策** |
+
+### 新接口
+
+| 接口 | 说明 |
+|---|---|
+| `GET /api/question-bank/<module>` | 全部题库 + 当前生效那套 |
+| `POST /api/question-bank/<module>/banks` | 新建一套（不覆盖已有） |
+| `PUT/DELETE /api/question-bank/<module>/banks/<id>` | 改/删某一套 |
+| `POST /api/question-bank/<module>/active` | `{id}` 设为当前；`null` = 内置默认 |
+| `GET /api/question-bank/sample/<module>` | 下载随身示例题库（8 题 + 参考答案） |
+| `GET /api/export/sessions` | 会话列表 + 姓名/学号/院系/场次 |
+| `GET /api/export/<sid>/files` | 可导出清单（CSV/转写/行数） |
+| `GET /api/export/<sid>/csv/<key>` | 下载 face/gesture/voice_* CSV |
+| `GET /api/export/<sid>/transcript?format=txt\|csv\|json` | 转写导出（含题干/姓名） |
+| `GET /api/export/<sid>/chart?module=face\|gesture\|voice` | PNG 图表 |
+
+### 报告与面板
+
+- 报告头：被测者/学号/院系/场次 + **测试时间**（铸号时刻）与**报告生成时间**；
+- 文件名带姓名（`...-候选Y.html`），同一秒撞名不覆盖（追加会话号）；
+- 面板 `app.run(debug=False)`（`JX_PANEL_DEBUG=1` 才开）—— debug reloader 会清空内存任务表；
+- 报告按钮的状态判断改为服务端实际值 `success/error`。
+
+### 采集端
+
+- 评估页在**铸号之前**做设备自检：面部 `face_scale ≥ 0.20` + 至少一只手 + 麦克风；
+  探针不落盘；未通过不铸号（前端 `PreflightGate.tsx`）。
+
+### 启动注意（本机）
+
+- 用 `tailscale serve` 发布时，**语音/面部/手势服务必须 `JX_BIND=127.0.0.1`**，
+  否则会占 tailscale IP，`tailscaled` 的 TLS 监听起不来（静默重试）。
+- 本机语音服务导入 librosa/numba 需要可写缓存：`NUMBA_CACHE_DIR=/tmp/numba_cache`
+  （`start_all.sh` 之外手动起服务时要带上）。
+- 手动重启面板要带 `CORS_ORIGINS`（含 `https://gpuserver.tail4ffce2.ts.net:5173`）
+
+### 新增测试
+
+`tests/test_question_bank.py`（多套/切换/删除/旧格式迁移）、`tests/test_exports.py`
+（清单/转写/图表/无数据）、`tests/test_report_subject_block.py`（身份块/两个时间/文件名/撞名）。
+
+### 已知
+
+- 整场 `camera.webm` 上传实测约 0.5 MB/s（客户端与服务器未建立 Tailscale 直连，
+  走 DERP 中继、RTT ~1 s）；服务器侧不是瓶颈。打通直连 / 同网段走 LAN 可显著提速。
+- 微表情 4 列实测 0 非空；手部指标样本极少；这些在报告层按 gap 报"结构性不产出"。

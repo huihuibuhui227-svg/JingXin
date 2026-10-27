@@ -455,7 +455,8 @@ async def health_check():
 async def analyze_image(
         request: Request,
         file: UploadFile = File(...),
-        session_id: str = None
+        session_id: str = None,
+        probe: bool = False
 ):
     """
     分析图片中的手势和肩部
@@ -496,8 +497,11 @@ async def analyze_image(
         # 而客户端实际 1 帧/秒(spec §3.5 / §3.1)。
         timestamp_ms = _clock_for(session_id).stamp_ms()
         # M2.6:先存原始字节再算(与 face 同一处、同一理由)。
-        media_retention.retain_frame(session_id, "gesture", contents,
-                                     declared_ts=timestamp_ms, source="/analyze")
+        # ★ probe(开录前的设备自检):只检测,**不留存、不写日志**
+        #   —— 自检帧不该污染这一场的素材与 CSV。
+        if not probe:
+            media_retention.retain_frame(session_id, "gesture", contents,
+                                         declared_ts=timestamp_ms, source="/analyze")
 
         # 一帧的全部产出:与 `experiments/replay_retained.py` 的手势腿**共用同一份**
         # —— 端点这边剩下的只有取图、取会话、落盘、拼响应(见 process_frame 的 docstring:
@@ -516,7 +520,7 @@ async def analyze_image(
 
         # 将帧数据写入 CSV 日志（供 report_frontend 批量读取）。
         # 入参整份来自 `frame["log_kwargs"]` —— 与重放腿传的是**同一个字典**。
-        if session_id in session_loggers:
+        if not probe and session_id in session_loggers:
             try:
                 gesture_logger = session_loggers[session_id][0]
                 gesture_logger.log(**frame["log_kwargs"])
@@ -536,6 +540,7 @@ async def analyze_image(
         return {
             "status": "success",
             "session_id": session_id,
+            "probe": probe,
             "result": {
                 # 检测状态
                 "detected_hands": detected_hands,

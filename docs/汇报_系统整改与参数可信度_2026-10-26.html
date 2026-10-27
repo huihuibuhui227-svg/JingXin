@@ -1,0 +1,1090 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang xml:lang>
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>JingXin 整改与算法可信度汇报</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {   }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ff0000; font-weight: bold; } /* Alert */
+    code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #7d9029; } /* Attribute */
+    code span.bn { color: #40a070; } /* BaseN */
+    code span.bu { } /* BuiltIn */
+    code span.cf { color: #007020; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4070a0; } /* Char */
+    code span.cn { color: #880000; } /* Constant */
+    code span.co { color: #60a0b0; font-style: italic; } /* Comment */
+    code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #ba2121; font-style: italic; } /* Documentation */
+    code span.dt { color: #902000; } /* DataType */
+    code span.dv { color: #40a070; } /* DecVal */
+    code span.er { color: #ff0000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #40a070; } /* Float */
+    code span.fu { color: #06287e; } /* Function */
+    code span.im { } /* Import */
+    code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #007020; font-weight: bold; } /* Keyword */
+    code span.op { color: #666666; } /* Operator */
+    code span.ot { color: #007020; } /* Other */
+    code span.pp { color: #bc7a00; } /* Preprocessor */
+    code span.sc { color: #4070a0; } /* SpecialChar */
+    code span.ss { color: #bb6688; } /* SpecialString */
+    code span.st { color: #4070a0; } /* String */
+    code span.va { color: #19177c; } /* Variable */
+    code span.vs { color: #4070a0; } /* VerbatimString */
+    code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warning */
+  </style>
+  <style type="text/css">:root { --ink:#1d1d1f; --muted:#6e6e73; --line:#e5e5e7; --accent:#0066cc; }
+* { box-sizing: border-box; }
+body { margin:0; background:#fff; color:var(--ink);
+font-family:"Noto Sans CJK SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+font-size:15px; line-height:1.8; }
+main, body > * { max-width: 920px; margin: 0 auto; }
+body { padding: 40px 24px 80px; }
+h1 { font-size: 26px; line-height:1.35; margin: 0 0 6px; }
+h1 + h2 { color: var(--muted); font-weight: 500; font-size: 16px; margin-top: 0; }
+h2 { font-size: 20px; margin: 44px 0 12px; padding-top: 14px; border-top: 1px solid var(--line); }
+h3 { font-size: 16px; margin: 28px 0 8px; }
+p, li { margin: 0 0 10px; }
+blockquote { margin: 16px 0; padding: 10px 16px; background:#f7f8fa; border-left: 3px solid var(--accent); color:#333; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; margin: 12px 0 20px; }
+th, td { text-align: left; vertical-align: top; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+th { background:#f7f8fa; font-weight: 600; white-space: nowrap; }
+code { font-family: "Noto Sans Mono CJK SC", ui-monospace, monospace; font-size: 12.5px;
+background:#f4f4f6; padding: 1px 5px; border-radius: 4px; }
+pre { background:#f7f8fa; border:1px solid var(--line); border-radius: 8px; padding: 12px 14px; overflow:auto; }
+pre code { background: none; padding: 0; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 32px 0; }
+a { color: var(--accent); }
+</style>
+</head>
+<body>
+<h1 id="jingxin-多模态行为观测系统">JingXin 多模态行为观测系统</h1>
+<h2 id="整改流程算法与参数可信度汇报">整改流程、算法与参数可信度汇报</h2>
+<p><strong>日期</strong>：2026-10-26　<strong>对象</strong>：乙方汇报　<strong>范围</strong>：当前生产路径（L1 指标层 + 报告/导出 + 采集端）</p>
+<hr />
+<h2 id="先给结论与边界">0. 先给结论与边界</h2>
+<h3 id="系统是什么">0.1 系统是什么</h3>
+<p>JingXin 采集一场面试/科研评估中的<strong>面部动作单元（AU）、手部与体态、语音韵律、话语文本</strong>， 把原始记录落成逐帧/逐回答的 CSV 与整场录像，再由报告层按<strong>有出处的判据</strong>披露： 「哪些行为线索有证据、证据有多强、哪些没有」。</p>
+<h3 id="系统不是什么三条硬边界来自项目既有裁定">0.2 系统<strong>不是</strong>什么（三条硬边界，来自项目既有裁定）</h3>
+<ol type="1">
+<li><strong>不产出对个人的评分、评级、心理结论。</strong> 没有标定样本，不同量纲不能折算成同一尺度 —— 报告里不出现“综合分」和”五档评语&quot;。</li>
+<li><strong>阈值只能来自物理下限或自采数据。</strong> 上游数据集的许可禁止把在其分布上拟合的参数用于 真实招聘/筛选/心理画像；<strong>在数据集分布上拟合的参数同样属禁</strong>。</li>
+<li><strong>算不出来就说算不出来。</strong> 每条指标必须带 <code>n_valid / n_total / confidence / gap</code>； 缺数据、缺标定、缺产出方，各自报不同的 <code>gap</code>，<strong>不许用别的东西顶替</strong>。</li>
+</ol>
+<blockquote>
+<p>因此本稿回答的不是“这套系统有多准”，而是<strong>“每个数是怎么算出来的、能信到什么程度、 哪些数我们拒绝给”</strong>。</p>
+</blockquote>
+<hr />
+<h2 id="系统构成与数据流">1. 系统构成与数据流</h2>
+<pre><code>浏览器（采集端）
+  ├─ 摄像头/麦克风（1280×720，VP8+Opus）
+  ├─ 设备自检：面部 + 手部 + 麦克风都通过才允许开始（探针不落盘）
+  ├─ 原生录像 camera.webm（整场）
+  ├─ 逐帧：face/gesture 各一份原始 jpg（约 1 帧/秒）
+  └─ 逐题音频 + 逐题作答
+
+三个分析服务
+  ├─ :8000 face_expression    AU / iris / 头姿 / 眨眼
+  ├─ :8002 gesture_analysis   手部/姿态 landmark、抖动、角度
+  └─ :8001 voice_interaction  FunASR 转写 + 韵律（pyin/rms）
+        │
+        ├─ data/logs/face_au_log_&lt;sid&gt;.csv          （逐帧 92 列）
+        ├─ data/logs/gesture_emotion_log_&lt;sid&gt;.csv  （逐帧 59 列）
+        ├─ data/logs/{interview,research}_emotion_log_&lt;sid&gt;.csv（逐题 32 列）
+        └─ recordings/&lt;场&gt;/media/                    camera.webm / face/ / gesture/ / audio/
+            recordings/&lt;场&gt;/                         transcript.json / questions.jsonl / label.json
+                                                     retention.*.jsonl（留存账本）/ session.json
+
+报告/导出层
+  ├─ 回答窗口（questions.jsonl 的 ask_end 切窗）
+  ├─ L1 指标层（38 条：F 16 + G 7 + V 12 + T 3）
+  ├─ 质量门（样本门槛 → 置信度 4 档 / 9 类 gap）
+  ├─ 维度映射（14 个旧槽 → 8 换 / 6 删；不给维度分）
+  ├─ 交付物：HTML 报告（含身份/测试时间/生成时间）、结构化报告 API
+  ├─ 数据导出：原始 CSV / 转写 TXT-CSV-JSON / 按模块动态图表
+  └─ 题库：多套 + 当前生效 + 参考答案（只存不用）</code></pre>
+<p>服务端口：前端 <code>:5173</code>、面板 <code>:5000</code>、face <code>:8000</code>、voice <code>:8001</code>、gesture <code>:8002</code>、 FunASR <code>:10095</code>。远程访问走 Tailscale： <code>https://gpuserver.tail4ffce2.ts.net:5173</code>。</p>
+<hr />
+<h2 id="整改流程问题-动作-验证">2. 整改流程（问题 → 动作 → 验证）</h2>
+<blockquote>
+<p>原则：<strong>不是“让它多出分”，而是“别让它说不成立的话”</strong>。下面每一条都能在仓库里 找到对应的测试或实测记录。</p>
+</blockquote>
+<h3 id="素材留存与可追溯m2.6">2.1 素材留存与可追溯（M2.6）</h3>
+<table>
+<colgroup>
+<col style="width: 33%"></col>
+<col style="width: 33%"></col>
+<col style="width: 33%"></col>
+</colgroup>
+<thead>
+<tr class="header">
+<th>问题</th>
+<th>动作</th>
+<th>验证</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>原始素材不可再生，分析代码必然有缺陷</td>
+<td>整场 <code>camera.webm</code> 原样留存；逐帧/逐段原始字节留存；每次留存写 <code>retention.*.jsonl</code>（bytes + sha256 + 来源端点）</td>
+<td>账本逐条可对；<code>tests/test_media_retention*</code></td>
+</tr>
+<tr class="even">
+<td>同一场二次上传会<strong>覆盖</strong>上一份（2026-09-28 实盘丢 2.1 GB）</td>
+<td><code>camera.webm</code> 已存在时<strong>拒绝覆盖</strong>（HTTP 409），要求开新的一场</td>
+<td><code>CameraAlreadyRetained</code> + 端点 409</td>
+</tr>
+<tr class="odd">
+<td>上传了但文件里没有视频/音轨、或全黑</td>
+<td>落盘后立刻做<strong>录制体检</strong>：视频轨/音轨/音视时长比/抽帧亮度；结果写 <code>session.json.capture_health</code></td>
+<td>体检只报告不阻塞；<code>capture_health.py</code></td>
+</tr>
+<tr class="even">
+<td>上传失败被显示成“任务完成”</td>
+<td>留存端点返回 <code>stored: false</code>，前端据此报错，不许静默</td>
+<td>端点契约 + 前端保存门禁</td>
+</tr>
+</tbody>
+</table>
+<h3 id="从模糊匹配到-l1-指标层m4">2.2 从“模糊匹配”到 L1 指标层（M4）</h3>
+<p><strong>问题</strong>：旧引擎用列名子串从扁平特征里模糊匹配 14 个槽 —— 历史上把「皱眉」匹配到 从 <code>micro_exp</code> 字符串解析出的垃圾，同一场报告给出两套互相矛盾的数。</p>
+<p><strong>动作</strong>： - 建立 <strong>L1 指标层</strong>：38 条指标，每条固定字段 <code>name / family / formula / required_l0 / window / value / unit / n_valid / n_total / confidence / gap</code>； - 三条不变量：<code>gap</code> 非空 ⟹ 值为 NaN 且置信度“无”；<code>n_valid ≤ n_total</code>；置信度只用四个中文词； - <strong>删掉“折算→加权→维度分→复合分”整条链</strong>：没有标定样本就不折算； - 槽位逐条对账：14 个旧槽 <strong>8 条换成同构念 L1、6 条删</strong>（删的写明“没有同构念”，不拿相邻构念顶替）。</p>
+<p><strong>验证</strong>：<code>tests/test_m4_*</code>、<code>tests/test_l1_*</code>；报告覆盖数 8/14（示例场）与结构化 API 逐字一致。</p>
+<h3 id="报告口径统一">2.3 报告口径统一</h3>
+<p><strong>问题</strong>：前端报告页读 L1，HTML 报告还在旧引擎 —— 同一场一个说 7/14、一个说 11/14。</p>
+<p><strong>动作</strong>：HTML 报告与 <code>/api/report/structured</code> 统一走 <code>build_l1_report</code>；旧引擎只留 <code>?engine=legacy</code> 做对照；报告正文只印“这一场量到了什么”，消失的维度单独列出并写明 “当前管线不测”。</p>
+<p><strong>验证</strong>：<code>tests/test_html_report_uses_the_l1_engine.py</code>。</p>
+<h3 id="报告可读性与身份">2.4 报告可读性与身份</h3>
+<ul>
+<li>报告头：被测者 / 学号 / 院系 / 场次；<strong>测试时间</strong>（会话 id 的铸号时刻）与<strong>报告生成时间</strong>分开印；</li>
+<li>文件名带姓名（<code>Research_Assessment_Report_&lt;生成时刻&gt;-候选Y.html</code>），列表同步显示；</li>
+<li>报告列表：<code>科研评估报告 · 候选Y</code> + 完整文件名；</li>
+<li>生成报告按钮的状态判断修正（服务端状态是 <code>success/error</code>，此前前端等的是 <code>completed/failed</code>，导致永远“正在生成…”）；</li>
+<li>不新增评分/档位。</li>
+</ul>
+<h3 id="采集防呆2026-10-26">2.5 采集防呆（2026-10-26）</h3>
+<p><strong>问题</strong>：离摄像头太远时，人脸检出率与 AU 精度下降，而系统照常开录（事后只能对着空日志）。</p>
+<p><strong>动作</strong>：开录前（征询确定后、<strong>铸号之前</strong>）做设备自检： - 面部检出且 <code>face_scale ≥ 0.20</code>（正常坐姿实测 0.25–0.47）； - 至少一只手进入画面（左右分别显示）； - 麦克风有可用音轨； - 三条全过才允许点「开始面试」；取消则<strong>不铸号</strong>，盘上什么都不留； - 探针走 <code>?probe=1</code>：只检测，<strong>不落帧、不写 CSV、不落取景决策</strong>。</p>
+<p><strong>验证</strong>：真实留存帧探针（face_scale 0.31–0.47、双手检出）；前端端到端（模拟摄像头 + 模拟探针）：就绪→按钮可用，取消→场次数量不变。</p>
+<h3 id="题库与数据导出2026-10-26">2.6 题库与数据导出（2026-10-26）</h3>
+<ul>
+<li>题库：每个模块可存<strong>多套</strong>，选一套“当前生效”；上传 JSON/CSV；参考答案可选（只存不用， 留给后续比对/评分）；语音服务在<strong>新开一场</strong>时读取，切换下一场生效。</li>
+<li>数据导出：三份原始 CSV、转写 TXT/CSV/JSON（含姓名）、按模块图表。</li>
+<li>图表：从 CSV 列<strong>动态</strong>取数（面部 14 个 AU、10 项其他指标；手势 10 个手指角度、6 个关节角度、 10 项稳定性指标；语音 6 个分面），不硬编码三个 AU。</li>
+</ul>
+<h3 id="运维加固">2.7 运维加固</h3>
+<ul>
+<li>面板 <code>debug=False</code>（改之前 debug reloader 一天重启 42 次，内存里的任务表被清空， 前端永远“正在生成…”）；</li>
+<li>CORS 白名单按访问来源配置；服务 <code>setsid</code> 启动，脱离终端；</li>
+<li>上传端超时设为 0（大文件不允许 30 秒掐断）；错误响应区分 400/409/413/500。</li>
+</ul>
+<hr />
+<h2 id="算法与计算过程">3. 算法与计算过程</h2>
+<h3 id="采集与时间轴">3.1 采集与时间轴</h3>
+<table>
+<colgroup>
+<col style="width: 50%"></col>
+<col style="width: 50%"></col>
+</colgroup>
+<thead>
+<tr class="header">
+<th>项</th>
+<th>取值/做法</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>视频</td>
+<td>浏览器 MediaRecorder，1280×720，VP8 + Opus；整场一个 <code>camera.webm</code></td>
+</tr>
+<tr class="even">
+<td>抽帧</td>
+<td>采集端 5 fps 取帧、每 5 帧送 1 帧 ⟹ <strong>约 1 帧/秒</strong>；原始帧逐张留存</td>
+</tr>
+<tr class="odd">
+<td>服务端时间</td>
+<td>时间戳由<strong>服务端实测</strong>，忽略客户端申报的 fps；墙钟异常场次做 clock repair 并标记</td>
+</tr>
+<tr class="even">
+<td>回答窗口</td>
+<td>窗口 k = <code>[ask_end_k, ask_end_{k+1})</code>，来自 <code>questions.jsonl</code> 的提问台账；<strong>用 ask_end 而不是 ask_start</strong>（提问那段是机器在说话，不是受试者行为）</td>
+</tr>
+<tr class="odd">
+<td>无台账场次</td>
+<td>退化为一个 <code>session</code> 窗口，并明写原因（不编窗口）</td>
+</tr>
+</tbody>
+</table>
+<h3 id="面部f-族16-条">3.2 面部（F 族，16 条）</h3>
+<p><strong>输入</strong>：MediaPipe FaceMesh 关键点 + 52 维 blendshape + iris。 日志 92 列，其中 14 个 AU、52 个 blendshape、视线/头姿/眼开度/对称度等。</p>
+<p><strong>AU 的算法（几何比，不是“表情分类”）</strong>：</p>
+<ul>
+<li>每条 AU = 两个关键点距离 ÷ 一个解剖尺度，<strong>无量纲</strong>；</li>
+<li>例：<code>au4_frown</code> = 双眉内侧点距 ÷ 眼距 —— <strong>越小越皱</strong>（旧公式方向曾经写反，已修）；</li>
+<li>例：<code>au6_cheek_raise</code> 分母用<strong>面部轮廓高</strong>（前额顶→下巴），因为眼距是横向跨度、会把头偏航带进结果；</li>
+<li>例：<code>au12_smile</code> 由嘴角/口宽等关键点几何比派生；<code>face_scale</code> = 面部轮廓高，作为<strong>协变量</strong>显式输出（不是“表情强度”）；</li>
+<li>眨眼：<code>is_blink = EAR &lt; 阈值</code> 是逐帧电平；<strong>次数用 0→1 上升沿计数</strong>，不是对帧求和。</li>
+</ul>
+<p><strong>16 条指标</strong>（<code>l1_face.py</code>）：</p>
+<table>
+<thead>
+<tr class="header">
+<th>指标</th>
+<th>公式（简）</th>
+<th>阈值策略</th>
+<th>当前能否出数</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>smile_ratio</code></td>
+<td><code>au12 &gt; 0.263</code> 帧占比</td>
+<td>声明常量 0.263（语料 p75，<strong>非标定</strong>）</td>
+<td>9 条“需 τ”中之一</td>
+</tr>
+<tr class="even">
+<td><code>smile_rate_per_min</code></td>
+<td>穿越 0.263 的上升沿 ÷ 分钟</td>
+<td>同上</td>
+<td>同上</td>
+</tr>
+<tr class="odd">
+<td><code>smile_duration_p50</code></td>
+<td>连续超阈段时长的中位数</td>
+<td>同上</td>
+<td>同上</td>
+</tr>
+<tr class="even">
+<td><code>gaze_aversion_ratio_vs_baseline</code></td>
+<td>|gaze| &gt; 本人中位数+3·MAD 帧占比</td>
+<td>自比基线</td>
+<td>同上</td>
+</tr>
+<tr class="odd">
+<td><code>gaze_aversion_rate_per_min_vs_baseline</code></td>
+<td>偏离→回正次数 ÷ 分钟</td>
+<td>自比基线</td>
+<td>同上</td>
+</tr>
+<tr class="even">
+<td><code>head_away_ratio_vs_baseline</code></td>
+<td>|head_yaw| &gt; 本人中位数+3·MAD 帧占比</td>
+<td>自比基线</td>
+<td>同上</td>
+</tr>
+<tr class="odd">
+<td><code>brow_furrow_ratio_vs_baseline</code></td>
+<td><code>au4 &lt; 本人中位数−3·MAD</code> 帧占比</td>
+<td>自比基线</td>
+<td>同上</td>
+</tr>
+<tr class="even">
+<td><code>lip_compression_ratio_vs_baseline</code></td>
+<td><code>au23 &lt; 本人中位数−3·MAD</code> 帧占比</td>
+<td>自比基线</td>
+<td>同上</td>
+</tr>
+<tr class="odd">
+<td><code>au_activation_any_ratio</code></td>
+<td>至少一条可信 AU 超本人 τ 的帧占比</td>
+<td>5 条自比 + 1 条声明</td>
+<td>同上</td>
+</tr>
+<tr class="even">
+<td><code>gaze_stability</code></td>
+<td><code>1 − std(gaze_x) / 极差</code></td>
+<td>无需 τ</td>
+<td>✅</td>
+</tr>
+<tr class="odd">
+<td><code>blink_rate_per_min</code></td>
+<td>上升沿数 ÷ 有效分钟</td>
+<td>无需 τ</td>
+<td>✅</td>
+</tr>
+<tr class="even">
+<td><code>blink_duration_mean</code></td>
+<td>眨眼段时长均值</td>
+<td>无需 τ</td>
+<td>✅</td>
+</tr>
+<tr class="odd">
+<td><code>head_motion_per_sec</code></td>
+<td>头姿角速度绝对值和 ÷ 有效秒</td>
+<td>无需 τ</td>
+<td>✅</td>
+</tr>
+<tr class="even">
+<td><code>au_variability_per_sec</code></td>
+<td>AU 帧间变化绝对值和 ÷ 有效秒</td>
+<td>无需 τ</td>
+<td>✅</td>
+</tr>
+<tr class="odd">
+<td><code>micro_exp_rate_per_min</code></td>
+<td>微表情事件率</td>
+<td>—</td>
+<td>❌ 四列实测 0 非空</td>
+</tr>
+<tr class="even">
+<td><code>micro_exp_duration_mean_sec</code></td>
+<td>微表情时长</td>
+<td>—</td>
+<td>❌ 同上</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>结论：F 族 16 条里 <strong>5 条可出数、9 条卡“需标定阈值”、2 条结构性不采集</strong>。 “卡标定”的 9 条报 <code>gap=&quot;uncalibrated&quot;</code>，<strong>不给值</strong>——不拿视频内分位顶替。</p>
+</blockquote>
+<h3 id="手势与体态g-族4-3-协变量">3.3 手势与体态（G 族，4 + 3 协变量）</h3>
+<p><strong>输入</strong>：MediaPipe Hands/Pose landmark；日志 59 列。</p>
+<p><strong>要点</strong>：</p>
+<ul>
+<li><code>jitter</code> 在写入端<strong>已经按秒、且除以肩宽中位数</strong>归一（<code>_calculate_jitter(divide_by_shoulder=True)</code>）—— L1 不再乘除任何东西，再除一次会把取景远近的影响平方掉；</li>
+<li>手部指标（fist/spread/指节角度）实测样本很少（49 场里只有 4/236、2/236 行有值），<strong>基本不可用</strong>；</li>
+<li><code>is_valid</code> 恒为 False（49 场每行都是），它代表“手势情绪推断有没有有效输入”，<strong>不代表有没有姿态数据</strong>；</li>
+<li><code>hand_visible_*</code> 的空串不是 0（“不知道” vs “确定没有”），所以可见率只能算<strong>下界</strong>。</li>
+</ul>
+<table>
+<colgroup>
+<col style="width: 25%"></col>
+<col style="width: 25%"></col>
+<col style="width: 25%"></col>
+<col style="width: 25%"></col>
+</colgroup>
+<thead>
+<tr class="header">
+<th>指标</th>
+<th>公式</th>
+<th>单位</th>
+<th>状态</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>gesture_activity_per_sec</code></td>
+<td>Σ(腕/肘/肩 jitter) 逐帧均值</td>
+<td>归一化/秒</td>
+<td>✅</td>
+</tr>
+<tr class="even">
+<td><code>posture_stability</code></td>
+<td>Σ(躯干/肩 jitter) 逐帧均值（越小越稳）</td>
+<td>归一化/秒</td>
+<td>✅</td>
+</tr>
+<tr class="odd">
+<td><code>pose_valid_ratio</code></td>
+<td>躯干/肩/肩宽四列同时非空的帧占比</td>
+<td>占比</td>
+<td>✅（协变量）</td>
+</tr>
+<tr class="even">
+<td><code>hand_visible_ratio_l/r</code></td>
+<td><code>hand_visible_* == 1</code> 帧占比</td>
+<td>占比（<strong>下界</strong>）</td>
+<td>✅</td>
+</tr>
+<tr class="odd">
+<td><code>gesture_burst_rate_per_min_vs_baseline</code></td>
+<td>超本人基线（中位数+3·MAD）的连续段（≥2 s）次数 ÷ 分钟</td>
+<td>次/分</td>
+<td>⚠️ 需自比基线</td>
+</tr>
+<tr class="even">
+<td><code>postural_shift_rate_per_min_vs_baseline</code></td>
+<td><code>torso_jitter</code> 超本人基线的连续段次数 ÷ 分钟</td>
+<td>次/分</td>
+<td>⚠️ 需自比基线</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>2 秒下限不是标定值，是<strong>1 Hz 采样率的下限推论</strong>：单帧超基线无法与检测抖动区分。</p>
+</blockquote>
+<h3 id="语音与文本v-族-12-条-t-族-3-条">3.4 语音与文本（V 族 12 条 + T 族 3 条）</h3>
+<p><strong>转写</strong>：FunASR（paraformer 在线/离线 + VAD + 标点），逐题音频 → <code>transcript.json</code>； 音频为<strong>全场混音（面试官 + 受试者）</strong>，没有说话人分离。</p>
+<p><strong>韵律</strong>：librosa <code>pyin</code> 逐帧 <code>f0 / voiced_prob</code>，<code>rms</code> 逐帧；停顿 = <code>f0</code> 非有限 ≥ 0.2 s； 聚合成每段回答的 32 列（pitch/energy/pause/duration/chars 等）。</p>
+<p><strong>V 族 12 条</strong>：</p>
+<table>
+<thead>
+<tr class="header">
+<th>指标</th>
+<th>算法</th>
+<th>单位</th>
+<th>状态</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>speech_rate</code></td>
+<td>字数 ÷ 有声秒</td>
+<td>字/秒</td>
+<td>✅（<strong>全场混音</strong>，不是“考生语速”）</td>
+</tr>
+<tr class="even">
+<td><code>pause_rate_per_min</code></td>
+<td>停顿次数 ÷ 语音分钟</td>
+<td>次/分</td>
+<td>✅</td>
+</tr>
+<tr class="odd">
+<td><code>pause_ratio</code></td>
+<td>(总时长−有声) ÷ 有声</td>
+<td>占比</td>
+<td>⛔ 与 <code>1/voiced_ratio−1</code> 恒等（r=0.999），<strong>故意不产出</strong></td>
+</tr>
+<tr class="even">
+<td><code>response_latency_sec</code></td>
+<td><code>ask_end</code> → 首次开口</td>
+<td>秒</td>
+<td>✅ 需提问台账；无台账报 <code>window_none</code></td>
+</tr>
+<tr class="odd">
+<td><code>voiced_ratio</code></td>
+<td>浊音帧占比（序列重算）</td>
+<td>占比</td>
+<td>✅ 需先跑序列提取</td>
+</tr>
+<tr class="even">
+<td><code>pause_duration_p50</code> / <code>p90</code></td>
+<td>停顿区间分位（序列）</td>
+<td>秒</td>
+<td>✅ 需序列</td>
+</tr>
+<tr class="odd">
+<td><code>pitch_median</code></td>
+<td>浊音帧 f0 中位数</td>
+<td>Hz</td>
+<td>✅ 需序列</td>
+</tr>
+<tr class="even">
+<td><code>pitch_range_semitone</code></td>
+<td>首末半音差</td>
+<td>半音</td>
+<td>✅ 需序列</td>
+</tr>
+<tr class="odd">
+<td><code>pitch_variability_per_sec</code></td>
+<td>逐帧半音差绝对值和 ÷ 浊音秒</td>
+<td>半音/秒</td>
+<td>✅ 需序列</td>
+</tr>
+<tr class="even">
+<td><code>energy_median</code></td>
+<td>rms 中位数</td>
+<td>—</td>
+<td>✅ 需序列（<strong>跨设备不可比</strong>，见 G4 封停）</td>
+</tr>
+<tr class="odd">
+<td><code>energy_dynamics_per_sec</code></td>
+<td>逐帧 rms 差绝对值和 ÷ 浊音秒</td>
+<td>—</td>
+<td>✅ 需序列</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>8 条“序列指标”缺的是<strong>序列没落盘</strong>，不是缺数据 —— 用 <code>voice_series.py</code> 从原始音频重算； 必须显式跑过提取，否则报 <code>not_extracted</code>，不拿聚合量硬凑同名指标。</p>
+</blockquote>
+<p><strong>T 族 3 条</strong>（分母是<strong>字</strong>，不掺时长）：</p>
+<ul>
+<li><code>lexical_diversity</code> = 二元组 MATTR（窗口 100）—— 原始 TTR 随文本变长单调下降，是长度伪影；</li>
+<li><code>discourse_marker_rate</code> = 连接词<strong>出现次数</strong> ÷ 汉字数 × 100；</li>
+<li><code>self_repair_rate</code> = 自我修正标记次数 ÷ 汉字数 × 100。</li>
+</ul>
+<blockquote>
+<p>⚠️ 三条都是<strong>全场混音</strong>量，不是“受试者一个人的话语”。这条限制写进每条的公式串。</p>
+</blockquote>
+<h3 id="质量门与置信度g3">3.5 质量门与置信度（G3）</h3>
+<p><strong>样本门槛</strong>（<code>evidence_thresholds.json</code>，临时值，M5 标定后替换）：</p>
+<table>
+<thead>
+<tr class="header">
+<th>族</th>
+<th>门槛</th>
+<th>单位</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>blink</td>
+<td>20</td>
+<td>frame</td>
+</tr>
+<tr class="even">
+<td>gaze</td>
+<td>30</td>
+<td>frame</td>
+</tr>
+<tr class="odd">
+<td>au</td>
+<td>30</td>
+<td>frame</td>
+</tr>
+<tr class="even">
+<td>head_pose</td>
+<td>30</td>
+<td>frame</td>
+</tr>
+<tr class="odd">
+<td>pause</td>
+<td>2</td>
+<td>answer</td>
+</tr>
+<tr class="even">
+<td>pitch</td>
+<td>5</td>
+<td>answer</td>
+</tr>
+<tr class="odd">
+<td>energy</td>
+<td>5</td>
+<td>answer</td>
+</tr>
+<tr class="even">
+<td>speech</td>
+<td>2</td>
+<td>answer</td>
+</tr>
+<tr class="odd">
+<td>density</td>
+<td>5</td>
+<td>answer</td>
+</tr>
+<tr class="even">
+<td>n_chars</td>
+<td>5</td>
+<td>answer</td>
+</tr>
+<tr class="odd">
+<td>reaction_time</td>
+<td>5</td>
+<td>answer</td>
+</tr>
+</tbody>
+</table>
+<p><strong>置信度四档</strong>（<code>confidence_for</code>）：</p>
+<ul>
+<li><code>无</code>：一条有效观测都没有；</li>
+<li><code>低</code>：有观测，但不到该族门槛；</li>
+<li><code>中</code>：过门槛，但不到“两倍门槛且覆盖率 ≥ 80%”；</li>
+<li><code>高</code>：<code>n_valid ≥ 2 × 门槛</code> <strong>且</strong> <code>n_valid / n_total ≥ 0.8</code>。</li>
+</ul>
+<p><strong>报告级</strong>：</p>
+<ul>
+<li>每条指标带 <code>confidence</code> 与 <code>gap</code>；</li>
+<li>维度置信度 = 该维<strong>最弱</strong>的那条证据（不可能比最弱的更强）；</li>
+<li><code>confidence_cap</code> = 通过证据门的槽里<strong>最乐观</strong>的那一档（报告头“置信度上限”）；</li>
+<li>覆盖率 = 通过证据门的槽数 / 全部 14 个旧槽（含已删槽）；删槽在报告里显式列出。</li>
+</ul>
+<p><strong>9 类 gap</strong>（每类对应不同补救动作）： <code>uncalibrated</code>（缺标定）、<code>column_empty</code>（列全空）、<code>modality_missing</code>（整场没这个模态）、 <code>time_unusable</code>（时间轴不可重建）、<code>window_none</code>（没有可用回答窗口）、<code>no_samples</code>（窗口内无观测）、 <code>not_stored</code>（只存了聚合量）、<code>not_extracted</code>（素材在、序列没生成）、<code>not_produced</code>（本层故意不产出）。</p>
+<h3 id="维度映射14-个旧槽">3.6 维度映射（14 个旧槽）</h3>
+<table>
+<colgroup>
+<col style="width: 33%"></col>
+<col style="width: 33%"></col>
+<col style="width: 33%"></col>
+</colgroup>
+<thead>
+<tr class="header">
+<th>维度</th>
+<th>旧槽 → L1</th>
+<th>死权重</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>话语结构特征</td>
+<td>连接词密度→<code>discourse_marker_rate</code>；视线标准差→<code>gaze_stability</code>；皱眉→<code>brow_furrow_ratio_vs_baseline</code></td>
+<td>0</td>
+</tr>
+<tr class="even">
+<td>情境行为稳定性</td>
+<td>唇压缩→<code>lip_compression_ratio_vs_baseline</code>；腕抖动→<code>gesture_activity_per_sec</code>；<strong>对称性→删</strong></td>
+<td>0.25</td>
+</tr>
+<tr class="odd">
+<td>沟通表达流畅度</td>
+<td><strong>流畅度→删（无产出方）</strong>；语调→<code>pitch_variability_per_sec</code>；停顿→<code>pause_duration_p50</code></td>
+<td>4/7</td>
+</tr>
+<tr class="even">
+<td>行为表现活跃度</td>
+<td>手掌张开/耸肩/眼神接触 <strong>三条全删</strong></td>
+<td>1.0（整维消失）</td>
+</tr>
+<tr class="odd">
+<td>作答过程特征</td>
+<td><strong>字数→删</strong>；反应延迟→<code>response_latency_sec</code></td>
+<td>0.4</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>只给“这一维有几条过了证据门”与“最弱证据的置信度”，<strong>不给维度分、不给档位</strong>。</p>
+</blockquote>
+<hr />
+<h2 id="每个参数的可信度逐项">4. 每个参数的可信度（逐项）</h2>
+<h3 id="可信度分级本稿口径">4.1 可信度分级（本稿口径）</h3>
+<table>
+<colgroup>
+<col style="width: 33%"></col>
+<col style="width: 33%"></col>
+<col style="width: 33%"></col>
+</colgroup>
+<thead>
+<tr class="header">
+<th>级别</th>
+<th>含义</th>
+<th>处置</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>A · 可复核测量</strong></td>
+<td>公式可复核、用相对量/率、不依赖外部阈值；报告里带 n_valid 与置信度</td>
+<td>可以看数值；置信度按样本量与覆盖率判</td>
+</tr>
+<tr class="even">
+<td><strong>B · 需标定 / 自比基线</strong></td>
+<td>公式方向明确，但阈值 τ 只能来自标定集（M5 未到位）</td>
+<td>报 <code>uncalibrated</code>，<strong>不给值</strong>；只看方向与定义</td>
+</tr>
+<tr class="odd">
+<td><strong>C · 结构性不产出</strong></td>
+<td>没采集、无产出方、或与另一条恒等</td>
+<td>报 <code>column_empty / not_produced / not_stored</code>，<strong>不拿别的顶替</strong></td>
+</tr>
+</tbody>
+</table>
+<h3 id="面部">4.2 面部</h3>
+<table>
+<colgroup>
+<col style="width: 20%"></col>
+<col style="width: 20%"></col>
+<col style="width: 20%"></col>
+<col style="width: 20%"></col>
+<col style="width: 20%"></col>
+</colgroup>
+<thead>
+<tr class="header">
+<th>指标</th>
+<th>级别</th>
+<th>计算</th>
+<th>门槛</th>
+<th>可信度与限制</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>gaze_stability</code></td>
+<td>A</td>
+<td><code>1 − std(gaze_x)/极差</code></td>
+<td>gaze 30 帧</td>
+<td>只看本场内的相对稳定；取景/头偏航会进来</td>
+</tr>
+<tr class="even">
+<td><code>blink_rate_per_min</code></td>
+<td>A</td>
+<td>眨眼上升沿 ÷ 有效分钟</td>
+<td>blink 20 帧</td>
+<td>依赖 EAR 阈值；1 Hz 采样会漏短眨眼</td>
+</tr>
+<tr class="odd">
+<td><code>blink_duration_mean</code></td>
+<td>A</td>
+<td>眨眼段时长均值</td>
+<td>blink 20 帧</td>
+<td>同上</td>
+</tr>
+<tr class="even">
+<td><code>head_motion_per_sec</code></td>
+<td>A</td>
+<td>头姿角速度绝对值和 ÷ 有效秒</td>
+<td>head_pose 30 帧</td>
+<td>头姿由关键点解算，极端角度误差大</td>
+</tr>
+<tr class="odd">
+<td><code>au_variability_per_sec</code></td>
+<td>A</td>
+<td>AU 帧间变化绝对值和 ÷ 有效秒</td>
+<td>au 30 帧</td>
+<td>只能同场比较；跨人基线不可比</td>
+</tr>
+<tr class="even">
+<td><code>smile_ratio</code> 等 3 条</td>
+<td>B</td>
+<td>AU12 超 0.263 的占比/率/时长</td>
+<td>au 30 帧</td>
+<td>0.263 是全语料 p75 的<strong>声明常量，未标定</strong></td>
+</tr>
+<tr class="odd">
+<td><code>gaze_aversion_*</code> / <code>head_away_ratio</code> / <code>brow_furrow_ratio</code> / <code>lip_compression_ratio</code> / <code>au_activation_any_ratio</code> 共 6 条</td>
+<td>B</td>
+<td>自比本人基线（中位数 ± 3·MAD）</td>
+<td>见各条</td>
+<td>方向明确、基线自比；<strong>没有标定集，不给值</strong></td>
+</tr>
+<tr class="even">
+<td><code>micro_exp_*</code> 2 条</td>
+<td>C</td>
+<td>微表情事件</td>
+<td>—</td>
+<td>四列实测 <strong>0/1086 非空</strong>；1 Hz 也不够（onset 40–200 ms）</td>
+</tr>
+</tbody>
+</table>
+<h3 id="手势与体态">4.3 手势与体态</h3>
+<table>
+<colgroup>
+<col style="width: 20%"></col>
+<col style="width: 20%"></col>
+<col style="width: 20%"></col>
+<col style="width: 20%"></col>
+<col style="width: 20%"></col>
+</colgroup>
+<thead>
+<tr class="header">
+<th>指标</th>
+<th>级别</th>
+<th>计算</th>
+<th>门槛</th>
+<th>可信度与限制</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>gesture_activity_per_sec</code></td>
+<td>A</td>
+<td>Σ(腕/肘/肩 jitter) 逐帧均值</td>
+<td>帧级默认 10</td>
+<td>jitter 已按秒、除以肩宽；只同场比较</td>
+</tr>
+<tr class="even">
+<td><code>posture_stability</code></td>
+<td>A</td>
+<td>Σ(躯干/肩 jitter) 均值（越小越稳）</td>
+<td>帧级默认 10</td>
+<td>同上</td>
+</tr>
+<tr class="odd">
+<td><code>pose_valid_ratio</code></td>
+<td>A（协变量）</td>
+<td>躯干/肩/肩宽四列非空帧占比</td>
+<td>—</td>
+<td><strong>不能</strong>用 <code>is_valid</code>（恒 False）</td>
+</tr>
+<tr class="even">
+<td><code>hand_visible_ratio_l/r</code></td>
+<td>A（<strong>下界</strong>）</td>
+<td><code>hand_visible_* == 1</code> 帧占比</td>
+<td>—</td>
+<td>空串 ≠ 0，所以只能当下界</td>
+</tr>
+<tr class="odd">
+<td>2 条 burst 率</td>
+<td>B</td>
+<td>超本人基线（中位数+3·MAD）的连续段（≥2 s）÷ 分钟</td>
+<td>—</td>
+<td>2 s 是 1 Hz 的下限推论；无标定</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>手指角度/张开度/耸肩：日志里有列，但<strong>样本极少</strong>（手经常在画面外）⟹ 不进 L1 指标， 只在数据导出页原样展示（不作为行为结论）。</p>
+</blockquote>
+<h3 id="语音与文本">4.4 语音与文本</h3>
+<table>
+<colgroup>
+<col style="width: 20%"></col>
+<col style="width: 20%"></col>
+<col style="width: 20%"></col>
+<col style="width: 20%"></col>
+<col style="width: 20%"></col>
+</colgroup>
+<thead>
+<tr class="header">
+<th>指标</th>
+<th>级别</th>
+<th>计算</th>
+<th>门槛</th>
+<th>可信度与限制</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>speech_rate</code></td>
+<td>A</td>
+<td>字数 ÷ 有声秒</td>
+<td>speech 2 段</td>
+<td><strong>全场混音</strong>（含面试官）；不是“考生语速”</td>
+</tr>
+<tr class="even">
+<td><code>pause_rate_per_min</code></td>
+<td>A</td>
+<td>停顿次数 ÷ 语音分钟</td>
+<td>pause 2 段</td>
+<td>停顿定义 = f0 非有限 ≥0.2 s</td>
+</tr>
+<tr class="odd">
+<td><code>response_latency_sec</code></td>
+<td>A</td>
+<td><code>ask_end</code> → 首次开口</td>
+<td>reaction 5 段</td>
+<td>需提问台账；墙钟不可信场次有误差</td>
+</tr>
+<tr class="even">
+<td><code>pause_ratio</code></td>
+<td>C</td>
+<td>(总−有声)/有声</td>
+<td>—</td>
+<td>与 <code>1/voiced_ratio−1</code> 恒等（r=0.999），<strong>故意不产出</strong></td>
+</tr>
+<tr class="odd">
+<td><code>voiced_ratio</code> / <code>pause_duration_p50/p90</code> / <code>pitch_median</code> / <code>pitch_range_semitone</code> / <code>pitch_variability_per_sec</code> / <code>energy_median</code> / <code>energy_dynamics_per_sec</code></td>
+<td>A（需序列）</td>
+<td>从原始音频逐帧重算</td>
+<td>pitch/energy 5 段</td>
+<td>必须跑过 <code>voice_series</code> 提取；<code>energy_*</code> 跨设备不可比（G4 封停旧口径）</td>
+</tr>
+<tr class="even">
+<td><code>lexical_diversity</code></td>
+<td>A</td>
+<td>二元组 MATTR（窗口 100）</td>
+<td>density 5 段</td>
+<td>中文二元组近似（无分词器）；全场混音</td>
+</tr>
+<tr class="odd">
+<td><code>discourse_marker_rate</code></td>
+<td>A</td>
+<td>标记次数 ÷ 汉字 ×100</td>
+<td>density 5 段</td>
+<td>与旧“几个不同标记”<strong>口径不同</strong>，历史数字不可直接比</td>
+</tr>
+<tr class="even">
+<td><code>self_repair_rate</code></td>
+<td>A</td>
+<td>自我修正次数 ÷ 汉字 ×100</td>
+<td>density 5 段</td>
+<td>同上</td>
+</tr>
+</tbody>
+</table>
+<h3 id="协变量与不可用量">4.5 协变量与不可用量</h3>
+<table>
+<colgroup>
+<col style="width: 33%"></col>
+<col style="width: 33%"></col>
+<col style="width: 33%"></col>
+</colgroup>
+<thead>
+<tr class="header">
+<th>项</th>
+<th>状态</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>face_scale</code></td>
+<td>协变量</td>
+<td>脸高/画面高；用于设备自检（≥20%）与跨帧可比性，不当作“表情强度”</td>
+</tr>
+<tr class="even">
+<td><code>series_available</code></td>
+<td>协变量</td>
+<td>本场是否有整场音频序列；没有时 V 族 8 条报 <code>not_extracted</code></td>
+</tr>
+<tr class="odd">
+<td><code>emotion_state</code> / <code>tension</code></td>
+<td>不产出</td>
+<td>复合/加权别名，不是独立测量；旧报告已删</td>
+</tr>
+<tr class="even">
+<td><code>energy_mean</code>（日志聚合）</td>
+<td>封停</td>
+<td>设备增益/距离代理，跨会话不可比</td>
+</tr>
+<tr class="odd">
+<td><code>is_valid</code>（手势）</td>
+<td>不可用</td>
+<td>49 场恒 False；用实际列非空判姿态数据</td>
+</tr>
+<tr class="even">
+<td><code>symmetry_score</code> / <code>eye_contact</code> / <code>n_chars</code> / <code>fluency_score</code> / <code>hand_spread</code> / <code>shrug</code></td>
+<td>删槽</td>
+<td>没有同构念 L1，不拿相邻量顶替</td>
+</tr>
+</tbody>
+</table>
+<h3 id="一条指标在报告里长什么样">4.6 一条指标在报告里长什么样</h3>
+<div class="sourceCode" id="cb2"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true"></a><span class="fu">{</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true"></a>  <span class="dt">&quot;name&quot;</span><span class="fu">:</span> <span class="st">&quot;blink_rate_per_min&quot;</span><span class="fu">,</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true"></a>  <span class="dt">&quot;family&quot;</span><span class="fu">:</span> <span class="st">&quot;F3_blink&quot;</span><span class="fu">,</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true"></a>  <span class="dt">&quot;formula&quot;</span><span class="fu">:</span> <span class="st">&quot;count_rising_edges(is_blink) / (valid_span_sec / 60)&quot;</span><span class="fu">,</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true"></a>  <span class="dt">&quot;window&quot;</span><span class="fu">:</span> <span class="st">&quot;answer:0&quot;</span><span class="fu">,</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true"></a>  <span class="dt">&quot;value&quot;</span><span class="fu">:</span> <span class="fl">14.0</span><span class="fu">,</span> <span class="dt">&quot;unit&quot;</span><span class="fu">:</span> <span class="st">&quot;次/分钟&quot;</span><span class="fu">,</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true"></a>  <span class="dt">&quot;n_valid&quot;</span><span class="fu">:</span> <span class="dv">187</span><span class="fu">,</span> <span class="dt">&quot;n_total&quot;</span><span class="fu">:</span> <span class="dv">200</span><span class="fu">,</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true"></a>  <span class="dt">&quot;confidence&quot;</span><span class="fu">:</span> <span class="st">&quot;高&quot;</span><span class="fu">,</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true"></a>  <span class="dt">&quot;gap&quot;</span><span class="fu">:</span> <span class="kw">null</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true"></a><span class="fu">}</span></span></code></pre></div>
+<p>置信度按 §3.5 的规则<strong>自动算</strong>，不由调用方填；维度与报告头的置信度都从这批指标推导。</p>
+<hr />
+<h2 id="可信度总表一页看懂">5. 可信度总表（一页看懂）</h2>
+<table>
+<colgroup>
+<col style="width: 25%"></col>
+<col style="width: 25%"></col>
+<col style="width: 25%"></col>
+<col style="width: 25%"></col>
+</colgroup>
+<thead>
+<tr class="header">
+<th>级别</th>
+<th>数量（当前）</th>
+<th>例子</th>
+<th>在报告里的表现</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>A · 可复核测量</td>
+<td>面部 5 + 手势 5 + 语音 3（另 8 条需序列）+ 文本 3</td>
+<td>眨眼率、视线稳定、手部活动、语速、反应延迟、MATTR</td>
+<td>给值 + n_valid + 置信度（高/中/低）</td>
+</tr>
+<tr class="even">
+<td>B · 需标定/自比基线</td>
+<td>面部 9 + 手势 2</td>
+<td>微笑占比、皱眉占比、视线偏离、头部偏离、手势爆发率</td>
+<td><strong>不给值</strong>，报 <code>uncalibrated</code></td>
+</tr>
+<tr class="odd">
+<td>C · 结构性不产出</td>
+<td>面部 2 + 语音 1 + 若干删除项</td>
+<td>微表情、<code>pause_ratio</code>、情绪/紧张度复合、<code>is_valid</code></td>
+<td>报 <code>column_empty / not_produced / not_stored</code>，并写明原因</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>示例场（2026-10-26 候选Y）：<strong>8 / 14 个槽通过证据门，置信度上限“高”</strong>； 维度 4 个，其中“行为表现活跃度”整维消失（三个槽当前管线都不测），报告里显式列出。</p>
+</blockquote>
+<hr />
+<h2 id="已知限制与下一步">6. 已知限制与下一步</h2>
+<ol type="1">
+<li><strong>标定集（M5）缺失</strong>：所有“需 τ”指标保持 <code>uncalibrated</code>；阈值表是临时值（<code>_provisional</code>）， 替换即新模型版本。</li>
+<li><strong>语音无说话人分离</strong>：<code>speech_rate</code>、连接词密度、MATTR 都是<strong>全场混音</strong>；要做“考生语速” 必须先做说话人分离（或只统计考生答题段）。</li>
+<li><strong>采样率约 1 Hz</strong>：微表情结构性不可用；眨眼/动作事件的漏检率高于 15–30 fps，报告已明示。</li>
+<li><strong>手部可见性</strong>：手经常在画面外，手指角度/张开度不进 L1；取景协议需继续统一。</li>
+<li><strong>文本分析偏关键词</strong>：连接词/自我修正表是人工列表；后续替换算法时，导出的 <code>Q/A CSV</code> 与 <code>transcript.json</code> 就是现成输入。</li>
+<li><strong>网络上传</strong>：见 §7 的实测诊断（Tailscale 中继路径会显著拖慢 100–200 MB 的整场录像）。</li>
+</ol>
+<hr />
+<h2 id="运维实测上传为什么慢2026-10-26">7. 运维实测：上传为什么慢（2026-10-26）</h2>
+<ul>
+<li>实测客户端 <code>my-server (100.66.210.10)</code> 与服务器<strong>没有建立直连</strong>，<code>tailscale ping</code> 走 <strong>DERP 中继（tok）</strong>，RTT 约 <strong>1.06–1.27 秒</strong>；</li>
+<li>整场 <code>camera.webm</code> 约 150–180 MB；在该路径上实测约 <strong>0.5 MB/s</strong> ⟹ 一次上传 <strong>5–6 分钟</strong>；</li>
+<li>服务器磁盘/内存/CPU 都不是瓶颈（面板与三个分析服务负载很低）；</li>
+<li><strong>结论：瓶颈在 Tailscale 中继链路，不在留存代码。</strong></li>
+</ul>
+<p>可选的改进（按收益排序）：</p>
+<ol type="1">
+<li><strong>打通直连</strong>：客户端路由器开 UPnP/NAT-PMP，或给两端任一开公网端口；<code>tailscale ping</code> 显示 <code>direct</code> 后上传会显著变快；</li>
+<li><strong>同局域网时走 LAN</strong>：若客户端在 <code>192.168.72.0/24</code>，直接用 <code>http://192.168.72.30:5173</code>；</li>
+<li><strong>降低录像码率</strong>：VP8 720p 目前约 2.5–3 Mbps；改为 1.2–1.5 Mbps 可把上传时间减半 （代价是画面细节，原始素材不可再生，需先确认）；</li>
+<li><strong>上传进度提示</strong>：当前保存门禁只有文字“正在上传”，没有百分比；可加 <code>onUploadProgress</code>， 让等待可见（不改传输速度，只改感知）。</li>
+</ol>
+<hr />
+<h2 id="复现与接口">8. 复现与接口</h2>
+<div class="sourceCode" id="cb3"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true"></a><span class="bu">cd</span> ~/JingXin/jingxin</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true"></a><span class="bu">source</span> tools/jx_env.sh</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true"></a><span class="fu">bash</span> tools/start_all.sh                 # 五件套（幂等）</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true"></a><span class="va">NUMBA_CACHE_DIR=</span>/tmp/numba_cache <span class="va">$JX_PY</span> <span class="ex">-m</span> pytest -q   # 全量测试</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true"></a><span class="va">$JX_PY</span> <span class="ex">tools/jx_selfcheck.py</span>            # 元检查</span></code></pre></div>
+<table>
+<colgroup>
+<col style="width: 50%"></col>
+<col style="width: 50%"></col>
+</colgroup>
+<thead>
+<tr class="header">
+<th>能力</th>
+<th>入口</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>结构化报告</td>
+<td><code>GET /api/report/structured?session_id=&lt;sid&gt;</code></td>
+</tr>
+<tr class="even">
+<td>数据清单/CSV/转写/图表</td>
+<td><code>/api/export/&lt;sid&gt;/files</code>、<code>/csv/&lt;key&gt;</code>、<code>/transcript?format=txt|csv|json</code>、<code>/chart?module=face|gesture|voice</code></td>
+</tr>
+<tr class="odd">
+<td>题库（多套）</td>
+<td><code>GET/POST /api/question-bank/&lt;module&gt;</code>、<code>/banks</code>、<code>/active</code></td>
+</tr>
+<tr class="even">
+<td>示例题库</td>
+<td><code>/api/question-bank/sample/interview</code>、<code>/research</code></td>
+</tr>
+<tr class="odd">
+<td>设备自检探针</td>
+<td><code>POST /analyze?probe=1</code>（face :8000 / gesture :8002）</td>
+</tr>
+</tbody>
+</table>
+<p><strong>关键文件</strong>： <code>report_frontend/l1_{indicators,face,gesture,voice,text,session,quality,mapper,report}.py</code>、 <code>report_frontend/event_windows.py</code>、<code>face_expression/core/feature_extraction/au_calculator.py</code>、 <code>gesture_analysis/core/*</code>、<code>voice_interaction/{asr,core/analysis}</code>、<code>media_retention.py</code>、 <code>question_bank.py</code>、<code>exports.py</code>、<code>capture_health.py</code>。</p>
+<hr />
+<h2 id="一页话术给汇报现场">9. 一页话术（给汇报现场）</h2>
+<blockquote>
+<p>“这套系统不给我们一个’分数’，它给的是一份<strong>证据清单</strong>：每个数都带公式、样本量和置信度； 算不出来的，它明确写’算不出来’以及为什么。我们这两轮整改做的是三件事： <strong>① 把数据留下、可追溯；② 把每个指标的计算和可信度说清楚；③ 把采集端的坑（离太远、 手不在画面、题库只有一份）堵在开始之前。</strong> 接下来要做的是标定集和说话人分离 —— 在它们到位之前，报告不会给出任何评分或评级。”</p>
+</blockquote>
+</body>
+</html>

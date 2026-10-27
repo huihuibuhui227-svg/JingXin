@@ -52,3 +52,49 @@ def test_series_dir_is_redirected_out_of_repo():
         f"series_dir() 指向仓库内({d})⟹ 跑测试会往 data/l0_series/ 里写缓存。"
         "修法:`tests/conftest.py` 里像 `LOGS_DIR` 那样把它挪到临时目录。"
     )
+
+
+def test_recordings_dir_is_redirected_out_of_repo():
+    """★ 录制根也必须被兜住 —— 而且必须是**强制**接管,不是 `setdefault`。
+
+    ## 2026-10-27 实测:这条隔离有个反向的坑
+
+    原来 `tests/conftest.py` 写的是
+    `os.environ.setdefault("JINGXIN_RECORDINGS_DIR", <临时目录>)`。它的本意是
+    「某个用例自己设了就让它优先」,但 `setdefault` 分不清**谁**设的 ——
+    调用方从 shell 里 `export` 的真录制根同样算「已经设了」,于是:
+
+        JINGXIN_RECORDINGS_DIR=~/JingXin/recordings pytest -q   ⟹ 整个套件读真素材
+
+    实测症状:`test_html_report_uses_the_l1_engine` 三条全 ERROR
+    (`n_valid(8) > n_total(4) —— 把证据说多了`),而单跑那三条是绿的。
+    看上去像报告生成器坏了,其实是**测试跑错了对象**。
+
+    更阴的是它反过来咬人:本项目反复强调「手工跑读素材的探针前先 export 这个变量」,
+    同一条习惯照搬到 `pytest` 上恰好把隔离打穿了。
+
+    ## 为什么这里查源码而不只是查取值
+
+    只断言「当前取值不在仓库/不是真素材」的话,在**裸跑**时 `setdefault` 版本也是绿的
+    —— 那条断言没有区分力。要钉住的是「外部 export 压不过 conftest」这个性质,
+    而它在同一个进程里已经发生了,只能看 conftest 用的哪个写法。
+    (与本仓库既有的「三份副本源码级契约」测试同一手法。)
+
+    红法:把 `tests/conftest.py` 里那行改回 `os.environ.setdefault(...)` ⟹ 本条红。
+    """
+    import os
+
+    v = os.environ.get("JINGXIN_RECORDINGS_DIR")
+    assert v, "conftest 没有设 JINGXIN_RECORDINGS_DIR ⟹ 测试会读使用者真实素材"
+    assert "jingxin-test-recordings-" in v, (
+        f"录制根没被 conftest 接管({v})⟹ 测试可能读到真实素材。"
+    )
+
+    src = (Path(__file__).parent / "conftest.py").read_text(encoding="utf-8")
+    line = next((ln for ln in src.splitlines()
+                 if "JINGXIN_RECORDINGS_DIR" in ln and not ln.lstrip().startswith("#")), "")
+    assert line, "conftest 里找不到设置 JINGXIN_RECORDINGS_DIR 的那一行"
+    assert "setdefault" not in line, (
+        "conftest 用 setdefault 设 JINGXIN_RECORDINGS_DIR ⟹ 外部 export 的真录制根"
+        "会压过隔离,整个套件静默读真素材(2026-10-27 实测)。改成无条件赋值。"
+    )

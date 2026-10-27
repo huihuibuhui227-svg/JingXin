@@ -55,6 +55,9 @@ ENV/
 # 实测 `git status` 里 l0_series 的 20 个 .npz 会以 `??` 出现。
 **/data/l0_series/
 
+# 题库是使用者的数据（上传/切换都写这里），不进库
+**/data/question_bank.json
+
 # 实验产物(生成物,约 1.1 GB / 1 万个文件;experiments/ 下的脚本仍未被跟踪,
 # 是否入库属论文线决定,故此处只忽略纯数据目录,不掩盖脚本的未跟踪状态)
 experiments/results/

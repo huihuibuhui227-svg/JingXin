@@ -33,7 +33,19 @@ _voice_logger_module.LOGS_DIR = str(_LOGS_TMP)
 # 只保护那些**记得设**的文件,保护不了后来新加的 —— 所以在这里把默认值兜住:
 # 某一个测试若自己设了,它的值优先(在会话级值之上覆盖)。
 _RECORDINGS_TMP = Path(tempfile.mkdtemp(prefix="jingxin-test-recordings-"))
-os.environ.setdefault("JINGXIN_RECORDINGS_DIR", str(_RECORDINGS_TMP))
+# ★ **强制**接管,不用 `setdefault`(2026-10-27 实测踩到)。
+#
+# 原来写的是 `setdefault`:调用方**已经设了**这个变量时这里就不覆盖 —— 于是
+# `JINGXIN_RECORDINGS_DIR=~/JingXin/recordings pytest -q` 会让**整个套件读真素材**。
+# 实测症状:`test_html_report_uses_the_l1_engine` 三条全 ERROR
+# (`n_valid(8) > n_total(4) —— 把证据说多了`:真素材的语音日志盖过了测试夹具),
+# 而单跑这三条是绿的 —— 看上去像代码坏了,其实是测试跑错了对象。
+#
+# 更阴的是它**反过来咬人**:「手工跑读素材的探针前先 export 这个变量」是对的,
+# 同一条习惯照搬到 `pytest` 上却把隔离打穿了。所以这里必须无条件接管:
+# 测试套件**永远**不读使用者的真实素材。某个用例要特定的根,自己在用例里
+# `monkeypatch.setenv`(它在会话级值之上覆盖,照旧优先)。
+os.environ["JINGXIN_RECORDINGS_DIR"] = str(_RECORDINGS_TMP)
 
 # ── 评估流水线的落点同样挪出仓库(第三次、同一理由) ─────────────────────────
 #

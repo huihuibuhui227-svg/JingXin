@@ -231,9 +231,9 @@ cached in globals? True                # 第二次访问不再走 __getattr__
     "asr_confidence": null,
     "asr_confidence_source": "unavailable"
   },
-  "merged": {"text": "我叫王国梁。前半段后半段", "n_chars": 11, "n_segments": 3, "vad_split": true},
+  "merged": {"text": "我叫候选Y。前半段后半段", "n_chars": 11, "n_segments": 3, "vad_split": true},
   "segments": [
-    {"index": 0, "text": "我叫王国梁。", "n_chars": 5, "timestamps_ms": [[210, 450]], "punc_array": [1], "ts_origin": "segment_relative"},
+    {"index": 0, "text": "我叫候选Y。", "n_chars": 5, "timestamps_ms": [[210, 450]], "punc_array": [1], "ts_origin": "segment_relative"},
     {"index": 1, "text": "前半段", "n_chars": 3, "timestamps_ms": [[0, 100]], "punc_array": [2], "ts_origin": "segment_relative"},
     {"index": 2, "text": "后半段", "n_chars": 3, "timestamps_ms": [[0, 50]], "punc_array": [3], "ts_origin": "segment_relative"}
   ]

@@ -3,6 +3,7 @@
 import os
 import re
 import webbrowser
+from html import escape
 import pandas as pd
 from datetime import datetime
 from typing import Dict, Any, Optional, List
@@ -216,6 +217,17 @@ body{margin:0;background:var(--page);color:var(--ink);
 header{border-bottom:1px solid var(--rule);padding-bottom:20px;margin-bottom:32px}
 h1{font-size:24px;line-height:1.3;margin:0 0 10px;font-weight:650;letter-spacing:.01em}
 .meta{color:var(--ink-3);font-size:13px}
+/* 报告头那块「这一场是谁的」。信息比样式重要:它要在一眼扫过时被读到,
+   所以给底色和边框,而不是并进 .meta 那行灰字里。 */
+.subject{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;
+  margin:0 0 10px;padding:9px 14px;border:1px solid var(--rule);
+  border-radius:8px;background:var(--surface);font-size:14px}
+.subject-k{color:var(--ink-3);font-size:12.5px}
+.subject-v{font-weight:600;margin-right:14px}
+.subject-v:last-child{margin-right:0}
+.subject-missing{display:block;color:var(--ink-2);font-size:13px;
+  border-style:dashed;background:transparent}
+.subject-missing code{font-size:12px}
 .sources{margin-top:14px;font-size:13px;color:var(--ink-2)}
 h2{font-size:17px;font-weight:650;margin:44px 0 14px}
 h3{font-size:15px;font-weight:600;margin:26px 0 8px}
@@ -261,6 +273,128 @@ footer{margin-top:52px;padding-top:16px;border-top:1px solid var(--rule);
 figure{overflow-x:auto}
 figure svg{min-width:560px}
 """
+
+
+def _subject_block(session_id: Optional[str]) -> str:
+    """报告头里的「这一场是谁的」—— 姓名 / 学号 / 院系 / 场次序号。
+
+    ## 为什么要有它(2026-10-26,使用者原话)
+
+    「要求显示出被测人的个人信息,不然看报告分辨不出」。报告此前只印会话号
+    `YYYYMMDD_HHMMSS_xxxx` —— 一串机器号。同一批录十几个人,十几份报告在盘上
+    长得一模一样,人得挨份打开才知道哪份是谁的。
+
+    这些字段在**录制当时**就写进了会话目录的 `label.json`
+    (`session_meta.upsert_label`,前端「开始录制」前填的那一屏),这里只负责读出来
+    印在头里 —— 报告端**不另存一份身份**,避免两处各说各话。
+
+    ## 三种状态都要说明白,不留白
+
+    * 有标注   → 逐字段印出来(空字段整段不出现,不留孤零零的「院系:」)
+    * 没标注   → 明说「未标注」:空白读起来像"读取失败",而"没填"与"读坏了"是两件事
+    * 读坏了   → 明说「读取失败」,并指到 `label.json` —— 别猜成"没标注"
+
+    标注是**客户端可控**的文本(走 HTTP 表单),这里一律 `escape` 后再拼 HTML。
+    """
+    if not session_id:
+        return ""
+    try:
+        # 延迟导入:报告生成不依赖素材目录也能跑(测试/单文件复算时没有 recordings)。
+        from session_meta import read_label
+        label = read_label(session_id)
+    except Exception:
+        return ('<div class="subject subject-missing">被测者：'
+                '<strong>读取失败</strong>（会话目录里的 <code>label.json</code> 读不出来，'
+                '请检查这个文件）</div>')
+    if not label:
+        return ('<div class="subject subject-missing">被测者：<strong>未标注</strong>'
+                '（录制时没有填写姓名 / 学号 / 院系 —— 这份报告没法按人对号）</div>')
+
+    fields = [("被测者", label.get("name")),
+              ("学号", label.get("student_id")),
+              ("院系", label.get("department")),
+              ("场次", label.get("serial"))]
+    vals = [(k, str(v).strip()) for k, v in fields if v and str(v).strip()]
+    if not vals:
+        return ('<div class="subject subject-missing">被测者：<strong>未标注</strong>'
+                '（录制时没有填写姓名 / 学号 / 院系 —— 这份报告没法按人对号）</div>')
+    pairs = "".join(
+        f'<span class="subject-k">{escape(k)}</span>'
+        f'<span class="subject-v">{escape(v)}</span>'
+        for k, v in vals)
+    return f'<div class="subject">{pairs}</div>'
+
+
+def session_started_at(session_id: Optional[str]) -> Optional[datetime]:
+    """这一场**开录**的时刻 —— 会话 id 自带 `YYYYMMDD_HHMMSS`(`<日期>_<时刻>_<4位hex>`)。
+
+    报告里要印的「测试时间」就是它:由铸号那一刻决定,与日志文件名、录制目录名同一串
+    数字。**不拿报告生成时刻冒充**,也不用文件 mtime(那个会随拷贝/解压变化)。
+
+    解析不了(旧 id、外来 id)返回 `None`,调用方据此整段不印 —— 不编一个时间。
+    """
+    if not session_id or len(session_id) < 15:
+        return None
+    try:
+        return datetime.strptime(session_id[:15], "%Y%m%d_%H%M%S")
+    except ValueError:
+        return None
+
+
+def _meta_line(session_id: Optional[str], version: Any) -> str:
+    """报告头的时间行:测试时间 + 报告生成时间 + 报告口径版本。
+
+    两个时间说的是两件事,必须都印:同一场会话隔几天重跑一次,「测试时间」不变、
+    「报告生成时间」变 —— 只印后者会让人把"重跑"当成"又测了一次"
+    (2026-10-26 使用者要求)。
+    """
+    parts = []
+    started = session_started_at(session_id)
+    if started is not None:
+        parts.append(f"测试时间 {started.strftime('%Y-%m-%d %H:%M:%S')}")
+    parts.append(f"报告生成时间 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    parts.append(f"报告口径版本 {escape(str(version))}")
+    return " · ".join(parts)
+
+
+def _subject_slug(session_id: Optional[str]) -> str:
+    """报告文件名里的 `-姓名` 后缀(2026-10-26 使用者:列表里分不出谁是谁)。
+
+    只取**姓名**,不放学号 —— 文件名会出现在列表、下载名、`ls` 里,学号是更敏感的那
+    一半;要看学号,报告正文里有。没有标注(或读不出来)就返回空串:宁可不带,
+    也不拿 `None` / 会话号充数。
+    """
+    if not session_id:
+        return ""
+    try:
+        from session_meta import read_label
+        label = read_label(session_id) or {}
+    except Exception:
+        return ""
+    name = str(label.get("name") or "").strip()
+    # 文件名里非法的字符(Windows 全套 + 控制字符)一律去掉;限长防止撑爆路径。
+    safe = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "", name).strip()
+    return f"-{safe[:30]}" if safe else ""
+
+
+def _unique_report_path(output_dir: str, stem: str,
+                        session_id: Optional[str]) -> str:
+    """`<stem>.html` 已被占用时换一个**不会盖掉另一场**的名字。
+
+    文件名里的时刻只到秒,而「全部重跑」/批处理会在一秒内连跑好几场 —— 此前直接写
+    同一个路径,后一场**静默覆盖**前一场(2026-10-26 重跑实测:三场只剩一份)。
+    撞了就加会话 id 末四位(它唯一),还撞就再序号;宁可有后缀,不许覆盖。
+    """
+    base = os.path.join(output_dir, f"{stem}.html")
+    if not os.path.exists(base):
+        return base
+    tail = (session_id or "")[-4:] or "x"
+    alt = os.path.join(output_dir, f"{stem}-{tail}.html")
+    n = 2
+    while os.path.exists(alt):
+        alt = os.path.join(output_dir, f"{stem}-{tail}-{n}.html")
+        n += 1
+    return alt
 
 
 def sources_disclosure(sources: Dict[str, Dict], target: Optional[str] = None,
@@ -450,8 +584,9 @@ class ReportGenerator:
         print("=" * 70)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        report_filename = f"Research_Assessment_Report_{timestamp}.html"
-        report_path = os.path.join(self.output_dir, report_filename)
+        # 文件名后缀 `-姓名` 要等 `loader.target_session` 定下来才知道(调用方可能没给
+        # session_id、由加载器取最新一场)—— 所以路径在 try 里、加载之后才拼。
+        report_path = ""
 
         try:
             loader = LogDataLoader()
@@ -461,6 +596,12 @@ class ReportGenerator:
                 # 头里逐条列出缺什么,而不是让面板显示"什么都没发生"。
                 # 实测:空 data 下 L1 给 覆盖 0/14、逐维缺口照常列出、图表照常生成。
                 print("   ⚠️  本场没有任何可用日志,仍生成一份只含缺口的报告")
+
+            # 文件名带上被测者姓名 —— 29 份 `..._<时刻>.html` 摆在列表里分不出谁是谁
+            # (2026-10-26 使用者原话)。没有标注则不加后缀(理由见 `_subject_slug`)。
+            stem = (f"Research_Assessment_Report_{timestamp}"
+                    f"{_subject_slug(loader.target_session)}")
+            report_path = _unique_report_path(self.output_dir, stem, loader.target_session)
 
             # ★ 与 `/api/report/structured` **同一个引擎**(2026-10-25)。
             #
@@ -517,8 +658,9 @@ class ReportGenerator:
         print("=" * 70)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        report_filename = f"Research_Assessment_Report_Live_{timestamp}.html"
-        report_path = os.path.join(self.output_dir, report_filename)
+        stem = (f"Research_Assessment_Report_Live_{timestamp}"
+                f"{_subject_slug(session_id)}")
+        report_path = _unique_report_path(self.output_dir, stem, session_id)
 
         try:
             loader = LogDataLoader()
@@ -1050,6 +1192,10 @@ class ReportGenerator:
         """
         deep_analysis_html = self._generate_deep_text_analysis(features, result)
 
+        # 报告头第一件事:**这一场是谁的**。此前只有会话号(一串机器号),同一批
+        # 十几个人录下来,十几份报告在盘上分不出谁是谁(使用者 2026-10-26)。
+        subject_html = _subject_block(target)
+
         # 头部聚合呈现:只讲事实(spec §5.4 / §5.6)。
         # 原分数卡渲染「点分 + 五档评语」(如「0.0 / 综合行为观测评分 / 待提升」)——
         # 那是把未标定标尺上的复合点分当对候选人的评定。改为:覆盖事实 + 依据 +
@@ -1159,7 +1305,8 @@ class ReportGenerator:
 <div class="wrap">
 <header>
   <h1>JingXin 面试行为观测报告</h1>
-  <div class="meta">{datetime.now().strftime("%Y-%m-%d %H:%M")} · 报告口径版本 {result['model_metadata']['version']}</div>
+  {subject_html}
+  <div class="meta">{_meta_line(target, result['model_metadata']['version'])}</div>
   <div class="sources">{sources_disclosure(sources or {}, target,
                                             modality_summary=(result.get("l1") or {})
                                             .get("modality_summary"))}</div>

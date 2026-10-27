@@ -6,7 +6,7 @@ import threading
 import uuid
 import time
 import logging
-from flask import Flask, render_template, jsonify, request, send_from_directory
+from flask import Flask, render_template, jsonify, request, send_from_directory, send_file
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from logging_config import setup_logging
@@ -32,11 +32,16 @@ ALLOWED_FOLDERS = {'face_expression', 'gesture_analysis', 'voice_interaction'}
 # 报告落点也一并交给它,免得两处各算一遍。
 import recordings_browser
 
+# 数据导出 / 图表(`/api/export/*`)。原始 CSV 与转写此前只有"在盘上"，没有出口；
+# 复核与换算法都需要它们(2026-10-26 使用者要求)。matplotlib 出 PNG，不依赖 CDN。
+import exports
+
 app.config['OUTPUT_DIR'] = OUTPUT_DIR
 # 日志落点也交给它:`purge`(真删)要连同 `data/logs/` 里那三份 CSV 一起删,
 # 少删一处就会留下"有日志没素材"的半截状态。同样只在这里定义一次。
 LOGS_DIR = os.path.join(os.path.dirname(__file__), 'data', 'logs')
 app.config['LOGS_DIR'] = LOGS_DIR
+app.register_blueprint(exports.bp)
 app.register_blueprint(recordings_browser.bp)
 
 # 报告**不写在子目录里** —— `report_generator` 把 `*_Assessment_Report_*.html`
@@ -318,17 +323,116 @@ def get_structured_report():
             return jsonify({"status": "error",
                             "message": f"engine 只能是 l1 或 legacy,收到 {which!r}"}), 400
 
+        # ── 报告页的「这一场是谁的、什么时候测的」────────────────────────────
+        # 与 HTML 报告头**同一口径**(2026-10-26 使用者:报告分辨不出人)。
+        # 读不到标注**不许**让报告失败 —— 报告页至少还能看数;缺什么就印"未标注"。
+        subject: dict = {}
+        try:
+            from session_meta import read_label
+            rec = read_label(loader.target_session) or {}
+            subject = {k: rec[k] for k in ("name", "student_id", "department", "serial")
+                       if rec.get(k)}
+        except Exception:
+            logger.exception("读本场标注失败(报告照常返回)")
+
+        # 「测试时间」= 铸号时刻(会话 id 自带),不是本请求的时刻。
+        # 「报告生成时间」= 这一次生成的时刻。两个都回,前端同屏印。
+        try:
+            from report_frontend.report_generator import session_started_at
+            _started = session_started_at(loader.target_session)
+        except Exception:
+            _started = None
+
         return jsonify({
             "status": "success",
             "session_id": loader.target_session,
             "sources": loader.selected_sessions,
             "engine": which,
             "result": result,
+            "subject": subject,
+            "tested_at": _started.strftime("%Y-%m-%d %H:%M:%S") if _started else None,
+            "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         })
 
     except Exception as e:
         logger.exception("获取结构化评估报告失败")
         return jsonify({"status": "error", "message": str(e)})
+
+
+# ── 题库:查看 / 上传替换 / 恢复默认 ──────────────────────────────────────
+# 两个模块(面试 / 科研)。题库落盘见 `question_bank.py`;语音服务在新开一场时
+# 读取,**上传即生效、不用重启服务**(2026-10-26 使用者要求)。
+@app.route('/api/question-bank/<module>', methods=['GET'])
+def get_question_bank(module):
+    import question_bank
+    try:
+        return jsonify(question_bank.load(module))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
+@app.route('/api/question-bank/<module>/banks', methods=['POST'])
+def create_question_bank(module):
+    """新建一套题库（不覆盖已有的任何一套）。"""
+    body = request.get_json(silent=True) or {}
+    import question_bank
+    try:
+        return jsonify(question_bank.create_bank(module, body.get("name"),
+                                                 body.get("questions")))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
+@app.route('/api/question-bank/<module>/banks/<bank_id>', methods=['PUT'])
+def update_question_bank(module, bank_id):
+    body = request.get_json(silent=True) or {}
+    import question_bank
+    try:
+        return jsonify(question_bank.update_bank(module, bank_id,
+                                                 name=body.get("name"),
+                                                 items=body.get("questions")))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
+@app.route('/api/question-bank/<module>/banks/<bank_id>', methods=['DELETE'])
+def delete_question_bank(module, bank_id):
+    import question_bank
+    try:
+        return jsonify(question_bank.delete_bank(module, bank_id))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
+#: 两套随仓库走的示例题库（8 题 + 参考答案）。用户从页面下载后走「导入题库文件」，
+#: 不直接写进 data/question_bank.json —— 导入仍由使用者自己确认。
+SAMPLE_BANKS = {
+    "interview": "面试题库_8题_含参考答案.json",
+    "research": "科研题库_8题_含参考答案.json",
+}
+
+
+@app.route('/api/question-bank/sample/<module>', methods=['GET'])
+def download_sample_question_bank(module):
+    name = SAMPLE_BANKS.get(module)
+    if not name:
+        return jsonify({"error": f"未知模块 {module!r}"}), 404
+    path = os.path.join(os.path.dirname(__file__), 'docs', '题库', name)
+    if not os.path.isfile(path):
+        return jsonify({"error": "示例题库文件不在盘上"}), 404
+    return send_file(path, as_attachment=True, download_name=name,
+                     mimetype='application/json')
+
+
+@app.route('/api/question-bank/<module>/active', methods=['POST'])
+def activate_question_bank(module):
+    """把某套设为"下一场评估用这一套"；`id=null` 表示回到内置默认。"""
+    body = request.get_json(silent=True) or {}
+    import question_bank
+    try:
+        return jsonify(question_bank.activate(module, body.get("id")))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
 
 
 if __name__ == '__main__':
@@ -340,4 +444,11 @@ if __name__ == '__main__':
     # 绑地址可配:默认只绑本机;**要让别的电脑访问就把 PANEL_HOST 设成 0.0.0.0**
     # (tools/start_all.sh 在 JX_BIND=0.0.0.0 时会自动设,并同步把面板的地址
     #  加进另外三个服务的 CORS 白名单 —— 少一样,远端浏览器就连不上后端)。
-    app.run(debug=True, host=os.getenv('PANEL_HOST', '127.0.0.1'), port=5000)
+    #
+    # ⚠️ debug **默认关**:debug=True 会启用 Werkzeug reloader,任何被监视的 .py
+    #    一改就重启进程,而任务表 `task_status` 是内存字典 ⟹ 正在轮询的报告任务
+    #    会凭空消失(2026-10-26 实盘:面板今天自动重启 42 次,前端一直"正在生成…")。
+    #    另外交互式调试器(PIN)也不该常开在能被 tailnet 访问的端口上。
+    #    真要调试时显式打开:JX_PANEL_DEBUG=1 python app.py
+    debug = os.getenv('JX_PANEL_DEBUG', '0') == '1'
+    app.run(debug=debug, host=os.getenv('PANEL_HOST', '127.0.0.1'), port=5000)
