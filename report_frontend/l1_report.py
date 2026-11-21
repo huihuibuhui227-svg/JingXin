@@ -35,7 +35,7 @@ from __future__ import annotations
 
 import datetime as _dt
 
-from . import l1_mapper, l1_quality
+from . import gap_explanations, l1_mapper, l1_quality
 from .l1_quality import GAP_EXPLANATION, build_quality_report, explain_confidence
 from .l1_session import compute_session_l1
 
@@ -118,7 +118,9 @@ def _gap_lines(dim) -> list[str]:
     out: list[str] = []
     for s in dim.slots:
         if s["value"] is None:
-            out.append(f"{l1_mapper.slot_label(s['slot'])}:{_why(s['gap'])}")
+            why = gap_explanations.explain_specific(
+                {"name": s["l1"], "gap": s["gap"]}) or _why(s["gap"])
+            out.append(f"{l1_mapper.slot_label(s['slot'])}:{why}")
     return out
 
 

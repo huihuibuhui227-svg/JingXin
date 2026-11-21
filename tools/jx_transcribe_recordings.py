@@ -23,6 +23,17 @@
   额外的话者分离,本工具**不假装**能分。
 - 不写进报告层 —— 产出只落在 `data/transcripts/`(已在 `.gitignore` 里)。
 
+## 本文件与上游的差异(补丁 `patch/jx_transcribe_recordings.py`,2026-11-21)
+
+落盘 JSON 增加顶层 `asr` 元信息块(engine/endpoint/models + 置信度三态 +
+本文件段数/字数),形状与活路径 `~/shared/jingxin_recordings/<sid>/transcript.json`
+**一致**,由 `transcript_store.asr_block()` 一处组装。
+
+为什么必须补:实测 26/26 份 `data/transcripts/*.json` **顶层都没有 `asr` 块**,
+而 `l0_columns.json` 里 `asr_model_version` 一行的 acceptance 写的是"三场 `asr` 块
+四键齐全(**已达成**)" —— 文档与实现不一致,而且不一致的正是本工具产出的那一批。
+存量文件用 `patch/backfill_transcript_asr.py` 补(不重跑 ASR)。
+
 ## 用法
 
     PY=~/anaconda3/envs/jingxin/bin/python
@@ -96,6 +107,23 @@ def _label(d: Path) -> dict:
         return {}
 
 
+def asr_meta_block(utt) -> dict:
+    """本场的 ASR 元信息块 —— 与活路径(`transcript.json`)的 `asr` **同形同源**。
+
+    为什么必须由 `transcript_store.asr_block()` 组装、而不是在这里再拼一份:
+    两份拼法一定分叉(`asr_config.json` 一旦改 host,只有一处会跟着变)。而
+    `asr_config.json` 自己的 `models_basis` 写着"来源 = 服务端日志,不是 API 返回",
+    ⟹ 这些字段的**唯一**可信来源就是那个配置文件,现场再抄一遍等于存两份真源。
+
+    ⚠️ 段数用 `len(utt.segments)`(实际落盘的段),不是 `utt.n_segments`
+    (引擎自报)—— 两者不一致时,以**文件里真有几个元素**为准。
+    """
+    from voice_interaction.asr.transcript_store import asr_block
+
+    return asr_block(None, len(getattr(utt, "segments", None) or []),
+                     getattr(utt, "n_chars", None))
+
+
 def transcribe_one(d: Path, force: bool = False) -> dict:
     """转一场。返回结果字典(`status` 为 `ok` / `skipped` 时含落盘路径)。"""
     sid = d.name.split("__")[-1]
@@ -137,6 +165,10 @@ def transcribe_one(d: Path, force: bool = False) -> dict:
         "n_segments": utt.n_segments,
         "vad_split": utt.vad_split,
         "segments": utt.segments,
+        # ★ 2026-11-21:provenance 块(补丁前**没有**这一块 —— 26/26 份存量都没有,
+        #   而 86 列台账的 `asr_model_version` 却按"已达成"验收)。形状与活路径的
+        #   `transcript.json` 一致,由 `transcript_store.asr_block()` 一处组装。
+        "asr": asr_meta_block(utt),
         "extract_seconds": round(t_extract, 1),
         "asr_seconds": round(t_asr, 1),
         "source": "media/camera.webm (opus 音轨)",

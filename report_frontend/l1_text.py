@@ -59,6 +59,47 @@
 
 修正标记来自 `self_repair_markers.json`(版本化、`_provisional`),
 与 `connective_markers.json` 同一纪律。
+
+## 门槛从哪来 —— 为什么**不**接 `evidence_thresholds.json` 的 `density`/`n_chars`
+
+三条的 `threshold`(传给 `l1_indicators.measured`)只用于
+`confidence_for` 判**低 / 中 / 高**,它量的是**文本够不够长**:
+
+* `discourse_marker_rate` / `self_repair_rate` 的 `n_valid` 是**汉字数** ⟹
+  门槛 `TEXT_MIN_CHARS = 300`(同单位);
+* `lexical_diversity` 的 `n_valid` 是**词元数** ⟹ 门槛
+  `TEXT_MIN_TOKENS = 3 × MATTR_WINDOW = 300`(同单位)。
+
+`evidence_thresholds.json` 里确实有 `density` / `n_chars` 两族(登记值都是 **5**),
+但**单位不同**:两族在 `n_valid_units` 里登记的都是 `"answer"`,而 `basis` 自己写着
+"该指标每段回答一个样本(有效样本量 = 语音日志里**真正带值**的行数)…… 默认 10
+是按**帧级**列设的,是单位错配"。那是 G3 的**采样数**门槛,由
+`evidence_gate._threshold_for` 按名字子串匹配消费(服务于 `voice_*_n_chars_mean` 那类槽);
+本模块要的是**同一份文本够不够长**。两个量纲,不能互换。
+
+⟹ **硬接的两种读法都错**,所以本模块这两种都不用(2026-11-21 复核,欠账如实留在这里):
+
+1. **当成"字长门槛"(5 字)**:MATTR 只要 100 个词元就能算,300 字的门槛是整个
+   "3 个不重叠窗口"的推导结果 ⟹ 接 5 等于把门槛放宽 **60 倍**。更要紧的是档位:
+   `confidence_for` 的规则是 `n_valid ≥ 2 × threshold` 才进"高",而 T 族的
+   `n_valid == n_total`(覆盖率恒 1.0)⟹ `threshold=5` 会让**任何 ≥10 个汉字/词元的
+   文本**直接进 **"高"** 档。实测 `data/transcripts/20260928_172642_1320.txt`
+   (186 汉字)现在报"低",接 5 之后报"高";"低"档在 T 族基本消失。
+   那是把"至少 3 个 MATTR 窗口才算够"这条可算性前提从证据门上抹掉 ——
+   比原来的"门槛没人消费"更糟。
+   (⚠️ 别拿 `evidence_gate.confidence_from` 的"`高` 在本轮不可达"来论证这一条:
+   那是**另一个**函数;`l1_indicators.confidence_for` 的四档本来就是可达的,
+   本模块的长文本现在就能拿"高"。这里要说的不是"高不可达",是"不该随手可及"。)
+2. **当成"采样数门槛"(5 个样本)**:T 族每场只有 **1** 个样本(整场转写),
+   `1 < 5` ⟹ 三条永久"有效样本不足"。这与 `density`/`n_chars` 当初从 10 降到 5 的
+   病因(题库每场 8 题 ⟹ 10 不可达)是**同一类单位错配**,只是换了个方向重犯。
+
+要真接上,得先让 JSON 长出一族**与字 / 词元同量纲**的门槛(例如 `text_len_chars`,
+带自己的 `basis` 与 `n_valid_units`),再由这里读它替换两个常量 —— 那属于 M5 阈值
+登记(还要过 `evidence_gate` 的子串匹配守卫),不在本轮。`thresholds` 参数因此
+**保留但不消费**,理由写在 `compute_text_indicators` 的 docstring 里。
+
+断言这三件事的脚本:`verify/verify_l1_text.py`。
 """
 
 from __future__ import annotations
@@ -214,8 +255,16 @@ def immediate_bigram_repeats(text: str) -> int:
 
 def compute_text_indicators(text: str | None,
                             thresholds: dict[str, int] | None = None) -> list[L1Indicator]:
-    """T 族 3 条。`text is None` ⟹ 三条全 `not_stored`(不是 0)。"""
-    thr = thresholds or {}
+    """T 族 3 条。`text is None` ⟹ 三条全 `not_stored`(不是 0)。
+
+    `thresholds`:为与 `l1_face.compute_face_indicators` 的签名对齐、并容纳将来
+    同量纲的配置而**保留**,但**本模块不消费它** —— 传进来不报错,**也不改变任何输出**。
+    这是刻意留的,不是"赋了值忘了用":族级 G3 门槛(`evidence_thresholds.json` 的
+    `density` / `n_chars` = 5,单位 `answer`)与这里要的**字 / 词元长度**门槛(300)
+    不同量纲、不同量级,硬接会把"至少 300 字"放宽成"至少 5 个字",并让"高"档对
+    10 个汉字以上的文本随手可达(把"3 个 MATTR 窗口"这条前提抹掉)。
+    完整论证见模块 docstring 的那一节。
+    """
     if text is None:
         return [unavailable(n, _SPECS[n][0], _SPECS[n][1], _SPECS[n][2],
                             "session", "", GAP_NOT_STORED)

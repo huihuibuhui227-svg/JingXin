@@ -4,17 +4,75 @@
 选 F 族先做,理由只有一条:**它不需要跨模态对齐**。全部由 face 日志 + 回答窗口得出,
 所以不必等 M4.0 的墙钟问题定案就能独立验收。
 
-## 16 条里只有 5 条本轮能出数
+## 16 条的产出状态:5 条相对量 + 9 条 τ 型 + 2 条没采集
 
-| 类型 | 条数 | 为什么 |
-|---|---|---|
-| 能出数 | **5** | 只用"相对量/率",不需要外部阈值 |
-| 卡标定 | **9** | 公式里有 `τ(x)`,而标定集属 M5、且数据集许可禁止在其分布上拟合 |
-| 不可出 | **2** | `micro_exp_*` 四列实测 **0/1086** 非空 —— 没采集,不是样本不够 |
+| 类型 | 条数 | 出值条件 | τ 从哪来 |
+|---|---|---|---|
+| 相对量 / 率 | **5** | 只用"相对量/率",不需要任何外部阈值 | 不需要 τ |
+| τ 型 · 声明常量 | **3** | `au12_smile` 超过声明常量 `AU12_SMILE_TAU`(0.263) | `l1_thresholds.RESOLUTION` 的 `declared` 分支 |
+| τ 型 · 自比基线 | **5** | 阈值 = **本人中位数 ± `SELF_K`(3.0)·MAD**;名字带 `_vs_baseline` | `l1_thresholds.self_tau`(`self_baseline` 分支) |
+| τ 型 · 两种并用 | **1** | 可信 AU 里**至少一条**过阈即算该帧激活 | 上面两种并用于不同列 |
+| 不可出 | **2** | `micro_exp_*` 四列实测 **0/1086** 非空 —— 没采集,不是样本不够 | — |
 
-**卡标定的一律报 `gap="uncalibrated"`,`value=NaN`。** 绝不先用视频内分位顶替:
-按定义那会让指标对每个人都 ≈ 常数、零信息量(设计文档 §5.1 规矩 1 的原话:
-"用被测量自身的均值/分位当基准"是当年 `speech_ratio` 退化的同一类错误)。
+5 + 3 + 5 + 1 + 2 = 16,与 `_ALL_SPECS` / `indicator_names()` 逐条一致。
+
+### 逐条对应(名字 → 策略)
+
+* **相对量 / 率(5)**:`gaze_stability`、`blink_rate_per_min`、`blink_duration_mean`、
+  `head_motion_per_sec`、`au_variability_per_sec`。这些是"视频内标准化过的比值"或
+  "每分钟/每秒次数",阈值只进 `confidence` 的档位(`l1_indicators.confidence_for`)。
+* **声明常量(3)**:`smile_ratio`、`smile_rate_per_min`、`smile_duration_p50` ——
+  都吃 `au12_smile`,分界点 `0.263`。**这不是标定值**:它是全语料 41 场 16318 帧的
+  p75,写死在 `l1_thresholds.AU12_SMILE_TAU`、可复核、非拟合;换语料就该重算重写。
+  能用常量的理由:这一列的生产方**已经**除掉了本人基线(口宽 ÷ 全程 p10),
+  场间差异是**真行为差异**(有人爱笑有人不笑),再叠一层本人基线就是双重归一化。
+* **自比基线(5)**:`gaze_aversion_ratio_vs_baseline`、
+  `gaze_aversion_rate_per_min_vs_baseline`、`head_away_ratio_vs_baseline`、
+  `brow_furrow_ratio_vs_baseline`、`lip_compression_ratio_vs_baseline`。
+  `gaze_direction_x` / `head_yaw` 先取绝对值再算(符号会翻,见 `RESOLUTION`);
+  `au4_frown` / `au23_lip_compression` 取**低于**中位数一侧(越小越皱眉/越压唇)。
+  为什么只能自比:这几列的**场间基线差 ≥ 场内动态范围**,一个统一常量量到的主要是
+  "这个人的脸长什么样 / 机位偏哪边",不是"他在做什么"(实测表在 `l1_thresholds`)。
+  ⚠️ **构念随之改变** ⟹ 名字必须带 `_vs_baseline`,不改名就是偷偷换构念。
+* **两种并用(1)**:`au_activation_any_ratio` —— 6 条可信 AU 各自解析 τ
+  (其中 5 条自比基线 + `au12_smile` 声明常量),**至少一条**过阈即算该帧有表情活动。
+
+### `uncalibrated` 仍然可达 —— 但只在"τ 解析不出来"时
+
+`_tau_block` 对每一列调 `l1_thresholds.resolve()`;只有下面三种情形才报
+`gap="uncalibrated"`、`value=NaN`,**绝不猜一个数**:
+
+1. 列**没登记**在 `l1_thresholds.RESOLUTION` 里(`resolve` 返回 `None`;
+   现有 9 条全都登记了,这条留给将来的新列);
+2. **自比基线算不出来** —— 有效帧 **< 5**,稳健位置/尺度不可信;
+3. `au_activation_any_ratio` 可解析的 AU **< 2** 条(只有一条时,拿它算"至少一条
+   激活"等于把该指标改名叫 `smile_ratio`)。
+
+实测本仓 `data/logs/face_au_log_*.csv`(**55 份**非 `.bak` 日志,会话级单窗口):
+
+* **5 条自比基线型**:39 份出值 / 15 份 `uncalibrated`(有效帧 < 5)/ 1 份 `no_samples`;
+* **3 条声明常量型**:44 份出值,其余全部 `no_samples`(声明常量不需要估计,永不 `uncalibrated`)。
+
+⚠️ 注意 `uncalibrated` 出现的原因**已经换了**:不再是"没有标定集",而是上面第 2 条。
+
+## 自比基线**不是**"视频内分位顶替" —— 这条区别必须说清
+
+原稿这里的禁令针对的是「拿被测量自身的**分位**当基准」:按构造,"超过本场 p90 的
+占比"恒等于 10%,对每个人都 ≈ 常数、零信息量(设计文档 §5.1 规矩 1 的原话,
+与当年 `speech_ratio` 退化的错误同类)。
+
+现在的取法不同,两处都不同:
+
+* **阈值**是**中位数 ± k·MAD**(稳健位置 + 尺度,不是分位);
+* **指标**是"过阈帧占比",它**不恒等于任何固定值** —— 实测上面那 55 份日志的
+  会话级结果:`brow_furrow_ratio_vs_baseline` 0.0000~0.2295、
+  `lip_compression_ratio_vs_baseline` 0.0000~0.1359、
+  `gaze_aversion_ratio_vs_baseline` 0.0000~0.2500、
+  `head_away_ratio_vs_baseline` 0.0000~0.2744、
+  `au_activation_any_ratio` 0.1256~0.8750。
+
+有区分度,不是常数。判据始终是**"跨人基线差 vs 场内动态范围"**,不是"哪种便宜用哪种";
+规矩与实测表写在 `l1_thresholds` 的模块 docstring 里,本文件只是消费者。
 
 ## 两个已实测的坑,本文件按坑写
 
@@ -48,23 +106,20 @@ TRUSTED_AUS = ("au1_inner_brow_raise", "au6_cheek_raise", "au10_upper_lip_raise"
 MICRO_EXP_COLUMNS = ("micro_exp_au_name", "micro_exp_duration_frames",
                      "micro_exp_intensity", "micro_exp_onset_frame")
 
-#: 需要标定阈值 τ 的指标。**它们本轮一律 `uncalibrated`。**
-_TAU_DEPENDENT = {
-    "smile_ratio": ("F1_smile", "au12 > 0.263(声明常量,非标定) 帧占比", ("au12_smile",)),
-    "smile_rate_per_min": ("F1_smile", "au12 穿越 0.263(声明常量,非标定) 的上升沿数 ÷ 分钟", ("au12_smile",)),
-    "smile_duration_p50": ("F1_smile", "连续超 0.263(声明常量,非标定) 段时长的中位数", ("au12_smile",)),
-    "gaze_aversion_ratio_vs_baseline": ("F2_gaze", "|gaze| > 本人中位数+3·MAD 的帧占比(自比基线)",
-                            ("gaze_direction_x",)),
-    "gaze_aversion_rate_per_min_vs_baseline": ("F2_gaze", "偏离→回正次数 ÷ 分钟(阈值 = 本人|视线|中位数+3·MAD)",
-                                   ("gaze_direction_x",)),
-    "head_away_ratio_vs_baseline": ("F4_head", "|head_yaw| > 本人中位数+3·MAD 的帧占比(自比基线)", ("head_yaw",)),
-    "brow_furrow_ratio_vs_baseline": ("F5_tension", "au4 < 本人中位数−3·MAD 的帧占比(自比基线;眉内距越小越皱)", ("au4_frown",)),
-    "lip_compression_ratio_vs_baseline": ("F5_tension", "au23 < 本人中位数−3·MAD 的帧占比(自比基线;唇红越薄越压)",
-                              ("au23_lip_compression",)),
-    "au_activation_any_ratio": (
-        "F6_expressivity",
-        "**至少一条**可信 AU 超本人 τ 的帧占比(τ:5 条自比基线 + au12_smile 声明常量 0.263)", TRUSTED_AUS),
-}
+# ★ 2026-11-21 **删除 `_TAU_DEPENDENT`**(死代码)。三条理由,逐条可复核:
+#
+#   1. **全仓无引用。** `grep -rn _TAU_DEPENDENT /home/zgy/JingXin/jingxin` 只命中
+#      它自己的定义处(1 处),`tests/` 与 `tools/` 里没有;它是模块私有名(`_` 前缀),
+#      仓外也不该有人据它编程。
+#   2. **与 `_ALL_SPECS` 重复登记同一批 9 条**(名字 → 族 / 公式 / 依赖列),两份台账
+#      必然漂移 —— 删前的现场就漂了:那段注释断言这 9 条"本轮不会出值"(`uncalibrated`),
+#      而 `_tau_block` 从 2026-10-18 起就按 `l1_thresholds.RESOLUTION` 给它们**真出值**。
+#      留着它就是留一句与实现相反的断言在代码里。
+#   3. 输出顺序与"条数恒定 16"由 `_ALL_SPECS` / `_ORDER` 决定(`indicator_names()`
+#      由 `_ORDER` 派生),删它**不改变任何输出** —— 由
+#      `verify/verify_l1_face.py` 用两份真实日志逐条对比钉住。
+#
+#   台账(名字 → 族/公式/列)现在**唯一来源**是 `_ALL_SPECS`;新增指标只加那一处。
 
 _FAMILY = "F"
 

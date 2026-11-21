@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from report_frontend import session_timeline
+from report_frontend import gap_explanations, session_timeline
 from report_frontend.l1_indicators import (
     CONFIDENCE, GAP_COLUMN_EMPTY, GAP_MODALITY_MISSING, GAP_NO_SAMPLES,
     GAP_NOT_EXTRACTED, GAP_NOT_PRODUCED, GAP_NOT_STORED, GAP_TIME_UNUSABLE,
@@ -282,7 +282,10 @@ def build_quality_report(result) -> QualityReport:
         fam["n"] += 1
         if ind.has_value:
             fam["n_measured"] += 1
-        rows.append(ind.to_dict())
+        row = ind.to_dict()
+        # 新增键(**不动任何既有键**):这条指标为什么没有值/为什么不可信。
+        row["gap_explanation"] = gap_explanations.explain(row)
+        rows.append(row)
 
     report = QualityReport(
         session_id=result.session_id,
