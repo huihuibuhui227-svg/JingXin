@@ -117,6 +117,51 @@ def meta(session_id: str) -> dict | None:
         _read(_recording_transcript_path(session_id)))
 
 
+def _body(session_id: str) -> dict | None:
+    """原始转写的**内层**字典(活路径在 `merged` 下,批量工具在顶层)。
+
+    与 `meta()` 的区别:这里**不裁剪**键 —— `segments` 只在原始形状里,
+    `meta()` 归一掉的正是它。所以逐段读取必须走这一条,而不是 `meta()`。
+    """
+    raw = _read(path(session_id)) or _read(_recording_transcript_path(session_id))
+    if not raw:
+        return None
+    merged = raw.get("merged")
+    return merged if isinstance(merged, dict) else raw
+
+
+def segments(session_id: str) -> list[dict] | None:
+    """逐段转写(`[{index, text, n_chars, ...}]`);**读不出就是 `None`**。
+
+    ## 为什么加这个访问器(2026-11-21)
+
+    `answer_detail_chars_p50` 要的是**每段回答的字数**,而 `meta()` / `n_chars()`
+    只给整场合并后的一个数 —— 逐段信息会被归一掉。逐段结构在原始 JSON 的
+    `segments` 里(每段带 `text` 与 `n_chars`),所以必须有一个只读它的入口。
+
+    ## 为什么放在本模块,而不是让调用方自己读 JSON
+
+    "两处都要看"(缓存 > 录制目录、目录名可能是 `<标签>__<短id>`)这条读法
+    只该有**一处实现**。调用方各读一遍,迟早有一处漏掉回退、或者顺序反过来
+    (反过来会让显式转写的那一份被更早的版本盖掉)。
+
+    ## 两件必须说清的事
+
+    * **段 ≠ 题**:正式场没有题目台账,这些段是 VAD 切出来的**连续语音段**
+      (`evidence_thresholds.json` 里 `answer` 单位的既有定义:录制语料上的
+      `answer` 就是 VAD 段)。所以逐段中位数是"每段话讲了多长",不是"每题答了多长";
+    * **`n_chars` 那一列不要用**:它是 `count_cjk_chars` 算的,只数汉字,
+      英文/数字段恒为 0。要用字数请对 `text` 重新数(`count_non_space_chars`)。
+    """
+    body = _body(session_id)
+    if not body:
+        return None
+    segs = body.get("segments")
+    if not isinstance(segs, list):
+        return None
+    return [s for s in segs if isinstance(s, dict)]
+
+
 def n_chars(session_id: str) -> int | None:
     """整场转写的字数。**读不出就是 `None`,不是 0。**"""
     m = meta(session_id)

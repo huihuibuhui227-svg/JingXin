@@ -33,6 +33,38 @@ def count_cjk_chars(text: str) -> int:
     return len(_CJK.findall(text or ""))
 
 
+def count_non_space_chars(text: str) -> int:
+    """字数 = **非空白字符**数(汉字、字母、数字、标点都算)。
+
+    ## 为什么另立一个函数,而不是改 `count_cjk_chars`
+
+    2026-11-21 定位到的病根:`count_cjk_chars` 只数汉字(`_CJK` 那个正则),
+    于是**英文/数字段一律算 0 字**。实测 `data/transcripts/20260928_180131_8102.json`:
+
+    ```
+    segments[0].text  "good evening， respect teachers。 i'm wonto from …"  202 字符 → n_chars = 0
+    segments[1].text  "， and if i'm given the opportunity to enter …"      196 字符 → n_chars = 0
+    ```
+
+    两段都是**有人说话**的真实回答(整场口试里有英文自我介绍 + 数字),
+    报成 0 字等于说"这段没人说话"。所以 `n_chars` 那一列在正式语料上
+    系统性低估字数,而 `speech_rate` 恰好用着它。
+
+    ⚠️ **不改 `count_cjk_chars` 的语义**:`speech_rate` 与 `n_chars` 列都挂在它上面,
+    改它会让既有读数整体漂移(历史报告不可复核)。要"能算英文/数字"的那条量
+    另起名字、另算一遍(见 `report_frontend/l1_voice` 的 `answer_detail_chars_p50`)——
+    本仓对"改了会动既有值"的东西一律新增而不是覆写。
+
+    ## 构念边界(写清楚,免得读者按"汉字数"理解)
+
+    * **含标点**:`，`、`。`、`'` 都算一个字符。中文 ASR 输出的标点约占 3%~5%,
+      所以本口径的读数系统性**高于**同段的汉字数;
+    * **含面试官**:转写是整场混音(无说话人分离),这一层不区分谁在说;
+    * **不去重**:重复说同一个词算多次 —— 它数的是"说了多少",不是"会多少词"。
+    """
+    return sum(1 for ch in (text or "") if not ch.isspace())
+
+
 @dataclass
 class AsrUtterance:
     text: str = ""

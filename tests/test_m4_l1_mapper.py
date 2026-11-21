@@ -88,20 +88,21 @@ def test_no_l1_indicator_is_counted_by_two_slots():
     # ⚠️ 2026-11-22:8 → 11。`symmetry_score` / `left_hand_spread` / `shrug_level`
     #    由"删"改为"换"(三条新指标各自读一列真测量),于是幸存槽 +3、删槽 −3。
     #    这条地板值必须跟着涨 —— 它守的是"槽表被改小"这类静默改动。
-    assert len(seen) == 11, f"幸存槽应 11 个,实得 {len(seen)}:{sorted(seen)}"
+    # ⚠️ 2026-11-21:11 → 13。`fluency_score`(→ pause_structure_entropy)与
+    #    `n_chars`(→ answer_detail_chars_p50)由"删"改为"换",幸存 +2、删槽 −2。
+    #    这条地板值必须跟着涨 —— 它守的是"槽表被改小"这类静默改动。
+    assert len(seen) == 13, f"幸存槽应 13 个,实得 {len(seen)}:{sorted(seen)}"
 
 
 @pytest.mark.parametrize("slot,why_fragment", [
-    # ⚠️ 2026-10-24 由「产出方」改为「零额外信息」:这一条的结论从
-    #    "全系统没人算它"升级成"**不该有人算它**" —— VAD 流畅度的三个分量
-    #    在本仓都已有现成指标,其中「平均连续发声长度」与 `pause_rate_per_min`
-    #    是**代数恒等**(实测残差 4.4e-16)。理由的完整推导见「甲、3」。
-    ("fluency_score", "零额外信息"),
-    ("eye_contact", "未确认"),
-    ("n_chars", "速率"),
+    # ⚠️ 2026-11-21:只剩**一个**真删槽。`fluency_score` 与 `n_chars` 已改判为
+    #    "换"(见 SLOT_MAP);`eye_contact` 仍然删,但理由从"关系未确认"改成
+    #    "已由注视偏离占比覆盖(补集关系),不重复产出" —— 原话"这套采集没有测法"
+    #    是错的,`gaze_aversion_ratio_vs_baseline` 数的就是同一件事的另一面。
+    ("eye_contact", "补集"),
 ])
 def test_construct_mismatched_slots_are_dropped_with_a_reason(slot, why_fragment):
-    """★ 这 3 个槽**没有**同构念的 L1 指标,必须删,且理由要说到点子上。
+    """★ 仍然**没有**同构念 L1 指标的槽,必须删,且理由要说到点子上。
 
     ## 2026-11-22:由 6 个变 3 个(**这是被实测推翻,不是放宽标准**)
 
@@ -124,8 +125,10 @@ def test_construct_mismatched_slots_are_dropped_with_a_reason(slot, why_fragment
     assert why_fragment in reason
 
 
-def test_eleven_slots_survive_and_three_are_dropped():
-    """实测对账结论:**11 换 3 删**(2026-10-18 由 7/7 变 8/6;2026-11-22 由 8/6 变 11/3)。
+def test_thirteen_slots_survive_and_one_is_dropped():
+    """实测对账结论:**13 换 1 删**(2026-10-18 由 7/7 变 8/6;2026-11-22 变 11/3;
+    2026-11-21 变 13/1 —— `fluency_score` 换成 `pause_structure_entropy`、
+    `n_chars` 换成 `answer_detail_chars_p50`,只剩 `eye_contact` 还是删)。
 
     数字变了就说明对账被改过,必须重新说明 —— 这就是这条测试的作用。
     2026-11-22 这 +3 来自三条新指标(`facial_asymmetry_p90` / `hand_openness_p50` /
@@ -136,7 +139,7 @@ def test_eleven_slots_survive_and_three_are_dropped():
     """
     kept = [s for s, (l1, _) in l1_mapper.SLOT_MAP.items() if l1 is not None]
     dropped = [s for s, (l1, _) in l1_mapper.SLOT_MAP.items() if l1 is None]
-    assert len(kept) == 11 and len(dropped) == 3, (kept, dropped)
+    assert len(kept) == 13 and len(dropped) == 1, (kept, dropped)
     assert "connective_density" in kept
 
 
@@ -189,16 +192,23 @@ _SYNTHETIC_KEY = "synthetic_dead_dimension"
 
 @pytest.fixture
 def all_dead_dimension(monkeypatch):
-    """临时加一个三个槽全都没有对应指标的维度(用完即撤)。"""
+    """临时加一个"槽全都没有对应指标"的维度(用完即撤)。
+
+    ## 2026-11-21 为什么改用**合成槽键**
+
+    真删槽只剩 `eye_contact` 一个(`fluency_score` / `n_chars` 已改判为"换"),
+    凑不出"整维全删"。所以这里用三个**确定不在 `SLOT_MAP` 里**的合成键 ——
+    不变量照旧:不在表里 ⟹ 无对应指标 ⟹ 该维度应整体消失。
+    合成键比"借用真删槽 + 改断言"更诚实:后者会让这条测试随槽表演进漂移。
+    """
+    fake = {"fake_dead_slot_a": 0.4, "fake_dead_slot_b": 0.35, "fake_dead_slot_c": 0.25}
     monkeypatch.setitem(l1_mapper.DIMENSIONS, _SYNTHETIC_KEY, {
-        "name": "构造用整维",
-        "slots": {"fluency_score": 0.4, "eye_contact": 0.35, "n_chars": 0.25},
+        "name": "构造用整维", "slots": fake,
     })
-    dead = [s for s in ("fluency_score", "eye_contact", "n_chars")
-            if l1_mapper.SLOT_MAP.get(s, (None,))[0] is None]
-    assert len(dead) == 3, (
-        f"构造前提不成立:{dead} 里只有 {len(dead)} 个是真的删槽 —— "
-        "若某个槽恢复了映射,请换一个真删槽来构造,别放宽断言")
+    dead = [s for s in fake if l1_mapper.SLOT_MAP.get(s, (None,))[0] is None]
+    assert len(dead) == len(fake), (
+        f"构造前提不成立:{sorted(fake)} 里有 {len(dead)} 个是真删槽 —— "
+        "合成键不该出现在 SLOT_MAP 里")
     return _SYNTHETIC_KEY
 
 
@@ -247,8 +257,7 @@ def test_the_confidence_dimension_no_longer_vanishes():
     assert d.matched_indicators.startswith("0/3")
 
 
-def test_dropped_slot_reasons_say_construct_mismatch_not_a_coverage_excuse(
-        all_dead_dimension):
+def test_dropped_slot_reasons_say_construct_mismatch_not_a_coverage_excuse():
     """删槽理由必须是「**构念不同**」,不能是「这个没测到」。
 
     ⚠️ 这条原先写成
@@ -265,11 +274,12 @@ def test_dropped_slot_reasons_say_construct_mismatch_not_a_coverage_excuse(
     红法:把任一槽的 reason 改成 `"左手没测到"` ⟹ 第一条断言红(没点名任何真实 L1);
     改成 `"hand_visible_ratio_l 未采集"` ⟹ 第二条断言红。
     """
-    _, vanished = l1_mapper.map_l1_to_dimensions([])
-    dropped = next(v for v in vanished if v["key"] == all_dead_dimension)["dropped"]
-    # 地板:构造进来的三个槽当前**全部**没有同构念的 L1。
-    # 没有这句,槽表被清空时下面的循环一次都不进,本测试静默全绿。
-    assert len(dropped) == 3, f"删槽数变了:{dropped}"
+    # 2026-11-21:真删槽只剩 `eye_contact`(另两条已改判为"换"),所以直接验真表,
+    # 不再借用合成维度 —— 合成键的 reason 是"未登记的槽",验不了这条判据。
+    dropped = [{"slot": s, "reason": r}
+               for s, (l1, r) in l1_mapper.SLOT_MAP.items() if l1 is None]
+    assert len(dropped) == 1 and dropped[0]["slot"] == "eye_contact", (
+        f"真删槽集合变了:{dropped} —— 若某槽恢复映射,请同步这条测试")
 
     known = _all_l1_names()
     for d in dropped:
@@ -456,11 +466,13 @@ def test_l1_dead_weight_matches_the_slot_map():
         "logical_thinking": ("话语结构特征", 0.0, []),
         # 2026-11-22:`symmetry_score` 由删槽改为映射 ⟹ 死权重 0.25 → 0.0
         "stress_resilience": ("情境行为稳定性", 0.0, []),
-        "communication_fluency": ("沟通表达流畅度", 4 / 7, ["fluency_score"]),
+        # 2026-11-21:`fluency_score` 由删槽改为映射(pause_structure_entropy)⟹ 死权重 4/7 → 0
+        "communication_fluency": ("沟通表达流畅度", 0.0, []),
         # 2026-11-22:`left_hand_spread` / `shrug_level` 补上了指标 ⟹
         # 死权重 1.0(整维消失)→ 0.375(只剩 `eye_contact` 那一份)
         "confidence_level": ("行为表现活跃度", 0.375, ["eye_contact"]),
-        "cognitive_efficiency": ("作答过程特征", 0.4, ["n_chars"]),
+        # 2026-11-21:`n_chars` 由删槽改为映射(answer_detail_chars_p50)⟹ 死权重 0.4 → 0
+        "cognitive_efficiency": ("作答过程特征", 0.0, []),
     }
     assert set(got) == set(expect), (sorted(got), sorted(expect))
     bad = []
@@ -479,9 +491,13 @@ def test_l1_dead_weight_matches_the_slot_map():
         "行为表现活跃度在 L1 上还剩 `eye_contact` 一个删槽 ⟹ 死权重必须是 0.375;"
         f"实测 {got['confidence_level'][1]}")
     assert got["logical_thinking"][1] == 0.0, "话语结构特征在 L1 上三个槽都在"
-    # 反方向对照:一条**真的**全删维度不能也被算成 0 —— 若哪天 `fluency_score`
-    # 恢复映射,上面 4/7 那条会红;这里再钉一条"非零方向"的读数。
-    assert got["communication_fluency"][1] == 4 / 7
+    # 反方向对照:现在**只剩一个**非零死权重的维度(`confidence_level` 的 eye_contact)。
+    # 2026-11-21 之后 `communication_fluency` / `cognitive_efficiency` 都已归零
+    # (fluency_score → pause_structure_entropy、n_chars → answer_detail_chars_p50)。
+    assert got["communication_fluency"][1] == 0.0, (
+        "沟通表达流畅度的三个槽现在都有对应指标 ⟹ 死权重应为 0")
+    assert got["cognitive_efficiency"][1] == 0.0, (
+        "作答过程特征两个槽现在都有对应指标 ⟹ 死权重应为 0")
 
 
 def test_l1_mapping_does_not_consult_the_legacy_quarantine_table():

@@ -135,6 +135,9 @@ INSTRUMENT_OF_EXACT: dict[str, str] = {
     # 那条路(`voice_series.py`，librosa 的 pyin / feature.rms)写的是 `f0`/`rms`。
     # 不登记这两个名字，同一条指标换个数据来路就会从「音频」掉进「未登记」——
     # 那是把"知道"说成"不知道"，同样算披露失真（实测 8 条，2026-11-21）。
+    # ★ 2026-11-21:`answer_detail_chars_p50` 数的是**转写逐段字数** ⟹ 文本,不是音频。
+    #   不登记会掉进 `unknown`,页脚"未登记"凭空空一条。
+    "answer_detail_chars_p50": INSTRUMENT_TEXT,
     "f0": INSTRUMENT_AUDIO,
     "rms": INSTRUMENT_AUDIO,
     "voiced_flag": INSTRUMENT_AUDIO,

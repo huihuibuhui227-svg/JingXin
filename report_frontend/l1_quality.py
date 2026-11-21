@@ -419,6 +419,10 @@ INDICATOR_LABEL: dict[str, str] = {
     "lexical_diversity": "用词丰富度",
     "discourse_marker_rate": "连接词密度",
     "self_repair_rate": "自我修正频率",
+    # ★ 2026-11-21 补入的 V 族两条(标签与槽名逐字相同,由
+    #   tests/test_indicator_names_agree_with_slot_names.py 对账)
+    "pause_structure_entropy": "语音流畅度",
+    "answer_detail_chars_p50": "回答详尽度",
 }
 
 

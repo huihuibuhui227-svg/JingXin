@@ -1,5 +1,45 @@
 # report_frontend/l1_voice.py
-"""**V 族(语音)11 个 L1 指标** —— 其中 3 条能按规格从日志原样产出(2026-11-22 起)。
+"""**V 族(语音)13 个 L1 指标** —— 其中 3 条能按规格从日志原样产出(2026-11-22 起)。
+
+> ★ **2026-11-23:V 族由 11 条变 13 条** —— 补进两条"数据一直在、系统一直没做"
+> 的量。老板原话:「数据测出来不做是想干什么」。两条都不是新采集,是既有素材
+> 上从没写过的统计量:
+>
+> | 新增 | 构念 | 素材在哪 | 为什么不是重复 |
+> |---|---|---|---|
+> | `answer_detail_chars_p50` | 回答详尽度(逐段字数) | `data/transcripts/*.json` 的 `segments[].text` | 既有 V 族全是**速率/占比/音高能量**,没有一条数"说了多少字" |
+> | `pause_structure_entropy` | 停顿的**时长结构**(不是次数、不是均值) | 帧序列的停顿区间 | 见下面「为什么停顿结构熵不是重复」 |
+>
+> 两条的公式、门槛、缺口码、相关性体检与仪器来源见
+> `07_三方向与评审筹备/系统补强/20_补齐两条指标_20261121.md`。
+
+## 为什么 `answer_detail_chars_p50` 必须新写一个数法
+
+`n_chars`(ASR 侧)是 `count_cjk_chars` 算的,只数汉字:
+实测 `20260928_180131_8102` 的前两段(英文自我介绍)分别有 202 / 196 个字符,
+而该列给的是 **0** —— 一场有英文自我介绍的面试,被记成"没说话"。
+所以本模块数的是**非空白字符**(`count_non_space_chars`),并且
+**不去改 `count_cjk_chars` 的语义**:`speech_rate` 与历史 `n_chars` 列都挂在它上面,
+改它会让既有读数整体漂移(本仓规矩:改一处会动既有值的,一律新增而不是覆写)。
+
+## 为什么"停顿结构熵"不是 `pause_rate_per_min` / `pause_duration_p50` 的重复
+
+三条量的是停顿的**三个不同侧面**,而且都是实测过的(45 场真实语料,
+Spearman ρ 见交付说明):
+
+| 量 | 数什么 | n_valid 的单位 |
+|---|---|---|
+| `pause_rate_per_min` | 每分钟**开口几次**(次数密度) | 段 |
+| `pause_duration_p50` / `p90` | 停顿时长的**位置**(中位/上分位) | 停顿区间 |
+| `pause_structure_entropy` | 停顿时长的**分布形状**(是"长短一律"还是"一次长停 + 一串短停") | 停顿区间 |
+
+实测 ρ(结构熵, `pause_duration_p90`) = **−0.703**、ρ(结构熵, `pause_rate_per_min`) = **−0.085**、
+ρ(结构熵, `energy_dynamics_per_sec`) = **−0.252** —— 全部 |ρ| ≤ 0.85,
+没有一条是"同一份证据数两遍"。
+⚠️ 曾经更直觉的写法是**不归一化的香农熵**(`H`,bit),实测 ρ(H, 停顿次数) = **0.993**
+—— 那本质上是"停顿次数"的单调变换,正是本仓明令禁止的重复产出,已弃用;
+现在报的是 `H ÷ log₂(停顿次数)`(归一化熵 / Pielou 均匀度,∈[0,1]),
+对"次数"几乎不相关(ρ = −0.132),只反映**时长结构**。
 
 > ★ **2026-11-22:退掉 `pause_ratio`,V 族由 12 条变 11 条。**
 > 它与 `voiced_ratio` 是**代数恒等变换**,本仓 2026-10-24 已裁定"不重复产出"
@@ -89,13 +129,33 @@ from report_frontend.l1_indicators import (
 
 FAMILY = "V"
 
-#: 规格承诺的 11 条(2026-11-22 起;原 12 条,退掉 `pause_ratio`),顺序即输出顺序。
+#: 规格承诺的 13 条(2026-11-23 起;原 11 条 + 两条"数据在、没做过"),顺序即输出顺序。
 _SPECS: dict[str, tuple[str, str, tuple[str, ...]]] = {
     "speech_rate": ("V1_amount", "字数 ÷ 语音秒数", ("n_chars", "speech_duration_sec")),
+    # ★ 2026-11-23 新增。构念:一段话**讲了多少字**(详尽度),不是快慢。
+    #   ⚠️ 与 `speech_rate` 的区别写进公式里:一个是"总量",一个是"速率",
+    #   同一个人可以"字少但说得快"。旧槽 `n_chars` 当年被删的理由是
+    #   「speech_rate 是字/秒,不是总字数」—— 那句话对,但它说的是"没有承接它的指标",
+    #   不是"这个量不值得测"。
+    "answer_detail_chars_p50": (
+        "V1_amount",
+        "逐段非空白字符数的中位数(`segments[].text` 重新数;"
+        "⚠️ 全量字符含标点/英文/数字,不同于只数汉字的 `n_chars` 列;"
+        "⚠️ 转写为全场混音(含面试官),无说话人分离;段 = VAD 连续语音段,不是题)",
+        ("transcript_text",)),
     "voiced_ratio": ("V1_amount", "真 VAD 判为语音的帧占比", ("voiced_flag",)),
     "pause_rate_per_min": ("V2_pause", "停顿次数 ÷ 语音分钟", ("pause_frequency",)),
     "pause_duration_p50": ("V2_pause", "停顿时长中位数", ("pause_duration",)),
     "pause_duration_p90": ("V2_pause", "停顿时长 p90", ("pause_duration",)),
+    # ★ 2026-11-23 新增。构念:停顿时长的**结构**(均匀还是"一次长停 + 一串短停"),
+    #   不是次数(`pause_rate_per_min`)、不是位置(p50/p90)。
+    "pause_structure_entropy": (
+        "V2_pause",
+        "Δ = 全部停顿区间(连续非浊音 ≥0.2s);pᵢ = 第 i 次停顿时长 ÷ 停顿总时长;"
+        "H = −Σ pᵢ·log₂pᵢ(bit);值 = H ÷ log₂(停顿次数) ∈[0,1]"
+        "(归一化香农熵 / Pielou 均匀度;1 = 各次停顿长短一律,→0 = 一次长停独大);"
+        "⚠️ 不归一化的 H 与停顿次数 ρ=0.993(本质是次数换皮),故必须归一",
+        ("voiced_flag", "frame_sec")),
     "response_latency_sec": ("V2_pause", "问题结束 → 首次开口", ("reaction_time",)),
     "pitch_median": ("V3_pitch", "音高中位数", ("pitch",)),
     "pitch_range_semitone": ("V3_pitch", "首末音高差(半音)", ("pitch",)),
@@ -106,9 +166,10 @@ _SPECS: dict[str, tuple[str, str, tuple[str, ...]]] = {
 
 ORDER = tuple(_SPECS)
 
-#: 能精确产出的 3 条(2026-11-22 起;`pause_ratio` 已退役)。
-#: 其余一律 `not_stored`,理由见模块 docstring 的表。
-_MEASURABLE = ("speech_rate", "pause_rate_per_min", "response_latency_sec")
+#: **不吃帧序列**、只吃"日志 + 转写"的那几条(2026-11-23 起 4 条)。
+#: 其余一律要么吃帧序列、要么报 `not_stored`,理由见模块 docstring 的表。
+_MEASURABLE = ("speech_rate", "answer_detail_chars_p50",
+               "pause_rate_per_min", "response_latency_sec")
 
 #: **已退役指标** → 为什么退 + 那条"为什么不产出"的解释现在在哪。
 #:
@@ -251,6 +312,115 @@ def _speech_rate_from_transcript(session_id: str | None, series: list | None,
                     value=chars / voiced, n_valid=1, n_total=1, threshold=thr)
 
 
+def _answer_detail_from_transcript(session_id: str | None,
+                                   thresholds: dict[str, int] | None) -> L1Indicator:
+    """`answer_detail_chars_p50`:**逐段**非空白字符数的中位数。
+
+    ## 数什么、不数什么
+
+    * 数的是 `segments[].text` 里的**非空白字符**(`count_non_space_chars`):
+      英文、数字、标点都算 —— 因为只数汉字的那一版(`n_chars` 列)会把
+      一整段英文自我介绍报成 **0 字**(实测 `20260928_180131_8102`);
+    * **不**数空段:`count == 0` 的段(纯静音/噪声段被 VAD 切出来的空壳)不进中位数,
+      但**留在 `n_total` 里** —— 分母是"转写一共切了几段",少报分母等于把证据说多;
+    * 中位数而不是均值:一段 200 字的长回答会把均值整个拽走,
+      而"每段话大概讲多少字"问的是**典型**那一段。
+
+    ## 缺口码(只用既有的 9 类,不新增)
+
+    * 读不到转写 ⟹ `not_stored`(**不是 0 字** —— 一场没人说话和没转写过是两回事);
+    * 转写在、但一段带字的都没有 ⟹ `no_samples`。
+
+    ## 门槛
+
+    走 `evidence_thresholds.json` 的 `n_chars` 族(5,单位 = answer)。
+    该族 2026-10-03 已按"题库每场 8 题"降到 5 —— 拿帧级的 10 去卡
+    每段一个样本的指标,等价于永久不可用。
+    """
+    from report_frontend import transcript_chars
+    from voice_interaction.asr.funasr_engine import count_non_space_chars
+
+    name = "answer_detail_chars_p50"
+    fam, formula, req = _SPECS[name]
+    segs = transcript_chars.segments(session_id)
+    if not segs:
+        # `None`(读不到)与 `[]`(结构对但一段都没有)在这一步都还不是"0 字" ——
+        # 前者是没转写,后者是转写里没有段。两种情况都先按"缺素材"报。
+        return _un(name, GAP_NOT_STORED)
+    counts = [count_non_space_chars(s.get("text")) for s in segs]
+    usable = [c for c in counts if c > 0]
+    if not usable:
+        return _un(name, GAP_NO_SAMPLES, n_total=len(segs))
+    thr = (thresholds or {}).get("n_chars", 5)
+    return measured(name, fam, formula, req, "session", "字",
+                    value=float(np.median(usable)),
+                    n_valid=len(usable), n_total=len(segs), threshold=thr)
+
+
+def _pause_structure_entropy(series: list | None,
+                             thresholds: dict[str, int] | None) -> L1Indicator:
+    """`pause_structure_entropy`:停顿时长分布的归一化香农熵。
+
+    ## 公式与它为什么必须归一化
+
+    ```
+    停顿区间 d₁…dₙ (连续非浊音 ≥ MIN_PAUSE_SEC = 0.2s,含首尾静音)
+    pᵢ = dᵢ / Σd
+    H  = −Σ pᵢ·log₂ pᵢ            (bit)
+    值 = H / log₂ n               (∈[0,1],Pielou 均匀度)
+    ```
+
+    1 = 每次停顿长短一样(节奏均匀);→ 0 = 一次长停顿独大、其余都是短停顿。
+
+    ⚠️ **除以 `log₂n` 不是装饰,是这条指标能成立的前提。**不归一化的 `H`
+    与"停顿次数"在 45 场真实语料上 Spearman ρ = **0.993** —— 它本质上是
+    `n` 的单调变换,也就是把 `pause_rate_per_min` 换张皮再报一次(本仓明令禁止)。
+    归一化之后 ρ(H/log₂n, 停顿次数) = **−0.132**,与 `pause_duration_p90` 是
+    **−0.703**、与 `pause_rate_per_min` 是 **−0.085**,全部 |ρ| ≤ 0.85。
+
+    ## 为什么用 `l1_voice_series.pause_runs` 而不是自己切
+
+    停顿的定义(连续非浊音 ≥ `voice_series.MIN_PAUSE_SEC`)**只能有一处实现** ——
+    自己再写一遍,两处对"什么算停顿"的分歧会让同名的 `pause_*` 三条读数互相对不上。
+
+    ## 缺口码与门槛
+
+    * 没有帧序列 ⟹ `not_stored`;序列在但停顿区间 < 2 段 ⟹ `no_samples`
+      (1 段停顿谈不上"分布");
+    * 门槛走 `pause` 族(2),`n_valid` = **停顿区间数**,`n_total` = 帧数 ——
+      与 `pause_duration_p50/p90` 同一取法(分位数与熵的样本都是"一条区间一份")。
+    """
+    from report_frontend import l1_voice_series
+    from report_frontend.voice_series import MIN_PAUSE_SEC
+
+    name = "pause_structure_entropy"
+    fam, formula, req = _SPECS[name]
+    if not series:
+        return _un(name, GAP_NOT_STORED)
+    usable = [s for s in series if s.f0.size > 0]
+    if not usable:
+        return _un(name, GAP_NOT_STORED)
+    frames_total = sum(int(s.f0.size) for s in usable)
+    runs: list[float] = []
+    for s in usable:
+        runs.extend(l1_voice_series.pause_runs(s.voiced_flag, s.frame_sec, MIN_PAUSE_SEC))
+    if len(runs) < 2:
+        return _un(name, GAP_NO_SAMPLES, n_total=frames_total)
+    d = np.asarray(runs, dtype=float)
+    share = d / d.sum()
+    # 只对 >0 的份额取对数:停顿区间时长恒 >0,这里加掩码是防御性的
+    # (将来若有人把 0 秒区间放进来,`log2(0)` 会是 -inf 而不是崩,读数就成了 nan)。
+    share = share[share > 0]
+    h = float(-(share * np.log2(share)).sum())
+    value = h / math.log2(len(runs)) if len(runs) > 1 else math.nan
+    if not math.isfinite(value):
+        return _un(name, GAP_NO_SAMPLES, n_total=frames_total)
+    thr = (thresholds or {}).get("pause", 2)
+    return measured(name, fam, formula, req, "session", "无量纲",
+                    value=float(value), n_valid=len(runs), n_total=frames_total,
+                    threshold=thr)
+
+
 def _source_on_disk(session_id: str | None) -> bool:
     """本场**有没有可用于重算序列的音频**。没有 `session_id` ⟹ False。
 
@@ -272,15 +442,19 @@ def compute_voice_indicators(voice: pd.DataFrame | None,
                              thresholds: dict[str, int] | None = None,
                              series: list | None = None,
                              session_id: str | None = None) -> list[L1Indicator]:
-    """整场语音的 V 族 12 条。`voice` 一行 = 一段回答。
+    """整场语音的 V 族 13 条。`voice` 一行 = 一段回答。
 
-    `series`:`voice_series.VoiceSeries` 列表(逐题)。给了它,那 8 条
+    `series`:`voice_series.VoiceSeries` 列表(逐题)。给了它,那些
     "需要帧序列"的指标才会出值;没给就报 `not_stored`。
 
-    `session_id`:给了它,**日志侧 4 条里能救的**才有机会救 —— 目前只有
-    `speech_rate`:它的 `n_chars` 不在语音日志里(正式场 0 行),而在
-    `data/transcripts/<sid>.json`(批量 ASR 的产物)。见
-    `report_frontend/transcript_chars.py` 与下面 `_speech_rate_from_transcript`。
+    `session_id`:给了它,**日志之外的素材**才有机会用上 —— 目前两条:
+    `speech_rate`(字数在批量转写里、有声秒在帧序列里)与
+    `answer_detail_chars_p50`(**只**吃批量转写的逐段正文)。
+
+    ★ 2026-11-23:补进 `answer_detail_chars_p50` / `pause_structure_entropy`。
+    前者**与日志和帧序列都无关**,所以它在**三条分支里都要算** ——
+    原先"没有日志 ⟹ 整族不可出"的早退会把一条本可以出值的指标一起判死
+    (本仓 2026-10-24 已为 `speech_rate` 栽过同一形态的坑)。
     """
     # ★ 语音**日志**没有,不代表 V 族全无:那 8 条序列指标**根本不读日志**,
     #   它们只要帧序列。正式场正是这种情况 —— 24/24 场语音日志 0 行,
@@ -299,7 +473,14 @@ def compute_voice_indicators(voice: pd.DataFrame | None,
         #   所以先问一句"素材在不在":在 ⟹ `not_extracted`(跑一次就有,不用重录);
         #   不在 ⟹ 才是真的 `modality_missing`。
         gap = GAP_NOT_EXTRACTED if _source_on_disk(session_id) else GAP_MODALITY_MISSING
-        return [_un(n, gap) for n in ORDER]
+        got_all: dict[str, L1Indicator] = {n: _un(n, gap) for n in ORDER}
+        # ★ 这两条**不吃语音日志、也不吃帧序列**的,早退分支里也要算:
+        #   `answer_detail_chars_p50` 只吃批量转写的逐段正文(整场混音照样有字数),
+        #   `pause_structure_entropy` 没序列时自己会报 `not_stored`(不猜)。
+        got_all["answer_detail_chars_p50"] = _answer_detail_from_transcript(
+            session_id, thresholds)
+        got_all["pause_structure_entropy"] = _pause_structure_entropy(series, thresholds)
+        return [got_all[n] for n in ORDER]
     if voice is None or voice.empty:
         # ⚠️ `voice is None` 时(本场没有日志文件)也走 `not_extracted` 的判据 ——
         #    否则 24 场正式场(日志 0 行、录音都在)会在这里又被判成"模态缺失"。
@@ -323,6 +504,10 @@ def compute_voice_indicators(voice: pd.DataFrame | None,
                 # 码、值、键集一个都没动:只是多带一份"这一场实测到了什么"。
                 got0[_n] = _un(_n, _g, gap_detail=(rt_detail
                                                    if _n == "response_latency_sec" else None))
+        # ★ 同上:这两条与语音日志无关,别让"日志 0 行"把它们一起判死。
+        got0["answer_detail_chars_p50"] = _answer_detail_from_transcript(
+            session_id, thresholds)
+        got0["pause_structure_entropy"] = _pause_structure_entropy(series, thresholds)
         return [got0[n] for n in ORDER]
 
     thr = thresholds or {}
@@ -387,6 +572,19 @@ def compute_voice_indicators(voice: pd.DataFrame | None,
     for name, ind in l1_voice_series.compute_from_series(series, thr, n_total=n_rows).items():
         got[name] = ind
 
+    # ── ★ 2026-11-23 新增两条 ────────────────────────────────────────────
+    #
+    # ① `answer_detail_chars_p50` 吃的是批量转写的**逐段正文**,与语音日志
+    #    有没有行无关 —— 有日志时也照算(两者是同一段素材的两种录入,
+    #    日志 0 行不代表转写没有);
+    # ② `pause_structure_entropy` 吃帧序列;没有序列时它自己报 `not_stored`。
+    #
+    # 放在"仍未出值"那段**之前**,否则它们会先被 `not_stored` 填掉 ——
+    # 填掉之后这里再覆盖就成了"先判死再救活",读代码的人会以为那是死代码
+    # (本仓在 `_speech_rate_from_transcript` 那条路上踩过这个形态)。
+    got["answer_detail_chars_p50"] = _answer_detail_from_transcript(session_id, thr)
+    got["pause_structure_entropy"] = _pause_structure_entropy(series, thr)
+
     # ── 仍未出值的:粒度不够,不许硬凑 ────────────────────────────────
     for name in ORDER:
         if name not in got:
@@ -407,5 +605,5 @@ def _un(name: str, gap: str, n_total: int = 0,
 
 
 def indicator_names() -> tuple[str, ...]:
-    """V 族对外承诺的 12 个名字(其中 8 条本轮固定 `not_stored`)。"""
+    """V 族对外承诺的 13 个名字(2026-11-23 起;不含已退役的 `pause_ratio`)。"""
     return ORDER
