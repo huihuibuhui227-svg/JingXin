@@ -239,10 +239,10 @@ class ResearchCapabilityMapper:
                     # 这一点由 G3 用该列自己的 sample_size 拦。
                     ("left_hand_spread", 0.375, True, "手掌张开度 (÷ 掌长)", "core"),
                     # `shoulder_score` → `shrug_level`:旧列同样已从落盘契约删掉。
-                    # 槽的构念是**肩部放松度**,耸肩程度是同一部位的反向量
-                    # (÷ 肩宽、基线=因果中位数,B3 重做)。
-                    # ⚠️ 方向:越耸 = 越不放松 = 越糟 ⟹ is_positive 改 False。
-                    ("shrug_level", 0.25, False, "肩部放松度 (耸肩程度 ÷ 肩宽)", "support"),
+                    # ⚠️ 2026-11-21:槽名由「肩部放松度」改为「耸肩幅度」——`shrug_level`
+                    #   越大 = 抬得越高 = 越耸肩,原名把方向说反(与 `_DIRECTION_FLIP` 同源)。
+                    #   (÷ 肩宽、基线=本人全程中位,B3 重做;越耸肩 = 越糟 ⟹ is_positive=False)
+                    ("shrug_level", 0.25, False, "耸肩幅度 (÷ 肩宽,越大越耸肩)", "support"),
                     ("eye_contact", 0.375, True, "眼神接触比例", "core"),
                     # ★ 2026-10-04 **删掉 `energy` 槽**(原 w=0.2,「语音能量」)。
                     #   它封停的 unblock 写的是「M3 会话内归一」,而 2026-10-04 查明

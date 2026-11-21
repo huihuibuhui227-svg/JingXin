@@ -96,3 +96,8 @@ code_data_supplement/
 # `tools/jx_night_run.sh` 每轮把整段输出追加到 logs/night_run_<日期>.log。
 # 那是**本机的运行状态**,不是代码也不是数据,进仓库只会两边互相覆盖。
 logs/
+
+# 2026-11-21:本地工作区/重算产物,一律不进仓库
+_jxwork/
+data/logs_recomputed/
+_backup_asr_20261121/
