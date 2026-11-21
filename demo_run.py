@@ -4,7 +4,8 @@
 
     python demo_run.py --session 20260927_212143_95a8
     python demo_run.py --session ~/JingXin/recordings/20260927_212143_95a8 --open
-    python demo_run.py --session 20261026-1026-王国梁-...__20261026_002930_cb79 --open
+    # 目录名带标签时也认(标签里可能有姓名/学号 —— 示例一律用假值):
+    python demo_run.py --session 20261026-1026-某某甲-000000000-示例学院__20261026_002930_cb79 --open
 
 ## 为什么需要它
 
