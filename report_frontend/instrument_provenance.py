@@ -148,6 +148,13 @@ INSTRUMENT_OF_EXACT: dict[str, str] = {
     "right_shoulder_jitter": INSTRUMENT_GEOMETRIC,
     "hand_visible_left": INSTRUMENT_GEOMETRIC,
     "hand_visible_right": INSTRUMENT_GEOMETRIC,
+    # ★ 2026-11-22:`shrug_level` 是 Pose 33 点的关键点几何比值
+    #   (肩中点 y 差 ÷ 肩宽,`shoulder_analyzer._calculate_shrug_level`)。
+    #   前缀表里只有 `shoulder_`,**没有 `shrug_`** ⟹ 不在这里登记,新指标
+    #   `shrug_elevation_p90` 会落进 `unknown`,页脚"未登记"从 0 变 1。
+    #   为什么用**精确名**而不是补一个 `shrug_` 前缀:前缀会把这个词根下将来任何
+    #   非关键点列一起记成几何代理(见本文件上方对宽前缀的警告);现在只有一个列名。
+    "shrug_level": INSTRUMENT_GEOMETRIC,
 }
 
 #: **不是仪器**的列:时钟 / 会话标识 / 台账序号。它们参与每条指标的

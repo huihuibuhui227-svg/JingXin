@@ -98,9 +98,14 @@ def test_html_report_renders_the_coverage_that_l1_computed(rendered, monkeypatch
 
     def fake(session_id, logs=None):
         payload = real(session_id, logs=logs)
-        # 9 / 14:与真实载荷一定不同(这份 fixture 下真值是 0/14),
+        # 9 / 14:与真实载荷一定不同(这份 fixture 下真值是 0/8),
         # 但形状合法,渲染层不需要为它开特例。
-        payload["coverage"] = {**payload["coverage"], "n_passed": 9, "n_slots": 14}
+        #
+        # ⚠️ 2026-11-21:报告头那个大数的分母换成了 `n_measurable`(旧口径是
+        #    `n_slots`,14 里含 6 个永远填不上的槽)。所以这里**两个数一起换** ——
+        #    只换 `n_passed` 会渲染出「9 / 0」,那是 fixture 自相矛盾,不是渲染层的错。
+        payload["coverage"] = {**payload["coverage"], "n_passed": 9,
+                               "n_slots": 14, "n_measurable": 14}
         return payload
 
     monkeypatch.setattr(report_generator, "build_l1_report", fake)

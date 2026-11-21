@@ -1,10 +1,10 @@
 # report_frontend/l1_face.py
-"""**M4.3 F 族(面部)16 个 L1 指标**。
+"""**M4.3 F 族(面部)15 个 L1 指标**。
 
 选 F 族先做,理由只有一条:**它不需要跨模态对齐**。全部由 face 日志 + 回答窗口得出,
 所以不必等 M4.0 的墙钟问题定案就能独立验收。
 
-## 16 条的产出状态:5 条相对量 + 9 条 τ 型 + 2 条没采集
+## 15 条的产出状态:5 条相对量 + 9 条 τ 型 + 1 条分位量
 
 | 类型 | 条数 | 出值条件 | τ 从哪来 |
 |---|---|---|---|
@@ -12,9 +12,25 @@
 | τ 型 · 声明常量 | **3** | `au12_smile` 超过声明常量 `AU12_SMILE_TAU`(0.263) | `l1_thresholds.RESOLUTION` 的 `declared` 分支 |
 | τ 型 · 自比基线 | **5** | 阈值 = **本人中位数 ± `SELF_K`(3.0)·MAD**;名字带 `_vs_baseline` | `l1_thresholds.self_tau`(`self_baseline` 分支) |
 | τ 型 · 两种并用 | **1** | 可信 AU 里**至少一条**过阈即算该帧激活 | 上面两种并用于不同列 |
-| 不可出 | **2** | `micro_exp_*` 四列实测 **0/1086** 非空 —— 没采集,不是样本不够 | — |
+| 分位量(F8) | **1** | `p90(1 − symmetry_score)`;不需要 τ(与 G 族的量同一取法) | 不需要 τ |
 
-5 + 3 + 5 + 1 + 2 = 16,与 `_ALL_SPECS` / `indicator_names()` 逐条一致。
+5 + 3 + 5 + 1 + 1 = 15,与 `_ALL_SPECS` / `indicator_names()` 逐条一致。
+
+## 2026-11-22:退掉 2 条从未出过值的 `micro_exp_*`,补进 1 条 `facial_asymmetry_p90`
+
+**退役的是这两条**:`micro_exp_rate_per_min` / `micro_exp_duration_mean_sec`。
+它们**从来没有代码去算**,只是把"上游没采集"记成一行 `column_empty`。复核(2026-11-22,
+55 份非 `.bak` face 日志 / 23355 行):
+
+* `micro_exp_*` 四列在 55/55 份日志里都有**列名**,但非空单元合计 **23/23355 = 0.098%**
+  (全部集中在极少数行);**212 个 (会话×列)** 是"列在、整份 0 非空";
+* 两条指标在全语料里**出值 0 场**(任何一场都走不到 `measured()`)。
+
+留下的 `column_empty` 缺口语义**没有消失**:它现在由 `facial_asymmetry_p90` 在
+"`symmetry_score` 整份为空"时照实报出(实测全语料 10/53 场是这种)。至于"微表情没采集"
+这件事,报告层仍有话说 —— 见 `l1_quality.GAP_EXPLANATION[column_empty]` 与
+`assets` 里的采集清单;本文件不再用一条恒为空的指标行承载它(一条永不产出的指标
+占着"38 条"里的一格,读者会把它读成一条测量)。
 
 ### 逐条对应(名字 → 策略)
 
@@ -102,9 +118,23 @@ from report_frontend.event_windows import WindowSet
 TRUSTED_AUS = ("au1_inner_brow_raise", "au6_cheek_raise", "au10_upper_lip_raise",
                "au12_smile", "au25_mouth_open", "au26_jaw_drop")
 
-#: `micro_exp_*` 四列实测全空(6 份日志 1086 行,0 非空)⟹ 整族不可出。
-MICRO_EXP_COLUMNS = ("micro_exp_au_name", "micro_exp_duration_frames",
-                     "micro_exp_intensity", "micro_exp_onset_frame")
+# ★ 2026-11-22 **删除 `MICRO_EXP_COLUMNS` 与 F7_micro 那两条指标**。
+#
+#   它原本是 F 族的"2 条不可出":`micro_exp_rate_per_min` /
+#   `micro_exp_duration_mean_sec`。删它的理由不是"换条数据就能出",而是
+#   **这两条从来没有任何代码算过** —— `_family_for_window` 里那段只是把
+#   上游的空白翻译成一个缺口码,值永远是 NaN。
+#
+#   复核(2026-11-22,55 份非 `.bak` face 日志 / 23355 行,脚本见交付说明):
+#     · 四列在 55/55 份日志里都有列名,非空单元合计 23 / 23355 = **0.098%**;
+#     · "列在、整份 0 非空"的 (会话×列) 计数 **212**;
+#     · 两条指标在全语料里**出值 0 场**。
+#
+#   为什么敢删:一条**永不产出**的指标占着"38 条"里的一格,读者会把这一格
+#   读成"一条测量"。它承载的那句真话(微表情这一路没采集)**换了个载体**:
+#   缺口码 `column_empty` 仍在(`facial_asymmetry_p90` 会用),而"微表情没采集"
+#   的总说明在 `l1_quality.GAP_EXPLANATION` 与采集清单里,不靠一条空指标行。
+#   替代它的是 F8 的 `facial_asymmetry_p90` —— 一条**真会出值**的测量。
 
 # ★ 2026-11-21 **删除 `_TAU_DEPENDENT`**(死代码)。三条理由,逐条可复核:
 #
@@ -115,7 +145,7 @@ MICRO_EXP_COLUMNS = ("micro_exp_au_name", "micro_exp_duration_frames",
 #      必然漂移 —— 删前的现场就漂了:那段注释断言这 9 条"本轮不会出值"(`uncalibrated`),
 #      而 `_tau_block` 从 2026-10-18 起就按 `l1_thresholds.RESOLUTION` 给它们**真出值**。
 #      留着它就是留一句与实现相反的断言在代码里。
-#   3. 输出顺序与"条数恒定 16"由 `_ALL_SPECS` / `_ORDER` 决定(`indicator_names()`
+#   3. 输出顺序与"条数恒定 15"由 `_ALL_SPECS` / `_ORDER` 决定(`indicator_names()`
 #      由 `_ORDER` 派生),删它**不改变任何输出** —— 由
 #      `verify/verify_l1_face.py` 用两份真实日志逐条对比钉住。
 #
@@ -180,7 +210,7 @@ def compute_face_indicators(face: pd.DataFrame | None,
                             windows: WindowSet,
                             t_sec: pd.Series | None,
                             thresholds: dict[str, int] | None = None) -> list[L1Indicator]:
-    """逐窗口算 F 族 16 条。
+    """逐窗口算 F 族 15 条。
 
     `face`:face 日志(与 `t_sec` 同 index);`t_sec`:M4.0 给的时间轴(距会话原点秒);
     `windows`:M4.1 的回答窗口;`thresholds`:各族 G3 门槛,不给就用
@@ -207,7 +237,7 @@ def compute_face_indicators(face: pd.DataFrame | None,
         #
         # 判据:零窗口有两种完全不同的原因,不该都退化成"无证据":
         #   · **没有提问台账**(正式场就是这样,实测 24/24 场没有 `questions.jsonl`)
-        #     ⟹ 会话级统计仍然成立,16 条照样能算;
+        #     ⟹ 会话级统计仍然成立,15 条照样能算;
         #   · 有台账但 `ask_end` 全缺 ⟹ 同上,退到会话级仍然诚实。
         # 戊-15 待裁定的是**窗口粒度**(自然对话怎么切),不是"能不能算会话级"。
         # 粒度这件事由 `windows.gap` 如实写进报告,不靠"一条都不出"来表达。
@@ -319,21 +349,85 @@ def _family_for_window(sub: pd.DataFrame, tsub: np.ndarray, window: str,
     #   · 生产方已除掉本人基线的(`au12_smile`)→ **声明常量**,并写明"未标定"。
     _tau_block(sub, tsub, window, thr, got, n_total)
 
-    # ── 2 条不可出 ────────────────────────────────────────────────────────
+    # ── F8 面部不对称(2026-11-22 补,替换掉恒为空的 2 条 `micro_exp_*`)──────
+    _asymmetry_block(sub, window, thr, got, n_total)
 
-    for name, family, formula in (
-            ("micro_exp_rate_per_min", "F7_micro", "微表情检出次数 ÷ 分钟"),
-            ("micro_exp_duration_mean_sec", "F7_micro", "微表情持续时长均值")):
-        present = any(c in sub.columns and _num(sub, c).notna().any() for c in MICRO_EXP_COLUMNS)
-        got[name] = unavailable(name, family, formula, MICRO_EXP_COLUMNS, window, "",
-                                GAP_NO_SAMPLES if present else GAP_COLUMN_EMPTY, n_total)
-
-    # 缺的(列不存在等)也补成不可出,保证**条数恒定 16**
+    # 缺的(列不存在等)也补成不可出,保证**条数恒定 15**
     for name, meta in _ALL_SPECS.items():
         if name not in got:
             got[name] = _un(name, meta, window, GAP_NO_SAMPLES)
 
     return [got[name] for name in _ORDER]
+
+
+def _asymmetry_block(sub: pd.DataFrame, window: str, thr: dict[str, int],
+                     got: dict[str, L1Indicator], n_total: int) -> None:
+    """F8 `facial_asymmetry_p90` —— `p90(1 − symmetry_score)`,窗口内所有非空帧。
+
+    ## 为什么不自比基线、也不要 τ
+
+    这条是**分位量**,与 G 族的 `shrug_elevation_p90` / `hand_openness_p50`
+    同一取法:量的就是"本人这一场里最不对称的那一小截有多不对称"。
+    不需要任何外部阈值,也不需要本人基线 ⇒ `uncalibrated` 在这条上不可达。
+
+    ## 值域很窄,所以**只能报上分位**,不能当绝对判据
+
+    实测(2026-11-22)帧级 p10/p50/p90 = **0.935 / 0.966 / 0.988**(对称度),
+    跨场中位 0.933~0.988 ⇒ 换算成不对称度是 0.012~0.067。窄值域 + 无人群参照
+    ⇒ 绝不能把 0.034(=1−0.966)读成"对称度良好"。公式串里写清了这一点。
+
+    ## 与头滚转不可分(构念边界,必须写在公式串里)
+
+    会话级 `r(对称度中位, 手势 head_tilt_angle 中位) = −0.555`(n=29)⇒
+    `1 − symmetry_score` 里混着头姿滚转的分量。这不是缺陷,是口径:
+    它量的是"这一场脸在画面里有多歪",不是"面部肌肉有多不对称"。
+
+    ## 挡掉 `video_pipeline` 的伪完美对称
+
+    `video_pipeline.py:136` 在 zero-AU 支路上把 `symmetry_score` 写成 **1.0**,
+    同时把 8 条 AU 全写成 **0.0**、`head_yaw`/`head_pitch` 写成 0。那是一帧
+    "什么都检测不到"的占位帧,不是"完美对称的脸"。
+    判据取**组合签名**(`symmetry_score == 1.0` **且** 全部 AU 恰为 0.0)——
+    只判"等于 1.0"会把真的完美对称帧也扔了(虽然实测 1.0 的帧占比为 0,
+    但那条支路存在,不能靠"今天没碰上"来保证)。
+    实测(55 份日志 / 23355 行):被这条挡掉的帧 **0**。
+    """
+    name = "facial_asymmetry_p90"
+    family, formula, cols = _ALL_SPECS[name]
+
+    sym = _arr_or_none(sub, "symmetry_score")
+    if sym is None:
+        # 旧格式日志里没这一列 —— 与"手没入画"同一种处境:不是这一场没测到,
+        # 是这一份日志的格式里没有它。
+        got[name] = unavailable(name, family, formula, cols, window, "",
+                                GAP_COLUMN_EMPTY, n_total)
+        return
+
+    ok = ~np.isnan(sym)
+    # 伪完美对称的排除(见 docstring 末段)。只在条目列都真的存在时才有判据。
+    au_present = [c for c in TRUSTED_AUS if c in sub.columns]
+    if au_present:
+        au_arr = np.column_stack([_num(sub, c).to_numpy(dtype=float) for c in au_present])
+        zero_au_frame = (sym == 1.0) & (np.nan_to_num(au_arr, nan=0.0) == 0.0).all(axis=1)
+        ok = ok & ~zero_au_frame
+
+    n_ok = int(ok.sum())
+    if not ok.any():
+        # 列在、但这一窗口里一条非空都没有(实测全语料 10/53 场是整份空)。
+        got[name] = unavailable(name, family, formula, cols, window, "",
+                                GAP_COLUMN_EMPTY, n_total)
+        return
+    if n_ok < 2:
+        got[name] = unavailable(name, family, formula, cols, window, "",
+                                GAP_NO_SAMPLES, n_total)
+        return
+
+    asym = 1.0 - sym[ok]
+    got[name] = measured(
+        name, family, formula, cols, window, "无量纲(越大越不对称)",
+        value=float(np.percentile(asym, 90)),
+        n_valid=n_ok, n_total=n_total,
+        threshold=thr.get("au", 30))
 
 
 def _tau_block(sub: pd.DataFrame, tsub: np.ndarray, window: str,
@@ -474,8 +568,13 @@ _ALL_SPECS: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "F6_expressivity",
         "**至少一条**可信 AU 超本人 τ 的帧占比(τ:5 条自比基线 + au12_smile 声明常量 0.263)", TRUSTED_AUS),
     "au_variability_per_sec": ("F6_expressivity", "Σ|Δau| over 可信 AU ÷ 秒", TRUSTED_AUS),
-    "micro_exp_rate_per_min": ("F7_micro", "微表情检出次数 ÷ 分钟", MICRO_EXP_COLUMNS),
-    "micro_exp_duration_mean_sec": ("F7_micro", "微表情持续时长均值", MICRO_EXP_COLUMNS),
+    # ★ 2026-11-22 新增(替换掉 `micro_exp_rate_per_min` / `micro_exp_duration_mean_sec`)。
+    #   统计量与 G 族两条新指标同一取法:分位量 + 帧级最小样本 30 帧 + 无 τ。
+    "facial_asymmetry_p90": (
+        "F8_symmetry",
+        "p90(1 − symmetry_score);symmetry_score = 1 − (|Δ眼中心y| + |Δ嘴角y|) ÷ 面部轮廓高"
+        "(尺度不变;**含头姿滚转分量**,不与 head_tilt 独立);值域窄 ⇒ 只作相对量,"
+        "不得当作「对称度良好」的绝对判据", ("symmetry_score",)),
 }
 
 _ORDER = tuple(_ALL_SPECS)
@@ -491,12 +590,15 @@ def _all_unavailable(windows: WindowSet, gap: str) -> list[L1Indicator]:
     for w in windows.windows:
         out.extend(_un(n, meta, f"answer:{w.index}", gap) for n, meta in _ALL_SPECS.items())
     if not windows.windows:
-        # 没有任何窗口:仍然把 16 条以 `session` 名义报出来 —— 不列出来等于让读的人
+        # 没有任何窗口:仍然把 15 条以 `session` 名义报出来 —— 不列出来等于让读的人
         # 以为 F 族不存在。
         out.extend(_un(n, meta, "session", gap) for n, meta in _ALL_SPECS.items())
     return out
 
 
 def indicator_names() -> tuple[str, ...]:
-    """F 族对外承诺的 16 个名字。测试用它钉"条数恒定"。"""
+    """F 族对外承诺的 15 个名字。测试用它钉"条数恒定"。
+
+    2026-11-22 由 16 变 15:退 2 条恒空的 `micro_exp_*`、补 1 条 `facial_asymmetry_p90`。
+    """
     return _ORDER

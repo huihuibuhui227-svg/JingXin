@@ -1,5 +1,5 @@
 # report_frontend/l1_gesture.py
-"""**G 族(手势)4 个指标 + 3 个协变量**。
+"""**G 族(手势)6 个指标 + 3 个协变量**。
 
 ## 与 F 族的结构差别
 
@@ -40,6 +40,33 @@
 (`shoulder_analyzer.py` 的 `_calculate_jitter(..., divide_by_shoulder=True)`)。
 所以 `gesture_activity_per_sec` **不再乘除任何东西**,直接逐帧求和取均值 ——
 再除一次肩宽就是重复归一化(会把取景远近的影响平方掉)。
+
+## 2026-11-22:补进两条"位置量 / 幅度量"(模块由 7 条变 9 条)
+
+这两条补的是**14 槽里原本被删掉的两个槽**(`shrug_level` 肩部放松度、
+`left_hand_spread` 手掌张开度)。它们不是新采集,而是**已有的列**:
+
+| 指标 | 公式 | 与既有指标的区别 |
+|---|---|---|
+| `shrug_elevation_p90` | `p90(shrug_level)` | `posture_stability` 数的是 **jitter**(抖不抖);本条数的是**位置**(比本人肩高中位高出多少,抬多高)。实测跨场 r = +0.43(n=33) |
+| `hand_openness_p50` | `median(逐帧 mean(左/右 `hand_spread`))` | `hand_visible_ratio_l/r` 是 **0/1 可见性**;本条是**比值幅度**(张开多少)。实测手在画面内时 spread 的 0 占比中位 0.00 |
+
+两条都是**分位量**,不取 τ、不需要标定集,与 F 族 `facial_asymmetry_p90` 同一取法。
+
+⚠️ 三条硬限制,读报告的人必须知道(都写在 `_SPECS` 的公式串里):
+
+1. **`shrug_level` 的 0 不是"没耸肩"**,是"与本人中位线持平"(基线就是本人全程中位数,
+   按构造约一半帧为 0)⟹ **绝不能报"耸肩帧占比"**(那会恒 ≈ 0.5,是自证数)。
+2. **`hand_spread` 的左右是"槽位"不是解剖手**:`handedness` 不明时不能声称"左手张开度"
+   ⟹ 逐帧取两侧均值。
+3. 两条都受取景限制:`spread` 有 **27%** 的手势日志整场 0 非空(手没入画/被裁掉),
+   录制场里只有 71% 过 30 帧门槛;`shrug` 是 85%。
+
+### 为什么门槛还是 30 帧、缺口码还是那 9 个
+
+门槛沿用本族已在用的 `thr.get("head_pose", 30)`(帧族,同档同单位),**不新增第 11 族**;
+缺口码沿用既有 9 类 —— "手一直没入画" 用 `column_empty`(实测 14/52 场),
+不用新码(那会让 `gap_explanations._FALLBACK_KINDS` 与 `KINDS` 两份清单当场分叉)。
 """
 
 from __future__ import annotations
@@ -50,8 +77,8 @@ import pandas as pd
 from report_frontend import l1_thresholds
 from report_frontend.event_windows import WindowSet
 from report_frontend.l1_indicators import (
-    GAP_MODALITY_MISSING, GAP_NO_SAMPLES, GAP_TIME_UNUSABLE, GAP_UNCALIBRATED,
-    L1Indicator, measured, unavailable,
+    GAP_COLUMN_EMPTY, GAP_MODALITY_MISSING, GAP_NO_SAMPLES, GAP_TIME_UNUSABLE,
+    GAP_UNCALIBRATED, L1Indicator, measured, unavailable,
 )
 
 #: 参与"运动活跃度"的 jitter 列(腕 / 肘 / 肩,按规格 §5.3 G1)。
@@ -88,6 +115,20 @@ _SPECS: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "G2_posture",
         "torso_jitter 超本人基线(中位数+3·MAD)的连续段(≥2 s)次数 ÷ 分钟",
         ("torso_jitter",)),
+    # ★ 2026-11-22 新增:补 `shrug_level`(肩部放松度)那个槽。
+    #   与 `posture_stability` 同族(同属体态位置/运动量),但量的是**位置**不是抖动。
+    "shrug_elevation_p90": (
+        "G2_posture",
+        "p90(shrug_level);shrug_level = max(0, 本人肩高中位基线 − 双肩均高) ÷ 肩宽"
+        "(无量纲,越大越耸;基线是本人全程因果中位数 ⟹ 0 表示「与本人平时持平」,"
+        "不是「没耸肩」,故不报占比)", ("shrug_level", "shoulder_width")),
+    # ★ 2026-11-22 新增:补 `left_hand_spread`(手掌张开度)那个槽。
+    #   `G4_hand` 是**同一 G 族内的新 family 名**,不是新缺口族(缺口码仍只有 9 类)。
+    "hand_openness_p50": (
+        "G4_hand",
+        "median(逐帧 mean(左/右 hand_spread));hand_spread = mean(dist(指尖_i, 腕)) ÷ 掌长"
+        "(无量纲,越大越张开;逐帧取两侧均值 —— handedness 不明时不声称「左手」)",
+        ("left_hand_spread", "right_hand_spread")),
     "hand_visible_ratio_l": ("G3_visibility", "hand_visible_left==1 的帧占比(**下界**)",
                              ("hand_visible_left",)),
     "hand_visible_ratio_r": ("G3_visibility", "hand_visible_right==1 的帧占比(**下界**)",
@@ -163,6 +204,95 @@ def _runs(mask: np.ndarray, min_frames: int) -> int:
     return out
 
 
+def _shrug_p90(sub: pd.DataFrame, window: str, thr: dict[str, int],
+               n_total: int) -> L1Indicator:
+    """`shrug_elevation_p90` —— 耸肩幅度的上分位(2026-11-22)。
+
+    ## 三条护栏,每条都在挡一种具体的假数
+
+    1. **只统计 `shoulder_width` 同时非空的帧。**
+       `ShoulderLogger` 的缺省值是 `_safe_get(..., 'shrug_level', 0.0)` ——
+       pose 完全丢失时它可能写 **0** 冒充"没耸肩"。0 在这里的意思是
+       "与本人中位线持平",不是"一帧都没有" ⟹ 假 0 会把 p90 压低。
+       实测(34 场)这种假 0 是 **0 帧**,但护栏留着:它是"将来换日志格式"时的唯一防线。
+       这也是为什么缺 `shoulder_width` 列时**直接报缺**而不是照算。
+
+    2. **整列非空为 0 ⟹ `column_empty`**,不是 `no_samples`。
+       两者补救动作相反:前者是这个列没采到/没写,后者是这一窗口里确实没有观测。
+
+    3. **n_valid < 2 ⟹ `no_samples`**。一帧分位数没有意义(与同族 `n_ok >= 2` 一致)。
+
+    ## 为什么报 p90 而不是占比
+
+    `shrug_level` 的基线是**本人全程中位数** ⟹ 按构造约一半的帧为 0。
+    报"耸肩帧占比"会恒 ≈ 0.5,那是自证数(与当年 `speech_ratio` 恒 1.0 同一类错误)。
+    """
+    name = "shrug_elevation_p90"
+    sh = _num(sub, "shrug_level")
+    if sh is None:
+        return _un(name, GAP_COLUMN_EMPTY, window)
+    sw = _num(sub, "shoulder_width")
+    if sw is None:
+        return _un(name, GAP_COLUMN_EMPTY, window)
+    if not np.isfinite(sh).any():
+        return _un(name, GAP_COLUMN_EMPTY, window)
+    ok = np.isfinite(sh) & np.isfinite(sw)
+    n_ok = int(ok.sum())
+    if n_ok < 2:
+        return _un(name, GAP_NO_SAMPLES, window)
+    return measured(
+        name, _SPECS[name][0], _SPECS[name][1], _SPECS[name][2], window,
+        "无量纲(越大越耸)", value=float(np.percentile(sh[ok], 90)),
+        n_valid=n_ok, n_total=n_total,
+        threshold=thr.get("head_pose", 30))
+
+
+def _hand_p50(sub: pd.DataFrame, window: str, thr: dict[str, int],
+              n_total: int) -> L1Indicator:
+    """`hand_openness_p50` —— 手掌张开度的会话中位(2026-11-22)。
+
+    ## 为什么逐帧取两侧均值
+
+    `handedness` 不明时,`left_hand_spread` 里可能是"来路不明的那只手"
+    (实测存在 `hand_visible_*=空` 而 spread 有值的帧)。把左右**当成槽位**取均值,
+    绕开"把右手当左手"的坑,代价是**不能声称这是"左手张开度"** ——
+    所以指标名与公式串里都没有"left"。
+
+    ## 缺口码
+
+    * 两列都不在 ⟹ `column_empty`(旧格式日志没有这两列);
+    * 列在但整场 0 非空 ⟹ `column_empty` —— **手一直没入画**(实测 14/52 场就是这样);
+      这不是"这一窗口没观测",是"这一路采集没拿到手",所以不用 `no_samples`;
+    * 非空帧 < 2 ⟹ `no_samples`。
+
+    ## 掌长退化
+
+    `hand_spread = mean(dist(指尖_i, 腕)) ÷ dist(腕, 中指 MCP)`;两点重合时分母为 0,
+    `hand_analyzer` 给 **None**(不补 0)。这里按非空处理,不把 None 当 0 —— 那是
+    "算不出来",不是"张开度为 0"。
+    """
+    name = "hand_openness_p50"
+    left = _num(sub, "left_hand_spread")
+    right = _num(sub, "right_hand_spread")
+    if left is None and right is None:
+        return _un(name, GAP_COLUMN_EMPTY, window)
+    stack = np.column_stack([a for a in (left, right) if a is not None])
+    cnt = np.sum(~np.isnan(stack), axis=1)
+    total = np.nansum(stack, axis=1)
+    mean = np.where(cnt > 0, total / np.maximum(cnt, 1), np.nan)
+    ok = np.isfinite(mean)
+    n_ok = int(ok.sum())
+    if n_ok == 0:
+        return _un(name, GAP_COLUMN_EMPTY, window)
+    if n_ok < 2:
+        return _un(name, GAP_NO_SAMPLES, window)
+    return measured(
+        name, _SPECS[name][0], _SPECS[name][1], _SPECS[name][2], window,
+        "无量纲(越大越张开)", value=float(np.median(mean[ok])),
+        n_valid=n_ok, n_total=n_total,
+        threshold=thr.get("head_pose", 30))
+
+
 def _for_window(sub: pd.DataFrame, window: str, thr: dict[str, int]) -> list[L1Indicator]:
     n_total = len(sub)
     if n_total == 0:
@@ -213,6 +343,14 @@ def _for_window(sub: pd.DataFrame, window: str, thr: dict[str, int]) -> list[L1I
                 value=float(pos_tot[pos_any].mean()),
                 n_valid=n_ok, n_total=n_total,
                 threshold=thr.get("head_pose", 30))
+
+    # ── G2 · 耸肩幅度 / G4 · 手掌张开度(2026-11-22 新增)───────────────
+    #
+    # 两条都是**分位量**(不是率、不是占比)⟹ 不需要 τ、不需要时间轴:
+    # 它们只问"这一窗口里这个量最靠上的那一小截有多高/多开"。
+    # 取法与 F8 的 `facial_asymmetry_p90` 完全一致,门槛沿用本族 `head_pose` 那档(30 帧)。
+    got["shrug_elevation_p90"] = _shrug_p90(sub, window, thr, n_total)
+    got["hand_openness_p50"] = _hand_p50(sub, window, thr, n_total)
 
     # ── 两条率量:τ 用**自比基线**,不是视频内分位 ──────────────────────
     #

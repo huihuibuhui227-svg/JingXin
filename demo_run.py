@@ -366,8 +366,26 @@ def stage_numbers(payload: dict[str, Any]) -> None:
         f"低 {by_conf.get('低', 0)} · 无 {by_conf.get('无', 0)}")
     nz = {k: v for k, v in by_gap.items() if v}
     say(f"   缺口分布      {nz or '（无缺口）'}")
-    say(f"   覆盖          过证据门 {cov.get('n_passed')}/{cov.get('n_slots')} 槽,"
-        f"置信度上限 {cov.get('confidence_cap')}")
+    # ★ 2026-11-21:这一行是答辩现场投屏的那行,原来印「过证据门 8/14 槽」。
+    #   14 里有 6 个槽永远填不上(3 个这套采集不测 + 3 个整维没有对应指标),
+    #   8/14 会被读成"只覆盖了 57%",而可测量的那 8 个槽是 8/8。
+    #   数字与措辞都由载荷给(`coverage.summary_line`)—— 不在这里另拼一句,
+    #   否则命令行与报告 HTML 迟早说的不是同一件事。
+    line = cov.get("summary_line")
+    if line:
+        say(f"   覆盖          {line}")
+        # 通过率那一栏:分母是**可测量槽**(`n_measurable`),为 0 时说"不适用" ——
+        # 印「0/0」会被读成一个数。
+        n_meas = cov.get("n_measurable")
+        rate = (f"通过率 {cov.get('n_passed')}/{n_meas}(分母只含第一段)"
+                if isinstance(n_meas, int) and n_meas else
+                "通过率不适用(可测量 0 槽)")
+        say(f"                 {rate},置信度上限 {cov.get('confidence_cap')}")
+    else:
+        # 旧载荷没有这一句:照它自己带的数印,不在这里补算(补算=第二份口径)。
+        say(f"   覆盖          这份载荷没带分段覆盖数,只有通过槽数 "
+            f"{cov.get('n_passed')}/{cov.get('n_slots')} 槽,"
+            f"置信度上限 {cov.get('confidence_cap')}")
 
     msum = l1.get("modality_summary") or {}
     if msum:

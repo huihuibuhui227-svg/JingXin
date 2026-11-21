@@ -289,6 +289,10 @@ p{margin:0 0 12px}
 .cover-number{font-size:52px;font-weight:700;letter-spacing:-.02em;
   font-variant-numeric:tabular-nums;line-height:1}
 .hero-cap{color:var(--ink-2);font-size:14px}
+.coverage-line{font-size:14.5px;line-height:1.6;margin:2px 0 6px;max-width:52em;
+  font-variant-numeric:tabular-nums}
+.coverage-why{color:var(--ink-3);font-size:12.5px;line-height:1.65;max-width:52em;
+  margin:0 0 4px}
 figure{margin:18px 0 6px}
 figcaption{color:var(--ink-3);font-size:12.5px;margin-top:10px}
 svg{display:block;width:100%;height:auto;overflow:visible}.label{fill:var(--ink-2);font-size:12.5px}
@@ -957,12 +961,28 @@ class ReportGenerator:
         渲染层自己编一句固定文案,载荷一变它就是假话(本仓记过多次的形态)。
 
         ⚠️ 不评级、不给分:这里说的是"量到了几条",不是"这个人怎么样"。
+
+        ## ⚠️ 2026-11-21 分母换掉了:`n_slots`(14)→ `n_measurable`
+
+        原来这句写「量到了 8 / <strong>14</strong> 项指标」。14 里有 6 个槽是
+        **永远填不上的**(3 个「这套采集不测」+ 3 个「整维没有对应指标」),把 14 当分母
+        会把"这套采集缺的东西"读成"这一场没做到"。现在分母是可测量的槽数,
+        另外两段单独说一句 —— 三段相加仍是 14,那个数没有消失。
+
+        ⚠️ 旧载荷(没有 `n_measurable`,例如前端 store 里缓存的 `l1-1`)退回
+        `n_slots` 做分母:那不是"另算一遍",而是**它只有这一个数可用**。
         """
         cov = result.get("coverage") or {}
         dims = result.get("dimensions") or {}
         n_passed = cov.get("n_passed", 0)
         n_slots = cov.get("n_slots", 0)
         n_dropped = cov.get("n_dropped", 0)
+        # 分段数由载荷给。取不到时是 `None` —— 与"给了 0"必须分开:
+        # 0 是真值(这一段真的一个槽都没有),`None` 是"这份载荷没带分段"。
+        n_measurable = cov.get("n_measurable")
+        n_not_measured = cov.get("n_not_measured")
+        n_no_indicator = cov.get("n_no_indicator")
+        denom = n_measurable if isinstance(n_measurable, int) else n_slots
 
         def _pair(dim: Dict[str, Any]) -> tuple[int, int]:
             got, _, total = str(dim.get("matched_indicators", "0/0")).partition("/")
@@ -982,15 +1002,17 @@ class ReportGenerator:
         elif not n_passed:
             # 0 也要把「0 / N」印出来 —— 「一个都没量到」与「量到 0 个」是同一件事,
             # 但读者要能一眼对上下面的条形图(那里每条都是 0 / k)。
+            # 分母是 0(这一场一个可测量槽都没有)时印 `0`,不印「0 / 0」。
+            pair = f"0 / {denom}" if denom else "0"
             sentences.append(
-                f"这一场在 {len(dims)} 个维度上量到了 <strong>0 / {n_slots}</strong> 项指标"
+                f"这一场在 {len(dims)} 个维度上量到了 <strong>{pair}</strong> 项可测量指标"
                 f"—— 不是「没测」,是测到的还不足以支撑读数,逐条原因见下。")
         else:
             best = ranked[0]
             b_got, b_tot = _pair(best)
             sentences.append(
-                f"这一场在 {len(dims)} 个维度上量到了 <strong>{n_passed} / {n_slots}</strong> "
-                f"项指标,其中最完整的是「{best.get('display_name', '')}」"
+                f"这一场在 {len(dims)} 个维度上量到了 <strong>{n_passed} / {denom}</strong> "
+                f"项可测量指标,其中最完整的是「{best.get('display_name', '')}」"
                 f"({b_got} / {b_tot})。")
             if len(ranked) > 1:
                 worst = ranked[-1]
@@ -999,7 +1021,17 @@ class ReportGenerator:
                     sentences.append(
                         f"最薄的是「{worst.get('display_name', '')}」({w_got} / {w_tot})。")
 
-        if n_dropped:
+        if isinstance(n_not_measured, int) and isinstance(n_no_indicator, int):
+            # 新载荷:把剩下两段**分开点名**,并说明它们与这一场的表现无关。
+            # 措辞与 `l1_report.COVERAGE_EXPLANATION` 同一套词 —— 两个出口不许各说各的。
+            if n_not_measured or n_no_indicator:
+                sentences.append(
+                    f"分母之外还有 <strong>{n_not_measured}</strong> 项「这套采集不测」"
+                    f"、<strong>{n_no_indicator}</strong> 项「整维没有对应指标」—— "
+                    f"这 {n_not_measured + n_no_indicator} 项不是这一场量得好不好的问题,"
+                    f"合起来才是 {n_slots} 个槽,逐条理由见下方「整套采集都不测」与各维缺口。")
+        elif n_dropped:
+            # 旧载荷(没有分段字段):只能照它自己带的 `n_dropped` 说一句。
             sentences.append(
                 f"另有 {n_dropped} 项在当前这套采集里没有对应的测法,已整条剔除 —— "
                 f"它们不是「这一场没测到」,见下方「整套采集都不测」。")
@@ -1007,6 +1039,45 @@ class ReportGenerator:
         if cap and cap != "无":
             sentences.append(f"所有读数的置信度上限是「{cap}」。")
         return "".join(sentences)
+
+    # ------------------------------------------------------------------
+    # 覆盖数的三段式(2026-11-21)
+    # ------------------------------------------------------------------
+    #
+    # ⚠️ 这三个方法**不计算任何数**:三段计数与那句话都由 `l1_report` 装进载荷
+    #    (`coverage.summary_line` / `coverage.explanation` / `coverage.segments`)。
+    #    渲染层再数一遍 = 第二份口径,而本仓为"两处各算一遍"栽过
+    #    (`n_passed` 曾虚报成 7)。这里只做排版与"旧载荷没带"的兜底。
+
+    def _coverage_line(self, cov: Dict[str, Any]) -> str:
+        """三段式那一行 —— 文字与数字都照载荷印。"""
+        line = cov.get("summary_line")
+        if line:
+            return f"<p class=\"coverage-line\">{line}</p>"
+        # 旧载荷(`l1-1`,或前端 store 里的缓存结果)没有这一句。**不补算**:
+        # 补算就是第二份口径。只说这一份没带,并把它自己带的两个数照印。
+        return ("<p class=\"coverage-line\">这份载荷没带分段覆盖数"
+                f"(旧版载荷),只有通过槽数 {cov.get('n_passed', '—')} / "
+                f"{cov.get('n_slots', '—')}。</p>")
+
+    def _coverage_explanation(self, cov: Dict[str, Any]) -> str:
+        """那句"为什么不测"的解释 —— 同样照载荷印,不在渲染层另写一份。"""
+        why = cov.get("explanation")
+        if not why:
+            return ""
+        return f"<p class=\"coverage-why\">{why}</p>"
+
+    def _coverage_hero_number(self, cov: Dict[str, Any]) -> str:
+        """报告头那个大数 —— 分子 / **可测量**槽数。
+
+        分母从 `n_slots`(14)换成 `n_measurable`(8):14 里有 6 个槽永远填不上,
+        拿它当分母会把"这套采集缺的东西"读成"这一场没做到"。
+        可测量槽数为 0 时印 `—`,不印「0 / 0」(那不是覆盖率,是个假分数)。
+        """
+        n_measurable = cov.get("n_measurable")
+        if isinstance(n_measurable, int):
+            return f"{cov.get('n_passed', '—')} / {n_measurable}" if n_measurable else "—"
+        return f"{cov.get('n_passed', '—')} / {cov.get('n_slots', '—')}"
 
     def _figure_coverage(self, result: Dict[str, Any]) -> str:
         """图一:**每个维度量到了几条** —— 横向条形,一条一维。
@@ -1480,9 +1551,11 @@ class ReportGenerator:
 </header>
 
 <div class="hero">
-  <span class="cover-number">{coverage['n_passed']} / {coverage['n_slots']}</span>
-  <span class="hero-cap">项指标量到了可用的数 · 置信度上限：{coverage['confidence_cap']}</span>
+  <span class="cover-number">{self._coverage_hero_number(coverage)}</span>
+  <span class="hero-cap">个可测量槽通过 · 置信度上限：{coverage['confidence_cap']}</span>
 </div>
+{self._coverage_line(coverage)}
+{self._coverage_explanation(coverage)}
 <p class="lead">{self._lead_sentence(result)}</p>
 <p class="note">{result['summary_narrative']}</p>
 

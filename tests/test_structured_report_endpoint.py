@@ -145,16 +145,19 @@ def test_l1_engine_answers_with_no_logs_and_says_why(isolated):
 
     res = body["result"]
     assert res["coverage"]["n_passed"] == 0, res["coverage"]
-    # 分母仍是**声明的全部旧槽数** —— 消失的维度那 3 个槽也算在内。
+    # 分母仍是**声明的全部旧槽数**(14,语义没动)。
     assert res["coverage"]["n_slots"] == 14, res["coverage"]
-    # 2026-10-18 T 族落地后,`connective_density` 不再是"删"而是"换"
-    # (`discourse_marker_rate`)⟹ 删掉的从 7 个变 6 个。
-    assert res["coverage"]["n_dropped"] == 6, res["coverage"]
+    # ⚠️ 2026-11-22:删槽由 6 变 3。`symmetry_score` / `left_hand_spread` /
+    #    `shrug_level` 由"删"改为"换"(三条新指标各读一列真测量)⟹
+    #    只剩 `fluency_score` / `eye_contact` / `n_chars` 三个真删槽。
+    assert res["coverage"]["n_dropped"] == 3, res["coverage"]
+    assert res["coverage"]["n_measurable"] == 11, res["coverage"]
+    assert res["coverage"]["n_not_measured"] == 3, res["coverage"]
 
-    # 消失的维度要能看见,且带理由
-    vanished = {v["key"]: v for v in res["vanished_dimensions"]}
-    assert "confidence_level" in vanished
-    assert vanished["confidence_level"]["n_slots"] == 3
+    # ⚠️ 2026-11-22:**没有任何维度整维消失**了(`行为表现活跃度` 复活到 2/3)。
+    #    这条断言反过来钉住那个新事实 —— 若谁把三条新指标撤掉,这里立刻红。
+    assert res["vanished_dimensions"] == [], res["vanished_dimensions"]
+    assert res["coverage"]["n_no_indicator"] == 0, res["coverage"]
 
     # 每个维度都要说清"为什么薄"
     for key, dim in res["dimensions"].items():

@@ -151,21 +151,29 @@ def test_confidence_and_gap_counts_are_consistent():
 
 
 def test_family_summary_attributes_each_family_to_its_modality():
+    # ⚠️ 2026-11-22:第二个族名由 `F7_micro` 换成 `F8_symmetry` —— `F7_micro`
+    #    随它的两条指标(`micro_exp_*`)一起从 `FAMILY_MODALITY` 里退掉了
+    #    (留着一条**没有产出方**的族登记就是死登记)。判据没变:
+    #    族 → 模态这张表逐条对得上,且计数只数本族。
     res = _FakeResult(
         modalities={"face": _tb("ok", usable=True)},
         indicators=[_ind(name="a", family="F3_blink", gap=GAP_UNCALIBRATED),
-                    _ind(name="b", family="F7_micro", gap=GAP_UNCALIBRATED)],
+                    _ind(name="b", family="F8_symmetry", gap=GAP_UNCALIBRATED)],
     )
     q = lq.build_quality_report(res)
     assert q.families["F3_blink"]["modality"] == "face"
-    assert q.families["F7_micro"]["modality"] == "face"
+    assert q.families["F8_symmetry"]["modality"] == "face"
     assert q.families["F3_blink"]["n"] == 1
 
 
 # ── 5. 端到端:真链路走一遍(不读 data/) ────────────────────────────────
 
 def test_end_to_end_with_no_face_log_reports_modality_missing(tmp_path, monkeypatch):
-    """没有 face 日志 ⟹ 16 条全部 `modality_missing`,且报告能生成、能自检通过。"""
+    """没有 face 日志 ⟹ 15 条全部 `modality_missing`,且报告能生成、能自检通过。
+
+    ⚠️ 2026-11-22:16 → 15(退 2 条 `micro_exp_*`、补 `facial_asymmetry_p90`)。
+    判据没变:整族一条不漏、全报同一个码、报告仍能自检通过。
+    """
     monkeypatch.setenv("JINGXIN_RECORDINGS_DIR", str(tmp_path))
     from report_frontend import l1_face, l1_quality, l1_session
     from report_frontend.event_windows import AnswerWindow, WindowSet
@@ -173,13 +181,13 @@ def test_end_to_end_with_no_face_log_reports_modality_missing(tmp_path, monkeypa
     ws = WindowSet("s", "answer", [AnswerWindow(index=0, t_start=0.0, t_end=10.0)],
                    n_questions=1)
     inds = l1_face.compute_face_indicators(None, ws, None)
-    assert len(inds) == 16
+    assert len(inds) == 15
     assert all(i.gap == GAP_MODALITY_MISSING for i in inds)
 
     res = _FakeResult(modalities={}, indicators=inds, windows=ws)
     q = l1_quality.build_quality_report(res)
     q.validate()                       # 不抛 ⟹ 自洽
-    assert q.by_gap[GAP_MODALITY_MISSING] == 16
+    assert q.by_gap[GAP_MODALITY_MISSING] == 15   # ← 2026-11-22:16 → 15(见上一条注释)
     assert q.n_measured == 0
 
 

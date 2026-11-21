@@ -44,6 +44,30 @@
 标注本身发生在**上游装配点** `l1_quality.build_quality_report`(38 条指标刚定型处),
 本模块只查表 —— 不在两处各算一份口径。逐条有出处这件事从此可以核对:
 `tests/test_report_instrument_rendering.py`。
+
+## 覆盖数的三段拆分(2026-11-21)
+
+`coverage` 原先只发 `n_passed / n_slots`。实测那一场是 `8 / 14` —— 而 14 里有
+**6 个槽永远填不上**:3 个「这套采集不测」(`dimensions.*.evidence_gaps_not_measured`)、
+3 个「这一维没有同构念 L1 指标」(整维进了 `vanished_dimensions`)。于是 `8/14`
+被读者读成"只覆盖了 57%",而可测量的那 8 个槽是 8/8 全过。
+
+⟹ 新增分段计数,原有键(`n_slots` / `n_passed` / `n_dropped` / `passed_slots` /
+`confidence_cap`)**一个语义都没动**:
+
+| 新字段 | 含义 | 谁读 |
+|---|---|---|
+| `n_measurable` | 有同构念指标、且这套采集确实会测的槽数 | HTML / 前端 / demo_run |
+| `n_measurable_no_data` | 上面那批里本场没量到可用数的槽数 | 同上(说明"可测 ≠ 已通过") |
+| `n_not_measured` | 维度表内被删的槽(这套采集不测) | 同上 |
+| `n_no_indicator` | 整维被删的槽(无同构念指标) | 同上 |
+| `pass_rate_of_measurable` | `n_passed / n_measurable`;分母为 0 时是 `None` | 同上 |
+| `summary_line` / `explanation` / `segments` | 三段式那句话 + 口径解释 + 三段明细 | 三个出口都读载荷,不各自拼措辞 |
+
+推导方式:三段计数是把 `n_slots` 原本那两个 `sum` **提出来复用**,不是另数一遍 ——
+`n_measurable + n_not_measured + n_no_indicator == n_slots` 恒成立
+(因为 `DimensionResult.n_slots` 就是 `len(slots) + len(dropped)`)。
+钉子:`tests/test_coverage_three_segments.py`。
 """
 
 from __future__ import annotations
@@ -55,7 +79,9 @@ from .l1_quality import GAP_EXPLANATION, build_quality_report, explain_confidenc
 from .l1_session import compute_session_l1
 
 #: 版本串。改了载荷结构就动它 —— 报告里要能看出是哪一代口径。
-PAYLOAD_VERSION = "l1-1"
+#: `l1-2`(2026-11-21):`coverage` 增三段拆分 + `summary_line` / `explanation` / `segments`。
+#: 前端 store 里可能还躺着 `l1-1` 的旧结果(没有这些键)⟹ 三个出口都必须容忍缺席。
+PAYLOAD_VERSION = "l1-2"
 
 #: 逐维度固定话术。**不是**模板填空,是把"这一层不做什么"写死。
 DIM_DESCRIPTION = "按 L1 指标直读;不做加权组合、不做推断。"
@@ -216,7 +242,8 @@ def _gap_lines(dim) -> list[str]:
     for s in dim.slots:
         if s["value"] is None:
             why = gap_explanations.explain_specific(
-                {"name": s["l1"], "gap": s["gap"]}) or _why(s["gap"])
+                {"name": s["l1"], "gap": s["gap"],
+                 "gap_detail": s.get("gap_detail")}) or _why(s["gap"])
             out.append(f"{l1_mapper.slot_label(s['slot'])}:{why}")
     return out
 
@@ -246,6 +273,129 @@ def _printable_vanished(v: dict) -> dict:
              "plain_reason": l1_mapper.drop_reason(d["slot"])}
             for d in v.get("dropped", [])
         ],
+    }
+
+
+#: 三段式的固定顺序。前端不按键遍历、不自己排 —— 顺序在这里定一次。
+COVERAGE_SEGMENT_KEYS = ("measurable", "not_measured", "no_indicator")
+
+#: 三段式那句解释,**由载荷发给三个出口**(HTML 报告 / 前端报告页 / 命令行)。
+#:
+#: 为什么写在载荷里而不是各出口各写一份:同一件事在三个地方各写一遍,迟早
+#: 三处说法不同(本仓记过多次的形态)。出口只负责排版,不负责措辞。
+#:
+#: 措辞纪律:
+#: ① **只陈述口径,不评价这一场好不好** —— 缺口照写,不加"仍然"、"难能可贵";
+#: ② **不用内部叫法**。`tests/test_report_says_something_to_a_person.py` 的
+#:    `test_the_body_carries_no_internal_jargon` 明令交付物正文不许出现
+#:    「指标槽 / 证据门 / 过门 / 同构念 / 本层 / 当前管线」——这句话要进 HTML 正文,
+#:    所以这里一律说「槽 / 这套采集不测 / 整维没有对应指标」。
+#:    内部叫什么不丢:`n_no_indicator` 这个键名、以及 `l1_mapper` 里的映射依据都还在。
+COVERAGE_EXPLANATION = (
+    "「这套采集不测」说的是这套采集不含这个量 —— 不是这一场没量到,再采一次也一样;"
+    "「整维没有对应指标」说的是那一整维要的量当前没有任何一条指标承接,"
+    "不是这一场量得不好。三段合起来才是槽总数;通过率只用第一段做分母,不含后两段。"
+)
+
+
+def coverage_summary_line(n_measurable: int, n_passed: int,
+                          n_not_measured: int, n_no_indicator: int) -> str:
+    """三段式那一行(`可测量 8 槽全部通过(8/8) · 这套采集不测 3 槽 · 整维没有对应指标 3 槽`)。
+
+    第一段只在**全过**时才说「全部通过」;可测但本场没量到数的槽会留在分母里,
+    于是那句自动变成「可测量 11 槽中 8 槽通过(8/11)」—— 分母为 0 时既不说
+    「0%」也不说「100%」,只说「通过率不适用」。
+
+    ⚠️ 行首不加「证据门:」——那是内部叫法,交付物正文不许出现(见上面那条纪律)。
+    命令行那一行有自己的前缀(「覆盖」),HTML 有它的版式,都不需要这个词。
+
+    钉子:`tests/test_coverage_three_segments.py`。
+    """
+    if n_measurable <= 0:
+        first = "可测量 0 槽(分母为 0,通过率不适用)"
+    elif n_passed >= n_measurable:
+        first = f"可测量 {n_measurable} 槽全部通过({n_passed}/{n_measurable})"
+    else:
+        first = f"可测量 {n_measurable} 槽中 {n_passed} 槽通过({n_passed}/{n_measurable})"
+    return (f"{first} · 这套采集不测 {n_not_measured} 槽"
+            f" · 整维没有对应指标 {n_no_indicator} 槽")
+
+
+def coverage_segments(n_measurable: int, n_passed: int, n_measurable_no_data: int,
+                      n_not_measured: int, n_no_indicator: int) -> list[dict]:
+    """三段拆分(**数字全部由调用方从现有结构派生后传进来**,本函数不数任何东西)。
+
+    为什么不在这里数:`build_l1_report` 里 `n_slots` / `n_dropped` 已经有权威表达式,
+    再从这里数一遍就是"两处各算一遍" —— 本仓为这件事栽过一次(`n_passed` 虚报成 7)。
+    本函数只负责**把同一批数排成人能读的三段**,键名固定、顺序固定。
+
+    每段给 `n_passed` 的规则:只有第一段有"通过"这回事 —— 后两段压根没有可过的门,
+    给 0 会被读成"0 个通过"(那听起来像"没做到")。所以给 `None`,前端据此不画分子。
+    """
+    measurable_note = "有对应指标,这套采集也确实会测"
+    if n_measurable_no_data > 0:
+        measurable_note += f";其中 {n_measurable_no_data} 槽本场没有可用数"
+    by_key = {
+        "measurable": {"key": "measurable", "label": "可测量", "n": n_measurable,
+                       "n_passed": n_passed, "note": measurable_note},
+        "not_measured": {"key": "not_measured", "label": "这套采集不测",
+                         "n": n_not_measured, "n_passed": None,
+                         "note": "不是这一场没量到 —— 这套采集根本不含这个量"},
+        "no_indicator": {"key": "no_indicator", "label": "整维没有对应指标",
+                         "n": n_no_indicator, "n_passed": None,
+                         "note": "这一整维要的量,当前没有任何一条指标承接"},
+    }
+    # 顺序由 `COVERAGE_SEGMENT_KEYS` 定,不靠字典的插入序 —— 前端按数组渲染,
+    # 顺序变了读者就得重新认一遍"第一段是什么"。
+    return [by_key[k] for k in COVERAGE_SEGMENT_KEYS]
+
+
+def coverage_counts(dims: dict, vanished: list, n_passed: int) -> dict:
+    """`coverage` 里的全部计数 —— **只在这里算一次**,三个出口都读这份。
+
+    ## 推导(不另算一份口径)
+
+    `n_slots` / `n_dropped` 原来的两个 `sum` 就是这三个分段数的来源,
+    这里只是把它们**取名**(而不是新增统计):
+
+        n_in_dimensions   = Σ dim.n_slots        # `DimensionResult.n_slots`
+                                                 #   ≡ len(slots) + len(dropped)
+        n_not_measured    = Σ len(dim.dropped)   # 维度表内被删的槽(这套采集不测)
+        n_no_indicator    = Σ v["n_slots"]       # 整维消失的槽(无同构念指标)
+
+        n_slots           = n_in_dimensions + n_no_indicator          # 14,语义未变
+        n_dropped         = n_not_measured  + n_no_indicator          # 6,语义未变
+        n_measurable      = n_in_dimensions - n_not_measured          # 8
+
+    ⟹ `n_measurable + n_not_measured + n_no_indicator == n_slots` **恒成立**,
+    这不是一条需要维护的不变式,是同一个加法换了个顺序。
+
+    ## 为什么单独成函数
+
+    "全都不测"(可测量槽 = 0)在真实场次里不出现,而它的行为恰恰是这次要守的
+    (`pass_rate_of_measurable` 必须给 `None`,不许给 0 或 1)。留在 `build_l1_report`
+    里就只能先跑一整场 L1 才能测到 ⟹ 抽出来,`tests/test_coverage_three_segments.py`
+    能直接喂一个人造的 `dims={} / vanished=[14 个槽]`。
+
+    `n_measurable_no_data` 单列的理由:可测 ≠ 已通过。可测的槽也可能这一场
+    没量到数(值为 `None`),并进 `n_passed` 就是虚报;藏起来就是假装没有这个缺口。
+    """
+    n_in_dimensions = sum(d.n_slots for d in dims.values())
+    n_not_measured = sum(len(d.dropped) for d in dims.values())
+    n_no_indicator = sum(v["n_slots"] for v in vanished)
+    n_measurable = n_in_dimensions - n_not_measured
+    # 分母为 0 给 `None`(前端类型是 `number | null`):0 会被读成"覆盖率 0%",
+    # 1.0 会被读成"全部通过",两个都是假话。
+    pass_rate = (n_passed / n_measurable) if n_measurable else None
+    return {
+        "n_slots": n_in_dimensions + n_no_indicator,
+        "n_passed": n_passed,
+        "n_dropped": n_not_measured + n_no_indicator,
+        "n_measurable": n_measurable,
+        "n_measurable_no_data": n_measurable - n_passed,
+        "n_not_measured": n_not_measured,
+        "n_no_indicator": n_no_indicator,
+        "pass_rate_of_measurable": pass_rate,
     }
 
 
@@ -315,7 +465,12 @@ def build_l1_report(session_id: str, logs: dict | None = None) -> dict:
     # 分母用**声明的全部旧槽数**(14),不是"幸存维度里的槽数"(11)。
     # 理由:消失的维度那 3 个槽**存在过**,读者要能看出"14 个槽里 3 个没有对应量被删",
     # 而不是看到"11 个槽"以为这一维本来就只有这些。
-    n_slots = sum(d.n_slots for d in dims.values()) + sum(v["n_slots"] for v in vanished)
+    #
+    # ⚠️ 2026-11-21:计数整段搬进 `coverage_counts()`,这里只取结果 ——
+    #    **值一个没变**(`n_slots` 仍 14、`n_dropped` 仍 6、`n_passed` 仍过门槽数),
+    #    只是顺手把"可测量 / 这套采集不测 / 整维没有对应指标"三段一起算出来。
+    #    计数只有那一处,渲染层与前端都不许再算一遍(本仓为"两处各算一遍"栽过)。
+    counts = coverage_counts(dims, vanished, len(passed_slots))
     # `confidence_cap` 按前端类型的注释是「各维度置信度的**上限**(最乐观的那一个)」
     # ⟹ `CONF_RANK` 里高=3,取 **max**。旧代码用 `max` 配的是反序表(高=3 的那张),
     # 含义一致;我先前误用了从 `CONFIDENCE` 元组派生的反序表,差点把它算成最悲观。
@@ -338,11 +493,29 @@ def build_l1_report(session_id: str, logs: dict | None = None) -> dict:
         "vanished_dimensions": [_printable_vanished(v) for v in vanished],
         "summary_narrative": NO_COMPOSITE,
         "coverage": {
-            "n_slots": n_slots,
-            "n_passed": len(passed_slots),
-            # 没有同构念 L1 指标、已删掉的槽数(它们仍计入 n_slots)。
-            "n_dropped": sum(len(d.dropped) for d in dims.values())
-            + sum(v["n_slots"] for v in vanished),
+            # ── 原有键(语义一个没动)─────────────────────────────────────
+            "n_slots": counts["n_slots"],
+            "n_passed": counts["n_passed"],
+            "n_dropped": counts["n_dropped"],
+            # ── 三段拆分(2026-11-21 新增)────────────────────────────────
+            # 为什么:14 里有 6 个槽**永远填不上**(3 个本套采集不测 + 3 个整维没有
+            # 同构念指标)。只发 `n_passed / n_slots` 会让读者把 8/14 读成"只覆盖了
+            # 57%",而能测的 8 个槽这一场是 8/8。计数只在 `coverage_counts()` 里算一次。
+            # 钉子:`tests/test_coverage_three_segments.py`。
+            "n_measurable": counts["n_measurable"],
+            "n_measurable_no_data": counts["n_measurable_no_data"],
+            "n_not_measured": counts["n_not_measured"],
+            "n_no_indicator": counts["n_no_indicator"],
+            "pass_rate_of_measurable": counts["pass_rate_of_measurable"],
+            # 三个出口(HTML / 前端 / demo_run)都读这三项,不各自拼措辞。
+            "summary_line": coverage_summary_line(
+                counts["n_measurable"], counts["n_passed"],
+                counts["n_not_measured"], counts["n_no_indicator"]),
+            "explanation": COVERAGE_EXPLANATION,
+            "segments": coverage_segments(
+                counts["n_measurable"], counts["n_passed"],
+                counts["n_measurable_no_data"],
+                counts["n_not_measured"], counts["n_no_indicator"]),
             "confidence_cap": cap,
             "passed_slots": passed_slots,
         },

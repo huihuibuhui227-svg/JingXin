@@ -90,8 +90,13 @@ def test_missing_voice_log_gap_counts_the_series_that_still_produced(tmp_path, m
     assert msg == expect, f"句子必须与载荷同源:\n期望:{expect}\n实际:{msg}"
 
 
-def test_voice_reports_exactly_four_values_and_eight_not_stored():
+def test_voice_reports_exactly_three_values_and_eight_not_stored():
     """★ 粒度不够的 8 条必须报 `not_stored`,且值必须是 NaN。
+
+    ⚠️ **2026-11-22:「能出值的 4 条」变 3 条**(`pause_ratio` 退役 —— 它与
+    `voiced_ratio` 是代数恒等变换,残差 4.4e-16、ρ = −1.000000,报出来只是把
+    同一份证据数两遍)。V 族由 12 条变 11 条 ⟹ "粒度不够"仍是 **8** 条
+    (11 − 3 = 8),判据一字未改:这 8 条不许出值、必须是 `not_stored`。
 
     红法:给 `pitch_median` 改成用 `pitch_mean` 顶替 ⟹ 它会出值,本条红
     (名字一样、含义不同,比缺着更坏)。
@@ -104,11 +109,11 @@ def test_voice_reports_exactly_four_values_and_eight_not_stored():
         "pitch_p90": [120.0, 130.0, 140.0], "energy_mean": [0.05, 0.06, 0.07],
     })
     inds = l1_voice.compute_voice_indicators(voice)
-    assert len(inds) == 12
+    assert len(inds) == 11
 
     measured = [i for i in inds if i.has_value]
     assert sorted(i.name for i in measured) == [
-        "pause_rate_per_min", "pause_ratio", "response_latency_sec", "speech_rate"]
+        "pause_rate_per_min", "response_latency_sec", "speech_rate"]
 
     gaps = {i.name: i.gap for i in inds if not i.has_value}
     assert len(gaps) == 8
@@ -134,21 +139,42 @@ def test_speech_rate_is_weighted_by_voiced_seconds_not_a_mean_of_ratios():
     assert sr.value < 2.0, "加权后应贴近长答的 1 字/秒,不是 5.5"
 
 
-def test_pause_ratio_comes_from_duration_minus_speech():
-    """停顿总时长 = 整段 − 有声;比值 = 停顿 ÷ 有声。
+def test_pause_ratio_is_retired_because_it_is_an_identity_not_a_measurement():
+    """★ `pause_ratio` **已退役**(2026-11-22)—— 它不是一条测量,是一个换算。
 
-    两段:9−6=3 与 12−8=4 ⟹ 7 ÷ 14 = 0.5。红法:分母改成整段时长 ⟹ 7/21≈0.33,本条红。
+    ## 当年它被当"能精确产出"的那条(见本文件上方第 3 条),现在为什么退
+
+    `pause_ratio = (整段 − 有声) ÷ 有声`,而 `voiced_ratio = 有声 ÷ 整段` ⟹
+    **`pause_ratio ≡ 1/voiced_ratio − 1`**,同一个数的代数变换。
+    实测(2026-11-22,10 场有 `duration_sec`/`speech_duration_sec` 的语音日志):
+    最大绝对残差 **4.441e-16**(机器精度)、Spearman ρ = **−1.000000**。
+    留着它会让读者以为多了一条独立证据 —— 与当年 `speech_ratio` 恒 1.0、
+    `au7 + avg_ear ≡ 1.0` 属同一形态。
+
+    ## 这条测试守什么
+
+    1. 它**不在** `ORDER` 里(退场,不是"这一场没值");
+    2. 载荷里**没有**任何 `pause_ratio` 行(不能留一个没人认领的值);
+    3. 它的**解释还在**(`l1_voice.RETIRED`)—— 退掉的是指标,不是"为什么它不在"。
+
+    红法:把 `pause_ratio` 加回 `_SPECS` ⟹ 第 1、2 条红。
     """
+    assert "pause_ratio" not in l1_voice.ORDER
     voice = pd.DataFrame({"duration_sec": [9.0, 12.0],
                           "speech_duration_sec": [6.0, 8.0],
                           "n_chars": [30.0, 40.0], "pause_frequency": [10.0, 10.0]})
-    inds = {i.name: i for i in l1_voice.compute_voice_indicators(voice)}
-    assert inds["pause_ratio"].value == pytest.approx(7.0 / 14.0)
+    names = [i.name for i in l1_voice.compute_voice_indicators(voice)]
+    assert "pause_ratio" not in names, f"退役的指标又被产出了:{names}"
+    assert "voiced_ratio" in names, "承接它的那条必须还在"
+    why = l1_voice.RETIRED["pause_ratio"]
+    assert "1/voiced_ratio" in why and "ρ" in why, (
+        f"退役理由必须点明是恒等变换(带实测相关):{why!r}")
 
 
-def test_voice_missing_reports_modality_missing_for_all_twelve():
+def test_voice_missing_reports_modality_missing_for_all_eleven():
+    # ⚠️ 2026-11-22:12 → 11(`pause_ratio` 退役)。判据没变:整族一条不漏、全报同一个码。
     inds = l1_voice.compute_voice_indicators(None)
-    assert len(inds) == 12
+    assert len(inds) == 11
     assert all(i.gap == "modality_missing" for i in inds)
 
 
@@ -186,7 +212,8 @@ def test_audio_on_disk_but_not_extracted_is_not_reported_as_modality_missing(
     _fake_recording(tmp_path, sid, with_camera=True)
 
     inds = l1_voice.compute_voice_indicators(None, session_id=sid)
-    assert len(inds) == 12
+    # ⚠️ 2026-11-22:12 → 11(`pause_ratio` 退役)。判据没变:整族一条不漏、同一个码。
+    assert len(inds) == 11
     assert all(i.gap == l1_indicators.GAP_NOT_EXTRACTED for i in inds), (
         "录音在盘上却报成 modality_missing —— 读的人会去查采集,而该做的是跑提取")
 
@@ -293,11 +320,13 @@ def test_series_in_hand_does_not_still_say_run_an_extraction(tmp_path, monkeypat
     n_val = sum(1 for i in inds.values() if i.has_value)
     assert n_val > 0, "序列在,至少序列那几条必须出值"
 
-    assert inds["pause_ratio"].gap == l1_indicators.GAP_NOT_PRODUCED
+    # ★ 2026-11-22:`pause_ratio` 已**整条退役**(不是"报某个缺口语义"),所以这里
+    #   不再断言它的 gap,而是断言它**不在载荷里** —— 一条退役的指标若还出现,
+    #   读者会以为它只是这一场没值。它那条"为什么不在"的解释留在 `l1_voice.RETIRED`。
+    assert "pause_ratio" not in inds, "退役的指标又被产出了"
     assert inds["response_latency_sec"].gap == l1_indicators.GAP_WINDOW_NONE
-    for name in ("pause_ratio", "response_latency_sec"):
-        assert inds[name].gap != l1_indicators.GAP_NOT_EXTRACTED, (
-            f"{name} 报 not_extracted,但提取已经跑过了 —— 提示会让人白跑一趟")
+    assert inds["response_latency_sec"].gap != l1_indicators.GAP_NOT_EXTRACTED, (
+        "response_latency_sec 报 not_extracted,但提取已经跑过了 —— 提示会让人白跑一趟")
 
 
 def test_without_series_the_same_two_still_blame_the_missing_extraction(
@@ -314,8 +343,10 @@ def test_without_series_the_same_two_still_blame_the_missing_extraction(
 
     inds = {i.name: i for i in
             l1_voice.compute_voice_indicators(None, series=None, session_id=sid)}
-    for name in ("pause_ratio", "response_latency_sec"):
-        assert inds[name].gap == l1_indicators.GAP_NOT_EXTRACTED, name
+    # ⚠️ 2026-11-22:`pause_ratio` 退役后,这一支只剩 `response_latency_sec` 一条
+    #   真的"跑一次提取就有"(它要的题目时刻确实随提取一起补)。判据没变。
+    assert "pause_ratio" not in inds, "退役的指标又被产出了"
+    assert inds["response_latency_sec"].gap == l1_indicators.GAP_NOT_EXTRACTED
 
 
 def test_every_gap_kind_has_a_human_explanation():
@@ -556,8 +587,11 @@ def test_zero_episodes_is_a_measured_zero_not_a_missing_value():
 
 
 def test_gesture_missing_reports_modality_missing():
+    # ⚠️ 2026-11-22:7 → 9(补 `shrug_elevation_p90` / `hand_openness_p50`)。
+    #    判据没变:没有手势日志时整族一条不漏、全报 `modality_missing` ——
+    #    两条新指标**不许**因为"算不出来"就悄悄不出现。
     inds = l1_gesture.compute_gesture_indicators(None, _ws((-1.0, 10.0)), None)
-    assert len(inds) == 7
+    assert len(inds) == 9
     assert all(i.gap == "modality_missing" for i in inds)
 
 

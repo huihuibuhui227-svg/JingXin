@@ -143,7 +143,10 @@ def test_every_dropped_slot_has_a_plain_reason():
     没有这句,槽表被清空时下面的循环一次都不进,本测试静默全绿。
     """
     dropped = [s for s, (l1, _) in l1_mapper.SLOT_MAP.items() if l1 is None]
-    assert len(dropped) == 6, f"删槽数变了:{dropped}"
+    # ⚠️ 2026-11-22:6 → 3。`symmetry_score` / `left_hand_spread` / `shrug_level`
+    #    由"删"改为"换"(三条新指标各自读一列真测量)⟹ 它们不再需要"这套采集不测"
+    #    的人话理由(那三句已经成了假话,一并删掉)。地板仍然要有,只是新地板是 3。
+    assert len(dropped) == 3, f"删槽数变了:{dropped}"
     missing = sorted(set(dropped) - set(l1_mapper.DROP_REASON))
     assert not missing, f"这些槽没有给人看的删槽理由:{missing}"
 
@@ -168,7 +171,12 @@ def test_the_audit_reason_is_not_lost():
     """
     long_reasons = {s: r for s, (l1, r) in l1_mapper.SLOT_MAP.items()
                     if l1 is None and len(r) > 20}
-    assert len(long_reasons) >= 5, (
+    # ⚠️ 2026-11-22:地板由 `>= 5` 改为 `== 3` —— **不是放宽**,是删槽从 6 个变 3 个
+    #    (另三个槽由"删"改为"换",它们的审计理由仍在 `SLOT_MAP` 里,只是不再是删槽)。
+    #    判据的方向没变:每个删槽都必须带一条**超过 20 字**的审计理由,一条都不许被削短。
+    n_dropped = sum(1 for _s, (l1, _r) in l1_mapper.SLOT_MAP.items() if l1 is None)
+    assert n_dropped == 3, f"删槽数变了:{n_dropped}"
+    assert len(long_reasons) == n_dropped, (
         f"`SLOT_MAP` 的删槽理由被削短了,审计细节丢了:{long_reasons}")
 
 

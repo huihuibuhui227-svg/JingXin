@@ -85,45 +85,58 @@ def test_no_l1_indicator_is_counted_by_two_slots():
             f"{l1} 同时喂了 {seen.get(l1)!r} 和 {slot!r} —— 同一份测量被数了两遍")
         seen[l1] = slot
     # 地板:幸存槽数不许悄悄变少(有人把某个槽改成 None = 悄悄删槽,循环就少跑一次)
-    assert len(seen) == 8, f"幸存槽应 8 个,实得 {len(seen)}:{sorted(seen)}"
+    # ⚠️ 2026-11-22:8 → 11。`symmetry_score` / `left_hand_spread` / `shrug_level`
+    #    由"删"改为"换"(三条新指标各自读一列真测量),于是幸存槽 +3、删槽 −3。
+    #    这条地板值必须跟着涨 —— 它守的是"槽表被改小"这类静默改动。
+    assert len(seen) == 11, f"幸存槽应 11 个,实得 {len(seen)}:{sorted(seen)}"
 
 
 @pytest.mark.parametrize("slot,why_fragment", [
-    ("symmetry_score", "对称"),
     # ⚠️ 2026-10-24 由「产出方」改为「零额外信息」:这一条的结论从
     #    "全系统没人算它"升级成"**不该有人算它**" —— VAD 流畅度的三个分量
     #    在本仓都已有现成指标,其中「平均连续发声长度」与 `pause_rate_per_min`
     #    是**代数恒等**(实测残差 4.4e-16)。理由的完整推导见「甲、3」。
     ("fluency_score", "零额外信息"),
-    ("left_hand_spread", "可见性"),
-    ("shrug_level", "稳定性"),
     ("eye_contact", "未确认"),
     ("n_chars", "速率"),
 ])
 def test_construct_mismatched_slots_are_dropped_with_a_reason(slot, why_fragment):
-    """★ 这 6 个槽**没有**同构念的 L1 指标,必须删,且理由要说到点子上。
+    """★ 这 3 个槽**没有**同构念的 L1 指标,必须删,且理由要说到点子上。
 
-    (`connective_density` 原在本列表里,2026-10-18 T 族落地后改为映射到
-    `discourse_marker_rate` —— 口径有差异,见 `SLOT_MAP` 里的 ⚠️。)
+    ## 2026-11-22:由 6 个变 3 个(**这是被实测推翻,不是放宽标准**)
 
-    红法:把 `left_hand_spread` 映射到 `hand_visible_ratio_l`(看起来"都是手")
-    ⟹ 本条红。那正是本仓历史上把"皱眉"配到垃圾值的那类错误。
+    退出去的三条(`symmetry_score` / `left_hand_spread` / `shrug_level`)当年判
+    "没有同构念的 L1 指标"是对的 —— 那时确实没人给那三列写过指标。
+    但它们要的列**一直在**(`symmetry_score` 44/55 份日志有数、
+    `shrug_level` 50/52、`hand_spread` 38/52),所以判定的对象错了:
+    缺的是"指标",不是"数据"。补上三条指标之后这三条**不再是删槽**,
+    删槽的理由(「L1 没有面部对称性指标」)同时成了假话,所以一并删掉。
+
+    留下来这三条各自仍然因为**构念不同**而删(不是"这一场没测到"):
+    流畅度=零额外信息、眼神接触=关系未确认、详尽度=速率不是总量。
+    判据一字未改。
+
+    红法:把 `eye_contact` 映射到 `gaze_aversion_ratio_vs_baseline`
+    (看起来"都是看哪儿")⟹ 本条红。那正是本仓历史上把"皱眉"配到垃圾值的那类错误。
     """
     l1, reason = l1_mapper.SLOT_MAP[slot]
     assert l1 is None, f"{slot} 不该被映射到 {l1}"
     assert why_fragment in reason
 
 
-def test_eight_slots_survive_and_six_are_dropped():
-    """实测对账结论:**8 换 6 删**(2026-10-18 T 族落地后由 7/7 变为 8/6)。
+def test_eleven_slots_survive_and_three_are_dropped():
+    """实测对账结论:**11 换 3 删**(2026-10-18 由 7/7 变 8/6;2026-11-22 由 8/6 变 11/3)。
 
     数字变了就说明对账被改过,必须重新说明 —— 这就是这条测试的作用。
+    2026-11-22 这 +3 来自三条新指标(`facial_asymmetry_p90` / `hand_openness_p50` /
+    `shrug_elevation_p90`),它们各自读一列**已落盘**的真测量;复核证据见
+    `docs/补强/patch/D1_指标替换_3退3进_说明.md`。
 
-    红法:把 `connective_density` 改回 `None` ⟹ 本条红(回到 7/7)。
+    红法:把 `connective_density` 改回 `None` ⟹ 本条红(回到 10/4)。
     """
     kept = [s for s, (l1, _) in l1_mapper.SLOT_MAP.items() if l1 is not None]
     dropped = [s for s, (l1, _) in l1_mapper.SLOT_MAP.items() if l1 is None]
-    assert len(kept) == 8 and len(dropped) == 6, (kept, dropped)
+    assert len(kept) == 11 and len(dropped) == 3, (kept, dropped)
     assert "connective_density" in kept
 
 
@@ -155,19 +168,87 @@ def test_renormalization_keeps_the_original_proportions():
 
 # ── 4. 维度整体消失 ─────────────────────────────────────────────────────
 
-def test_dimension_with_no_surviving_slot_vanishes_not_an_empty_shell():
-    """★ `confidence_level` 三个槽全删 ⟹ 维度**整体消失**,不留 `0/0` 空壳。
+#: 一个人造的"整维没有对应指标"维度 —— 专供本节的四条测试。
+#:
+#: ## 为什么需要它(2026-11-22)
+#:
+#: 补进三条新指标之后,**生产数据里再没有任何维度会整体消失**:
+#: `confidence_level`(行为表现活跃度)从"3 槽全删"变成"2 槽有指标 + 1 槽如实登记不测",
+#: 于是 `vanished_dimensions` 为空。那是**事实变了**,不是渲染层不印了 ——
+#: 而"整维消失时不许留 0/0 空壳"这条不变量**仍然必须有人守**,否则下一个人
+#: 删掉 `if not res.slots: continue` 时不会有任何测试变红。
+#:
+#: ## 为什么用"借用真删槽"而不是编一个假维度
+#:
+#: 三个槽(`fluency_score` / `eye_contact` / `n_chars`)**就是今天真实没有对应指标的
+#: 那三个** —— 它们的 `SLOT_MAP`/`DROP_REASON`/`SLOT_LABEL` 条目都是真的,
+#: 所以这条测试仍然在验真表,不验一份编出来的表。造出来的只是"它们恰好被分到
+#: 同一个维度里"这一件事。
+_SYNTHETIC_KEY = "synthetic_dead_dimension"
+
+
+@pytest.fixture
+def all_dead_dimension(monkeypatch):
+    """临时加一个三个槽全都没有对应指标的维度(用完即撤)。"""
+    monkeypatch.setitem(l1_mapper.DIMENSIONS, _SYNTHETIC_KEY, {
+        "name": "构造用整维",
+        "slots": {"fluency_score": 0.4, "eye_contact": 0.35, "n_chars": 0.25},
+    })
+    dead = [s for s in ("fluency_score", "eye_contact", "n_chars")
+            if l1_mapper.SLOT_MAP.get(s, (None,))[0] is None]
+    assert len(dead) == 3, (
+        f"构造前提不成立:{dead} 里只有 {len(dead)} 个是真的删槽 —— "
+        "若某个槽恢复了映射,请换一个真删槽来构造,别放宽断言")
+    return _SYNTHETIC_KEY
+
+
+def test_dimension_with_no_surviving_slot_vanishes_not_an_empty_shell(
+        all_dead_dimension):
+    """★ 一个维度的槽全删 ⟹ 该维度**整体消失**,不留 `0/0` 空壳。
+
+    ## 2026-11-22 的改动:被测对象从"`confidence_level` 天然全删"变成"构造一个全删维度"
+
+    原因不是放宽,是**生产数据里已经没有整维消失的维度了**(三条新指标让
+    `行为表现活跃度` 复活到 2/3)。不变量本身一个字没改:全删就该消失。
+    另外这一条仍然守着**真**表:`confidence_level` 现在必须有指标,由下面那条
+    `test_the_confidence_dimension_no_longer_vanishes` 直接钉死。
 
     红法:把 `if not res.slots: continue` 删掉 ⟹ 会返回一个 `matched_indicators="0/0"`
-    的维度,报告里就会多出一行"行为表现活跃度 0/0" —— 读者会以为"本场没测到",
+    的维度,报告里就会多出一行"XX 0/0" —— 读者会以为"本场没测到",
     而真相是"这个维度量的东西当前管线都不测"。
     """
     dims, vanished = l1_mapper.map_l1_to_dimensions([])
-    assert "confidence_level" not in dims
-    assert [v["key"] for v in vanished] == ["confidence_level"]
+    assert all_dead_dimension not in dims
+    assert [v["key"] for v in vanished] == [all_dead_dimension]
 
 
-def test_dropped_slot_reasons_say_construct_mismatch_not_a_coverage_excuse():
+def test_the_confidence_dimension_no_longer_vanishes():
+    """★ 2026-11-22:**`行为表现活跃度` 复活了** —— 3 个槽里 2 个有了对应指标。
+
+    ## 这条为什么必须存在
+
+    上一版这一维整维消失(三个槽全删),而"整维消失"是一句**很强的话**
+    ("这个维度量的东西当前管线都不测")。现在补进 `shrug_elevation_p90` 与
+    `hand_openness_p50` 之后那句话成了假话 ⟹ 必须在**真表**上钉住它已经复活,
+    否则下一个人可能把两条新指标撤掉而没人发现:报告会退回"四维",
+    而那条测试(用构造维度)照样绿。
+
+    红法:把 `shrug_level` 或 `left_hand_spread` 改回 `None` ⟹ 本条红。
+    """
+    dims, vanished = l1_mapper.map_l1_to_dimensions([])
+    assert "confidence_level" in dims, f"这一维又消失了:{[v['key'] for v in vanished]}"
+    assert "confidence_level" not in [v["key"] for v in vanished]
+    d = dims["confidence_level"]
+    assert d.n_slots == 3, d.n_slots
+    # 顺序 = `DIMENSIONS["confidence_level"]["slots"]` 的声明顺序(权重仍是 0.375/0.25/0.375)
+    assert [s["l1"] for s in d.slots] == ["hand_openness_p50", "shrug_elevation_p90"]
+    assert [x["slot"] for x in d.dropped] == ["eye_contact"]
+    # 分母仍是"旧槽总数"(3):读者要比的是"原来 3 个槽,今天过了几个"。
+    assert d.matched_indicators.startswith("0/3")
+
+
+def test_dropped_slot_reasons_say_construct_mismatch_not_a_coverage_excuse(
+        all_dead_dimension):
     """删槽理由必须是「**构念不同**」,不能是「这个没测到」。
 
     ⚠️ 这条原先写成
@@ -185,10 +266,10 @@ def test_dropped_slot_reasons_say_construct_mismatch_not_a_coverage_excuse():
     改成 `"hand_visible_ratio_l 未采集"` ⟹ 第二条断言红。
     """
     _, vanished = l1_mapper.map_l1_to_dimensions([])
-    dropped = vanished[0]["dropped"]
-    # 地板:`confidence_level` 三个槽当前**全部**没有同构念的 L1。
+    dropped = next(v for v in vanished if v["key"] == all_dead_dimension)["dropped"]
+    # 地板:构造进来的三个槽当前**全部**没有同构念的 L1。
     # 没有这句,槽表被清空时下面的循环一次都不进,本测试静默全绿。
-    assert len(dropped) == 3, f"confidence_level 的删槽数变了:{dropped}"
+    assert len(dropped) == 3, f"删槽数变了:{dropped}"
 
     known = _all_l1_names()
     for d in dropped:
@@ -252,11 +333,28 @@ def test_payload_has_no_score_or_level():
 
 
 def test_dropped_slots_appear_as_evidence_gaps():
-    """删掉的槽必须能被读者看见 —— 它们进 `evidence_gaps`,不是消失得无影无踪。"""
+    """删掉的槽必须能被读者看见 —— 它们进 `evidence_gaps`,不是消失得无影无踪。
+
+    ⚠️ 2026-11-22:被测维度从 `stress_resilience` 换成 `communication_fluency`。
+    原来那句 `assert "symmetry_score" in dropped` 现在**依然为真**,但**为真的原因
+    是错的**:`symmetry_score` 已经映射到 `facial_asymmetry_p90`,它出现在
+    `evidence_gaps` 里是因为"本场没有传指标值",不是因为它是删槽。
+    一条"碰巧还成立"的断言比一条红断言更危险 ⟹ 现在分开数:
+    删槽那条(`fluency_score`,真删)与没值那条(映射了但没数)分别断言。
+    """
     dims, _ = l1_mapper.map_l1_to_dimensions([])
-    gaps = dims["stress_resilience"].to_dict()["evidence_gaps"]
-    dropped = {g["slot"] for g in gaps if "slot" in g}
-    assert "symmetry_score" in dropped
+    payload = dims["communication_fluency"].to_dict()
+    dropped = {g["slot"] for g in payload["evidence_gaps"] if "slot" in g}
+    # 真删槽:必须在。
+    assert "fluency_score" in dropped
+    # 已映射、但本场一条指标都没值的槽:也必须在 —— 两种缺口都得说出来。
+    assert "pitch_variation" in dropped
+    # 而且 `symmetry_score` 现在**不是**删槽(它在 `stress_resilience` 的幸存槽里)。
+    assert "symmetry_score" not in dropped
+    stress = dims["stress_resilience"].to_dict()
+    assert [e["indicator"] for e in stress["evidence_chain"]] == [
+        "lip_compression_ratio_vs_baseline", "gesture_activity_per_sec",
+        "facial_asymmetry_p90"]
 
 
 def test_confidence_rank_matches_research_mapper():
@@ -330,15 +428,18 @@ def test_l1_dead_weight_matches_the_slot_map():
     从 2026-10-18 起默认走 L1(`l1_mapper.DIMENSIONS`),旧引擎只剩
     `?engine=legacy` 对照用。两边的槽表同名不同命,实测差这么多:
 
-    | 维度 | 旧引擎 | **L1** | 差在哪 |
+    | 维度 | 旧引擎 | **L1(2026-11-22 起)** | 差在哪 |
     |---|---|---|---|
     | 话语结构特征 | 0.0 | **0.0** | — |
-    | 情境行为稳定性 | 0.0 | **0.25** | `symmetry_score` 在 L1 没有同构念 |
+    | 情境行为稳定性 | 0.0 | **0.0** | `symmetry_score` 已映射(`facial_asymmetry_p90`)⟹ 死权重归零 |
     | 沟通表达流畅度 | 5/7 | **4/7** | L1 只删 `fluency_score` 一条 |
-    | 行为表现活跃度 | 0.0 | **1.0**(维度整体消失) | 三个槽在 L1 全删 |
+    | 行为表现活跃度 | 0.0 | **0.375** | 只剩 `eye_contact` 死;另两个槽补上了指标(**维度不再整体消失**) |
     | 作答过程特征 | 0.0 | **0.4** | `n_chars` 在 L1 没有同构念 |
 
-    ⟹ 五维里**四维**不能拿旧表回答"生产路径上这一维能说什么"。
+    ⟹ 五维里**两维**不能拿旧表回答"生产路径上这一维能说什么"(沟通表达 / 作答过程)。
+    ⚠️ 2026-11-22 之前是三到四维 —— 三条新指标把「情境行为稳定性」与
+    「行为表现活跃度」的死权重压了下去,这张表的"差在哪"因此变窄了。**变窄也是事实,
+    要跟着改**,否则读者会按一张过期的差值表去解释生产路径。
 
     ⚠️ 也正因为这张表是"数槽",它**故意不查 `evidence_gate.QUARANTINE`** ——
     封停表管的是旧引擎的特征键,而实测两条撞名的理由都不成立:
@@ -353,10 +454,12 @@ def test_l1_dead_weight_matches_the_slot_map():
     got = l1_mapper.dead_weight_by_dimension()
     expect = {
         "logical_thinking": ("话语结构特征", 0.0, []),
-        "stress_resilience": ("情境行为稳定性", 0.25, ["symmetry_score"]),
+        # 2026-11-22:`symmetry_score` 由删槽改为映射 ⟹ 死权重 0.25 → 0.0
+        "stress_resilience": ("情境行为稳定性", 0.0, []),
         "communication_fluency": ("沟通表达流畅度", 4 / 7, ["fluency_score"]),
-        "confidence_level": ("行为表现活跃度", 1.0,
-                             ["left_hand_spread", "shrug_level", "eye_contact"]),
+        # 2026-11-22:`left_hand_spread` / `shrug_level` 补上了指标 ⟹
+        # 死权重 1.0(整维消失)→ 0.375(只剩 `eye_contact` 那一份)
+        "confidence_level": ("行为表现活跃度", 0.375, ["eye_contact"]),
         "cognitive_efficiency": ("作答过程特征", 0.4, ["n_chars"]),
     }
     assert set(got) == set(expect), (sorted(got), sorted(expect))
@@ -372,10 +475,13 @@ def test_l1_dead_weight_matches_the_slot_map():
     assert not bad, "L1 死权重与登记不符:\n  " + "\n  ".join(bad)
 
     # 两个方向都要能红:登记表本身必须能区分"删槽"与"没删"。
-    assert got["confidence_level"][1] == 1.0, (
-        "行为表现活跃度在 L1 上三个槽全删 ⟹ 死权重必须是 1.0(维度整体消失);"
+    assert got["confidence_level"][1] == 0.375, (
+        "行为表现活跃度在 L1 上还剩 `eye_contact` 一个删槽 ⟹ 死权重必须是 0.375;"
         f"实测 {got['confidence_level'][1]}")
     assert got["logical_thinking"][1] == 0.0, "话语结构特征在 L1 上三个槽都在"
+    # 反方向对照:一条**真的**全删维度不能也被算成 0 —— 若哪天 `fluency_score`
+    # 恢复映射,上面 4/7 那条会红;这里再钉一条"非零方向"的读数。
+    assert got["communication_fluency"][1] == 4 / 7
 
 
 def test_l1_mapping_does_not_consult_the_legacy_quarantine_table():

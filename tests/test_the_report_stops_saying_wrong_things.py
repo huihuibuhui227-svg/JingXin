@@ -32,6 +32,7 @@ import pytest
 
 import report_frontend.report_generator as report_generator
 from report_frontend.data_loader import LogDataLoader
+from report_frontend import l1_mapper
 from report_frontend.l1_quality import GAP_EXPLANATION
 from report_frontend.l1_report import build_l1_report
 from report_frontend.report_generator import ReportGenerator
@@ -133,29 +134,58 @@ def test_the_series_gap_appears_on_both_code_paths(isolated):
 def test_the_coverage_heading_counts_the_dimensions_in_the_payload(html, isolated):
     """★ 红法:把标题改回字面量「五维」⟹ 这里红。
 
-    地板:空数据下 L1 只出四个维度(第五维整维消失)。没有这句,
-    维度数变化时下面的比对会拿一个凑巧相等的数糊过去。
+    ## ⚠️ 2026-11-22:由"四维"变"五维"
+
+    补进三条新指标之后 `行为表现活跃度` 复活(3 槽里 2 槽有指标)⟹
+    空数据下 L1 出**五个**维度,一个都不消失。标题那句必须跟着载荷走 ——
+    这正是本条守的东西:**维度数是从载荷算的,不是字面量**。
+    (当年那条"标题写死五维而载荷只有四维"的自相矛盾,现在反过来了:
+    字面量恰好等于 5,而判据仍是"标题必须等于载荷算出来的那个数"。)
+
+    地板:空数据下的维度数必须钉死 —— 没有这句,维度数变化时下面的比对
+    会拿一个凑巧相等的数糊过去。
     """
     rec = build_l1_report(_SID, logs={})
     n = len(rec["dimensions"])
-    assert n == 4, f"空数据下的维度数变了:{sorted(rec['dimensions'])}"
+    assert n == 5, f"空数据下的维度数变了:{sorted(rec['dimensions'])}"
+    assert rec["vanished_dimensions"] == [], "又有维度整维消失了"
     body = _text_of(html)
-    assert "四维" in body or "4 维" in body, (
-        f"报告里没有「{n} 个维度」的说法 —— 标题很可能还是写死的「五维」")
-    assert "五维" not in body, "报告里还写着「五维」,而这一场只有四个维度"
+    assert "五维" in body or "5 维" in body, (
+        f"报告里没有「{n} 个维度」的说法 —— 标题很可能还是写死的")
+    assert "四维" not in body and "4 维" not in body, (
+        "报告里写着「四维」,而这一场五个维度都在")
 
 
-def test_the_vanished_dimension_is_not_counted_twice():
+def test_the_vanished_dimension_is_not_counted_twice(monkeypatch, isolated):
     """★ 红法:让标题数 `dimensions + vanished_dimensions` ⟹ 这里红。
 
     消失的那一维**声明了槽但没进 `dimensions`** —— 它在正文里另有一块说明,
     不该再被算进「本次观测的维度」里,否则读者会以为它出了值。
+
+    ## ⚠️ 2026-11-22:被测对象从"真消失的那一维"改成"构造一个消失维度"
+
+    三条新指标补上之后**没有任何维度会整合消失**(见
+    `tests/test_vanished_dimensions_are_printable.py`)。这条不变量仍然必须有人守,
+    所以借三个**真的**没有对应指标的槽(`fluency_score`/`eye_contact`/`n_chars`)
+    构造一个全删维度,再问标题数了几个。判据一字未改:
+
+        len(dimensions) == payload 里真在的维度数(4),
+        标题必须印 4,而不是 5(dimensions + vanished)。
     """
+    monkeypatch.setitem(l1_mapper.DIMENSIONS, "synthetic_dead_dim",
+                        {"name": "构造用整维",
+                         "slots": {"fluency_score": 0.4, "eye_contact": 0.35,
+                                   "n_chars": 0.25}})
     rec = build_l1_report(_SID, logs={})
-    assert rec.get("vanished_dimensions"), "本测试的前提不成立:没有消失的维度"
-    assert len(rec["dimensions"]) + len(rec["vanished_dimensions"]) == 5
+    assert len(rec["vanished_dimensions"]) == 1, (
+        f"构造前提不成立:{[v['key'] for v in rec['vanished_dimensions']]}")
+    # 五维全在 + 构造的那一维消失 ⟹ 载荷里 5 个维度、1 个消失维度。
+    assert len(rec["dimensions"]) == 5
+    assert len(rec["dimensions"]) + len(rec["vanished_dimensions"]) == 6
     out = ReportGenerator(output_dir="/tmp")._coverage_heading(rec)
-    assert "四维" in out or "4 维" in out, out
+    # 标题必须只数 `dimensions`(5),不许把消失那维也加进去(那样会印成「六维」)。
+    assert "五维" in out or "5 维" in out, out
+    assert "六维" not in out and "6 维" not in out, out
 
 
 # ---------------------------------------------------------------------------

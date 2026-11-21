@@ -12,7 +12,12 @@
 |---|---|---|---|
 | `pause_ratio` | `not_produced` | 故意不算 | 与发声占比是**同一个数**(秩相关 0.999)⟹ 不产出是对的 |
 | `micro_exp_rate_per_min` | `column_empty` | 上游没采集这一列 | 列**在**,公式**在**,**没有计算代码** ⟹ 补采也没用 |
-| `response_latency_sec` | `window_none` | 没有可用回答窗口 | 26/38 场没有题目时刻台账 ⟹ 补台账就有,与算力无关 |
+| `response_latency_sec` | `window_none` | 没有可用回答窗口 | **两种病因**:25 场没走题库作答流程、6 场台账在但语音日志空 ⟹ 见 `response_latency_text()` |
+
+第三行是 2026-11-21 改的(上一版对 31 场一律说"多数场次没存题目时刻表")。
+实测 45 场之后:没台账的 27 场语音日志 27/27 全 0 行,而有台账的 18 场里
+**8 场语音日志也是 0 行** —— 那 6 场报 `window_none` 的场次台账明明在盘上,
+"没存题目时刻表"是当众说错话(评审一查 `questions.jsonl` 就露)。
 
 三句通用话都"不算错",却都指向一个**错的补救动作**:去改采集、去等标定、
 去重录。本仓栽过两次的正是这个形态(见 `l1_indicators.GAP_NOT_PRODUCED` 的
@@ -97,15 +102,101 @@ _MICRO = "微表情这两条只有公式、没有计算代码,任何一场都不
 _PAUSE_RATIO = ("停顿占比与发声占比是同一个数换了个算法(秩相关 0.999),"
                 "重复报等于把同一份证据数两遍,直接读发声占比。")
 
-_RESPONSE_LATENCY = ("要的是每题提问结束那一刻,而多数场次没存题目时刻表;"
-                     "补上题目时刻就能算,与算力无关。")
+#: 反应延迟报缺口时的**兜底句**:只在"这一层没拿到诊断事实"时用。
+#:
+#: 2026-11-21 改口的原因:原文案是「要的是每题提问结束那一刻,而多数场次没存题目时刻表;
+#: 补上题目时刻就能算,与算力无关」。实测 45 场之后,这句话里**有两处不成立**:
+#:
+#: * 「没存题目时刻表」不是这条指标的病因 —— 读侧**只读语音日志里的应答时刻**
+#:   (`l1_voice` 那段只取 `reaction_time` 一列),全仓没有任何报告路径按
+#:   `questions.jsonl` 重算;补台账补不出一个"当时没落盘的应答时刻";
+#: * 31 场里有 6 场**台账就在盘上**(`a971`/`0dc7`/`253a`/`4579`/`90e7`/`87c9`),
+#:   对它们说"没存题目时刻表"是当众说错话。
+#:
+#: ⟹ 现在的分工:有诊断事实就按事实选句(`response_latency_text`),没有才用这句。
+#: 这句本身必须**在任何一场都为真**,所以只说"只取这一列 + 没落盘就补不回来",
+#: 不猜是哪一种没落盘。
+_RESPONSE_LATENCY = ("反应延迟只取语音日志里每题的应答时刻,不按题目时刻重算;"
+                     "这一场这个数没落盘,事后补不回来。")
+
+#: 反应延迟的三种病因 —— 按**实测到的诊断事实**选,不按"多数场次"猜。
+#:
+#: 事实由产出方 `l1_voice._rt_gap_detail()` 带出(`gap_detail` 三个键):
+#: `has_ledger`(录像目录里 `questions.jsonl` 在不在)、`voice_rows`(实际加载到的
+#: 语音日志行数)、`rt_col_present`(日志里有没有应答时刻那一列)。
+#:
+#: | 情形 | 判据 | 说法 |
+#: |---|---|---|
+#: | 没走题库作答流程 | 无台账 且 语音 0 行 | `_RT_NO_FLOW` |
+#: | 台账在、日志空 | 有台账 且 语音 0 行 | `_RT_LEDGER_BUT_EMPTY_LOG` |
+#: | 有日志、没那一列 | 语音 > 0 行 | `_RT_VOICE_BUT_NO_COLUMN` |
+_RT_NO_FLOW = ("这场既没有题目台账,也没有逐题语音作答记录:没走题库作答流程,"
+               "反应延迟无从计算,要这个数得下次按流程录。")
+
+_RT_LEDGER_BUT_EMPTY_LOG = ("台账在,但这一场的语音作答日志是空的:"
+                            "应答时刻要采集端当场落盘,这一场补不回来,与算力无关。")
+
+_RT_VOICE_BUT_NO_COLUMN = ("语音作答日志有记录,但没有存应答时刻那一列(或整列空着):"
+                           "反应延迟无从计算,要它只能改采集端。")
 
 SPECIAL: dict[str, dict[str, str]] = {
     "pause_ratio": {"not_produced": _PAUSE_RATIO},
     "micro_exp_rate_per_min": {"column_empty": _MICRO, "no_samples": _MICRO},
     "micro_exp_duration_mean_sec": {"column_empty": _MICRO, "no_samples": _MICRO},
-    "response_latency_sec": {"window_none": _RESPONSE_LATENCY},
+    # `window_none`:没有应答时刻 ⟹ 句子按诊断事实选,这里只是**没事实时的兜底**。
+    # `not_stored`:日志有行、但没有应答时刻那一列(见 `l1_voice` 的收尾那段)——
+    #   这一条无论有没有事实都只有一种病因,所以直接写死在这一格。
+    "response_latency_sec": {"window_none": _RESPONSE_LATENCY,
+                             "not_stored": _RT_VOICE_BUT_NO_COLUMN},
 }
+
+#: 反应延迟这一条会产生缺口的码(其余码的病因与它无关,不许套用这组句子)。
+_RT_GAPS = ("window_none", "not_stored")
+
+
+def response_latency_text(indicator: dict) -> str | None:
+    """反应延迟 → **按实测诊断事实**选一句;不是这一条、或事实不全 ⟹ `None`。
+
+    ## 为什么这一条要单独一个入口
+
+    其余特例按 `(指标名, 缺口码)` 就能定句:一个码只有一种病因。反应延迟不是 ——
+    同一个 `window_none`,在 45 场里有两种完全不同的病因(见 `_RT_*` 三个常量),
+    而**补救动作相反**:没走流程的那批要重录、日志空的那批要查采集端落盘。
+    用一句"多数场次没存题目时刻表"盖住两批,对后一批就是错的。
+
+    ## 判据只有三个,全部来自实测(不许猜)
+
+    见 `l1_voice._rt_gap_detail()`:`has_ledger` / `voice_rows` / `rt_col_present`。
+
+    ## 拿不到事实时返回 `None`
+
+    调用方会退回 `SPECIAL[...][gap]` 那句(它必须在任何一场都为真)。宁可少说一句
+    "为什么",也不许把 `None`(没证据)读成 `False`(实测没有)——
+    `has_ledger is None` 与 `False` 在这里是两条不同的路。
+    """
+    if not isinstance(indicator, dict):
+        return None
+    if indicator.get("name") != "response_latency_sec":
+        return None
+    if indicator.get("gap") not in _RT_GAPS:
+        return None
+    detail = indicator.get("gap_detail")
+    if not isinstance(detail, dict):
+        return None
+    try:
+        rows = int(detail.get("voice_rows"))          # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if rows > 0:
+        # 日志有行 ⟹ 缺的是"应答时刻那一列",与台账在不在无关。
+        return _RT_VOICE_BUT_NO_COLUMN
+    has_ledger = detail.get("has_ledger")
+    if has_ledger is True:
+        return _RT_LEDGER_BUT_EMPTY_LOG
+    if has_ledger is False:
+        return _RT_NO_FLOW
+    return None
+
 
 #: 四个特例指标的名字(供调用方/测试清点,不用自己再列一遍)。
 SPECIAL_NAMES: tuple[str, ...] = tuple(SPECIAL)
@@ -118,21 +209,30 @@ def explain(indicator: dict) -> str | None:
 
     * `name` —— 指标名(`L1Indicator.name`,如 `pause_ratio`);
     * `gap`  —— 缺口码(`L1Indicator.gap` 的 9 个值之一);
+    * `gap_detail` —— (可选)报缺口时实测到的诊断事实,只有反应延迟用得上,
+      见 `response_latency_text()`。不给就退回 `SPECIAL` 那一格。
 
     其它键(`value` / `n_valid` / `window` …)**一概不看**:这一层只解释缺口,
-    不做判断、不改数。传 `L1Indicator.to_dict()` 出来的那一行正好够用。
+    不做判断、不改数。传 `L1Indicator.to_dict()` 出来的那一行正好够用
+    (事实那一个键要调用方另塞,`to_dict()` 不带它 —— 它不进载荷)。
 
     ## 三种返回
 
     | 情形 | 返回 |
     |---|---|
-    | `gap` 是 9 个已登记的码之一 | 一句 ≤60 字的中文解释(特例优先) |
+    | `gap` 是 9 个已登记的码之一 | 一句 ≤60 字的中文解释(特例优先;反应延迟先看事实) |
     | `gap is None` / 空 / 不在 9 类里 | `None` —— **不兜底**,见模块 docstring |
 
     ## 为什么特例只认 `(名字, 码)` 这一对
 
     见 `SPECIAL` 的注释:同一个指标换一个码,病因就换了。硬套会把
     "这一场没答"说成"没存题目时刻",那正是本仓要消灭的"判词比事实更狠"。
+
+    ## 反应延迟为什么还要看事实
+
+    它是唯一一个**同一个码有两种病因**的特例:31 场 `window_none` 里 25 场是
+    "没走题库作答流程"、6 场是"台账在但语音日志空"。前者重录有用,后者是采集端
+    没落盘。用一句话盖住两批,对那 6 场就是错的(见 `response_latency_text`)。
     """
     if not isinstance(indicator, dict):
         return None
@@ -140,6 +240,10 @@ def explain(indicator: dict) -> str | None:
     if not isinstance(gap, str) or gap not in _KINDS:
         return None
     name = indicator.get("name")
+    # 反应延迟要**先看事实再选句**(同一个码两种病因),其余特例按 (名字, 码) 就够。
+    detail_text = response_latency_text(indicator)
+    if detail_text:
+        return detail_text
     if isinstance(name, str):
         hit = SPECIAL.get(name, {}).get(gap)
         if hit:
@@ -178,6 +282,10 @@ def explain_specific(indicator: dict) -> str | None:
     name = indicator.get("name")
     if not isinstance(gap, str) or not isinstance(name, str):
         return None
+    # 同上:反应延迟先看诊断事实(`gap_detail`),没有才退回 `SPECIAL` 那一格。
+    detail_text = response_latency_text(indicator)
+    if detail_text:
+        return detail_text
     return SPECIAL.get(name, {}).get(gap)
 
 

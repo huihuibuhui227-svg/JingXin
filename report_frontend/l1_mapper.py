@@ -33,19 +33,29 @@ L1 那条有公式、有 `n_valid`、有置信度、有 gap。**同名同构念,
 | `au4_frown` | 皱眉(AU4) | `brow_furrow_ratio_vs_baseline` | 换:同构念。⚠️ L1 用 **AU4 < 本人中位数−3·MAD** 的帧占比 —— 眉内距**越小越皱**,方向与本表旧写法相反 |
 | `au23_lip_compression` | 唇部压缩(AU23) | `lip_compression_ratio_vs_baseline` | 换:同构念。⚠️ 同样是**越小越压**(唇红越薄) |
 | `left_wrist_jitter_world` | 腕部抖动(m/s) | `gesture_activity_per_sec` | 换:同一个 landmark jitter 量,L1 把腕/肘/肩合起来(旧槽只看左腕) |
-| `symmetry_score` | 面部对称性 | —— | **删**:L1 无对称性指标 |
+| `symmetry_score` | 面部对称性 | `facial_asymmetry_p90` | **换**(2026-11-22):同构念的面部左右差,但统计量从"均值"换成"上分位",且**含头姿滚转分量** |
 | `fluency_score` | 语音流畅度 | —— | **删**:全系统无产出方(见 `research_mapper.NO_PRODUCER`) |
 | `pitch_variation` | 语调变化 | `pitch_variability_per_sec` | 换:同构念 |
 | `pause_duration` | 平均停顿时长 | `pause_duration_p50` | 换:同构念;中位数比均值稳健 |
-| `left_hand_spread` | 手掌张开度 | —— | **删**:`hand_visible_ratio_l` 是**可见性**,不是张开度 |
-| `shrug_level` | 肩部放松度(耸肩÷肩宽) | —— | **删**:`posture_stability` 是**稳定性**,不是耸肩程度 |
+| `left_hand_spread` | 手掌张开度 | `hand_openness_p50` | **换**(2026-11-22):`hand_spread` 已 ÷ 掌长;逐帧取两侧均值后取中位 |
+| `shrug_level` | 肩部放松度(耸肩÷肩宽) | `shrug_elevation_p90` | **换**(2026-11-22):直接用 `shrug_level` 列,取上分位 |
 | `eye_contact` | 眼神接触比例 | —— | **删**:`gaze_aversion_ratio_vs_baseline` 量的是"偏离占比",与本槽的构念关系**未确认**,不拿它顶替 |
 | `n_chars` | 回答详尽度(字数) | —— | **删**:`speech_rate` 是**字/秒**(速率),不是总量 |
 | `reaction_time` | 反应延迟 | `response_latency_sec` | 换:同构念 |
 
-**结果:14 槽里 8 条换得掉,6 条删**(2026-10-18 T 族落地后,`connective_density`
-由"删"改为"换")。其中 `confidence_level` 维度 3 个槽全删 ⟹
-该维度整体消失。这不是"算不出来",是**那个维度量的是三个当前管线都不测的东西**。
+**结果:14 槽里 11 条换得掉,3 条删**。
+
+> ★ **2026-11-22:由 8 换 6 删变成 11 换 3 删。** 新增映射的三条
+> (`symmetry_score` / `left_hand_spread` / `shrug_level`)不是"凑上去的":
+> 它们要的那三列本来就是已落盘、已归一化的真测量,对应的三条 L1 指标也各自
+> 走同一套"四元证据门"(取窗、最小样本、置信档位)。改动的判据与实测见
+> `docs/补强/patch/D1_指标替换_3退3进_说明.md`。
+>
+> 直接后果:`confidence_level`(行为表现活跃度)**不再整维消失** —— 它 3 个槽里
+> 2 个有对应指标(`eye_contact` 仍然没有,如实登记为"这套采集不测")。
+> 也就是说 `vanished_dimensions` 在本场口径下**为空**:这是**事实**变了,不是
+> 渲染层不印了。指针:整维消失那条通路仍有测试守着(用一个人造的全删维度),
+> 见 `tests/test_vanished_dimensions_are_printable.py`。
 """
 
 from __future__ import annotations
@@ -92,7 +102,16 @@ SLOT_MAP: dict[str, tuple[str | None, str]] = {
         "gesture_activity_per_sec",
         "同一 landmark jitter 量;L1 把腕/肘/肩三关节合起来,旧槽只看左腕"),
     "symmetry_score": (
-        None, "L1 没有面部对称性指标"),
+        # ★ 2026-11-22:从"删"改为"换"。原来的判定是「L1 没有面部对称性指标」——
+        #   那句话在当时成立(F 族 16 条里确实没有一条用"左右差"),
+        #   但 `symmetry_score` 这一列本身**有数**(44/55 份日志非空、已解封、maturity B),
+        #   所以问题不是"没有这个量",而是"没人为它写过指标"。现在写了。
+        # ⚠️ 统计量换了,所以名字必须换:旧 = 那一列的均值(越大越对称),
+        #   新 = p90(1 − symmetry_score)(越大越不对称)。两边历史数字不可相减。
+        "facial_asymmetry_p90",
+        "量的是同一个东西:面部左右差。⚠️ 统计量换了 —— 旧=该列均值(越大越对称),"
+        "新=p90(1 − symmetry_score)(越大越不对称);且**含头姿滚转分量**"
+        "(实测 r(对称度中位, 头滚转角中位) = −0.555, n=29),不与头歪独立"),
     "fluency_score": (
         None,
         # ★ 2026-10-24 裁定:不产出,**理由从"等标定集"改为"零额外信息"**。
@@ -114,9 +133,22 @@ SLOT_MAP: dict[str, tuple[str | None, str]] = {
     "pause_duration": (
         "pause_duration_p50", "同构念:停顿时长;中位数比均值稳健"),
     "left_hand_spread": (
-        None, "hand_visible_ratio_l 量的是**可见性**,不是手掌张开度"),
+        # ★ 2026-11-22:从"删"改为"换"。原判定拿 `hand_visible_ratio_l` 作反例
+        #   (可见性 ≠ 张开度)—— 那条反例**仍然成立**,所以删掉的是那个替代方案,
+        #   不是这个槽:现在用的 `hand_openness_p50` 读的是 `hand_spread` 本身
+        #   (÷掌长、口径干净),与可见性是两列、两个量。
+        # ⚠️ 逐帧取左右两侧均值 ⟹ **不能声称"左手张开度"**(handedness 不明)。
+        "hand_openness_p50",
+        "量的是同一个东西:手掌张开幅度。`hand_spread` = 指尖均值距腕 ÷ 掌长(已归一);"
+        "⚠️ 逐帧取左右两侧均值再取中位 —— handedness 不明时不声称「左手」"),
     "shrug_level": (
-        None, "posture_stability 量的是**姿态稳定性**,不是耸肩程度"),
+        # ★ 2026-11-22:从"删"改为"换"。原判定拿 `posture_stability` 作反例
+        #   (稳定性 ≠ 耸肩程度)—— 同样成立。现在直接读 `shrug_level` 列
+        #   (已 ÷ 肩宽、基线 = 本人全程中位、不截顶),统计量取 p90。
+        "shrug_elevation_p90",
+        "量的是同一个东西:耸肩幅度。`shrug_level` = (本人肩高中位基线 − 双肩均高) ÷ 肩宽;"
+        "⚠️ 统计量从均值换成 p90;基线是本人全程中位 ⟹ 0 表示「与本人平时持平」,"
+        "不是「没耸肩」,故不报占比"),
     "eye_contact": (
         # 名字必须是**真**的 L1 指标名(`gaze_aversion_ratio` 不存在,查不到)。
         None, "gaze_aversion_ratio_vs_baseline 量的是偏离占比;与本槽构念的关系未确认,不顶替"),
@@ -176,11 +208,15 @@ def slot_label(slot: str) -> str:
 #:
 #: ⟹ 两处各有各的话:这里说结论,`SLOT_MAP` 留细节。
 #: 钉子:`tests/test_report_numbers_and_reasons_are_readable.py`。
+#: ⚠️ **2026-11-22 删掉三条**(`symmetry_score` / `left_hand_spread` / `shrug_level`):
+#: 它们不再是删槽,而是映射到了新增的三条指标 ⟹ 这三句"这套采集不测"**都成了假话**,
+#: 留着就会在报告里印出与载荷相反的话。特别是 `symmetry_score` 那条原句
+#: 「这套采集没有测面部左右对不对称」—— 它当年写的是对的(没人为这一列写指标),
+#: 现在被实测推翻:`symmetry_score` 列**在**、44/55 份日志有数。**旧口径被实测推翻**,
+#: 不是措辞升级。删掉之后 `DROP_REASON` 与 `SLOT_MAP` 里 `l1 is None` 的三个槽逐条对齐
+#: (`tests/test_report_numbers_and_reasons_are_readable.py` 对账)。
 DROP_REASON: dict[str, str] = {
-    "symmetry_score": "这套采集没有测面部左右对不对称",
     "fluency_score": "它要的数已经由别的指标各自算过一遍,再报一条只是把同一份证据数两遍",
-    "left_hand_spread": "这套采集只测手有没有被看到,不测手掌张开的幅度",
-    "shrug_level": "这套采集测的是姿态稳不稳,不是耸肩的幅度",
     "eye_contact": "这套采集没有能对得上「眼神接触」的测法,不拿相邻的量顶替",
     "n_chars": "这套采集测的是说话速率(字/秒),不是回答的总字数",
 }
@@ -205,6 +241,14 @@ def drop_reason(slot: str) -> str:
 #:   · 统计量换了(均值 → 中位数、原始标准差 → 极差归一化、单列 → 多列合计、
 #:     presence-once → 出现次数)。
 NOT_COMPARABLE: dict[str, str] = {
+    # ★ 2026-11-22 三条新的(由删槽改为换槽)。三条的**统计量**都换了,
+    #   所以两边历史数字相减没有含义 —— 这一分类不是形式主义,是防止读者减数。
+    "symmetry_score": "旧 = 该列**均值**(越大越对称);新 = **p90(1 − 该列)**"
+                      "(越大越不对称),且混有头姿滚转分量",
+    "left_hand_spread": "旧 = **左手单侧**的均值;新 = **逐帧左右两侧均值**的会话中位"
+                        "(handedness 不明时不声称左手)",
+    "shrug_level": "旧 = 该列**均值**;新 = **p90**;且新口径排除 `shoulder_width` 为空的帧"
+                   "(挡 pose 丢失时的假 0)",
     "connective_density": "旧 = **不同**标记出现过几次(presence-once);新 = 标记**出现总次数**",
     "gaze_direction_x_std": "旧 = 原始标准差;新 = 以会话内极差归一化",
     "au4_frown": "旧 = AU4 绝对量;新 = 相对**本人基线**(中位数−3·MAD)的偏离",
@@ -255,6 +299,18 @@ def comparability_notes() -> list[str]:
 #: ⚠️ 键必须与 `NOT_COMPARABLE` **逐条对齐**(`test_the_plain_comparability_notes_cover_every_slot`)。
 #: 漏登记的槽会退回审计原话 —— 宁可露出英文,也不许把这一条吞掉。
 PLAIN_WHAT: dict[str, str] = {
+    # ★ 2026-11-22 三条新的(给人读版,与 `NOT_COMPARABLE` 逐条对齐)。
+    #    标点用**全角**:这几句直接进交付物正文,而渲染层会把半角 `,` 换成 `，`
+    #    (`report_generator` 的标点统一那一步)。这里先写成全角,报告里与载荷就逐字相同 ——
+    #    否则"载荷里那两个数"与"正文里那两个数"会对不上(`test_the_report_prints_
+    #    the_plain_comparability_notes` 逐行比对)。
+    "symmetry_score":
+        "旧报告数的是左右对称的平均水平，新报告数的是最不对称的那一小截有多不对称，"
+        "而且里面混着一点歪头的分量",
+    "left_hand_spread":
+        "旧报告只数左手，新报告把同一帧的左右两只手平均在一起再取中位",
+    "shrug_level":
+        "旧报告数的是耸肩的平均水平，新报告数的是抬得最高的那一小截抬了多高",
     "connective_density":
         "旧报告数的是「出现过几种不同的连接词」,新报告数的是「连接词一共出现多少次」",
     "gaze_direction_x_std":
@@ -451,6 +507,9 @@ def map_l1_to_dimensions(indicators) -> tuple[dict[str, DimensionResult], list[d
                 "n_valid": ind.n_valid,
                 "n_total": ind.n_total, "confidence": ind.confidence,
                 "unit": getattr(ind, "unit", ""), "gap": ind.gap,
+                # 诊断事实(**不进 `to_dict()`**):只为措辞层选句。dict 入参那条路
+                # 靠 `{**ind}` 自带,这里补上对象那条路,两条路形状一致。
+                "gap_detail": getattr(ind, "gap_detail", None),
                 "human_name": getattr(ind, "formula", ind.name)}
 
     out: dict[str, DimensionResult] = {}
@@ -476,6 +535,13 @@ def map_l1_to_dimensions(indicators) -> tuple[dict[str, DimensionResult], list[d
                 "confidence": "无" if got is None else got.get("confidence", "无"),
                 "gap": ("L1 没有产出这条指标" if got is None
                         else (got.get("gap") or "该指标本场无值")),
+                # ★ 2026-11-21:报缺口时实测到的诊断事实,原样往下交一层 ——
+                #   措辞层(`l1_report._gap_lines`)据此选句。反应延迟同一个
+                #   `window_none` 有两种病因(没走题库流程 / 台账在但语音日志空),
+                #   而正文只有这一条通路拿得到事实。
+                #   **只带不放**:slot 不因此多进任何出口键(`DimensionResult.to_dict()`
+                #   仍然逐键挑),更不影响 `l1.indicators` 的键集。
+                "gap_detail": (got or {}).get("gap_detail"),
             })
 
         if not res.slots:

@@ -43,13 +43,71 @@ def test_there_are_mapped_slots_to_check():
     assert _mapped(), "SLOT_MAP 里没有任何「换」过去的槽 —— 本测试退化为空断言"
 
 
-@pytest.mark.parametrize("slot,l1_name", _mapped(),
-                         ids=[s for s, _ in _mapped()])
+#: **唯一允许两个出口不同名**的槽 —— 理由是**方向相反**,不是措辞偏好。
+#:
+#: ## 为什么必须有这份例外,而且只有一条(2026-11-22)
+#:
+#: `symmetry_score` 槽量的是"面部对称性"(列本身:越大越对称),
+#: 而 `facial_asymmetry_p90` 数的是 `p90(1 − symmetry_score)`(越大越**不**对称)。
+#: 两边同名会让读者把 0.062 读成"对称度 0.062"—— 含义**恰好说反**。
+#: 这与本仓"换构念必须换名"是同一条规矩的另一面:名字必须与它数的方向一致。
+#:
+#: ⚠️ 例外只有这一条,而且**必须带方向证据**:下面除了比对两个名字不同,
+#: 还要确认 `SLOT_MAP` 的理由里写明了方向(「越大越不对称」),以及
+#: `NOT_COMPARABLE` 里登记了这处不可比 —— 否则"不同名"就成了无据的随意改名。
+_DIRECTION_FLIP = {
+    "symmetry_score": ("facial_asymmetry_p90", "越大越不对称"),
+}
+
+
+#: 例外以外的槽 —— 它们的判据是"两边必须同名",一个 assert 恒执行。
+_SAME_NAMED = [(slot, l1) for slot, l1 in _mapped() if slot not in _DIRECTION_FLIP]
+
+
+def test_the_direction_flip_exception_is_not_empty():
+    """例外表非空 —— 否则下面那条分支就是死代码,而它守的是最要紧的一处。
+
+    (`test_assert_coverage` 会抓"声明了却没跑到的 assert";把例外拆成独立用例
+    就是为了让它**每个参数都真的执行**,而不是埋在 `if slot in _DIRECTION_FLIP:`
+    里只跑一次。2026-11-21 被 meta 检查抓过一次,这是修法。)
+    """
+    assert _DIRECTION_FLIP, "例外表空了 —— 那段「不同名」的判据再也不会执行"
+
+
+@pytest.mark.parametrize("slot", sorted(_DIRECTION_FLIP))
+def test_a_direction_flip_slot_is_registered_and_never_same_named(slot):
+    """★ 例外槽(目前只有面部对称性):两边**必须**不同名,且理由要写明方向。
+
+    红法:把 `_DIRECTION_FLIP` 里的 L1 名换成现在映射的那个同名版本 ⟹ 这里红;
+    或把 `SLOT_MAP` 的理由里的方向词删掉 ⟹ 这里红。
+    """
+    from report_frontend.l1_mapper import NOT_COMPARABLE
+
+    want_l1, direction = _DIRECTION_FLIP[slot]
+    l1_name = SLOT_MAP[slot][0]
+    old = slot_label(slot)
+    new = l1_quality.indicator_label(l1_name)
+    assert l1_name == want_l1, (
+        f"例外登记的是 {want_l1!r},而 SLOT_MAP 现在映射到 {l1_name!r} —— 登记过期了")
+    assert new != old, (
+        f"{slot!r} 两边同名(「{new}」),但它数的方向与槽相反 —— 同名会说反意思")
+    assert direction in SLOT_MAP[slot][1], (
+        f"{slot!r} 的映射理由没写清方向(缺「{direction}」):{SLOT_MAP[slot][1]!r}")
+    assert slot in NOT_COMPARABLE, (
+        f"{slot!r} 换了方向却没登记进 NOT_COMPARABLE —— 读者会把两边的数相减")
+
+
+@pytest.mark.parametrize("slot,l1_name", _SAME_NAMED, ids=[s for s, _ in _SAME_NAMED])
 def test_the_two_outlets_call_the_same_quantity_by_the_same_name(slot, l1_name):
     """★ 红法:把 `INDICATOR_LABEL` 里任一条改名 ⟹ 这里红。
 
     同一个量,旧报告叫「语调变化」、新报告叫「音高波动」—— 读者会以为是两个指标,
     复核的人会去查一个不存在的对应关系。
+
+    ⚠️ 这条**只覆盖"应该同名"的槽**;方向相反那一处(面部对称性)由
+    `test_a_direction_flip_slot_is_registered_and_never_same_named` 单独守。
+    拆开的原因:`test_assert_coverage` 只认"真的被执行过的断言",把两种相反的
+    判据塞进一个函数、靠 `if` 分岔,会让其中一半断言永远跑不到。
     """
     old = slot_label(slot)
     new = l1_quality.indicator_label(l1_name)

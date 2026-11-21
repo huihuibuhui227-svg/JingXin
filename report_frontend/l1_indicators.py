@@ -82,7 +82,11 @@ KINDS = (GAP_UNCALIBRATED, GAP_COLUMN_EMPTY, GAP_MODALITY_MISSING,
 
 @dataclass
 class L1Indicator:
-    """一条会话级（或回答窗口级）指标。字段集固定,不要随手加。"""
+    """一条会话级（或回答窗口级）指标。字段集固定,不要随手加。
+
+    固定的是**要发出去的**那 11 个键(`to_dict()`)。唯一的例外是 `gap_detail`:
+    它不发货,只把"这一场实测到的诊断事实"从计算层递给措辞层,理由见字段注释。
+    """
 
     name: str
     family: str
@@ -95,6 +99,21 @@ class L1Indicator:
     n_total: int = 0
     confidence: str = "无"
     gap: str | None = None
+    #: 报缺口时**实测到的诊断事实**(计算阶段才知道的那几个数)。
+    #:
+    #: 为什么单列一个字段而不是塞进 `gap`:缺口码只有 9 个、由
+    #: `l1_indicators.KINDS` 登记,不许为了"多带一句解释"扩一个码;而同一个码
+    #: (`window_none`)在不同场次可以是**三种完全不同的病因**(见
+    #: `gap_explanations._RESPONSE_LATENCY_BY_EVIDENCE`)。这个字段只做一件事:
+    #: 把"这一场实测到的事实"从计算层交到措辞层,让句子按证据选。
+    #:
+    #: ⚠️ **它不进 `to_dict()`** —— 明细行(`l1.indicators`)的键集是既有契约
+    #: (`tests/test_gap_explanations.py` 里那条"新增键只允许仪器来源两键"的断言
+    #: 就钉在这里)。诊断事实是**选句的依据**,不是报告要发的载荷。
+    #:
+    #: 约定:`None` 表示"这一层没拿到证据",**不等于**"事实是否定的"。
+    #: 措辞层据此退回不带因果判断的说法(见 `explain()` 的三种返回)。
+    gap_detail: dict | None = None
 
     def __post_init__(self) -> None:
         if self.confidence not in CONFIDENCE:
@@ -160,11 +179,17 @@ def confidence_for(n_valid: int, n_total: int, threshold: int) -> str:
 
 
 def unavailable(name: str, family: str, formula: str, required_l0: tuple[str, ...],
-                window: str, unit: str, gap: str, n_total: int = 0) -> L1Indicator:
-    """"这个指标这一轮算不出来"的标准构造。**不许**为了凑一个有值而绕开它。"""
+                window: str, unit: str, gap: str, n_total: int = 0,
+                gap_detail: dict | None = None) -> L1Indicator:
+    """"这个指标这一轮算不出来"的标准构造。**不许**为了凑一个有值而绕开它。
+
+    `gap_detail` 可选:报缺口时**实测到的**诊断事实(见 `L1Indicator.gap_detail`)。
+    不给就是 `None` —— 措辞层会退回不带因果判断的说法,不许拿 `None` 当"事实是否定的"。
+    """
     return L1Indicator(name=name, family=family, formula=formula, required_l0=required_l0,
                        window=window, unit=unit, value=math.nan,
-                       n_valid=0, n_total=n_total, confidence="无", gap=gap)
+                       n_valid=0, n_total=n_total, confidence="无", gap=gap,
+                       gap_detail=gap_detail)
 
 
 def measured(name: str, family: str, formula: str, required_l0: tuple[str, ...],

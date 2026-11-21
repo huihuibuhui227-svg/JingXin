@@ -34,10 +34,12 @@ HTML 更权威、或者以为那一维本来就只算四个。
 """
 from __future__ import annotations
 
+import copy
 import re
 
 import pytest
 
+import report_frontend.l1_mapper as l1_mapper
 import report_frontend.report_generator as report_generator
 from report_frontend.data_loader import LogDataLoader
 from report_frontend.l1_mapper import SLOT_MAP
@@ -53,18 +55,45 @@ def _text_of(html: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", body))
 
 
+#: 构造用的"整维没有对应指标"维度键(用完即撤)。
+_SYNTHETIC_KEY = "synthetic_dead_dimension"
+
+
 @pytest.fixture
-def payload(monkeypatch, tmp_path):
-    """空数据载荷 —— 它一定带着那个消失的维度。
+def isolated(monkeypatch, tmp_path):
+    """三条旁路都指到空目录 —— "空数据"这件事本身得先成立。"""
+    monkeypatch.setenv("JINGXIN_RECORDINGS_DIR", str(tmp_path / "no_rec"))
+    monkeypatch.setenv("JINGXIN_SERIES_DIR", str(tmp_path / "no_series"))
+    return tmp_path
+
+
+@pytest.fixture
+def payload(isolated, monkeypatch):
+    """空数据载荷 + **一个构造出来的**整维消失维度。
+
+    ## ⚠️ 2026-11-22:为什么改成构造
+
+    补进三条新指标之后,生产数据里**再没有任何维度整体消失**
+    (`行为表现活跃度` 从"3 槽全删"变成"2 槽有指标")。而"整维消失要在 HTML 里
+    说出来"这条判据仍然必须有人守。构造借的三个槽(`fluency_score` /
+    `eye_contact` / `n_chars`)是今天真的没有对应指标的那三个 ——
+    所以验的仍是真表(`SLOT_LABEL` / `DROP_REASON`),造出来的只是
+    "它们同属一个维度"这一件事。生产侧"一个都不消失"由
+    `tests/test_vanished_dimensions_are_printable.py::test_the_real_payload_no_longer_vanishes_any_dimension` 钉着。
 
     ⚠️ 三条旁路都得指到空目录,否则本机盘上的真实日志会让维度活过来,
     本测试的前提就不成立了(见 `tests/test_report_gaps_are_readable.py` 的同类说明)。
     """
-    monkeypatch.setenv("JINGXIN_RECORDINGS_DIR", str(tmp_path / "no_rec"))
-    monkeypatch.setenv("JINGXIN_SERIES_DIR", str(tmp_path / "no_series"))
+    # `map_l1_to_dimensions` 在**调用时**读模块级 `DIMENSIONS`
+    # ⟹ 这里改的那张表就是装配时用到的同一张(HTML 那条路也一样,它内部也调
+    # `build_l1_report`)。用完由 monkeypatch 自动撤回。
+    monkeypatch.setitem(l1_mapper.DIMENSIONS, _SYNTHETIC_KEY, {
+        "name": "构造用整维",   # ≤6 字:雷达图轴名会截断(见 report_generator)
+        "slots": {"fluency_score": 0.4, "eye_contact": 0.35, "n_chars": 0.25},
+    })
     got = build_l1_report(_SID, logs={})
-    assert got["vanished_dimensions"], (
-        "这份载荷里没有消失的维度 —— 本测试退化为空断言")
+    assert [v["key"] for v in got["vanished_dimensions"]] == [_SYNTHETIC_KEY], (
+        f"消失的维度不是构造进来的那一个:{[v['key'] for v in got['vanished_dimensions']]}")
     return got
 
 
@@ -146,15 +175,32 @@ def test_the_vanished_block_names_no_internal_slot_key(html):
     assert not leaked, f"「整维未出」那一块里露出了内部槽键:{leaked}"
 
 
-def test_radar_axis_uses_the_dimension_name_not_unknown(payload):
+def test_radar_axis_uses_the_dimension_name_not_unknown(isolated, monkeypatch):
     """★ 红法:把 `_build_radar_figure` 里的 `"未知"` 改回来 ⟹ 这里红。
 
     `未知` 读起来是"这一场没测到";真相是"这一维量的东西当前管线都不测"。
     两种话在图上长得一样,含义相反 —— 轴名该用它自己的名字。
+
+    ## ⚠️ 2026-11-22:为什么用"把真维度挪进 vanished"而不是那个构造维度
+
+    `_build_radar_figure` 只认 `DIMENSIONS` 里那**五个固定键**(它按
+    `dim_order = ['logical_thinking', 'stress_resilience', …]` 逐根画轴),
+    所以"构造一个第六维"在雷达图上**根本不会出现轴** —— 用它测这条会变成
+    空断言(实测:轴里确实没有构造那根,而断言失败的原因与"未知"无关)。
+    ⟹ 这里把**真载荷**里的 `confidence_level` 整块挪进 `vanished_dimensions`:
+    形状与"当年这一维真的整维消失"逐键相同,而且落在 `dim_order` 认的键上。
     """
-    fig = ReportVisualizer(output_dir="/tmp")._build_radar_figure(payload)
+    real = build_l1_report(_SID, logs={})
+    assert "confidence_level" in real["dimensions"], "构造前提:这一维现在是活的"
+    fake = copy.deepcopy(real)
+    dim = fake["dimensions"].pop("confidence_level")
+    fake["vanished_dimensions"] = [{
+        "key": "confidence_level", "display_name": dim["display_name"],
+        "n_slots": 3, "dropped": [], "reason": "构造:整维没有对应指标",
+    }]
+
+    fig = ReportVisualizer(output_dir="/tmp")._build_radar_figure(fake)
     theta = list(fig.data[0].theta)
     assert "未知" not in theta, f"雷达图上出现了「未知」轴:{theta}"
-    for v in payload["vanished_dimensions"]:
-        assert any(v["display_name"] in t for t in theta), (
-            f"雷达图上没有「{v['display_name']}」这根轴:{theta}")
+    assert dim["display_name"] in theta, (
+        f"雷达图上没有「{dim['display_name']}」这根轴:{theta}")

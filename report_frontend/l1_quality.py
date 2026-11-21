@@ -33,7 +33,6 @@ from report_frontend.l1_indicators import (
 )
 
 #: 每个指标族依赖哪些模态。**这是唯一的登记处** —— 别处不许再抄一份。
-#: 目前只有 F 族(面部);V / G / T 族落地时在这里加行。
 FAMILY_MODALITY = {
     "F1_smile": "face",
     "F2_gaze": "face",
@@ -41,10 +40,17 @@ FAMILY_MODALITY = {
     "F4_head": "face",
     "F5_tension": "face",
     "F6_expressivity": "face",
-    "F7_micro": "face",
+    # ★ 2026-11-22:退掉 `F7_micro`(它的两条指标 `micro_exp_*` 从没出过值,
+    #   已随指标一起退),补进 `F8_symmetry`(`facial_asymmetry_p90`)。
+    #   留着一条**没有产出方**的族登记,会让"这一族依赖哪个模态"这张表
+    #   悄悄多一行没人验证的声明 —— 本仓对死登记一向是删而不是留。
+    "F8_symmetry": "face",
     "G1_activity": "gesture",
     "G2_posture": "gesture",
     "G3_visibility": "gesture",
+    # ★ 2026-11-22:`hand_openness_p50` 的族。它是**同一 G 族内的新 family 名**,
+    #   不是新缺口族(缺口码仍只有 9 类)。
+    "G4_hand": "gesture",
     "V1_amount": "voice",
     "V2_pause": "voice",
     "V3_pitch": "voice",
@@ -284,7 +290,12 @@ def build_quality_report(result) -> QualityReport:
             fam["n_measured"] += 1
         row = ind.to_dict()
         # 新增键(**不动任何既有键**):这条指标为什么没有值/为什么不可信。
-        row["gap_explanation"] = gap_explanations.explain(row)
+        # ★ 2026-11-21:选句改成"按实测诊断事实"。反应延迟同一个码有两种病因
+        #   (没走题库流程 / 台账在但语音日志空),拿不到事实才退回通用特例句。
+        #   `gap_detail` 只**递给解释层**、不进 `row` —— 明细行的键集是既有契约
+        #   (`tests/test_gap_explanations.py` 那条"新增键只允许仪器来源两键"钉着它)。
+        row["gap_explanation"] = gap_explanations.explain(
+            {**row, "gap_detail": getattr(ind, "gap_detail", None)})
         rows.append(row)
 
     # ★ A5 仪器来源披露(2026-11-21):**装配点就在这里**。
@@ -365,13 +376,26 @@ INDICATOR_LABEL: dict[str, str] = {
     "lip_compression_ratio_vs_baseline": "唇部压缩",
     "au_activation_any_ratio": "面部动作活跃帧占比",
     "au_variability_per_sec": "面部动作变化速度",
-    "micro_exp_rate_per_min": "微表情次数",
-    "micro_exp_duration_mean_sec": "微表情时长",
+    # ★ 2026-11-22 换人:`micro_exp_rate_per_min`("微表情次数")/
+    #   `micro_exp_duration_mean_sec`("微表情时长")**退役**(全语料 0 场出值),
+    #   由 `facial_asymmetry_p90` 承接 F 族这一格。
+    #   ⚠️ 这一条与 `l1_mapper.SLOT_LABEL["symmetry_score"]` =「面部对称性」**故意不同名**:
+    #   指标数的是 `1 − symmetry_score`,**方向相反**(值越大越不对称)。
+    #   同名会让读者把 0.062 读成"对称度 0.062"(极不对称),恰好说反。
+    #   这是本仓唯一登记在案的"同一构念、两个出口不同名"的情形,由
+    #   `tests/test_indicator_names_agree_with_slot_names.py` 的 `_DIRECTION_FLIP` 钉着。
+    "facial_asymmetry_p90": "面部不对称度",
     # G 族(手势)
     "gesture_activity_per_sec": "腕部抖动",
     "gesture_burst_rate_per_min_vs_baseline": "手势爆发频率",
     "posture_stability": "姿态稳定性",
     "postural_shift_rate_per_min_vs_baseline": "姿态变换频率",
+    # ⚠️ 这两条**与槽名逐字相同**(「肩部放松度」/「手掌张开度」):构念没变,
+    #   变的只是统计量(均值 → p90 / 中位),与 `pause_duration` → `pause_duration_p50`
+    #   那次处置一致(统计量写在 `formula` 里,不进名字)。
+    #   由 `tests/test_indicator_names_agree_with_slot_names.py` 逐条对账。
+    "shrug_elevation_p90": "肩部放松度",
+    "hand_openness_p50": "手掌张开度",
     "hand_visible_ratio_l": "左手可见占比",
     "hand_visible_ratio_r": "右手可见占比",
     "pose_valid_ratio": "姿态可读帧占比",
@@ -381,7 +405,8 @@ INDICATOR_LABEL: dict[str, str] = {
     "pause_rate_per_min": "停顿频率",
     "pause_duration_p50": "平均停顿时长",
     "pause_duration_p90": "长停顿时长",
-    "pause_ratio": "停顿占比",
+    # ★ 2026-11-22:`pause_ratio`("停顿占比")退役 —— 与 `voiced_ratio` 代数恒等
+    #   (`1/voiced_ratio − 1`,残差 4.4e-16)。V 族由 12 条变 11 条。
     "response_latency_sec": "反应延迟",
     "pitch_median": "音高中位数",
     "pitch_range_semitone": "音高跨度",
@@ -425,6 +450,19 @@ LOW_CONFIDENCE_REASON: dict[str, str] = {
         "这一条数的是「动了几段」,不是「看了几帧」。整场只出现了两三次"
         "超过本人基线的连续动作段,样本太少,频率的不确定度就大。"
         "这不是算错:整场确实只动了这么几次。"),
+    # ★ 2026-11-22 补三条(新指标)。三条的「低」都是**帧数不够**,不是"这一场没测到":
+    #   它们的门槛是 30 帧(与同族一致),而取景会决定帧数 —— 手没入画、肩被裁掉、
+    #   脸被裁掉,都会让帧数停在十几帧。读者的下一步动作因此是"下次把取景拍全",
+    #   不是"再等一场"。措辞按 `LOW_CONFIDENCE_REASON` 的规矩:不写字段名、不点内部键。
+    "shrug_elevation_p90": (
+        "这一条要看到足够多帧的肩膀才算得稳,本场带肩膀读数的帧太少。"
+        "这不是没耸肩,而是看得太短;另外它是相对本人平时的高度,不跨场比。"),
+    "hand_openness_p50": (
+        "本场手出现在画面里的帧太少,中位数只建立在很短的一段上。"
+        "手没入画不等于手掌没张开,所以这条只当参考。"),
+    "facial_asymmetry_p90": (
+        "本场带面部左右差读数的帧太少,上分位估计不稳。"
+        "另外这一条里混着头歪的分量,只在本场内比较,不跨场比。"),
     "postural_shift_rate_per_min_vs_baseline": (
         "同上:这一条数的是「动了几段」,整场只出现两三次,所以置信低。"
         "另外它与「手势爆发频率」高度相关 —— 13 场里有 9 场两者取到相同的段数,"

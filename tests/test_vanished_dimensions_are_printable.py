@@ -1,5 +1,19 @@
 """`vanished_dimensions` 的载荷要给前端**能直接印**的名字与理由。
 
+## ⚠️ 2026-11-22:生产数据里**已经没有整维消失的维度了**
+
+补进三条新指标(`facial_asymmetry_p90` / `hand_openness_p50` / `shrug_elevation_p90`)之后,
+`行为表现活跃度` 从"3 槽全删"变成"2 槽有指标 + 1 槽如实登记不测" ⟹
+`build_l1_report(...)["vanished_dimensions"]` 现在是**空列表**。
+(这不是渲染层不印了,是事实变了 —— 载荷里加一条
+`test_the_real_payload_no_longer_vanishes_any_dimension` 把这个新事实钉住。)
+
+而"消失时必须能印人话"这条规矩**仍然必须有人守** —— 下一个人删掉
+`_printable_vanished` 那一步时不该有任何测试变绿。所以本文件改成:
+**用一个构造出来的"整维没有对应指标"维度**跑真装配,再验那四个判据。
+构造借的三个槽(`fluency_score` / `eye_contact` / `n_chars`)是今天**真的**
+没有对应指标的那三个,所以验的仍是真表(`SLOT_LABEL` / `DROP_REASON` / `SLOT_MAP`)。
+
 ## 为什么
 
 `l1_mapper.map_l1_to_dimensions` 产出的 `vanished_dimensions` 长这样:
@@ -37,11 +51,14 @@ import re
 
 import pytest
 
-from report_frontend import l1_face, l1_gesture, l1_text, l1_voice
+from report_frontend import l1_face, l1_gesture, l1_mapper, l1_text, l1_voice
 from report_frontend.l1_mapper import DROP_REASON, SLOT_LABEL, SLOT_MAP
 from report_frontend.l1_report import build_l1_report
 
 _SID = "20260101_000000_0000"
+
+#: 构造用的维度键(只在 `vanished` fixture 里存在于 `DIMENSIONS`)。
+_SYNTHETIC_KEY = "synthetic_dead_dimension"
 
 
 def _all_l1_names() -> set[str]:
@@ -51,11 +68,44 @@ def _all_l1_names() -> set[str]:
 
 @pytest.fixture
 def vanished(monkeypatch, tmp_path):
+    """一个**真的整维没有对应指标**的维度 —— 走完整装配,不是手拼 dict。
+
+    三个槽都是今天真的删槽(见模块 docstring);构造的只是"它们同属一个维度"。
+    """
     monkeypatch.setenv("JINGXIN_RECORDINGS_DIR", str(tmp_path / "no_rec"))
     monkeypatch.setenv("JINGXIN_SERIES_DIR", str(tmp_path / "no_series"))
+    monkeypatch.setitem(l1_mapper.DIMENSIONS, _SYNTHETIC_KEY, {
+        "name": "构造用整维",
+        "slots": {"fluency_score": 0.4, "eye_contact": 0.35, "n_chars": 0.25},
+    })
     got = build_l1_report(_SID, logs={})["vanished_dimensions"]
-    assert got, "载荷里没有消失的维度 —— 本测试退化为空断言"
+    assert [v["key"] for v in got] == [_SYNTHETIC_KEY], (
+        f"消失的维度不是构造进来的那一个:{[v['key'] for v in got]}")
     return got
+
+
+def test_the_real_payload_no_longer_vanishes_any_dimension(monkeypatch, tmp_path):
+    """★ 2026-11-22 的新事实:**没有任何维度整体消失**了。
+
+    `行为表现活跃度` 复活到 2/3(`shrug_elevation_p90` + `hand_openness_p50`),
+    `情境行为稳定性` 补满 3/3(`facial_asymmetry_p90`)⟹ 五个维度全在 `dimensions` 里。
+
+    为什么这条要单独存在:上面四条测试用**构造**的维度跑(因为生产数据里没有了)。
+    若哪天有人把三条新指标撤掉,那四条**照样绿**(它们不读真表),而报告会悄悄
+    退回"四维"。这条就是那个缺口的地板。
+
+    红法:把 `left_hand_spread` 或 `shrug_level` 改回 `None` ⟹ 本条红。
+    """
+    monkeypatch.setenv("JINGXIN_RECORDINGS_DIR", str(tmp_path / "no_rec"))
+    monkeypatch.setenv("JINGXIN_SERIES_DIR", str(tmp_path / "no_series"))
+    rec = build_l1_report(_SID, logs={})
+    assert rec["vanished_dimensions"] == [], (
+        f"又有维度消失了:{[v['key'] for v in rec['vanished_dimensions']]}")
+    assert len(rec["dimensions"]) == 5, sorted(rec["dimensions"])
+    assert rec["coverage"]["n_no_indicator"] == 0
+    assert rec["coverage"]["n_not_measured"] == 3
+    assert rec["coverage"]["n_measurable"] == 11
+    assert rec["coverage"]["n_slots"] == 14
 
 
 def test_every_dropped_slot_carries_a_human_name_and_plain_reason(vanished):

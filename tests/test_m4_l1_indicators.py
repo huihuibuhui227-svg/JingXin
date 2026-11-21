@@ -222,8 +222,16 @@ def test_any_activation_is_measurable_where_the_joint_and_was_degenerate():
 
 # ── 5. 条数恒定 ──────────────────────────────────────────────────────────
 
-def test_family_always_reports_sixteen_indicators_per_window():
-    """★ 不管有没有数据,条数恒定 16 —— 不列出来等于让人以为 F 族不存在。
+def test_family_always_reports_fifteen_indicators_per_window():
+    """★ 不管有没有数据,条数恒定 15 —— 不列出来等于让人以为 F 族不存在。
+
+    ⚠️ **2026-11-22 由 16 变 15**,不是放宽断言,是**条数真的变了**:
+    F 族退掉 2 条从未出过值的 `micro_exp_*`(全语料 0 场出值,不是"样本不够",
+    是**没有计算代码**)、补进 1 条 `facial_asymmetry_p90` ⟹ 16 − 2 + 1 = **15**。
+    四族合计仍是 **38**(F15 + G9 + V11 + T3),由下面
+    `test_indicator_inventory_matches_the_spec` 继续钉死。
+    判据本身没变:条数必须**恒定**(有数据、没数据都 15),少一条就是"补成不可出"
+    那段被删了。
 
     红法:在 `_family_for_window` 里把"补成不可出"那段删掉 ⟹ 缺列的窗口条数变少,本条红。
     """
@@ -235,21 +243,25 @@ def test_family_always_reports_sixteen_indicators_per_window():
     })
     inds_full = l1_face.compute_face_indicators(
         full, _windows((-1.0, 999.0)), pd.Series(np.arange(n, dtype=float)))
-    assert len([i for i in inds_full if i.window == "answer:0"]) == 16
+    assert len([i for i in inds_full if i.window == "answer:0"]) == 15
 
     empty = pd.DataFrame({"is_blink": [np.nan] * n})
     inds_empty = l1_face.compute_face_indicators(
         empty, _windows((-1.0, 999.0)), pd.Series(np.arange(n, dtype=float)))
     got = [i for i in inds_empty if i.window == "answer:0"]
-    assert len(got) == 16
+    assert len(got) == 15
     assert all(not i.has_value for i in got), "没数据时不许有一条出值"
 
 
 def test_no_windows_still_reports_the_family_under_session():
-    """戊-15 那 26 场:没有回答窗口,但 16 条仍要以 `session` 名义出现。"""
+    """戊-15 那 26 场:没有回答窗口,但 15 条仍要以 `session` 名义出现。
+
+    ⚠️ 2026-11-22:16 → 15(退 2 条 `micro_exp_*`、补 1 条 `facial_asymmetry_p90`)。
+    判据没变:没有窗口时**一条都不许少**。
+    """
     ws = WindowSet(session_id="s", granularity="session", windows=[], gap="没有台账")
     inds = l1_face.compute_face_indicators(None, ws, None)
-    assert len(inds) == 16
+    assert len(inds) == 15
     assert all(i.window == "session" for i in inds)
 
 
@@ -303,7 +315,15 @@ def test_all_nan_head_columns_report_no_samples_not_zero_motion():
 # ── 5. 指标清单本身必须被钉住 ────────────────────────────────────────────
 
 def test_indicator_inventory_matches_the_spec():
-    """★ 四族条数合计 = 38(F 16 / G 7 / V 12 / T 3),且名字不许跨族重名。
+    """★ 四族条数合计 = 38(F 15 / G 9 / V 11 / T 3),且名字不许跨族重名。
+
+    ⚠️ **2026-11-22:族分布变了,总数没变**(这是本次改动的承重墙):
+    F 16→15(退 2 条 `micro_exp_*`、补 `facial_asymmetry_p90`)、
+    G 7→9(补 `shrug_elevation_p90` / `hand_openness_p50`)、
+    V 12→11(退 `pause_ratio`,与 `voiced_ratio` 代数恒等)、T 3 不变。
+    15 + 9 + 11 + 3 = **38** —— 所以下面的 `sum == 38` 一个字符都没放宽;
+    变的是那三个分项。三条被退的指标复核证据见
+    `docs/补强/patch/D1_指标替换_3退3进_说明.md`。
 
     ## 为什么需要这一条
 
@@ -323,7 +343,7 @@ def test_indicator_inventory_matches_the_spec():
         "T": l1_text.ORDER,
     }
     counts = {k: len(v) for k, v in fams.items()}
-    assert counts == {"F": 16, "G": 7, "V": 12, "T": 3}, counts
+    assert counts == {"F": 15, "G": 9, "V": 11, "T": 3}, counts
     assert sum(counts.values()) == 38, counts
 
     # 跨族重名会让报告里两行同名、`rowKey` 撞车 —— 前端表格的 key 就是名字。
