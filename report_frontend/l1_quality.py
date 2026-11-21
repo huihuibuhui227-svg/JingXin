@@ -390,11 +390,13 @@ INDICATOR_LABEL: dict[str, str] = {
     "gesture_burst_rate_per_min_vs_baseline": "手势爆发频率",
     "posture_stability": "姿态稳定性",
     "postural_shift_rate_per_min_vs_baseline": "姿态变换频率",
-    # ⚠️ 这两条**与槽名逐字相同**(「肩部放松度」/「手掌张开度」):构念没变,
+    # ⚠️ 这两条**与槽名逐字相同**(「耸肩幅度」/「手掌张开度」):构念没变,
     #   变的只是统计量(均值 → p90 / 中位),与 `pause_duration` → `pause_duration_p50`
     #   那次处置一致(统计量写在 `formula` 里,不进名字)。
+    #   `shrug_level` 的槽名 2026-11-21 由「肩部放松度」改为「耸肩幅度」:列越大 = 越耸肩,
+    #   原名把方向说反(与 `_DIRECTION_FLIP` 那条规矩同源)。
     #   由 `tests/test_indicator_names_agree_with_slot_names.py` 逐条对账。
-    "shrug_elevation_p90": "肩部放松度",
+    "shrug_elevation_p90": "耸肩幅度",
     "hand_openness_p50": "手掌张开度",
     "hand_visible_ratio_l": "左手可见占比",
     "hand_visible_ratio_r": "右手可见占比",

@@ -38,7 +38,7 @@ L1 那条有公式、有 `n_valid`、有置信度、有 gap。**同名同构念,
 | `pitch_variation` | 语调变化 | `pitch_variability_per_sec` | 换:同构念 |
 | `pause_duration` | 平均停顿时长 | `pause_duration_p50` | 换:同构念;中位数比均值稳健 |
 | `left_hand_spread` | 手掌张开度 | `hand_openness_p50` | **换**(2026-11-22):`hand_spread` 已 ÷ 掌长;逐帧取两侧均值后取中位 |
-| `shrug_level` | 肩部放松度(耸肩÷肩宽) | `shrug_elevation_p90` | **换**(2026-11-22):直接用 `shrug_level` 列,取上分位 |
+| `shrug_level` | 耸肩幅度(÷肩宽,越大越耸肩) | `shrug_elevation_p90` | **换**(2026-11-22):直接用 `shrug_level` 列,取上分位 |
 | `eye_contact` | 眼神接触比例 | —— | **删**:`gaze_aversion_ratio_vs_baseline` 量的是"偏离占比",与本槽的构念关系**未确认**,不拿它顶替 |
 | `n_chars` | 回答详尽度(字数) | —— | **删**:`speech_rate` 是**字/秒**(速率),不是总量 |
 | `reaction_time` | 反应延迟 | `response_latency_sec` | 换:同构念 |
@@ -178,7 +178,9 @@ SLOT_LABEL: dict[str, str] = {
     "pitch_variation": "语调变化",
     "pause_duration": "平均停顿时长",
     "left_hand_spread": "手掌张开度",
-    "shrug_level": "肩部放松度",
+    # ⚠️ 2026-11-21:原名「肩部放松度」把方向说反了 —— `shrug_level` 越大 = 抬得越高
+    #   (= 越耸肩)。名字必须与它数的方向一致(本仓的 `_DIRECTION_FLIP` 规矩)。
+    "shrug_level": "耸肩幅度",
     "eye_contact": "眼神接触比例",
     "n_chars": "回答详尽度",
     "reaction_time": "反应延迟",
