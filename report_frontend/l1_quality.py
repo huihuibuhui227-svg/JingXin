@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from report_frontend import gap_explanations, session_timeline
+from report_frontend import gap_explanations, instrument_provenance, session_timeline
 from report_frontend.l1_indicators import (
     CONFIDENCE, GAP_COLUMN_EMPTY, GAP_MODALITY_MISSING, GAP_NO_SAMPLES,
     GAP_NOT_EXTRACTED, GAP_NOT_PRODUCED, GAP_NOT_STORED, GAP_TIME_UNUSABLE,
@@ -286,6 +286,30 @@ def build_quality_report(result) -> QualityReport:
         # 新增键(**不动任何既有键**):这条指标为什么没有值/为什么不可信。
         row["gap_explanation"] = gap_explanations.explain(row)
         rows.append(row)
+
+    # ★ A5 仪器来源披露(2026-11-21):**装配点就在这里**。
+    #
+    # ## 为什么是这一行
+    #
+    # 38 条指标的形状在这里第一次定型(`L1Indicator` → `dict`),此后所有出口
+    # (`/api/report/structured` 的 `l1.indicators`、HTML 报告的页脚汇总、
+    # 前端的逐条标签)读的都是**这一份 rows**。在装配置标一次,三个出口就是同一份口径。
+    #
+    # ## 为什么不在别处标
+    #
+    # * **不在 `l1_session`(计算层)**:那一层只回答"这个读数是多少"。一条读数由
+    #   哪一套仪器产出,取决于它的 `required_l0`(列名)落在哪一路登记表里 —— 那是
+    #   披露,不是计算。计算层不该知道报告要不要披露。
+    # * **不在渲染层(HTML / 前端)**:两处各算一次就一定会分叉,而这里最禁不起分叉的
+    #   恰恰是 `speech_rate`(转写字数 ÷ 有声时长 = `text` + `audio` 两路)——
+    #   一边写成 audio、另一边写成 text,报告就自相矛盾。载荷给一次,两个出口读同一份。
+    #
+    # ## 它只做加法
+    #
+    # `annotate_indicators` 返回副本,**只新增** `instrument`(单仪器)或
+    # `instruments`(多仪器);上面刚写的 `gap_explanation` 与 `to_dict()` 的原字段
+    # 一个不动。钉子:`tests/test_report_instrument_rendering.py` 里那条"既有键值零变化"。
+    rows = instrument_provenance.annotate_indicators(rows)
 
     report = QualityReport(
         session_id=result.session_id,

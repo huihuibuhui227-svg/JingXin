@@ -29,13 +29,28 @@
 
 `summary_narrative` 沿用旧口径那句话;`stats` 只放**实测值**,不放百分位
 (没有人群参照就没有位置,spec §5.5)。
+
+## A5 仪器来源披露(2026-11-21)
+
+本模块**新增**三处字段,原有键一个不动(见 `_instrument_block` 与
+`_evidence_item` 的注释):
+
+| 位置 | 新字段 | 谁读 |
+|---|---|---|
+| `l1.indicators[]` | `instrument` **或** `instruments`(二选一,来自 `annotate_indicators`) | 复核 / 前端逐条标签 |
+| `dimensions.*.evidence_chain[]`、`coverage.passed_slots[]` | `instruments`(**永远是 list**) | 报告表格那一列 |
+| `l1.instruments` | 汇总块(`counts` / `footer` / `labels` / `order` / 未登记缺口) | HTML 页脚 + 前端汇总区 |
+
+标注本身发生在**上游装配点** `l1_quality.build_quality_report`(38 条指标刚定型处),
+本模块只查表 —— 不在两处各算一份口径。逐条有出处这件事从此可以核对:
+`tests/test_report_instrument_rendering.py`。
 """
 
 from __future__ import annotations
 
 import datetime as _dt
 
-from . import gap_explanations, l1_mapper, l1_quality
+from . import gap_explanations, instrument_provenance, l1_mapper, l1_quality
 from .l1_quality import GAP_EXPLANATION, build_quality_report, explain_confidence
 from .l1_session import compute_session_l1
 
@@ -50,7 +65,82 @@ NO_COMPOSITE = ("未产出综合评分,也不给评级:本系统尚无标定样�
                 "不同指标的量纲无法折算为同一尺度。")
 
 
-def _evidence_item(slot: dict) -> dict:
+# ── A5 仪器来源披露(2026-11-21)──────────────────────────────────────────────
+
+#: 仪器名 → 中文标签。**给「逐条指标」那一列用**,页脚那句汇总仍由
+#: `instrument_provenance.format_footer()` 拼(A5 的规矩:那句话只许有一处拼法)。
+#:
+#: ⚠️ 这张表是 `format_footer()` 里那张**函数内局部表**的第二份。为什么不直接用它:
+#: 它是局部变量,本模块读不到;`instrument_provenance.py` 不归本次改动,不在这里动它。
+#: 两份措辞不一致的后果可预见:页脚写「几何代理」、指标旁边写「几何」,读者以为是
+#: 两样东西。⟹ 一致性由
+#: `tests/test_report_instrument_rendering.py::test_labels_agree_with_the_footer`
+#: 逐项对账(拿 `format_footer()` 的真实输出比),谁改了一处而漏了另一处当场红。
+INSTRUMENT_LABEL: dict[str, str] = {
+    instrument_provenance.INSTRUMENT_BLENDSHAPE: "模型系数",
+    instrument_provenance.INSTRUMENT_GEOMETRIC: "几何代理",
+    instrument_provenance.INSTRUMENT_AUDIO: "音频",
+    instrument_provenance.INSTRUMENT_TEXT: "文本",
+    # ⚠️ 「未登记」**不是一种仪器**,是一条披露缺口。措辞里不许出现"其他""未知"
+    #   这类像分类的名字 —— 那会让读者把它当成第三种仪器读过去。
+    instrument_provenance.INSTRUMENT_UNKNOWN: "未登记",
+}
+
+#: 出现「未登记」时那句话。由载荷给,HTML 页脚与前端汇总区读同一份
+#: (渲染层各写一句,两处措辞早晚不一致)。
+INSTRUMENT_UNKNOWN_NOTE = (
+    "「未登记」不是一种仪器,是一条披露缺口:这几条指标的依赖列还没归到任何一路"
+    "仪器上。数是算出来了,但它出自哪套仪器暂时说不清 —— 要补的是登记表,不是采集。")
+
+#: 多仪器指标的说明。`describe()` 会在每一个涉及的仪器下各计 1 ⟹ 各项相加会大于条数。
+INSTRUMENT_MULTI_NOTE = (
+    "有的指标同时来自两路(例如语音字数率 = 转写字数 ÷ 有声时长,一头是文本、"
+    "一头是音频),它在两个仪器下各计一次 ⟹ 各项相加会大于指标条数。")
+
+
+def _instrument_block(indicators: list[dict]) -> dict:
+    """38 条指标 → 仪器来源汇总块(HTML 页脚与前端汇总区共用的那一份)。
+
+    返回值**全部是算好的结果**,不是让渲染层再算一遍的材料:`counts` / `footer`
+    都来自 `instrument_provenance`(它是唯一登记处),本模块只负责把它们搬进载荷。
+    渲染层自己数一遍的后果本仓记过多次:两处口径一分叉,同一份报告里两个数。
+
+    `unmapped_columns` 是**能据以动手的东西** —— 只说"8 条未登记"读者没法改;
+    说"缺的是哪几列"下一个人就能去登记表里补那几行。
+
+    ⚠️ 实测记录(2026-11-21):`demo_run.py --session 20260927_212143_95a8` 一开始真有
+    8 条落进 `unknown`,缺的列是 `f0` / `rms` / `frame_sec` —— 它们是**整场录音重算**
+    那条路(`voice_series`)的列名;而日志那条路上同样这几条指标写的是 `pitch` /
+    `energy`(登记表里登记的是后一种)。⟹ 同一条指标换条数据来路,披露就从「音频」
+    变成「未登记」。**当天已修**:`instrument_provenance` 把 `f0`/`rms` 登记为音频、
+    `frame_sec` 登记为"不是仪器"(它是帧长/栅格步长),`unmapped_columns` 随之为空,
+    这一场报告的 `未登记 0`。留给后人的那半句仍然成立:登记表在
+    `instrument_provenance.py`,新增列名要在**那张表**里登记,否则又会冒出假的"未登记"。
+    """
+    counts = instrument_provenance.describe(indicators)
+    unmapped = sorted({
+        c for row in indicators
+        for c in instrument_provenance.unmapped_columns(row.get("required_l0"))
+    })
+    n_multi = sum(1 for row in indicators
+                  if len(instrument_provenance.instruments_of(row)) > 1)
+    return {
+        "n_indicators": len(indicators),
+        "counts": counts,
+        "footer": instrument_provenance.format_footer(indicators),
+        "labels": dict(INSTRUMENT_LABEL),
+        #: 页面上的固定顺序(= `instrument_provenance.INSTRUMENTS`)。
+        #: `counts` 是 dict,前端按键遍历会得 JS 的整数键优先序 —— 界面顺序会随输入
+        #: 抖动。给一份列表,两边都按它排。
+        "order": list(instrument_provenance.INSTRUMENTS),
+        "n_multi": n_multi,
+        "unmapped_columns": unmapped,
+        "unknown_note": INSTRUMENT_UNKNOWN_NOTE,
+        "multi_note": INSTRUMENT_MULTI_NOTE,
+    }
+
+
+def _evidence_item(slot: dict, instruments: list[str]) -> dict:
     """一个槽 → 前端 `EvidenceItem`。字段名逐一对齐 `assessment.ts`。
 
     `observed_interval` 给空数组:L1 是**会话级**测量,一个指标本场只有一个值,
@@ -61,6 +151,10 @@ def _evidence_item(slot: dict) -> dict:
     后者是给开发者核对算法的(两百多字,带 `⚠️` 和 markdown 粗体,还会点出
     另一个内部键名),它该待在 `l1.indicators` 的审计链里,不该占着「指标」这一列。
     钉子:`tests/test_report_gaps_are_readable.py::test_evidence_chain_names_are_not_raw_formulas`。
+
+    ★ A5(2026-11-21):新增 `instruments`。**永远是 list**(单仪器也是单元素列表)——
+    渲染层因此不必判断"该读 `instrument` 还是 `instruments`"(那种判断在本仓出现过:
+    两处各判断一次,一次读错键就把多仪器读成了单仪器)。
     """
     return {
         "feature": slot["l1"],
@@ -69,6 +163,9 @@ def _evidence_item(slot: dict) -> dict:
         "n_valid": slot["n_valid"],
         "std": None,
         "observed_interval": [],
+        # 这条数由哪一路仪器产出。取不到给 `["unknown"]` —— 那是披露缺口,
+        # **不是**"没有这条指标"(见 `instrument_provenance` 模块 docstring 规矩 2)。
+        "instruments": list(instruments),
     }
 
 
@@ -158,6 +255,24 @@ def build_l1_report(session_id: str, logs: dict | None = None) -> dict:
     dims, vanished = l1_mapper.map_l1_to_dimensions(result.indicators)
     quality = build_quality_report(result)
 
+    # ★ A5 仪器来源披露:指标名 → 仪器的索引。
+    #
+    # 标注本身发生在**上游装配点**(`l1_quality.build_quality_report`,那里 38 条指标
+    # 刚定型),这里只是查表 —— **不重算一份口径**。重算的话,`speech_rate` 这一条
+    # 可能在两处得到不同的仪器组合,而它正是本仓"多仪器"的样板。
+    #
+    # `quality.indicators` 是审计链那份(38 条,一条一行);同名指标在逐题窗口下
+    # 会重复出现,但那是 `dispersion` 的事,本索引取会话级那一行。
+    instruments_by_indicator: dict[str, list[str]] = {}
+    for row in quality.indicators:
+        instruments_by_indicator.setdefault(
+            row["name"], instrument_provenance.instruments_of(row))
+
+    def _of(indicator_name: str) -> list[str]:
+        # 查不到就记 `unknown` —— 宁可把缺口露出来,也不猜一个"看起来像"的仪器。
+        return instruments_by_indicator.get(
+            indicator_name, [instrument_provenance.INSTRUMENT_UNKNOWN])
+
     dimensions: dict[str, dict] = {}
     passed_slots: list[dict] = []
     for key, dim in dims.items():
@@ -165,7 +280,7 @@ def build_l1_report(session_id: str, logs: dict | None = None) -> dict:
             "display_name": dim.display_name,
             "description": DIM_DESCRIPTION,
             "algorithm": DIM_ALGORITHM,
-            "evidence_chain": [_evidence_item(s) for s in dim.slots
+            "evidence_chain": [_evidence_item(s, _of(s["l1"])) for s in dim.slots
                                if s["value"] is not None],
             "evidence_gaps": _gap_lines(dim),
             # 整套采集都不测的槽 —— **不是**这一场没量到。分开给的理由见
@@ -192,6 +307,9 @@ def build_l1_report(session_id: str, logs: dict | None = None) -> dict:
                 "observed_interval": [],
                 "n_valid": s["n_valid"],
                 "confidence": s["confidence"],
+                # A5:与 `evidence_chain` 同一份形状(永远是 list)。前端两处都渲染,
+                # 让它们读同一个键比让前端各判断一次稳。
+                "instruments": _of(s["l1"]),
             })
 
     # 分母用**声明的全部旧槽数**(14),不是"幸存维度里的槽数"(11)。
@@ -273,5 +391,15 @@ def build_l1_report(session_id: str, logs: dict | None = None) -> dict:
                 "它不能与别的场次比,也不是会话级值;会话级那 38 条见 indicators"
                 "(口径:所有回答窗内帧的并集)。单题时不出现在这里(没有离散度可言)。"
             ),
+            # ★ A5 仪器来源披露(2026-11-21):**汇总由载荷给**,渲染层不许自己数。
+            #
+            # 为什么必须进载荷:HTML 页脚与前端汇总区是同一份载荷的两个出口。
+            # 各写一遍"数一下有几条 geometric",两处迟早不同 —— 而这份报告对外要
+            # 说的那句话正是「报告已披露仪器来源」,它经不起两个页脚各说一套。
+            #
+            # 逐条的仪器在 `indicators[].instrument` / `[].instruments`(单值/多值
+            # 二选一,由 `annotate_indicators` 决定)与逐行的 `evidence_chain[].instruments`
+            # / `passed_slots[].instruments`(永远 list —— 渲染层只读这一个键)。
+            "instruments": _instrument_block(quality.indicators),
         },
     }

@@ -1,6 +1,8 @@
 # report_frontend/data_loader.py
 
 import os
+import csv          # A4:`_none_bucket_rows` 数行用(不建 DataFrame)
+import io           # A4:把已解码的文本喂给 csv.reader
 import json
 import pandas as pd
 from pathlib import Path
@@ -115,25 +117,130 @@ class LogDataLoader:
 
     NONE_SESSION = "NONE"
 
+    #: 数 NONE 桶行数时按顺序尝试的编码 —— 必须与 `_read_csv_safe` 里那份列表**逐字相同**。
+    #: 两边一旦不同序/不同集合,某些坏文件的结论就会从 0 行变成 N 行(或反过来):
+    #: `_read_csv_safe` 是"第一个能**解析**成功的编码赢",而这里用"第一个能**解码**的编码",
+    #: 二者只在不规整文件上有分歧 —— 那种文件会被 `_count_none_rows_light` 交回 pandas。
+    _NONE_COUNT_ENCODINGS = ("utf-8", "gbk", "gb2312", "utf-8-sig")
+
     def _none_bucket_rows(self) -> int:
         """数 NONE 桶里有多少行。
 
         NONE 文件**刻意不被 `file_pattern` 匹配**(见那段注释):它们不进任何聚合。
         但"存在这样一批行"这件事本身要告诉读者 —— 否则有帧没归入本场而无人知晓。
+
+        ⚠️ 通配要写成 `*_log_NONE*.csv`(**不带** `_`):face/gesture 的 NONE 文件
+        **没有尾段**(`face_au_log_NONE.csv`),而 voice 的带(`..._NONE_<ts>.csv` ——
+        它无 id 时写成 `NONE_<时间戳>`)。写成 `*_log_NONE_*.csv` 会漏掉前两者:
+        2026-09-24 复审实测 —— 盘上 224 行,数出来 0,于是"报告头会点出 NONE 桶"
+        这句话在真实数据上完全不成立。
+
+        A4(2026-11-21):循环体从"pandas 整读 + len(df)"换成 `_count_none_rows`(轻量数行)。
+        旧写法只为拿一个行数就为每份文件建一整张 DataFrame:盘上 82 份 / 832 行 /
+        238 KB,却要 155~310 ms(随机器负载浮动;同温对照实测 167/183/182 ms,
+        占 L0 读盘 85~92%)。返回值、以及"读不出就算 0"的错误处理**一个字节都没变**
+        (等价性证据见 `verify/a4_equivalence_2026-11-21.txt`)。
         """
         total = 0
-        # ⚠️ 通配要写成 `*_log_NONE*.csv`(**不带** `_`):face/gesture 的 NONE 文件
-        # **没有尾段**(`face_au_log_NONE.csv`),而 voice 的带(`..._NONE_<ts>.csv` ——
-        # 它无 id 时写成 `NONE_<时间戳>`)。写成 `*_log_NONE_*.csv` 会漏掉前两者:
-        # 2026-09-24 复审实测 —— 盘上 224 行,数出来 0,于是"报告头会点出 NONE 桶"
-        # 这句话在真实数据上完全不成立。
         for p in self.log_dir.rglob("*_log_NONE*.csv"):
             try:
-                df = self._read_csv_safe(p)
-                total += 0 if df is None else len(df)
+                total += self._count_none_rows(p)
             except Exception:
                 pass
         return total
+
+    def _count_none_rows(self, path: Path) -> int:
+        """一份 NONE 桶文件的行数 —— 与旧写法 `len(pd.read_csv(...))` 逐字节等价。
+
+        快路径(`_count_none_rows_light`)只数行、不建 DataFrame;
+        凡是"结构不规整 / 编码解不开 / 坏引号"的文件它返回 `None`,**当场交回 pandas
+        那条原路**(`_read_csv_safe` + `len(df)`,即改动前逐字相同的那三行)。
+        所以错误处理不是"重新推导"出来的,而是原样继承:
+
+            * 文件不存在 / 是目录 / 权限不足 → pandas 抛非 ValueError → 旧实现在
+              `_none_bucket_rows` 的 `except Exception` 里吞掉,那一份算 0;
+            * 四种编码全解不开 → `_read_csv_safe` 返回 None → 0;
+            * 空文件 / 只有表头 / 坏引号(ParserError) → 同上,0 或 0 行。
+        """
+        fast = self._count_none_rows_light(path)
+        if fast is not None:
+            return fast
+        try:
+            df = self._read_csv_safe(path)
+            return 0 if df is None else len(df)
+        except Exception:
+            return 0
+
+    @classmethod
+    def _count_none_rows_light(cls, path) -> Optional[int]:
+        """只用 `csv.reader` 数行;返回 `None` = "这份文件请走 pandas 原路"。
+
+        四条都满足才走快路径,任何一条不满足就交回去 —— 判据是**保守**的,
+        即"宁可慢,也不猜":
+
+        1. 四种编码里有一种能整份解码(顺序与 `_read_csv_safe` 相同);
+        2. 文本里没有**裸** `\\r`(只允许 `\\r\\n` 或 `\\n`):
+           "引号内含换行 + 裸 CR 行尾"这一组合两个分词器切行不同(实测 fuzz#158:
+           同一份文本 pandas 7 行、csv 6 行);
+        3. `csv.reader(strict=True)` 全程不抛 `csv.Error`
+           —— pandas 报 "EOF inside string"(引号没闭合)的那类文本在这里抛错;
+        4. 每条记录的字段数与表头**完全相同**。真空行按 pandas 的 `skip_blank_lines`
+           跳过;只有空白字符的行(如 `   \\r\\n`)与"字段数不符"的行都不猜:
+           pandas 对"比表头**多**"的行报 ParserError(整份 0 行)、对"比表头**少**"的
+           行补 NaN 但仍算一行,两种都直接交回 pandas 自己答。
+
+        语义上是"数记录"而不是"数行":引号里的换行属于同一个字段,不切行 ——
+        这正是不能用 `sum(1 for _ in f)` 的原因。CRLF(本仓 NONE 桶全量就是 CRLF)
+        由 `StringIO(..., newline="")` 交给 csv 模块处理,与 pandas 一致。
+        """
+        try:
+            raw = Path(path).read_bytes()
+        except OSError:
+            # 旧实现里这里抛的是 FileNotFoundError / IsADirectoryError / PermissionError,
+            # 三者都不是 ValueError ⟹ 不进入 `_read_csv_safe` 的编码回退,
+            # 直接穿到 `_none_bucket_rows` 的 `except Exception` ⟹ 那一份算 0 行。
+            return 0
+
+        text = None
+        for enc in cls._NONE_COUNT_ENCODINGS:
+            try:
+                text = raw.decode(enc)
+                break
+            except (UnicodeDecodeError, LookupError):
+                continue
+        if text is None:
+            return 0          # 四种全解不开:旧实现跑完编码链同样是 None → 0 行
+
+        # 裸 `\r`(不带 `\n`)行尾:csv 模块与 pandas 的 C 分词器在"引号内含换行 + 裸 CR
+        # 行尾"这一组合上切行规则不同(实测构造样本 fuzz#158:同一份文本 pandas 7 行、
+        # csv 6 行)。这种文件不猜,整份交回 pandas。
+        # CRLF 与纯 `\n` 文件不受影响 —— 真实 NONE 桶 82 份**全是 CRLF**,仍走快路径。
+        if text.count("\r") != text.count("\r\n"):
+            return None
+
+        width = -1            # -1 = 还没读到表头
+        rows = 0
+        reader = csv.reader(io.StringIO(text, newline=""), strict=True)
+        try:
+            for rec in reader:
+                if not rec:
+                    continue      # 真空行(如 `\\n`):pandas 的 skip_blank_lines 也跳过
+                if len(rec) == 1 and not rec[0].strip():
+                    # 单字段且只有空白。这一行算不算"空行",取决于**原文里有没有引号**:
+                    # `   ` 是空行(pandas 跳过、不算行),而 `"  "` / `""` 是"值就是空白"
+                    # (pandas 算一行)。引号已经被 csv.reader 吃掉了,这里分不出来 ——
+                    # 不猜,交回 pandas 自己答。(实测 fuzz#117 `2\r\n  \t \r\n  \t \r\n`:
+                    # 旧实现 0 行;若按"跳过"处理会数成 2 行。表头行同理会受影响。)
+                    return None
+                if width < 0:
+                    width = len(rec)          # 第一条非空记录 = 表头
+                    continue
+                if len(rec) != width:
+                    return None               # 字段数不符 → 交给 pandas 判(它可能 0 行,也可能算一行)
+                rows += 1
+        except csv.Error:
+            return None                       # 坏引号等 → 交给 pandas(它整份算 0 行)
+        return 0 if width < 0 else rows       # 空文件 / 只有空白行 → 0
 
     def resolve_target_session(self, session_id: Optional[str] = None) -> Optional[str]:
         """定这一场报告以哪个 `session_id` 为准(M2 spec §5.1)。

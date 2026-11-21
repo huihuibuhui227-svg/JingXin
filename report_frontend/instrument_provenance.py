@@ -131,6 +131,12 @@ INSTRUMENT_OF_EXACT: dict[str, str] = {
     "tension_level": INSTRUMENT_GEOMETRIC,
     "pitch": INSTRUMENT_AUDIO,
     "energy": INSTRUMENT_AUDIO,
+    # 同一件事的**第二个列名**：日志那条路写 `pitch`/`energy`，而"整场录音重算"
+    # 那条路(`voice_series.py`，librosa 的 pyin / feature.rms)写的是 `f0`/`rms`。
+    # 不登记这两个名字，同一条指标换个数据来路就会从「音频」掉进「未登记」——
+    # 那是把"知道"说成"不知道"，同样算披露失真（实测 8 条，2026-11-21）。
+    "f0": INSTRUMENT_AUDIO,
+    "rms": INSTRUMENT_AUDIO,
     "voiced_flag": INSTRUMENT_AUDIO,
     "n_chars": INSTRUMENT_TEXT,                   # 来自转写字数,不是音频
     "transcript_text": INSTRUMENT_TEXT,
@@ -149,6 +155,9 @@ INSTRUMENT_OF_EXACT: dict[str, str] = {
 NON_INSTRUMENT_COLUMNS: frozenset[str] = frozenset({
     "timestamp", "session_id", "index", "frame_index", "qid",
     "t_start", "t_end", "window", "granularity",
+    # 帧长(秒)= 时间栅格的步长本身，`voice_series.VoiceSeries.frame_sec`。
+    # 它描述"这串数切成多细",不描述"谁量的" ⟹ 记成仪器或缺口都是假信号。
+    "frame_sec",
 })
 
 

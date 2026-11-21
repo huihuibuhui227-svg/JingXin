@@ -140,14 +140,28 @@ def test_append_utterance_writes_single_transcript_json(tmp_path):
     assert payload["session_id"] == sid
     assert payload["recorded_at"] == "2026-09-24T15:30:12+08:00"
 
-    assert set(payload["asr"]) == {"engine", "endpoint", "models",
-                                   "asr_confidence", "asr_confidence_source"}
-    assert payload["asr"]["engine"] == "funasr"
-    assert payload["asr"]["endpoint"].startswith("ws://")
-    assert isinstance(payload["asr"]["models"], dict)
-    # 实测事实:本部署不返回置信度 —— 必须显式落盘,不能省略这两个键(§9.1)
-    assert payload["asr"]["asr_confidence"] is None
-    assert payload["asr"]["asr_confidence_source"] == "unavailable"
+    # `asr` 块：2026-11-21 的补丁把它从 5 键扩到 10 键（同一事实的台账名 + 说明书短名
+    # + 本文件当前规模）。所以这里不再用"恰好等于 5 键"的断言 —— 那既会把合法扩展判红，
+    # 又没守住真正重要的两条：**旧 5 键一个都不能少**、**两组名字不许写成不同的值**。
+    asr = payload["asr"]
+    legacy_keys = {"engine", "endpoint", "models",
+                   "asr_confidence", "asr_confidence_source"}
+    added_keys = {"confidence", "confidence_source", "confidence_reason",
+                  "segments", "chars"}
+    assert legacy_keys <= set(asr), f"旧契约键被删了：{legacy_keys - set(asr)}"
+    assert added_keys <= set(asr), f"provenance 扩展键缺失：{added_keys - set(asr)}"
+    assert asr["engine"] == "funasr"
+    assert asr["endpoint"].startswith("ws://")
+    assert isinstance(asr["models"], dict)
+    # 实测事实:本部署不返回置信度 —— 必须显式落盘,不能省略这几个键(§9.1)
+    assert asr["asr_confidence"] is None
+    assert asr["asr_confidence_source"] == "unavailable"
+    # 台账列名(asr_*)与说明书短名(confidence*)是同一事实的两个名字,值必须恒等
+    assert asr["confidence"] == asr["asr_confidence"]
+    assert asr["confidence_source"] == asr["asr_confidence_source"]
+    # 规模键必须与 merged 里刚算出来的那份一致,且未知时写 null 而不是 0
+    assert asr["segments"] == payload["merged"]["n_segments"]
+    assert asr["chars"] == payload["merged"]["n_chars"]
 
     assert payload["merged"] == {"text": "欢迎", "n_chars": 2, "n_segments": 1,
                                  "vad_split": False}

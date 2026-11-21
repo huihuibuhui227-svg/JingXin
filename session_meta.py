@@ -35,6 +35,7 @@ from media_retention import (validate_session_id,
 
 QUESTIONS_FILENAME = "questions.jsonl"
 META_FILENAME = "meta.json"
+SESSION_JSON_FILENAME = "session.json"
 
 _LOCKS: dict[str, threading.Lock] = {}
 _LOCKS_GUARD = threading.Lock()
@@ -444,8 +445,204 @@ def _media_counts(session_id: str) -> tuple[dict[str, int], int, int]:
     return counts, video_bytes, unreadable
 
 
+# ────────────────────── 媒体完整性(补强 A2):收尾时量一次,归因到既有缺口码
+#
+# 判据在 `media_truncation.assess`(纯函数),量具在 `media_truncation_probe
+# .probe_session`(只读盘 + 只调 `capture_health._span_sec`)。**本模块不自己量、
+# 不自己判**,只做三件事:收尾时调它、把结果落进会话级元信息、把异常折进既有缺口码。
+#
+# ⚠️ 为什么挂在收尾对账、**不能**挂在上传那一刻(原设计的明确警告):
+# `questions.jsonl` 是**逐题上报**的。录制进行到一半时它只有前几道题,于是
+# 「题目跨度」比真实跨度短得多 —— 拿一场几分钟的录像去比几秒的跨度,`assess`
+# 会判 `overlong`(录像远长于任务),归因成 `time_unusable`。那是一场完全正常的
+# 录制被判成"台账与时间轴对不上",而这一场其实只要继续录就好。**只有这一场
+# 结束时**题目才报完,跨度才代表这一场该有的覆盖 —— 所以只有收尾这一次是合法的判定时机。
+#
+# ⚠️ **不新增第 10 类缺口码**:`no_samples` / `time_unusable` 两个字面量、
+# 以及 verdict → gap 的整张映射表都在 `media_truncation` 里(它抄自
+# `report_frontend.l1_indicators.KINDS` 的 9 类)。本模块只**取用**它,不重抄、不扩充。
+
+#: 媒体完整性落进 `session.json` 的键名。与 `capture_health` 并列(同一份会话级元信息)。
+MEDIA_INTEGRITY_KEY = "media_integrity"
+
+#: 量具取哪条轨。`auto` = 视轨优先,与 `assess` 的「文件级时长」同一口径。
+#: ⚠️ **不**用 `audio`:`20260926_153854_1592` 按音轨算会判 `truncated`
+#: (跨度 520.7s / 音轨 57.0s),而它的视轨 550.5s 明明覆盖了跨度 —— 按音轨算是在
+#: **换一个问题**(哪条轨更短),不是更严格。音视不同长由 `capture_health` 的
+#: `av_ratio` 当场报,不归这里。
+MEDIA_INTEGRITY_TRACK = "auto"
+
+#: 探针模块拿不到 / 跑挂时的判词。**不是**新的缺口码:`gap` 仍是 `None`。
+_MAI_NOT_MEASURED = "这一场没量(不是录坏了,也不是通过)"
+
+
+def _empty_integrity_block(session_id: str) -> dict:
+    """媒体完整性块的**固定形状**。先给全字段再填 —— 读的人不该靠 `.get` 猜有没有这个键。"""
+    return {
+        "session_id": session_id,
+        "measured_by": "media_truncation_probe.probe_session",
+        "attributed_by": "media_truncation.GAP_FOR_VERDICT",
+        "track": MEDIA_INTEGRITY_TRACK,
+        "verdict": None,          # ok / truncated / overlong / no_ledger / probe_error
+        "gap": None,              # no_samples / time_unusable / None(只用既有 9 类)
+        "gap_detail": "",
+        "judgeable": False,       # False = 没得比,**不等于通过**
+        "span_sec": None,         # 题目跨度(这一场**应该**覆盖多久)
+        "media_sec": None,        # 最长媒体的文件级时长
+        "ratio": None,            # media_sec / span_sec
+        "media_sec_by_file": {},
+        "tracks": {},             # 每份媒体的各轨时长 + av_ratio(排查音视不同长用)
+        "longest_media": None,
+        "has_camera": None,
+        "ffprobe": None,
+        "tol": None,
+        "ceiling": None,
+        "probe_note": None,
+        "gap_skipped_reason": None,   # 为什么不归因缺口码(目前只有 "no_camera")
+    }
+
+
+def media_integrity(session_id: str) -> dict:
+    """量这一场的媒体完整性 → 会话级元信息块。**永不抛异常**(收尾对账的立身之本)。
+
+    只有两种结果能带 `gap`(`truncated` → `no_samples`、`overlong` → `time_unusable`),
+    映射表整个来自 `media_truncation.GAP_FOR_VERDICT`,本函数不写字面量、不做二次解释。
+
+    「量不到」的三种情形(`no_ledger` / 没有媒体 / ffprobe 不在)**都不给缺口码**:
+    那既不是媒体坏了、也不是通过。判词写在 `gap_detail` 里,`judgeable=False`。
+    这与 `assess` 的三态口径一致 —— 把"没得比"伪装成"坏"或"好"都是判词比事实更狠。
+
+    第四种"不归因":**没有 `camera.webm`**(音频-only / 只有分题音频块)。那时
+    `media_sec` 是"最长单块"而非整场连续录制,`truncated` 是设计如此 ⟹ 只报事实
+    (`verdict`)、不给码,理由进 `gap_skipped_reason="no_camera"`。
+    """
+    sid = validate_session_id(session_id)
+    block = _empty_integrity_block(sid)
+    d = _session_dir(sid, create=False)          # 读侧:不建目录
+    try:
+        import media_truncation as mt
+        import media_truncation_probe as mtp
+    except Exception as exc:  # noqa: BLE001 - 补丁包不在/import 出事都不许拖垮对账
+        block["verdict"] = "probe_error"
+        block["gap_detail"] = (f"媒体完整性探针不可用({type(exc).__name__}: {exc}) —— "
+                               f"{_MAI_NOT_MEASURED}")
+        return block
+    try:
+        res = mtp.probe_session(d, track=MEDIA_INTEGRITY_TRACK)
+    except Exception as exc:  # noqa: BLE001 - 一场量挂不许带崩收尾
+        block["verdict"] = "probe_error"
+        block["gap_detail"] = (f"探针异常({type(exc).__name__}: {exc}) —— "
+                               f"{_MAI_NOT_MEASURED}")
+        return block
+
+    ev = res.get("evidence") or {}
+    # 只认**既有**那张映射表产出的码。别的字面量一律不落盘 —— 这是"不许出现第 10 类"
+    # 的执行处:哪怕有人改坏了 `probe_session`,会话元信息里也不会多出一个新码。
+    allowed = {g for g in mt.GAP_FOR_VERDICT.values() if g}
+    gap = res.get("gap")
+    verdict = res.get("verdict") or "probe_error"
+    detail = res.get("gap_detail") or ""
+    has_camera = ev.get("has_camera")
+    # ⚠️ **没有 `camera.webm` 的场次不归因缺口码。**
+    #
+    # 那种场次(音频-only / 只落了分题音频块)里 `media_sec` 是**最长单块**,不是整场
+    # 连续录制 —— `probe_session` 自己就在 `probe_note` 里写着"别当截断"。拿 12 秒的
+    # 单块去比 313 秒的整场跨度,必然判 `truncated`;而这是**设计如此**,不是"录像被
+    # 截断"(实测 `..._afb2` / `..._0d89` / `..._302f` 三场都落在这一类)。把这种读数
+    # 归因成 `no_samples` 就是一条假 warn —— 假 warn 会淹掉真的录坏(本仓反复栽过)。
+    # 所以:事实(verdict)照报,缺口码不给,理由写进 `gap_skipped_reason` + `gap_detail`。
+    gap_skipped = None
+    if gap is not None and has_camera is False:
+        gap_skipped = "no_camera"
+        detail = ("本场没有 camera.webm(音频-only / 只有分题音频块 ⟹ `media_sec` 是"
+                  "**最长单块**,不是整场连续录制)—— **截断判据不适用,不归因缺口码**;"
+                  f"探针原判 {verdict}(原码 {gap!r});{detail}")
+        gap = None
+    tracks: dict[str, dict] = {}
+    for name, per_file in (ev.get("per_file") or {}).items():
+        d_detail = per_file or {}
+        one = {"tracks": d_detail.get("tracks")}
+        if "av_ratio" in d_detail:
+            one["av_ratio"] = d_detail["av_ratio"]
+        tracks[name] = one
+    block.update({
+        "verdict": verdict,
+        "gap": gap if gap in allowed else None,
+        "gap_detail": detail,
+        "judgeable": bool(res.get("judgeable")),
+        "span_sec": res.get("span_sec"),
+        "media_sec": res.get("media_sec"),
+        "ratio": res.get("ratio"),
+        "media_sec_by_file": ev.get("media_sec_by_file") or {},
+        "tracks": tracks,
+        "longest_media": ev.get("longest_media"),
+        "has_camera": has_camera,
+        "ffprobe": ev.get("ffprobe"),
+        "tol": ev.get("tol"),
+        "ceiling": ev.get("ceiling"),
+        "probe_note": ev.get("probe_note"),
+        "gap_skipped_reason": gap_skipped,
+    })
+    if gap is not None and block["gap"] is None:
+        # 探针给了个不认识的码:照事实说清楚,但不把它写进元信息。
+        block["gap_detail"] += f"(⚠️ 探针给的缺口码 {gap!r} 不在既有 9 类里,未采用)"
+    return block
+
+
+def record_media_integrity(session_id: str, block: dict | None = None) -> bool:
+    """把媒体完整性块写进 `session.json` 的 `media_integrity`。→ 盘上有没有一份正确的。
+
+    **幂等**:内容一模一样就不再写(重复对账不该把文件的 mtime 一再翻新 —— 那会让
+    "这一场什么时候变的"查不出来)。**永不抛异常**:清单不存在/坏掉/盘只读都只返回
+    `False`,由调用方记日志 —— 与 `capture_health.record` 同一条纪律(它是体检,不是留存)。
+
+    为什么落在 `session.json`:那是**会话级元信息**的落点,`capture_health` 就写在那里
+    (`capture_health.record` 用同一种"读-改-写 + `os.replace`")。本函数只写自己那个键,
+    不动别人的键。清单**不存在时不新建**:它的形状不归本模块管。
+    """
+    sid = validate_session_id(session_id)
+    payload_block = media_integrity(sid) if block is None else block
+    p = _session_dir(sid, create=False) / SESSION_JSON_FILENAME
+    with _session_lock(sid):
+        try:
+            payload = json.loads(p.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return False       # 极老的场次没有清单;不替别人造一份
+        except Exception:  # noqa: BLE001 - 坏 JSON:不改写别人的文件,免得毁掉唯一一份
+            return False
+        if not isinstance(payload, dict):
+            return False
+        if payload.get(MEDIA_INTEGRITY_KEY) == payload_block:
+            return True        # 已经写过且内容一致 ⟹ 幂等,一个字节都不动
+        payload[MEDIA_INTEGRITY_KEY] = payload_block
+        tmp = p.with_name(".session.json.media_integrity.tmp")
+        try:
+            tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            os.replace(tmp, p)   # 同盘原子:并发读清单的一方不会读到半个 JSON
+            return True
+        except Exception:  # noqa: BLE001 - 写不进去不许影响对账
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+            return False
+
+
+def integrity_line(block: dict) -> str:
+    """一块媒体完整性 → **一行**给人看的判词(CLI / 日志用)。**不许**只印英文码。"""
+    verdict = block.get("verdict") or "?"
+    if block.get("gap"):
+        return f"**{verdict}** → 缺口码 {block['gap']}:{block.get('gap_detail') or ''}"
+    if block.get("gap_skipped_reason"):
+        return f"{verdict}(不归因缺口码):{block.get('gap_detail') or ''}"
+    if block.get("judgeable"):
+        return f"{verdict} —— {block.get('gap_detail') or ''}"
+    return f"{verdict}(不可判定,**不是通过**):{block.get('gap_detail') or ''}"
+
+
 def check_session(session_id: str,
-                  expected_questions: int | None = None) -> dict:
+                  expected_questions: int | None = None,
+                  *, record_integrity: bool = True) -> dict:
     """会话收尾对账。**任何缺项都只报不抛** —— 分析结果不因元数据缺失而作废
     (spec §6:元数据缺项不阻断分析,但必须让人当场知道)。
 
@@ -454,6 +651,16 @@ def check_session(session_id: str,
     —— 它管的是**仓库内 `data/logs` 的三份 CSV**,与"`~/shared` 里的媒体齐不齐、
     `meta.json` 填没填"是**两套不同的期望**。硬塞进去要么把它改成四不像,
     要么让它的参数语义漂移。**另写。**
+
+    ★ 补强 A2(媒体完整性)**就挂在这里,且只在这里**:
+    收尾时调一次 `media_integrity`,把结果作为 `media_integrity` 键**与既有字段并列**
+    返回,并用 `record_media_integrity` 落进 `session.json`(幂等;写不进去只记日志,
+    不许让对账失败)。所以本函数现在是**收尾动作**、不是纯读 —— 但"任何缺项都只报不抛"
+    这条纪律一个字没变:探针拿不到、跑挂、清单坏掉,都只是 `media_integrity` 那一段
+    说了句"没量",其余字段照旧。
+
+    `record_integrity=False` 是给**只读**用途的(复核、报告端、只看不写的工具),
+    它只少写一次盘,量照旧量。
     """
     from media_retention import degraded_reasons
     sid = validate_session_id(session_id)
@@ -464,6 +671,10 @@ def check_session(session_id: str,
         missing_q = [i for i in range(expected_questions) if i not in set(reported)]
     counts, video_bytes, unreadable = _media_counts(sid)
     unreadable += _unreadable_line_count(questions_path(sid))
+    # ⚠️ 逐次调用 = 每次收尾量**一次**(重复对账不重复累积:落盘是覆盖 + 内容相同就不写)。
+    integrity = media_integrity(sid)
+    if record_integrity:
+        record_media_integrity(sid, integrity)
     return {
         "session_id": sid,
         "media": counts,
@@ -474,6 +685,7 @@ def check_session(session_id: str,
         "reported_questions": reported,
         "missing_questions": missing_q,
         "unreadable_lines": unreadable,
+        "media_integrity": integrity,
     }
 
 
@@ -485,6 +697,10 @@ def closeout_verdict(result: dict,
     "一题都没报"这种情形**没法被测试钉住** —— 而它恰恰是最危险的一种绿灯:
     `response_latency` 是这个里程碑存在的理由,一题都没报时它必然拿不到,
     收尾却会印 `✅ 齐了`。抽出来之后,CLI 与测试走同一条判断。
+
+    ★ 补强 A2:媒体完整性那一段只在**它真给了缺口码**时折成一条理由。
+    `judgeable=False`(没台账 / 没媒体 / ffprobe 不在)**不加理由** —— 那会把"没得比"
+    读成"坏了",凭空把一场正常的收尾从绿变黄(判词比事实更狠的又一种形态)。
     """
     reasons: list[str] = []
     if result.get("degraded"):
@@ -497,6 +713,10 @@ def closeout_verdict(result: dict,
         reasons.append(f"账本有 {result['unreadable_lines']} 行解析不了(被写碎或手改过)")
     if not result.get("video"):
         reasons.append("没有可用的原生视频(缺失,或存下来是 0 字节)")
+    mi = result.get("media_integrity") or {}
+    if mi.get("gap"):
+        reasons.append(f"媒体完整性 {mi.get('verdict')} → 缺口码 {mi['gap']}:"
+                       f"{mi.get('gap_detail') or ''}")
     # 一题都没报时**不许绿**:没给 --expected-questions 就绿灯等于替 operator
     # 把"response_latency 拿不到"这件事放过去了。
     if not result.get("reported_questions") and expected_questions is None:
@@ -513,7 +733,7 @@ if __name__ == "__main__":
     ap.add_argument("--write-template", metavar="SESSION_ID",
                     help="把 meta.json 模板铺进该会话目录(已存在则不动)")
     ap.add_argument("--check-session", metavar="SESSION_ID",
-                    help="对账:媒体件数 / 降级 / meta 缺项 / 题目漏报")
+                    help="对账:媒体件数 / 降级 / meta 缺项 / 题目漏报 / 媒体完整性")
     ap.add_argument("--expected-questions", type=int, default=None,
                     help="本场实问题数,用来点名漏报的题(缺省 = 不对账题目)")
     args = ap.parse_args()
@@ -536,6 +756,10 @@ if __name__ == "__main__":
         print(f"  素材件数(按账本):{r['media'] or '(一件都没有)'}")
         print(f"  前端原生视频:"
               f"{'有,' + str(r['video_bytes']) + ' 字节' if r['video'] else '**没有**'}")
+        # 补强 A2:收尾时那一次媒体完整性检测的判词(**含既有缺口码**)。
+        # ⚠️ 单独一行、不并进下面那行 `meta.json 缺项:` —— `tools/jx_check_session.py`
+        #    是按行前缀解析那一行的,并进去会让它少报缺项。
+        print(f"  媒体完整性:{integrity_line(r['media_integrity'])}")
         print(f"  留存降级:{r['degraded'] or '无'}")
         print(f"  meta.json 缺项:{r['missing_meta'] or '无'}")
         print(f"  已报题号:{r['reported_questions'] or '(一题都没报)'}")

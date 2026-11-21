@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional, List
 from .data_loader import LogDataLoader
 from . import l1_mapper, l1_quality
+from .instrument_provenance import INSTRUMENT_UNKNOWN
 from .l1_report import build_l1_report
 
 
@@ -167,6 +168,53 @@ def _zero_note(item: Dict[str, Any]) -> str:
     return f"<span class=\"zero-note\">看过 {n} 个有效观测，一次也没超过阈值</span>"
 
 
+def _instrument_cell(item: Dict[str, Any],
+                     labels: Optional[Dict[str, str]] = None) -> str:
+    """一行指标 → 「仪器来源」那一格(A5,2026-11-21)。
+
+    ## 为什么这一格必须存在
+
+    本系统的面部测量**同时有两套仪器**:手写的关键点几何代理(`au12_smile` 这类比率)
+    与 FaceLandmarker 模型回归出的 52 列系数(`bs_mouthSmileLeft`)。离线实测
+    (32 场 / 389 条)里,12 个构念只有 1 个达 ρ ≥ 0.7 ⟹ 两套数**不可混用**。
+    不标出处,读者会把 `au12_smile` 与 `bs_mouthSmile` 当成同一件事的两次测量。
+
+    ## 三件它**不做**的事
+
+    1. **不查表、不猜**:只印载荷里已经标好的 `instruments`(来源见
+       `l1_quality.build_quality_report` 那个装配点)。渲染层再查一次,
+       两处口径就会分叉。
+    2. **不把「未登记」画成一种仪器**:它是**披露缺口**,所以单独一个样式
+       (`.prov-unknown`,虚线下划 + 警示色)——与「几何代理」并排成同款灰字,
+       读者会把它当成第三套仪器读过去。
+    3. **不把"载荷没带"说成"未登记"**:旧引擎(`research_mapper`)的 `evidence_chain`
+       里根本没有这个键。前者是这一份载荷没披露,后者是披露了但登记表里查不到 ——
+       两件事印成同一句,就是把后者说成了前者。
+    """
+    names = item.get("instruments")
+    if not names:
+        # 审计链那些行(`l1.indicators`)是**单值/多值二选一**的形态
+        # (`instrument` XOR `instruments`,由 `annotate_indicators` 决定)——
+        # 两种都认,读到的是同一个出处。见 `instrument_provenance` docstring「形状」。
+        single = item.get("instrument")
+        names = [single] if isinstance(single, str) and single else None
+    if not names:
+        return '<span class="prov-missing">未提供</span>'
+    parts: list[str] = []
+    for name in names:
+        if not isinstance(name, str):
+            continue
+        # 没登记中文标签的就露英文键 —— 宁可露出英文,也不许吞掉这一条。
+        text = (labels or {}).get(name, name)
+        if name == INSTRUMENT_UNKNOWN:
+            parts.append(
+                f'<span class="prov-unknown" title="披露缺口：依赖列还没归到任何一路仪器上">'
+                f'{text}</span>')
+        else:
+            parts.append(text)
+    return "、".join(parts) if parts else '<span class="prov-missing">未提供</span>'
+
+
 #: 模态键 → 报告里给人看的名字(键名来自 data_loader 的统一化,见那边的 key 映射)。
 #:
 #: ⚠️ `voice` 这一项是**模态级**名字,与上面两个文件名不同:日志按「面试 / 科研」
@@ -202,12 +250,16 @@ _CSS = """
   --ink:#0b0b0b; --ink-2:#52514e; --ink-3:#898781;
   --rule:#e1e0d9; --track:#e8e7e0;
   --series-1:#2a78d6; --series-2:#eb6834;
+  /* A5 仪器来源披露:「未登记」是**缺口**,不是一种仪器,所以给它自己的警示色,
+     不与正文的灰字同色 —— 同色就会被当成第三套仪器读过去。 */
+  --alert:#a8332b;
 }
 @media (prefers-color-scheme: dark){
   :root{ --page:#141413; --surface:#1b1b19;
          --ink:#f3f2ed; --ink-2:#bab8b1; --ink-3:#8c8a84;
          --rule:#302f2b; --track:#2a2926;
-         --series-1:#3987e5; --series-2:#d95926; }
+         --series-1:#3987e5; --series-2:#d95926;
+         --alert:#ef8a80; }
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--page);color:var(--ink);
@@ -272,6 +324,23 @@ footer{margin-top:52px;padding-top:16px;border-top:1px solid var(--rule);
    只让图滚,页面主体不许横向滚。 */
 figure{overflow-x:auto}
 figure svg{min-width:560px}
+/* ── A5 仪器来源披露(2026-11-21)──────────────────────────────────────────
+   表格最后一列:每条指标由哪一路仪器产出。
+   「未登记」用虚线 + 警示色,与其它来源**不同形** —— 它是披露缺口,不是第三种仪器;
+   排成同款灰字,读者会把它当成一套仪器读过去。 */
+.prov{color:var(--ink-2);font-size:12.5px;white-space:nowrap}
+.prov-unknown{color:var(--alert);font-weight:600;
+  border-bottom:1px dashed var(--alert);cursor:help}
+.prov-missing{color:var(--ink-3)}
+/* 页脚汇总:一枚一枚的小标签 + 一句由载荷给的汇总。 */
+#instrument-disclosure .prov-chips{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 14px}
+.prov-chip{font-size:12.5px;color:var(--ink-2);border:1px solid var(--rule);
+  border-radius:999px;padding:2px 11px;font-variant-numeric:tabular-nums}
+.prov-chip-unknown{color:var(--alert);border-color:var(--alert);border-style:dashed}
+.prov-footer{font-size:13.5px;color:var(--ink);font-variant-numeric:tabular-nums}
+.prov-warn{border-left:3px solid var(--alert);padding:4px 0 4px 12px;
+  color:var(--ink-2);font-size:13px}
+.prov-warn code{font-size:12px}
 """
 
 
@@ -702,7 +771,8 @@ class ReportGenerator:
                     images.append(f)
         return images
 
-    def _render_dimension_block(self, dim_key: str, dim: Dict[str, Any]) -> str:
+    def _render_dimension_block(self, dim_key: str, dim: Dict[str, Any],
+                                labels: Optional[Dict[str, str]] = None) -> str:
         """渲染单个维度的证据状态。不解读,不推断,不加形容词。
 
         形态 = spec §5.4 的「整节的正确形态」:值 + 有效样本量 + 置信度 + evidence_gaps。
@@ -714,6 +784,10 @@ class ReportGenerator:
         每个维度自己带全自己的缺口 —— 出分维度也要列出未过门的槽。
         否则那些缺口只能靠顶层的汇总段兜底,而汇总段的所有条目都已被逐维列表
         覆盖过一遍(evidence_gaps 就是各维缺口的并集),同一批字符串会被打印两次。
+
+        ★ A5(2026-11-21):表格新增「仪器来源」一列。`labels` 是载荷给的
+        `l1.instruments.labels`(仪器键 → 中文标签);缺省时**露英文键** ——
+        这一列是本报告的披露义务,宁可露英文也不能空着。
         """
         # ⚠️ 分支判据 2026-10-04 由 `dim["score"] is None` 改成 `not dim["evidence_chain"]`
         #    —— payload 里的点分已摘除(见 `research_mapper` 返回处那段注释)。
@@ -747,7 +821,11 @@ class ReportGenerator:
             f"<td class=\"num\">{_fmt_num(e['raw_value'])}{_zero_note(e)}</td>"
             + (f"<td>{_interval_text(e.get('observed_interval'))}</td>"
                if has_interval else "")
-            + f"<td class=\"num\">{e.get('n_valid', '—')}</td></tr>"
+            + f"<td class=\"num\">{e.get('n_valid', '—')}</td>"
+            # ★ A5:这一格是本报告的披露义务。它**永远**出现(哪怕整列都是
+            #   「未提供」)—— 一列全缺就整列不印的规矩(见上,区间那一列)在这里
+            #   不适用:区间缺了是"这一层不产生",而出处缺了是"还没披露清楚"。
+            + f"<td class=\"prov\">{_instrument_cell(e, labels)}</td></tr>"
             for e in dim["evidence_chain"]
         )
         # 先给人话,再给表。表格是核对用的,而"这一维量到了哪几条"一句话就说完 ——
@@ -778,7 +856,7 @@ class ReportGenerator:
         · 这一维没有独立的对照标准，数只能描述行为，不能当评价。</p>
         <p class="note">量到了这几条：{names}。</p>
         <table><thead><tr><th>指标</th><th>原始值</th>{interval_th}
-        <th>有效样本量</th></tr></thead>
+        <th>有效样本量</th><th>仪器来源</th></tr></thead>
         <tbody>{rows}</tbody></table>
         {gaps_block}
         {never_block}
@@ -794,10 +872,14 @@ class ReportGenerator:
         聚合呈现移入报告头部的覆盖卡,只给「区间 + 置信度 + 依据」(spec §5.6)。
 
         参数 features 保留是为了调用方签名稳定;本函数不再从原始特征里另取默认值。
+
+        ★ A5:仪器标签从载荷读(`l1.instruments.labels`)。旧引擎的载荷没有这一块 ⟹
+        传 `None`,那一列就露英文键(见 `_instrument_cell`)—— 不编一份标签出来。
         """
+        labels = ((result.get("l1") or {}).get("instruments") or {}).get("labels") or None
         parts = []
         for dim_key, dim in result["dimensions"].items():
-            parts.append(self._render_dimension_block(dim_key, dim))
+            parts.append(self._render_dimension_block(dim_key, dim, labels))
         # 原本此处另有一段顶层「证据缺口」汇总,现已删除 —— 它的每一条都来自
         # result["evidence_gaps"](各维缺口的并集),而逐维块已经把各自的缺口列全,
         # 于是同一批字符串会在报告里出现两遍。缺口现在只有逐维这一处来源(带维度归属)。
@@ -1170,6 +1252,85 @@ class ReportGenerator:
 
         return "".join(blocks)
 
+    def _render_instrument_disclosure(self, result: Dict[str, Any]) -> str:
+        """**仪器来源披露**那一节(A5,2026-11-21)—— 逐条标在表里,汇总放在页脚之前。
+
+        ## 为什么必须有这一节
+
+        "本系统同时存在两套面部仪器"这句话此前**只出现在文案里**:38 条 L1 指标
+        没有一条标着出处,报告也没说 `au12_smile` 与 `bs_mouthSmile` 是两套东西。
+        使用者拿报告去讲"双仪器",而报告本身一个字都没提 —— 那就是一句无法核对的声明。
+
+        ## 三条呈现规矩
+
+        1. **数字全部来自载荷**(`l1.instruments`,由 `l1_report._instrument_block` 装好)。
+           渲染层自己数一遍 ⟹ 页脚与汇总区两个数迟早不同。
+        2. **页脚那句话不在本文件拼** —— 它由 `instrument_provenance.format_footer()`
+           出(`footer` 键),两处措辞才不会分叉。
+        3. **「未登记」要显眼,并且说清它是缺口不是仪器**:它单独一个样式、单独一段,
+           还把**缺哪几列**点出来(`unmapped_columns`)—— 只说"8 条未登记"没人能动手。
+        """
+        block = ((result.get("l1") or {}).get("instruments") or {})
+        if not block:
+            # 旧引擎(`research_mapper`)的载荷没有这一块。**不编**:说清这一份没带,
+            # 而不是印一个「0 条」—— 后者会被读成"披露了,结果是零"。
+            return """
+            <section id="instrument-disclosure">
+                <h2>仪器来源</h2>
+                <p class="note">这一份报告用的载荷没有带仪器来源字段（旧引擎产物），
+                所以上面每张表的「仪器来源」列都写「未提供」—— 那是"没披露"，
+                不是"没有仪器"。当前默认引擎（L1）的报告一律带这一节。</p>
+            </section>
+            """
+
+        labels = block.get("labels") or {}
+        counts = block.get("counts") or {}
+        order = block.get("order") or list(counts)
+        chips = "".join(
+            f'<span class="prov-chip'
+            f'{" prov-chip-unknown" if k == INSTRUMENT_UNKNOWN else ""}">'
+            f'{labels.get(k, k)} {counts.get(k, 0)}</span>'
+            for k in order)
+
+        n_unknown = counts.get(INSTRUMENT_UNKNOWN, 0)
+        unknown_html = ""
+        if n_unknown:
+            cols = "、".join(f"<code>{escape(str(c))}</code>"
+                             for c in (block.get("unmapped_columns") or []))
+            where = f"（缺的是这几列：{cols}）" if cols else ""
+            unknown_html = (
+                f'<p class="prov-warn"><strong>{n_unknown} 条指标标着「未登记」</strong>。'
+                f'{block.get("unknown_note", "")}{where}</p>')
+
+        multi_html = (f'<p class="note">{block.get("multi_note", "")}</p>'
+                      if block.get("n_multi") else "")
+
+        # 模型系数为 0 本身就是要披露的事实:**每一个面部指标都来自手写几何代理**,
+        # 没有一条来自模型回归。不写这一句,读者会以为"两套仪器"是各出一半。
+        blendshape_zero = ""
+        if counts.get("blendshape", 0) == 0:
+            blendshape_zero = (
+                '<p class="note">注意这份报告里<strong>没有一条</strong>面部指标来自模型系数'
+                '（52 列 blendshape 全部只采集、没有参与任何一条 L1 指标）——'
+                '这句话本身也是要披露的内容。</p>')
+
+        return f"""
+        <section id="instrument-disclosure">
+            <h2>这些数是谁量的（仪器来源）</h2>
+            <p class="note">本系统的面部测量同时存在两套仪器：一套是手写的关键点几何代理
+            （<code>geometric</code>，例如「眉内距 ÷ 眼距」这类比率），另一套是
+            FaceLandmarker 模型回归出的 52 列系数（<code>blendshape</code>）。
+            离线实测（32 场 / 389 条）里，12 个构念只有 1 个达到秩一致性 ρ ≥ 0.7
+            ⟹ 两套数<strong>不可混用</strong>，所以上面每一张表都标了这条数出自哪一套。
+            这一节只做披露，不改任何一个值。</p>
+            <div class="prov-chips">{chips}</div>
+            <p class="prov-footer">{block.get("footer", "")}</p>
+            {multi_html}
+            {blendshape_zero}
+            {unknown_html}
+        </section>
+        """
+
     def _build_html_report(self, result: Dict[str, Any], chart_paths: Dict[str, Any],
                            features: Dict[str, Any], data: Dict[str, pd.DataFrame],
                            static_images: List[str],
@@ -1290,6 +1451,12 @@ class ReportGenerator:
             </details>
             """
 
+        # ★ A5(2026-11-21):仪器来源披露那一节,放在正文末尾、页脚之前。
+        #   放在**最后**而不是报告头:读者先读到"量到了什么",再问"这些数谁量的" ——
+        #   反过来会把一份交付物读成仪器说明书。但它必须在**页脚之前**,
+        #   所以是"页脚那一块"而不是附录(附录会被 `<details>` 折起来)。
+        instrument_block = self._render_instrument_disclosure(result)
+
         # 最后一道:正文里的半角标点换成全角(理由见 `_zh_punct`)。
         # 放在**整份模板拼完之后**,只改标签之外的文本 —— 各段拼接处
         # 也一并收口,不用在二十来处 f-string 里逐个手改。
@@ -1332,6 +1499,8 @@ class ReportGenerator:
 {self._render_l1_audit_text(result, only=("gaps", "low_confidence", "windows"))}
 
 {appendix_block}
+
+{instrument_block}
 
 <footer>JingXin 多模态行为观测 · 报告由系统自动生成 · 不含评分与评级</footer>
 </div>

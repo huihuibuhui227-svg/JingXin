@@ -69,6 +69,9 @@ def _load(modname: str):
 
 gapx = _load("gap_explanations")
 prov = _load("provisional_flags")
+#: A5(2026-11-21)之后,明细行会多带 `instrument`/`instruments` —— 仪器名要从
+#: 登记处取,不在这里抄一份字面量(否则登记表改了而测试还绿)。
+instr = _load("instrument_provenance")
 
 #: 9 个缺口码。**不从被测模块抄** —— 从包里的登记处取(唯一真源),
 #: 拿不到才退回字面量;两种情况下面的 9 条用例都必须一一对上。
@@ -462,7 +465,18 @@ def test_the_audit_rows_carry_their_own_explanation():
     row = build_quality_report(result).indicators[0]
     assert row["gap_explanation"] == gapx.SPECIAL["pause_ratio"]["not_produced"], (
         f"明细行没带专属解释:{row.get('gap_explanation')}")
-    # 既有键一个不少、一个不多(多的只有这一个)。
-    assert set(row) == {"name", "family", "formula", "required_l0", "window", "value",
-                        "unit", "n_valid", "n_total", "confidence", "gap",
-                        "gap_explanation"}, sorted(row)
+    # 既有键一个不少;多出来的只允许是"仪器来源"那两键(A5,2026-11-21 接入)。
+    # 再多一个就必须在这里显式登记 —— 这份断言的作用就是拦住"悄悄长出新字段"。
+    base_keys = {"name", "family", "formula", "required_l0", "window", "value",
+                 "unit", "n_valid", "n_total", "confidence", "gap",
+                 "gap_explanation"}
+    provenance_keys = {"instrument", "instruments"}
+    assert base_keys <= set(row), f"明细行丢了既有键:{sorted(base_keys - set(row))}"
+    extra = set(row) - base_keys
+    assert extra and extra <= provenance_keys, (
+        f"明细行的新增键只允许「仪器来源」两键之一,实际:{sorted(extra)}")
+    assert row.get("instrument") in instr.INSTRUMENTS, (
+        f"仪器名不在登记表里:{row.get('instrument')!r}")
+    # 披露不许改值:加了 instrument 之后,gap/解释/数值都必须还是原来那份。
+    assert row["gap"] == GAP_NOT_PRODUCED
+    assert row["value"] is None and row["n_valid"] == 0
