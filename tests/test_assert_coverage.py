@@ -252,22 +252,26 @@ _OPT_IN_SKIPS: dict[str, tuple[str, str]] = {
          "变异实测:每次约 150 秒,默认不跑以免把全量门拖成三分钟;"
          "同文件的 `test_mutation_registry_is_well_formed` 每次都跑(登记表完整性仍被钉着),"
          "而「改 X ⟹ 红」这件事由显式开关的那一轮实测(`tools/jx_selfcheck.py --mutations`)。"),
-    # ── 环境前置:只测真实 ASR 链路的 5 条(端点不可达时跳过,可达时照常执行)
+}
+
+
+#: ## 环境前置缺失时的允许跳过(第二类)
+#:
+#: 这 5 条只测**真实 ASR 链路**。`voice_interaction/asr/asr_config.json` 的端点
+#: 不可达时它们会 `pytest.skip("…这是环境前置…")`；端点可达时**照常执行**
+#: ⟹ 它们"跳过"与"跑到"都是合法状态，所以**不适用** opt-in 的反向判据。
+#: 2026-11-22 实测：端点由 192.168.72.30 改为 127.0.0.1 后，这 5 条全部真实跑通(6 passed)。
+_ENV_PREREQ_SKIPS: dict[str, tuple[str, str]] = {
     "tests/test_prosody_wiring.py::test_interview_answer_audio_logs_real_prosody":
-        ("JX_ASR_ENDPOINT",
-         "走真实 ASR 链路 FunASR;2026-11-22 实测 asr_config.json 的 192.168.72.30:10095 本机不可达"),
+        ("JX_ASR_ENDPOINT", "只测真实 ASR 链路：端点不可达时跳过，可达时执行"),
     "tests/test_prosody_wiring.py::test_research_answer_audio_also_logs_real_prosody":
-        ("JX_ASR_ENDPOINT",
-         "同上:只有解析真实 ASR 结果才谈得上「科研回答也落韵律」"),
+        ("JX_ASR_ENDPOINT", "同上：科研回答的韵律落盘只有解析真实 ASR 结果才谈得上"),
     "tests/test_prosody_wiring.py::test_prosody_is_computed_on_the_webm_path_the_browser_actually_uses":
-        ("JX_ASR_ENDPOINT",
-         "同上:webm 路径的端到端验证必须过 ASR"),
+        ("JX_ASR_ENDPOINT", "同上：webm 路径的端到端验证必须过 ASR"),
     "tests/test_prosody_wiring.py::test_extractor_std_columns_are_renamed_to_the_log_column_names":
-        ("JX_ASR_ENDPOINT",
-         "同上:该用例经端点落一行日志,需要真实 ASR 成功"),
+        ("JX_ASR_ENDPOINT", "同上：该用例经端点落一行日志，需要真实 ASR 成功"),
     "tests/test_prosody_wiring.py::test_extraction_runs_off_the_event_loop":
-        ("JX_ASR_ENDPOINT",
-         "同上:它验的是「韵律提取不在事件循环里跑」,要走完整端点才算数"),
+        ("JX_ASR_ENDPOINT", "同上：验「韵律提取不在事件循环里跑」要走完整端点才算数"),
 }
 
 
@@ -295,12 +299,13 @@ def test_no_assert_is_dead():
     # 有意 opt-in 的那几条从"必须跑到"里摘出去,但**逐条点名**(见 `_OPT_IN_SKIPS`)。
     # 未登记的任何一条 skipped / 前置失败仍然红 —— 这是 2026-11-22 唯一的改动,
     # 起因是它与"全量门 0 failed、允许 1 skipped"这条验收口径相冲突(见那张表的说明)。
-    for nodeid, (env, why) in _OPT_IN_SKIPS.items():
+    for nodeid, (env, why) in {**_OPT_IN_SKIPS, **_ENV_PREREQ_SKIPS}.items():
         assert "::" in nodeid and nodeid.startswith("tests/"), (
             f"`_OPT_IN_SKIPS` 的键必须是 `tests/<文件>::<测试>` 形式的 nodeid:{nodeid!r}")
         assert env.isupper() and why and len(why) > 20, (
             f"{nodeid}: 必须写清开哪个环境变量、以及为什么可以默认不跑")
-    unexpected = [n for n in report.never_called if n not in _OPT_IN_SKIPS]
+    allowed = {**_OPT_IN_SKIPS, **_ENV_PREREQ_SKIPS}
+    unexpected = [n for n in report.never_called if n not in allowed]
     assert unexpected == [], (
         "以下测试被收集但从未进入 call 阶段(跳过 / 前置失败),其 assert 一行都没被核实:\n"
         + "\n".join(f"  {nodeid}" for nodeid in unexpected)
@@ -311,7 +316,11 @@ def test_no_assert_is_dead():
     # 反向:开关**没开**时,登记为 opt-in 的条目必须真的处于"没跑到"的状态 ——
     # 否则那张表会慢慢变成一份过期清单,而它守的正是"哪些跳过是被允许的"。
     # (开关打开时它们本来就会跑,那种情形下这条反向判据不适用。)
-    off = [n for n, (env, _why) in _OPT_IN_SKIPS.items() if not os.environ.get(env)]
+    # ⚠️ 2026-11-22 收窄:`_ENV_PREREQ_SKIPS` 那些条目是否跳过**取决于环境是否可用**
+    #   (ASR 端点可达就跑),所以"登记了却没被跳过"对它们**不是**过期 —— 只有
+    #   opt-in 类(开关没开就不该跑)才适用这条反向判据。
+    off = [n for n, (env, _why) in _OPT_IN_SKIPS.items()
+           if n not in _ENV_PREREQ_SKIPS and not os.environ.get(env)]
     stale = [n for n in off if n not in report.never_called]
     assert stale == [], (
         "`_OPT_IN_SKIPS` 里这些条目在开关关着时也跑到了(登记过期):\n"

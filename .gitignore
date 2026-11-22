@@ -101,3 +101,4 @@ logs/
 _jxwork/
 data/logs_recomputed/
 _backup_asr_20261121/
+voice_interaction/asr/asr_config.json.bak-*
