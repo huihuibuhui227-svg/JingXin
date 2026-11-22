@@ -3,7 +3,7 @@
 
 ## 为什么
 
-旧引擎的 14 个槽(`l1_mapper.SLOT_LABEL`)与新引擎的 38 条 L1 指标
+旧引擎的 14 个槽(`l1_mapper.SLOT_LABEL`)与新引擎的 41 条 L1 指标
 (`l1_quality.INDICATOR_LABEL`)**各自登记了一份中文名**,而其中 8 个量是
 同一件事的两个叫法(`SLOT_MAP` 里逐条写着"换:同构念")。
 
@@ -59,9 +59,24 @@ _DIRECTION_FLIP = {
     "symmetry_score": ("facial_asymmetry_p90", "越大越不对称"),
 }
 
+#: **第二类例外**(2026-11-22 新增):统计面不同(比例 → 秒)⟹ 名字必须不同。
+#:
+#: `eye_contact` 这个槽量的是「有多大比例的时间在接触」(无量纲),
+#: 而 `gaze_dwell_p50` 数的是「一次能维持多少秒」。两边同名会让读者把
+#: 12.5 读成"接触比例 12.5"(比例不可能 >1)—— 与方向说反是同一类错:
+#: **名字必须与它数的东西一致**。
+#:
+#: 与 `_DIRECTION_FLIP` 分开登记的理由:那张表的判据是"理由里要有方向词",
+#: 而这里没有方向翻转,是**统计量换了一整层**(单位都不同)。两类例外各有各的守门,
+#: 不合并成一个 `or` —— 合并之后一半断言会永远跑不到(本仓踩过)。
+_DIFFERENT_STATISTIC = {
+    "eye_contact": ("gaze_dwell_p50", "比例→秒"),
+}
+
 
 #: 例外以外的槽 —— 它们的判据是"两边必须同名",一个 assert 恒执行。
-_SAME_NAMED = [(slot, l1) for slot, l1 in _mapped() if slot not in _DIRECTION_FLIP]
+_SAME_NAMED = [(slot, l1) for slot, l1 in _mapped()
+               if slot not in _DIRECTION_FLIP and slot not in _DIFFERENT_STATISTIC]
 
 
 def test_the_direction_flip_exception_is_not_empty():
@@ -95,6 +110,37 @@ def test_a_direction_flip_slot_is_registered_and_never_same_named(slot):
         f"{slot!r} 的映射理由没写清方向(缺「{direction}」):{SLOT_MAP[slot][1]!r}")
     assert slot in NOT_COMPARABLE, (
         f"{slot!r} 换了方向却没登记进 NOT_COMPARABLE —— 读者会把两边的数相减")
+
+
+def test_the_different_statistic_exception_is_not_empty():
+    """例外表非空 —— 否则下面那段"统计面不同 ⟹ 不同名"的判据一次都不会执行。"""
+    assert _DIFFERENT_STATISTIC, "统计面不同的例外表空了 —— 那段判据成了死代码"
+
+
+@pytest.mark.parametrize("slot", sorted(_DIFFERENT_STATISTIC))
+def test_a_different_statistic_slot_is_registered_and_never_same_named(slot):
+    """★ 统计面不同(比例 → 秒):两边**必须**不同名,且理由与"不可比"都要登记。
+
+    红法:把 `INDICATOR_LABEL["gaze_dwell_p50"]` 改成「眼神接触比例」⟹ 这里红 ——
+    那会让读者把 12.5 秒读成"接触比例 12.5"(比例不可能 >1);
+    或把 `NOT_COMPARABLE` 里 `eye_contact` 那条删掉 ⟹ 这里红(读者会把两边相减)。
+    """
+    from report_frontend.l1_mapper import NOT_COMPARABLE, PLAIN_WHAT
+
+    want_l1, fragment = _DIFFERENT_STATISTIC[slot]
+    l1_name = SLOT_MAP[slot][0]
+    old = slot_label(slot)
+    new = l1_quality.indicator_label(l1_name)
+    assert l1_name == want_l1, (
+        f"例外登记的是 {want_l1!r},而 SLOT_MAP 现在映射到 {l1_name!r} —— 登记过期了")
+    assert new != old, (
+        f"{slot!r} 两边同名(「{new}」),但一个数比例、一个数秒 —— 同名会说错单位")
+    assert fragment in SLOT_MAP[slot][1], (
+        f"{slot!r} 的映射理由没写清统计面变了(缺「{fragment}」):{SLOT_MAP[slot][1]!r}")
+    assert slot in NOT_COMPARABLE, (
+        f"{slot!r} 换了统计面却没登记进 NOT_COMPARABLE —— 读者会把两边的数相减")
+    assert slot in PLAIN_WHAT, (
+        f"{slot!r} 没有给人读的比较说明 —— 交付物里会露出审计原话")
 
 
 @pytest.mark.parametrize("slot,l1_name", _SAME_NAMED, ids=[s for s, _ in _SAME_NAMED])

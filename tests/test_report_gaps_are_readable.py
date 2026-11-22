@@ -149,7 +149,57 @@ def test_gap_lines_carry_no_markup(gaps):
         f"「{tok}」出现在「{g}」" for g, tok in markup)
 
 
-def test_dropped_slot_lines_say_the_layer_does_not_measure_it(gaps):
+#: 构造用的"这套采集不测"槽 —— **确定不在**真表里(`SLOT_MAP` / `SLOT_LABEL`),
+#: 由 fixture 临时登记进三张表。见 `tests/test_vanished_dimensions_are_printable.py`
+#: 里同一套做法的说明:能力必须留着,但生产数据里已经没有删槽了。
+_SYN_SLOT = "syn_slot_never_measured"
+_SYN_LABEL = "构造用不测槽"
+_SYN_PLAIN = "这套采集里没有能与它对应的量,不拿相邻的量顶替"
+_SYN_KEY = "synthetic_gap_kind_dim"
+
+#: **导入时**（任何 monkeypatch 生效之前）从真表数出来的删槽 —— 2026-11-22 起应为空。
+#: 为什么在模块级算:下面的 fixture 会临时往 `SLOT_MAP` 里塞合成删槽,
+#: 进了用例再数就把合成的那一个也数进去了(踩过)。
+_REAL_DROPPED = tuple(sorted(s for s, (l1, _) in SLOT_MAP.items() if l1 is None))
+
+
+@pytest.fixture
+def synthetic_dropped(monkeypatch, tmp_path):
+    """一份**带一个"这套采集不测"槽**的载荷(该槽与一个"本场没量到"的槽同维)。
+
+    ## 为什么必须构造(2026-11-22)
+
+    补进 `gaze_dwell_p50` 之后,`SLOT_MAP` 里**没有任何 `l1 is None` 的槽**了
+    ⟹ 生产载荷里不再有"这套采集不测"这一类行。但"两类缺口不许混进一个列表"
+    这条判据仍然必须有人守(下一场缺指标时它立刻要用),所以用**合成槽**喂它:
+    槽键、中文名、人话理由三张表都临时登记,装配仍走真的 `build_l1_report`。
+
+    ⚠️ 合成键必须真的不在真表里 —— 否则构造的对象就是真删槽,断言会随槽表演进。
+    """
+    assert _SYN_SLOT not in SLOT_MAP, f"{_SYN_SLOT} 已经是真的槽键了,请换一个合成键"
+    assert _SYN_SLOT not in l1_mapper.SLOT_LABEL
+    assert _SYN_SLOT not in l1_mapper.DROP_REASON
+
+    monkeypatch.setenv("JINGXIN_RECORDINGS_DIR", str(tmp_path / "no_rec"))
+    monkeypatch.setenv("JINGXIN_SERIES_DIR", str(tmp_path / "no_series"))
+    monkeypatch.setitem(SLOT_MAP, _SYN_SLOT, (
+        None,
+        "不拿 `gaze_aversion_ratio_vs_baseline` 顶替:那一条量的是偏离占比,"
+        "与这个槽要的构念不同(合成理由,只为走通渲染层)"))
+    monkeypatch.setitem(l1_mapper.SLOT_LABEL, _SYN_SLOT, _SYN_LABEL)
+    monkeypatch.setitem(l1_mapper.DROP_REASON, _SYN_SLOT, _SYN_PLAIN)
+    monkeypatch.setitem(DIMENSIONS, _SYN_KEY, {
+        "name": "构造用缺口维度",
+        # 一个"这套采集不测" + 一个"本场没量到"(空数据 ⟹ 值必为 None)
+        "slots": {_SYN_SLOT: 0.5, "gaze_direction_x_std": 0.5},
+    })
+    payload = build_l1_report(_SID, logs={})
+    assert _SYN_KEY in payload["dimensions"], (
+        f"构造的维度没有出现在载荷里:{sorted(payload['dimensions'])}")
+    return payload
+
+
+def test_dropped_slot_lines_say_the_layer_does_not_measure_it(synthetic_dropped):
     """★ 红法:把删槽行改回 `f"{label}:{reason}"` ⟹ 这里红。
 
     读者必须能一眼分出**两件完全不同的事**:
@@ -162,23 +212,28 @@ def test_dropped_slot_lines_say_the_layer_does_not_measure_it(gaps):
     ⚠️ 2026-10-26 换措辞:原来是「本层不测这一条」——「本层」是分层架构的内部叫法
     (L1 层 / L0 层),读者不知道有几层。现在说「这一条当前这套采集不测」,
     判据本身没变:仍然是**采集方式决定的不可能有**,不是"这次没采到"。
+
+    ⚠️ 2026-11-22:被测载荷改成**合成的那一维**(生产真表上已经没有删槽:
+    `eye_contact` 也换成 `gaze_dwell_p50` 了)。判据一字未改,而且现在同时钉两件事:
+    ① 合成删槽行必须说「这套采集不测」+ 用**中文名**开头 + 带人话结论;
+    ② **生产真表**上一条这类行都不许有(有就说明又冒出删槽了,要按判据逐条核)。
     """
-    dropped = [g for g in gaps if "这套采集不测" in g]
-    # 地板**从槽表推导**,不写死数字:写死会过期,而且这里有个易漏点 ——
-    # `confidence_level` 三个槽在 L1 全删 ⟹ 整个维度消失(`vanished_dimensions`),
-    # 它的删槽行**不在** `dimensions` 里。所以"删槽总数"≠"报告里出现的删槽行数"。
-    expected = sum(1 for spec in DIMENSIONS.values()
-                   if any(SLOT_MAP.get(s, (None,))[0] is not None for s in spec["slots"])
-                   for s in spec["slots"] if SLOT_MAP.get(s, (None,))[0] is None)
-    assert expected, "一条删槽都没有 —— 本测试退化为空断言"
-    assert len(dropped) == expected, (
-        f"删槽行数({len(dropped)})与幸存的维度里的删槽数({expected})不符:"
-        f"{dropped}")
-    for g in dropped:
-        assert g.split(":")[0].strip(), f"删槽行没有槽名:{g!r}"
+    dim = synthetic_dropped["dimensions"][_SYN_KEY]
+    never = dim.get("evidence_gaps_not_measured") or []
+    assert len(never) == 1, f"合成维度里应恰好一条「这套采集不测」行:{never}"
+    line = never[0]
+    assert "这套采集不测" in line, f"删槽行没有说「这套采集不测」:{line!r}"
+    assert line.startswith(_SYN_LABEL), (
+        f"删槽行没有用**中文槽名**开头(读者不认识 {_SYN_SLOT!r}):{line!r}")
+    assert _SYN_PLAIN in line, f"删槽行没有带一句人话结论:{line!r}"
+
+    # ② 生产真表:零删槽(模块导入时数的,不含本用例的合成槽)。
+    assert _REAL_DROPPED == (), (
+        f"真表上又出现删槽了:{_REAL_DROPPED} —— 请按判据逐条核,"
+        "不要直接把这条测试改松")
 
 
-def test_the_two_kinds_of_gap_are_not_merged_into_one_list(monkeypatch, tmp_path):
+def test_the_two_kinds_of_gap_are_not_merged_into_one_list(synthetic_dropped):
     """★ 红法:把删槽行并回 `evidence_gaps` ⟹ 这里红。
 
     ## 实测怎么发现的
@@ -197,10 +252,12 @@ def test_the_two_kinds_of_gap_are_not_merged_into_one_list(monkeypatch, tmp_path
 
     ⚠️ 用**空数据**载荷:那时每维都有"本场没量到"的行(`value is None`),
     两类的区分才有东西可查。全是删槽的维度(如消失的那一维)不在这里。
+
+    ⚠️ 2026-11-22:删槽那一类改成**合成**的一维(`synthetic_dropped`)——
+    生产真表上已经没有删槽,再拿真载荷测这一条会退化成"两段都是空、循环空转"
+    (被 `test_assert_coverage` 抓过一次)。判据一字没改。
     """
-    monkeypatch.setenv("JINGXIN_RECORDINGS_DIR", str(tmp_path / "no_rec"))
-    monkeypatch.setenv("JINGXIN_SERIES_DIR", str(tmp_path / "no_series"))
-    payload = build_l1_report(_SID, logs={})
+    payload = synthetic_dropped
 
     both = 0
     for key, dim in payload["dimensions"].items():

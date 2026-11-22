@@ -179,27 +179,53 @@ def test_cache_roundtrip_and_corrupt_cache_returns_none(tmp_path, monkeypatch):
     assert vs.load_series("s") is None
 
 
-# ── 7. 端到端:11 条全部可产 ────────────────────────────────────────────
+# ── 7. 端到端:13 条全部可产 ────────────────────────────────────────────
 
-def test_all_eleven_voice_indicators_produce_values_when_series_present():
-    """★ 给了日志 + 序列 ⟹ 11 条**全部**出值,一条 not_stored 都不该剩。
+def test_all_thirteen_voice_indicators_produce_values_when_all_sources_present(
+        tmp_path, monkeypatch):
+    """★ 给了 日志 + 帧序列 + 转写 ⟹ 13 条**全部**出值,一条 not_stored 都不该剩。
 
-    ⚠️ **2026-11-22 由 12 变 11**:`pause_ratio` 退役(与 `voiced_ratio` 代数恒等,
-    实测残差 4.4e-16、ρ = −1.000000)。判据没变 —— 给齐两个数据源就**一条都不许缺**;
-    变的只是分母里少了一条本来就不该产的指标。见 `l1_voice.RETIRED`。
+    沿革(判据一直是"数据源给齐就一条都不许缺"):
+    * 2026-11-22:12 → 11 —— `pause_ratio` 退役(与 `voiced_ratio` 代数恒等,
+      实测残差 4.4e-16、ρ = −1.000000,见 `l1_voice.RETIRED`);
+    * 2026-11-23:11 → **13** —— 补 `pause_structure_entropy`(吃帧序列)与
+      `answer_detail_chars_p50`(吃转写的 `segments[].text`)。所以本用例的
+      **前置条件也跟着多一个数据源**:没有转写时 `answer_detail_chars_p50`
+      会如实报 `not_stored`,那种情形由
+      `tests/test_m4_l1_voice_gesture.py::test_voice_reports_exactly_three_values_and_ten_not_stored`
+      钉着 —— 两条合起来才是完整的口径:**缺哪个源,就报哪个源的缺口**;
+      三个源齐了,**一条都不许缺**。
 
-    红法:在 `compute_voice_indicators` 里不把 `series` 传下去 ⟹ 8 条退回
+    红法:在 `compute_voice_indicators` 里不把 `series` 传下去 ⟹ 9 条退回
     `not_stored`,本条红。
     """
+    import json
+
     import pandas as pd
+    sid = "20261123_000000_ab12"
+    # 转写:8 段,每段 20 个非空白字符 ⟹ `answer_detail_chars_p50` = 20,
+    # `n_chars` 族门槛 5 ⟹ 8 段过门(置信"中"以上)。
+    tdir = tmp_path / "transcripts"
+    tdir.mkdir()
+    (tdir / f"{sid}.json").write_text(json.dumps({
+        "session_id": sid,
+        "merged": {"text": "字" * 160, "n_chars": 160,
+                   "segments": [{"index": i, "text": "字" * 20, "n_chars": 20}
+                                for i in range(8)]},
+        # 逐段结构在**原始**形状里(活路径写在 `merged.segments` 下)
+        "segments": [{"index": i, "text": "字" * 20, "n_chars": 20} for i in range(8)],
+    }), encoding="utf-8")
+    monkeypatch.setenv("JINGXIN_TRANSCRIPTS_DIR", str(tdir))
+    monkeypatch.setenv("JINGXIN_RECORDINGS_DIR", str(tmp_path / "no_rec"))
+
     voice = pd.DataFrame({
         "n_chars": [30.0] * 8, "speech_duration_sec": [6.0] * 8,
         "duration_sec": [9.0] * 8, "pause_frequency": [20.0] * 8,
         "reaction_time": [5.0] * 8,
     })
     series = [_series(index=i, pattern="VVV..VVV..VVVV") for i in range(8)]
-    inds = l1_voice.compute_voice_indicators(voice, series=series)
-    assert len(inds) == 11
+    inds = l1_voice.compute_voice_indicators(voice, series=series, session_id=sid)
+    assert len(inds) == 13
     missing = [i.name for i in inds if not i.has_value]
     assert missing == [], f"仍有未出值:{missing}"
 

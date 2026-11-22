@@ -223,6 +223,28 @@ def suite_paths() -> list[Path]:
 # ---------------------------------------------------------------- 常驻检查
 
 
+#: **有意 opt-in 的跳过** —— 只允许登记"默认不跑、显式开关才跑"的那几条。
+#:
+#: 为什么要这张表(2026-11-22):`test_declared_mutations_really_turn_their_test_red`
+#: 是变异实测,默认 `skipif`(`JX_RUN_MUTATIONS` 才跑,约 150 秒)。而它被跳过时
+#: `never_called` 必然非空 ⟹ **裸跑全量门永远红一条**,与"全量门 0 failed、
+#: 允许 1 skipped"这条验收口径直接冲突(实测:1593 passed / 1 skipped / 1 failed,
+#: 唯一失败就是本条)。
+#:
+#: 处置原则:**逐条点名**,不做任何"是 skip 就放行"的宽放 ——
+#: ① 未登记在表里的任何一个 `never_called` 仍然红(新增的意外跳过藏不住);
+#: ② 表里每一条都必须写明**哪个开关**能让它真的跑起来,以及为什么可以默认不跑;
+#: ③ 表里出现"其实没被跳过"的条目同样红(说明登记过期了,判据会腐化)。
+#: 键 = nodeid,**值 = (开启它的环境变量, 为什么可以默认不跑)**。
+_OPT_IN_SKIPS: dict[str, tuple[str, str]] = {
+    "tests/test_mutation_registry.py::test_declared_mutations_really_turn_their_test_red":
+        ("JX_RUN_MUTATIONS",
+         "变异实测:每次约 150 秒,默认不跑以免把全量门拖成三分钟;"
+         "同文件的 `test_mutation_registry_is_well_formed` 每次都跑(登记表完整性仍被钉着),"
+         "而「改 X ⟹ 红」这件事由显式开关的那一轮实测(`tools/jx_selfcheck.py --mutations`)。"),
+}
+
+
 def test_no_assert_is_dead():
     """报告层那九次事故的兜底:每条 assert 都必须至少被执行过一次。"""
     report = check_assert_coverage(suite_paths())
@@ -244,13 +266,31 @@ def test_no_assert_is_dead():
         "以下测试对不上 ast 里的测试函数,它们的 assert 根本没进对比表(静默盲区):\n"
         + "\n".join(f"  {nodeid}" for nodeid in report.unmapped)
     )
-    assert report.never_called == [], (
+    # 有意 opt-in 的那几条从"必须跑到"里摘出去,但**逐条点名**(见 `_OPT_IN_SKIPS`)。
+    # 未登记的任何一条 skipped / 前置失败仍然红 —— 这是 2026-11-22 唯一的改动,
+    # 起因是它与"全量门 0 failed、允许 1 skipped"这条验收口径相冲突(见那张表的说明)。
+    for nodeid, (env, why) in _OPT_IN_SKIPS.items():
+        assert "::" in nodeid and nodeid.startswith("tests/"), (
+            f"`_OPT_IN_SKIPS` 的键必须是 `tests/<文件>::<测试>` 形式的 nodeid:{nodeid!r}")
+        assert env.isupper() and why and len(why) > 20, (
+            f"{nodeid}: 必须写清开哪个环境变量、以及为什么可以默认不跑")
+    unexpected = [n for n in report.never_called if n not in _OPT_IN_SKIPS]
+    assert unexpected == [], (
         "以下测试被收集但从未进入 call 阶段(跳过 / 前置失败),其 assert 一行都没被核实:\n"
-        + "\n".join(f"  {nodeid}" for nodeid in report.never_called)
+        + "\n".join(f"  {nodeid}" for nodeid in unexpected)
         + "\n(跳过的测试,其断言不在覆盖保证之内,且本检查不会替它背书)"
-        + "\n★ 若那是**有意**的 opt-in(如变异实测,默认跳过以免每次多花约 30 秒),"
-          "全量门请带 `JX_RUN_MUTATIONS=1`(或跑 `tools/jx_selfcheck.py --mutations`)"
-          "—— 裸跑报这一红不是缺陷,是这条闸在照实说「它没被核实过」。"
+        + "\n★ 若那确实是**有意**的 opt-in(默认不跑、显式开关才跑),"
+          "把它**逐条**登记进本文件的 `_OPT_IN_SKIPS` 并写清开关与理由;"
+          "否则先修好前置条件 —— 不许改成「是 skip 就放行」。")
+    # 反向:开关**没开**时,登记为 opt-in 的条目必须真的处于"没跑到"的状态 ——
+    # 否则那张表会慢慢变成一份过期清单,而它守的正是"哪些跳过是被允许的"。
+    # (开关打开时它们本来就会跑,那种情形下这条反向判据不适用。)
+    off = [n for n, (env, _why) in _OPT_IN_SKIPS.items() if not os.environ.get(env)]
+    stale = [n for n in off if n not in report.never_called]
+    assert stale == [], (
+        "`_OPT_IN_SKIPS` 里这些条目在开关关着时也跑到了(登记过期):\n"
+        + "\n".join(f"  {n}" for n in stale)
+        + "\n—— 表里不该留着已经会默认跑的测试。"
     )
     assert report.never_collected == [], (
         "以下函数源码里看着是测试,但 pytest 没收集到它(改名 / 不在 Test* 类里 / 有参数):\n"

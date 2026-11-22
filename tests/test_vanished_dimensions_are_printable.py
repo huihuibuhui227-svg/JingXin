@@ -11,8 +11,13 @@
 而"消失时必须能印人话"这条规矩**仍然必须有人守** —— 下一个人删掉
 `_printable_vanished` 那一步时不该有任何测试变绿。所以本文件改成:
 **用一个构造出来的"整维没有对应指标"维度**跑真装配,再验那四个判据。
-构造借的三个槽(`fluency_score` / `eye_contact` / `n_chars`)是今天**真的**
-没有对应指标的那三个,所以验的仍是真表(`SLOT_LABEL` / `DROP_REASON` / `SLOT_MAP`)。
+
+⚠️ **2026-11-22(同日第二次)**:补进 `gaze_dwell_p50` 之后,`SLOT_MAP` 里
+**一个删槽都不剩**(`fluency_score` / `eye_contact` / `n_chars` 现在全部有对应指标),
+原来"借三个真删槽"的构造方式随之失效。现在改用**三个合成槽键**
+(确定不在 `SLOT_MAP` / `SLOT_LABEL` / `DROP_REASON` 里,由 fixture 临时登记),
+验的仍然是真装配链(`map_l1_to_dimensions` → `_printable_vanished`),
+参数化的仍是"整维消失要能印人话"这条判据本身。
 
 ## 为什么
 
@@ -66,17 +71,47 @@ def _all_l1_names() -> set[str]:
             | set(l1_voice.ORDER) | set(l1_text.ORDER))
 
 
+#: 构造用的三个删槽 —— 键、中文名、人话理由**都**由 fixture 临时登记进三张真表。
+#: 为什么三个都要登记:载荷里补 `human_name` / `plain_reason` 那一步读的就是
+#: `SLOT_LABEL` / `DROP_REASON`;只往 `SLOT_MAP` 塞键的话,补出来的是英文键
+#: (退化成"没登记"那条路,验不到"人话来自共享表"这条判据)。
+_SYN_SLOTS = {
+    "syn_vanished_alpha": ("构造槽甲", "这套采集里没有与它对应的量,不拿相邻的量顶替"),
+    "syn_vanished_beta": ("构造槽乙", "它要的那一路信号本套采集不含,再采也不会有"),
+    "syn_vanished_gamma": ("构造槽丙", "这个构念没有独立测量,报出来只是把别的量数两遍"),
+}
+
+#: **导入时**(任何 monkeypatch 生效之前)核对合成键真的不在真表里 ——
+#: 否则构造的对象就是真删槽,断言会随槽表演进(本文件为此栽过一次)。
+_COLLISIONS = {k for k in _SYN_SLOTS
+               if k in SLOT_MAP or k in SLOT_LABEL or k in DROP_REASON}
+
+
 @pytest.fixture
 def vanished(monkeypatch, tmp_path):
     """一个**真的整维没有对应指标**的维度 —— 走完整装配,不是手拼 dict。
 
-    三个槽都是今天真的删槽(见模块 docstring);构造的只是"它们同属一个维度"。
+    ## 2026-11-22(同日第二次):构造方式从"借真删槽"改成"合成槽键"
+
+    真表上已经没有删槽了(`eye_contact` 也换成了 `gaze_dwell_p50`),
+    借真删槽这条路走不通。合成的只是**槽键与名字**,装配链一条没换:
+    `map_l1_to_dimensions` 仍按 `SLOT_MAP.get(slot)[0] is None` 判删槽,
+    `_printable_vanished` 仍从 `SLOT_LABEL` / `DROP_REASON` 取人话。
     """
+    assert not _COLLISIONS, (
+        f"合成槽键撞上了真表:{sorted(_COLLISIONS)} —— 请换键,"
+        "构造必须验的是「没登记/已删」这条路,不能借用真槽")
     monkeypatch.setenv("JINGXIN_RECORDINGS_DIR", str(tmp_path / "no_rec"))
     monkeypatch.setenv("JINGXIN_SERIES_DIR", str(tmp_path / "no_series"))
+    weights = (0.4, 0.35, 0.25)
+    for (slot, (label, plain)), weight in zip(_SYN_SLOTS.items(), weights):
+        monkeypatch.setitem(SLOT_MAP, slot, (
+            None, f"合成理由:不拿任何现有指标顶替({slot}),只为走通渲染层与审计分层"))
+        monkeypatch.setitem(SLOT_LABEL, slot, label)
+        monkeypatch.setitem(DROP_REASON, slot, plain)
     monkeypatch.setitem(l1_mapper.DIMENSIONS, _SYNTHETIC_KEY, {
         "name": "构造用整维",
-        "slots": {"fluency_score": 0.4, "eye_contact": 0.35, "n_chars": 0.25},
+        "slots": dict(zip(_SYN_SLOTS, weights)),
     })
     got = build_l1_report(_SID, logs={})["vanished_dimensions"]
     assert [v["key"] for v in got] == [_SYNTHETIC_KEY], (
@@ -87,14 +122,16 @@ def vanished(monkeypatch, tmp_path):
 def test_the_real_payload_no_longer_vanishes_any_dimension(monkeypatch, tmp_path):
     """★ 2026-11-22 的新事实:**没有任何维度整体消失**了。
 
-    `行为表现活跃度` 复活到 2/3(`shrug_elevation_p90` + `hand_openness_p50`),
-    `情境行为稳定性` 补满 3/3(`facial_asymmetry_p90`)⟹ 五个维度全在 `dimensions` 里。
+    `行为表现活跃度` 3/3(`shrug_elevation_p90` + `hand_openness_p50` +
+    `gaze_dwell_p50`)、`情境行为稳定性` 3/3(`facial_asymmetry_p90`)、
+    `沟通表达流畅度` 3/3、`作答过程特征` 2/2 ⟹ 五个维度全在 `dimensions` 里,
+    **14 个槽全部有对应指标**。
 
     为什么这条要单独存在:上面四条测试用**构造**的维度跑(因为生产数据里没有了)。
     若哪天有人把三条新指标撤掉,那四条**照样绿**(它们不读真表),而报告会悄悄
     退回"四维"。这条就是那个缺口的地板。
 
-    红法:把 `left_hand_spread` 或 `shrug_level` 改回 `None` ⟹ 本条红。
+    红法:把 `left_hand_spread` / `shrug_level` / `eye_contact` 任一改回 `None` ⟹ 本条红。
     """
     monkeypatch.setenv("JINGXIN_RECORDINGS_DIR", str(tmp_path / "no_rec"))
     monkeypatch.setenv("JINGXIN_SERIES_DIR", str(tmp_path / "no_series"))
@@ -103,8 +140,13 @@ def test_the_real_payload_no_longer_vanishes_any_dimension(monkeypatch, tmp_path
         f"又有维度消失了:{[v['key'] for v in rec['vanished_dimensions']]}")
     assert len(rec["dimensions"]) == 5, sorted(rec["dimensions"])
     assert rec["coverage"]["n_no_indicator"] == 0
-    assert rec["coverage"]["n_not_measured"] == 3
-    assert rec["coverage"]["n_measurable"] == 11
+    # ⚠️ 2026-11-22(同日第二次):`n_not_measured` 3 → **0**(最后一个删槽
+    #    `eye_contact` 也换成 `gaze_dwell_p50`)、`n_measurable` 11 → **14**。
+    #    槽总数仍是 14。注意:这是**空数据**载荷,"可测 14"不等于"过门 14"
+    #    (这条用 `logs={}` ⟹ 一条值都没有 ⟹ `n_passed == 0`)。
+    assert rec["coverage"]["n_not_measured"] == 0
+    assert rec["coverage"]["n_measurable"] == 14
+    assert rec["coverage"]["n_passed"] == 0, "空数据下过门数必须是 0,不许按可测数报"
     assert rec["coverage"]["n_slots"] == 14
 
 

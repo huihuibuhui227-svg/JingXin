@@ -49,7 +49,7 @@ from report_frontend.data_loader import LogDataLoader
 from report_frontend.l1_report import build_l1_report
 from report_frontend.report_generator import ReportGenerator, _instrument_cell
 
-#: 一个**不存在的**会话号:装配照样产出 38 条指标(带 gap),但不碰任何真素材。
+#: 一个**不存在的**会话号:装配照样产出 41 条指标(带 gap),但不碰任何真素材。
 #: 用真会话号有风险 —— `data/` 里有没有那一场取决于跑测试的机器。
 _SID = "20260101_000000_0000"
 
@@ -85,14 +85,17 @@ def _normalized(p: dict) -> dict:
 # ── 1. 每条指标都有可读仪器 ────────────────────────────────────────────────
 
 def test_every_indicator_carries_a_readable_instrument(payload):
-    """38 条指标,一条都不许漏;而且每条都要能印成人话。
+    """41 条指标,一条都不许漏;而且每条都要能印成人话。
+
+    ⚠️ 2026-11-22:38 → **41**(F 15→16 补 `gaze_dwell_p50`、V 11→13 补两条)。
+    判据没变:逐条都要能读出仪器、仪器名都得在标签表里、单值/多值二选一。
 
     判据两层:`instruments_of()` 能读出非空列表(**结构上没漏**),且每个仪器名
     在 `l1_report.INSTRUMENT_LABEL` 里有中文标签(**印得出来**)。
     只判第一层不够 —— 名字在没有标签的表里,报告上就是一串英文键。
     """
     rows = payload["l1"]["indicators"]
-    assert len(rows) == 38, f"指标条数变了(是 38 吗?):{len(rows)}"
+    assert len(rows) == 41, f"指标条数变了(是 41 吗?):{len(rows)}"
 
     for row in rows:
         got = instrument_provenance.instruments_of(row)
@@ -107,7 +110,7 @@ def test_every_indicator_carries_a_readable_instrument(payload):
 
     # 汇总块与逐条一致:总数对得上,5 个键一个不缺(含计数为 0 的)
     block = payload["l1"]["instruments"]
-    assert block["n_indicators"] == 38
+    assert block["n_indicators"] == 41
     assert set(block["counts"]) == set(instrument_provenance.INSTRUMENTS)
     assert sum(block["counts"].values()) >= block["n_indicators"], (
         "多仪器指标在每个仪器下各计 1 ⟹ 各项之和只会 ≥ 条数;小于就说明有指标没计数")
@@ -323,7 +326,12 @@ def test_unknown_is_rendered_as_a_gap_not_as_an_instrument():
         **payload["l1"]["instruments"],
         "counts": {**payload["l1"]["instruments"]["counts"], "unknown": 8},
         "unmapped_columns": ["skin_conductance"],
-        "footer": "共 38 条指标 · 仪器来源:模型系数 0 / 几何代理 15 / 音频 4 / 文本 4 / 未登记 8",
+        # ⚠️ 2026-11-22:38 → 41;几何代理 15 → **25**、音频 4 → **12**、文本 4 → **5**
+        #    (补进来的 3 条指标:gaze_dwell_p50 走 gaze_ 前缀=几何代理,
+        #     pause_structure_entropy 走 voiced_flag/frame_sec=音频,
+        #     answer_detail_chars_p50 走 transcript_text=文本;V 族多出的
+        #     pitch/energy 序列两条沿用 f0/rms=音频)。
+        "footer": "共 41 条指标 · 仪器来源:模型系数 0 / 几何代理 25 / 音频 12 / 文本 5 / 未登记 0",
     }
     html = ReportGenerator(output_dir="/tmp")._build_html_report(payload, {}, {}, {}, [])
     assert "披露缺口" in html
@@ -374,10 +382,10 @@ def test_labels_agree_with_the_footer():
     assert counts["text"] == 2, "多仪器指标没在两个仪器下各计一次"
 
 
-# ── 7. 空日志那条路:38 条指标照样逐条有披露 ────────────────────────────────
+# ── 7. 空日志那条路:41 条指标照样逐条有披露 ────────────────────────────────
 
 def test_every_indicator_is_disclosed_even_without_any_logs():
-    """空日志(`logs={}`)装配出来的 38 条指标,也必须**逐条**带得出仪器来源。
+    """空日志(`logs={}`)装配出来的 41 条指标,也必须**逐条**带得出仪器来源。
 
     这条护的是"披露不依赖有没有采到数":指标不出值时更要说清是哪一路仪器没给数,
     否则读者会把"没采到"读成"没这项能力"。
@@ -388,7 +396,7 @@ def test_every_indicator_is_disclosed_even_without_any_logs():
     """
     p = build_l1_report(_SID, logs={})
     rows = p["l1"]["indicators"]
-    assert len(rows) == 38
+    assert len(rows) == 41
     for row in rows:
         assert instrument_provenance.instruments_of(row), f"{row['name']} 没带仪器来源"
 

@@ -475,7 +475,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             target, logs, sources = stage_load(sid)
             if not logs:
-                warn("一条日志都没读到 —— L1 仍会跑(38 条全部报缺),报告照样出,只是没有数")
+                warn("一条日志都没读到 —— L1 仍会跑(全部指标报缺),报告照样出,只是没有数")
         except Exception as exc:
             bad(f"日志装配失败:{exc}")
             if not args.verbose:
@@ -488,7 +488,10 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         warn(f"L0 检查失败(不影响 L1):{exc.__class__.__name__}: {exc}")
 
-    hr("② L1(会话级 38 条指标)")
+    # ⚠️ 标题里**不写条数**:条数是会变的(2026-11-22 由 38 → 41),写死在这里
+    #   就会出现"标题说 38、下一行说 41"的自相矛盾 —— 本仓对"同一份输出里两个数"
+    #   的处置一向是删掉那个不该写死的。真数字由下一行从载荷里现取。
+    hr("② L1(会话级指标)")
     t_l1 = time.time()
     try:
         payload = stage_l1(target, logs)

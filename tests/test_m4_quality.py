@@ -169,9 +169,10 @@ def test_family_summary_attributes_each_family_to_its_modality():
 # ── 5. 端到端:真链路走一遍(不读 data/) ────────────────────────────────
 
 def test_end_to_end_with_no_face_log_reports_modality_missing(tmp_path, monkeypatch):
-    """没有 face 日志 ⟹ 15 条全部 `modality_missing`,且报告能生成、能自检通过。
+    """没有 face 日志 ⟹ 16 条全部 `modality_missing`,且报告能生成、能自检通过。
 
-    ⚠️ 2026-11-22:16 → 15(退 2 条 `micro_exp_*`、补 `facial_asymmetry_p90`)。
+    ⚠️ 2026-11-22:16 → 15(退 2 条 `micro_exp_*`、补 `facial_asymmetry_p90`),
+    同日第二次 15 → **16**(补 `gaze_dwell_p50`)。
     判据没变:整族一条不漏、全报同一个码、报告仍能自检通过。
     """
     monkeypatch.setenv("JINGXIN_RECORDINGS_DIR", str(tmp_path))
@@ -181,13 +182,13 @@ def test_end_to_end_with_no_face_log_reports_modality_missing(tmp_path, monkeypa
     ws = WindowSet("s", "answer", [AnswerWindow(index=0, t_start=0.0, t_end=10.0)],
                    n_questions=1)
     inds = l1_face.compute_face_indicators(None, ws, None)
-    assert len(inds) == 15
+    assert len(inds) == 16
     assert all(i.gap == GAP_MODALITY_MISSING for i in inds)
 
     res = _FakeResult(modalities={}, indicators=inds, windows=ws)
     q = l1_quality.build_quality_report(res)
     q.validate()                       # 不抛 ⟹ 自洽
-    assert q.by_gap[GAP_MODALITY_MISSING] == 15   # ← 2026-11-22:16 → 15(见上一条注释)
+    assert q.by_gap[GAP_MODALITY_MISSING] == 16   # ← 2026-11-22:16 → 15 → 16(见上一条注释)
     assert q.n_measured == 0
 
 

@@ -222,15 +222,17 @@ def test_any_activation_is_measurable_where_the_joint_and_was_degenerate():
 
 # ── 5. 条数恒定 ──────────────────────────────────────────────────────────
 
-def test_family_always_reports_fifteen_indicators_per_window():
-    """★ 不管有没有数据,条数恒定 15 —— 不列出来等于让人以为 F 族不存在。
+def test_family_always_reports_sixteen_indicators_per_window():
+    """★ 不管有没有数据,条数恒定 16 —— 不列出来等于让人以为 F 族不存在。
 
-    ⚠️ **2026-11-22 由 16 变 15**,不是放宽断言,是**条数真的变了**:
-    F 族退掉 2 条从未出过值的 `micro_exp_*`(全语料 0 场出值,不是"样本不够",
-    是**没有计算代码**)、补进 1 条 `facial_asymmetry_p90` ⟹ 16 − 2 + 1 = **15**。
-    四族合计仍是 **38**(F15 + G9 + V11 + T3),由下面
+    沿革(每一次都是**条数真的变了**,不是放宽断言):
+    * 2026-11-22 16 → 15:退 2 条从未出过值的 `micro_exp_*`(全语料 0 场出值,
+      不是"样本不够",是**没有计算代码**)、补进 1 条 `facial_asymmetry_p90`;
+    * 2026-11-22(同日第二次)15 → **16**:补 `gaze_dwell_p50`(第 14 个槽
+      `eye_contact` 的时长面)。
+    四族合计 **41**(F16 + G9 + V13 + T3),由
     `test_indicator_inventory_matches_the_spec` 继续钉死。
-    判据本身没变:条数必须**恒定**(有数据、没数据都 15),少一条就是"补成不可出"
+    判据本身没变:条数必须**恒定**(有数据、没数据都 16),少一条就是"补成不可出"
     那段被删了。
 
     红法:在 `_family_for_window` 里把"补成不可出"那段删掉 ⟹ 缺列的窗口条数变少,本条红。
@@ -243,25 +245,27 @@ def test_family_always_reports_fifteen_indicators_per_window():
     })
     inds_full = l1_face.compute_face_indicators(
         full, _windows((-1.0, 999.0)), pd.Series(np.arange(n, dtype=float)))
-    assert len([i for i in inds_full if i.window == "answer:0"]) == 15
+    assert len([i for i in inds_full if i.window == "answer:0"]) == 16
 
     empty = pd.DataFrame({"is_blink": [np.nan] * n})
     inds_empty = l1_face.compute_face_indicators(
         empty, _windows((-1.0, 999.0)), pd.Series(np.arange(n, dtype=float)))
     got = [i for i in inds_empty if i.window == "answer:0"]
-    assert len(got) == 15
+    # ⚠️ 2026-11-22(同日第二次):15 → 16(补 `gaze_dwell_p50`)。
+    assert len(got) == 16
     assert all(not i.has_value for i in got), "没数据时不许有一条出值"
 
 
 def test_no_windows_still_reports_the_family_under_session():
-    """戊-15 那 26 场:没有回答窗口,但 15 条仍要以 `session` 名义出现。
+    """戊-15 那 26 场:没有回答窗口,但 16 条仍要以 `session` 名义出现。
 
-    ⚠️ 2026-11-22:16 → 15(退 2 条 `micro_exp_*`、补 1 条 `facial_asymmetry_p90`)。
+    ⚠️ 2026-11-22:16 → 15(退 2 条 `micro_exp_*`、补 1 条 `facial_asymmetry_p90`);
+    同日第二次 15 → 16(补 `gaze_dwell_p50`,第 14 个槽的时长面)。
     判据没变:没有窗口时**一条都不许少**。
     """
     ws = WindowSet(session_id="s", granularity="session", windows=[], gap="没有台账")
     inds = l1_face.compute_face_indicators(None, ws, None)
-    assert len(inds) == 15
+    assert len(inds) == 16
     assert all(i.window == "session" for i in inds)
 
 
@@ -315,15 +319,23 @@ def test_all_nan_head_columns_report_no_samples_not_zero_motion():
 # ── 5. 指标清单本身必须被钉住 ────────────────────────────────────────────
 
 def test_indicator_inventory_matches_the_spec():
-    """★ 四族条数合计 = 38(F 15 / G 9 / V 11 / T 3),且名字不许跨族重名。
+    """★ 四族条数合计 = 41(F 16 / G 9 / V 13 / T 3),且名字不许跨族重名。
 
-    ⚠️ **2026-11-22:族分布变了,总数没变**(这是本次改动的承重墙):
+    ⚠️ **2026-11-22 第一轮:族分布变了,总数没变**:
     F 16→15(退 2 条 `micro_exp_*`、补 `facial_asymmetry_p90`)、
     G 7→9(补 `shrug_elevation_p90` / `hand_openness_p50`)、
-    V 12→11(退 `pause_ratio`,与 `voiced_ratio` 代数恒等)、T 3 不变。
-    15 + 9 + 11 + 3 = **38** —— 所以下面的 `sum == 38` 一个字符都没放宽;
-    变的是那三个分项。三条被退的指标复核证据见
-    `docs/补强/patch/D1_指标替换_3退3进_说明.md`。
+    V 12→11(退 `pause_ratio`,与 `voiced_ratio` 代数恒等)、T 3 不变 ⟹ 38。
+    三条被退的指标复核证据见 `docs/补强/patch/D1_指标替换_3退3进_说明.md`。
+
+    ⚠️ **2026-11-22 第二轮(本次):总数 38 → 41**,三个分项各自涨:
+    * F 15→**16**:补 `gaze_dwell_p50`(注视带内连续段长中位,秒),补上第 14 个槽
+      `eye_contact` 的时长面(ρ 体检表见交付说明第 22 号);
+    * V 11→**13**:补 `pause_structure_entropy`(停顿时长分布熵)与
+      `answer_detail_chars_p50`(逐段非空白字符数中位)—— 这两条是 2026-11-23
+      的接线工作,本次一并纳入对账;
+    * G 9 / T 3 不变。
+    16 + 9 + 13 + 3 = **41**。下面的 `sum == 41` 一个字符都没放宽 ——
+    **只改数字、不改判据**:族分布逐项钉死、总数钉死、跨族重名禁止。
 
     ## 为什么需要这一条
 
@@ -343,8 +355,8 @@ def test_indicator_inventory_matches_the_spec():
         "T": l1_text.ORDER,
     }
     counts = {k: len(v) for k, v in fams.items()}
-    assert counts == {"F": 15, "G": 9, "V": 11, "T": 3}, counts
-    assert sum(counts.values()) == 38, counts
+    assert counts == {"F": 16, "G": 9, "V": 13, "T": 3}, counts
+    assert sum(counts.values()) == 41, counts
 
     # 跨族重名会让报告里两行同名、`rowKey` 撞车 —— 前端表格的 key 就是名字。
     allnames = [n for v in fams.values() for n in v]
@@ -391,3 +403,163 @@ def test_any_activation_ratio_cannot_exceed_one_when_observation_is_partial():
     assert ind.value <= 1.0, f"占比 >1:{ind.value}(分子分母口径不一致)"
     assert ind.value == pytest.approx(0.45)
     assert ind.n_valid == 100
+
+
+# ── 9. `gaze_dwell_p50`:注视带内连续段长中位(第 14 个槽的时长面)──────────
+#
+# 定义(与 `l1_face._gaze_dwell_block` 的 docstring 逐字同源):
+#   注视带 = |gaze_direction_x| ≤ 本人中位数 + 3·MAD(与两条 `*_vs_baseline` 同一条线);
+#   段 = 连续在带内的帧;**段长 = 帧数 × 真实帧间隔**;值 = 段长中位(秒)。
+# 下面五条一条守一个细节,全部用合成 df,不碰 `data/`。
+
+
+def _dwell(df, t=None):
+    """跑一遍 F 族,只取 `gaze_dwell_p50` 这一条。"""
+    n = len(df)
+    t = pd.Series(np.arange(n, dtype=float)) if t is None else t
+    inds = l1_face.compute_face_indicators(df, _windows((-1.0, 999.0)), t)
+    return {i.name: i for i in inds if i.window == "answer:0"}["gaze_dwell_p50"]
+
+
+def test_gaze_dwell_is_the_median_run_length_in_band():
+    """★ 30 帧在带内 + 3 帧偏离 + 10 帧在带内 ⟹ 两段 30 s / 9 s ⟹ 中位 19.5 s。
+
+    为什么不报均值:一两段超长注视会把均值拽走,而"一次注视通常能维持多久"
+    问的是**典型**那一段(与 `smile_duration_p50` / `pause_duration_p50` 同一取法)。
+
+    红法:把 `np.median` 换成 `np.mean` ⟹ 得 19.5 → 19.5(偶数段时两者相等),
+    所以这里同时钉住"段数 >2"的形状:见下一条用三段值验中位 ≠ 均值。
+    """
+    n = 43
+    g = np.full(n, 0.02)
+    g[30:33] = 0.9                      # |x|=0.9 > 中位数(0.02)+3·MAD(0) ⟹ 偏离
+    ind = _dwell(pd.DataFrame({"gaze_direction_x": g}))
+    assert ind.has_value, (ind.gap, ind.n_valid, ind.n_total)
+    assert ind.value == pytest.approx(19.5)
+    assert ind.unit == "秒", f"单位必须是秒,实际 {ind.unit!r}"
+    assert ind.n_valid == n and ind.n_total == n
+
+
+def test_gaze_dwell_reports_the_median_not_the_mean_of_three_runs():
+    """★ 三段 2 s / 41 s / 6 s ⟹ **中位 6 s**(均值是 16.33 s)。
+
+    这条单独存在是因为上一条的两段形状里中位与均值恰好相等 ——
+    只留那一条的话,把 `median` 写成 `mean` 照样绿(本仓记过这种"看起来守着"的断言)。
+
+    段长怎么数(与 `blink_duration_mean` / `smile_duration_p50` 同一个
+    `_run_lengths` 实现,不另写一份):段内帧间隔之和,**段尾那一帧记到它之后的那一帧**;
+    末尾那段没有"之后",于是少记一个间隔。1 fps 下 ⟹ 被截断的段 ≈ 帧数 × 1 s。
+    本形状:``[0,1]`` 2 帧 ⟹ 2.0 s、``[4..44]`` 41 帧 ⟹ 41.0 s、
+    ``[47..53]`` 7 帧(末尾)⟹ 6.0 s。
+
+    红法:把 `np.median(runs)` 换成 `np.mean(runs)` ⟹ 得 16.33,本条红。
+    """
+    n = 54
+    g = np.full(n, 0.02)
+    g[2:4] = 0.9                        # 偏离 2 帧
+    g[45:47] = 0.9
+    ind = _dwell(pd.DataFrame({"gaze_direction_x": g}))
+    assert ind.has_value, (ind.gap, ind.n_valid)
+    assert ind.value == pytest.approx(6.0), ind.value
+
+
+def test_gaze_dwell_breaks_the_run_on_a_missing_frame():
+    """★ **缺测帧不算在带内** —— 它把段**切断**,而不是"跳过去接着数"。
+
+    `Tau.mask()` 对缺失帧返回 `False`(不拿缺失当阴性)。若把 `~mask` 直接当
+    "在带内",缺测帧就会被算成"正在注视" ⟹ 段长虚高,而且**缺得越多报得越大**。
+    构造:20 帧在带内 + 1 帧缺测 + 20 帧在带内(n=41)。
+    * 正确:两段 20 s / 19 s ⟹ 中位 **19.5 s**;
+    * 错的时候:合成一段 40 s ⟹ 报 40 s。
+
+    红法:把 `in_band = observed & ~out_of_band` 改回 `in_band = ~out_of_band` ⟹ 本条红。
+    """
+    n = 41
+    g = np.full(n, 0.02)
+    g[20] = np.nan
+    ind = _dwell(pd.DataFrame({"gaze_direction_x": g}))
+    assert ind.has_value, (ind.gap, ind.n_valid)
+    assert ind.value == pytest.approx(19.5), (
+        f"缺测帧没有切断段 —— 报出了 {ind.value}(合成一段应是 40 s)")
+    assert ind.n_valid == 40, "n_valid 只数**观测到**的帧(缺测那一帧不算)"
+
+
+def test_gaze_dwell_uses_real_frame_interval_not_a_frame_count():
+    """★ 段长 = 帧数 × **真实帧间隔**,不是"帧数当秒数"。
+
+    1 fps 是实测中位,不是契约(`video_pipeline` 会丢帧)。构造 10 帧、间隔 2 s:
+    段长应是 9 × 2 = **18 s**;若把帧数当秒数,会报 9 s。
+
+    红法:把 `dt` 换成 `np.ones_like(...)`(每帧记 1 秒)⟹ 本条红。
+    """
+    n = 10
+    t = pd.Series(np.arange(n, dtype=float) * 2.0)
+    ind = _dwell(pd.DataFrame({"gaze_direction_x": np.full(n, 0.02)}), t=t)
+    assert ind.has_value, (ind.gap, ind.n_valid)
+    assert ind.value == pytest.approx(18.0), ind.value
+
+
+def test_gaze_dwell_reports_a_gap_never_a_number_when_it_cannot_be_computed():
+    """★ 四种"算不出来"各自报**不同的**缺口码,一个都不许退化成 0 或 NaN 数。
+
+    只用既有 9 类缺口码(`l1_indicators.KINDS`),不新增第 10 类。
+
+    红法:把任一支 `unavailable(...)` 换成 `measured(..., value=0)` ⟹ 本条红。
+    """
+    from report_frontend import l1_indicators as li
+
+    # ① 列不在 ⟹ `column_empty`(上游这一份日志根本没有这一列)
+    assert _dwell(pd.DataFrame({"is_blink": np.zeros(30)})).gap == li.GAP_COLUMN_EMPTY
+    # ② 有效帧 < 2 ⟹ `no_samples`
+    few = np.full(30, np.nan)
+    few[:1] = 0.02
+    assert _dwell(pd.DataFrame({"gaze_direction_x": few})).gap == li.GAP_NO_SAMPLES
+    # ③ 时间轴长度对不上 ⟹ `time_unusable`(帧间隔无从谈起 ⟹ 秒不存在)
+    df = pd.DataFrame({"gaze_direction_x": np.full(30, 0.02)})
+    inds = l1_face.compute_face_indicators(
+        df, _windows((-1.0, 999.0)), pd.Series(np.arange(10, dtype=float)))
+    got = {i.name: i for i in inds if i.window == "answer:0"}["gaze_dwell_p50"]
+    assert got.gap == li.GAP_TIME_UNUSABLE, got.gap
+    # ④ 有效帧 2~4 ⟹ `uncalibrated`(`self_tau` 在 < 5 帧时不估稳健基线,不猜)
+    small = np.full(30, np.nan)
+    small[:3] = 0.02
+    assert _dwell(pd.DataFrame({"gaze_direction_x": small})).gap == li.GAP_UNCALIBRATED
+
+
+def test_gaze_dwell_reports_no_samples_when_every_frame_is_out_of_band(monkeypatch):
+    """★ τ 解析异常时(**所有帧都在带外**)报 `no_samples`,不许报一个 NaN 值。
+
+    ## 这一条为什么用 monkeypatch
+
+    在**真**口径下这个分支到不了:`τ = 中位数 + 3·MAD ≥ 中位数` ⟹ 至少一半的帧
+    必然 `|x| ≤ τ`。但"到不了"不等于"可以留着一段没人跑过的代码"——
+    它是"分母为空时怎么办"的唯一守门处,而"报 NaN 值"正是本仓反复消灭的形态
+    (一个 NaN 值的 `measured()` 会带着"中"的置信度混进报告)。
+    所以这里把 τ 压到 0(`|x| > 0` ⟹ 全部帧偏离),逼它走那个分支。
+
+    红法:把 `if not runs:` 那一支删掉 ⟹ 会走 `np.median([])` = NaN,本条红。
+    """
+    from report_frontend import l1_indicators as li
+    from report_frontend import l1_thresholds
+
+    monkeypatch.setattr(
+        l1_thresholds, "resolve",
+        lambda *a, **k: l1_thresholds.Tau(
+            "gaze_direction_x", 0.0, ">", "self_baseline", "abs", "人造"))
+    ind = _dwell(pd.DataFrame({"gaze_direction_x": np.full(30, 0.02)}))
+    assert ind.gap == li.GAP_NO_SAMPLES, ind.gap
+    assert not ind.has_value
+
+
+def test_gaze_dwell_is_disclosed_as_geometric_instrument():
+    """★ 仪器 = `geometric`(几何代理),**不许掉进 `unknown`**。
+
+    `gaze_` 前缀在 `instrument_provenance.INSTRUMENT_OF_PREFIX` 里已登记;
+    这条守的是"新指标别忘了它也有出处" —— 掉进 `unknown` 会让报告页脚的
+    「未登记」凭空多一条,而那条缺口是**假的**。
+    """
+    from report_frontend import instrument_provenance as ip
+
+    ind = _dwell(pd.DataFrame({"gaze_direction_x": np.full(30, 0.02)}))
+    assert ip.instruments_of(ind) == [ip.INSTRUMENT_GEOMETRIC]
+    assert ip.unmapped_columns(ind.required_l0) == set()

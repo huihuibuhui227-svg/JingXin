@@ -90,13 +90,19 @@ def test_missing_voice_log_gap_counts_the_series_that_still_produced(tmp_path, m
     assert msg == expect, f"句子必须与载荷同源:\n期望:{expect}\n实际:{msg}"
 
 
-def test_voice_reports_exactly_three_values_and_eight_not_stored():
-    """★ 粒度不够的 8 条必须报 `not_stored`,且值必须是 NaN。
+def test_voice_reports_exactly_three_values_and_ten_not_stored():
+    """★ 粒度不够的 9 条必须报 `not_stored`,且值必须是 NaN。
 
     ⚠️ **2026-11-22:「能出值的 4 条」变 3 条**(`pause_ratio` 退役 —— 它与
     `voiced_ratio` 是代数恒等变换,残差 4.4e-16、ρ = −1.000000,报出来只是把
     同一份证据数两遍)。V 族由 12 条变 11 条 ⟹ "粒度不够"仍是 **8** 条
     (11 − 3 = 8),判据一字未改:这 8 条不许出值、必须是 `not_stored`。
+
+    ⚠️ **2026-11-23:V 族 11 → 13 条**(补 `pause_structure_entropy` /
+    `answer_detail_chars_p50`)。这两条**不吃语音日志**:一条要逐帧序列、
+    一条要转写文本 —— 本用例只给语音日志、不给 `series`/`session_id`,
+    于是它们如实报 `not_stored` ⟹ 缺口从 8 条变 **10** 条(13 − 3 条出值 = 10,
+    这 10 条**全部**是 `not_stored`)。
 
     红法:给 `pitch_median` 改成用 `pitch_mean` 顶替 ⟹ 它会出值,本条红
     (名字一样、含义不同,比缺着更坏)。
@@ -109,17 +115,20 @@ def test_voice_reports_exactly_three_values_and_eight_not_stored():
         "pitch_p90": [120.0, 130.0, 140.0], "energy_mean": [0.05, 0.06, 0.07],
     })
     inds = l1_voice.compute_voice_indicators(voice)
-    assert len(inds) == 11
+    assert len(inds) == 13
 
     measured = [i for i in inds if i.has_value]
     assert sorted(i.name for i in measured) == [
         "pause_rate_per_min", "response_latency_sec", "speech_rate"]
 
     gaps = {i.name: i.gap for i in inds if not i.has_value}
-    assert len(gaps) == 8
+    assert len(gaps) == 10
     for name, gap in gaps.items():
         assert gap == GAP_NOT_STORED, (name, gap)
     assert "pitch_median" in gaps and "voiced_ratio" in gaps
+    # 2026-11-23 新增的两条也在这个缺口集里 —— 它们缺的是**另一个来源**
+    # (逐帧序列 / 转写文本),但码相同:这一层拿不到那个粒度的产出。
+    assert "pause_structure_entropy" in gaps and "answer_detail_chars_p50" in gaps
 
 
 def test_speech_rate_is_weighted_by_voiced_seconds_not_a_mean_of_ratios():
@@ -171,11 +180,41 @@ def test_pause_ratio_is_retired_because_it_is_an_identity_not_a_measurement():
         f"退役理由必须点明是恒等变换(带实测相关):{why!r}")
 
 
-def test_voice_missing_reports_modality_missing_for_all_eleven():
-    # ⚠️ 2026-11-22:12 → 11(`pause_ratio` 退役)。判据没变:整族一条不漏、全报同一个码。
+#: 2026-11-23 起 V 族里**不吃音频**的两条 —— 它们的缺口不是"这一场没有音频模态"。
+#: `pause_structure_entropy` 要逐帧序列、`answer_detail_chars_p50` 要转写正文;
+#: 两者的补救动作分别是"跑一次序列提取"与"跑一次转写",与"查采集"相反。
+_NOT_AUDIO_DRIVEN = frozenset({"pause_structure_entropy", "answer_detail_chars_p50"})
+
+
+def _split_audio_vs_other(inds):
+    """把 V 族切成(吃音频的 11 条, 不吃音频的 2 条)—— 两段各自的缺口码要不同。"""
+    audio = [i for i in inds if i.name not in _NOT_AUDIO_DRIVEN]
+    other = [i for i in inds if i.name in _NOT_AUDIO_DRIVEN]
+    assert len(audio) == 11 and len(other) == 2, (
+        f"V 族(13 条)按「吃不吃音频」切错了:{len(audio)} + {len(other)}")
+    return audio, other
+
+
+def test_voice_missing_reports_modality_missing_for_all_thirteen():
+    """★ 整场没有语音日志 ⟹ V 族 13 条**一条不漏**,缺口码按"缺的是哪一路"分开报。
+
+    ⚠️ 2026-11-22:12 → 11(`pause_ratio` 退役);
+    2026-11-23:11 → **13**(补 `pause_structure_entropy` / `answer_detail_chars_p50`)。
+    判据没变:整族一条不漏。**变的只有"同一句话"这件事**:2026-11-23 补的这两条
+    不吃音频,它们缺的是序列/转写,所以码是 `not_stored` 而不是 `modality_missing`
+    —— 把两种缺法混成一个码,读者会去查一个没坏的采集端(本仓 2026-10-24 的教训)。
+
+    红法:把 `_answer_detail_from_transcript` / `_pause_structure_entropy` 从早退分支
+    里删掉 ⟹ 两条会跟着报 `modality_missing`,本条红。
+    """
     inds = l1_voice.compute_voice_indicators(None)
-    assert len(inds) == 11
-    assert all(i.gap == "modality_missing" for i in inds)
+    assert len(inds) == 13
+    audio, other = _split_audio_vs_other(inds)
+    assert all(i.gap == "modality_missing" for i in audio), (
+        [(i.name, i.gap) for i in audio])
+    assert all(i.gap == "not_stored" for i in other), (
+        f"不吃音频的两条报错了码:{[(i.name, i.gap) for i in other]}")
+    assert all(not i.has_value for i in inds), "整场没有素材时不许有一条出值"
 
 
 # ── 「模态缺失」与「还没提取」必须分开 ──────────────────────────────────
@@ -212,16 +251,33 @@ def test_audio_on_disk_but_not_extracted_is_not_reported_as_modality_missing(
     _fake_recording(tmp_path, sid, with_camera=True)
 
     inds = l1_voice.compute_voice_indicators(None, session_id=sid)
-    # ⚠️ 2026-11-22:12 → 11(`pause_ratio` 退役)。判据没变:整族一条不漏、同一个码。
-    assert len(inds) == 11
-    assert all(i.gap == l1_indicators.GAP_NOT_EXTRACTED for i in inds), (
+    # ⚠️ 2026-11-22:12 → 11(`pause_ratio` 退役);
+    #    2026-11-23:11 → 13(补两条「数据在、没做过」的指标)。
+    #    判据没变:11 条**吃音频**的一条不漏、同一个码 `not_extracted`。
+    #    另 2 条不吃音频(`_NOT_AUDIO_DRIVEN`),它们的缺法是 `not_stored`。
+    assert len(inds) == 13
+    audio, other = _split_audio_vs_other(inds)
+    assert all(i.gap == l1_indicators.GAP_NOT_EXTRACTED for i in audio), (
         "录音在盘上却报成 modality_missing —— 读的人会去查采集,而该做的是跑提取")
+    assert all(i.gap == l1_indicators.GAP_NOT_STORED for i in other), (
+        [(i.name, i.gap) for i in other])
 
 
 def test_no_audio_at_all_is_still_modality_missing(tmp_path, monkeypatch):
     """反方向对照:盘上**真没有**录音 ⟹ 仍然 `modality_missing`。
 
     没有这一条,上一条可能只是"永远报 not_extracted"。
+
+    ## ⚠️ 2026-11-23:整族不再"同一个码"—— 两条不吃音频的另算
+
+    `pause_structure_entropy`(要逐帧序列)与 `answer_detail_chars_p50`(要转写文本)
+    **本来就不读语音日志**,所以它们的缺法不是"这一场没有音频模态",而是
+    "这一层拿不到那个粒度的产出" ⟹ `not_stored`。这不是放宽,是把**两种不同的缺法**
+    分开报(与 `not_extracted` / `modality_missing` 分开报同一个理由:
+    补救动作不同 —— 一条要去提取序列,一条要去转写)。
+
+    ⟹ 判据:*11 条**吃音频**的必须是 `modality_missing`,另 2 条必须是 `not_stored`*,
+    一条都不许混。
     """
     from report_frontend import l1_indicators, l1_voice
 
@@ -230,7 +286,12 @@ def test_no_audio_at_all_is_still_modality_missing(tmp_path, monkeypatch):
     _fake_recording(tmp_path, sid, with_camera=False)
 
     inds = l1_voice.compute_voice_indicators(None, session_id=sid)
-    assert all(i.gap == l1_indicators.GAP_MODALITY_MISSING for i in inds)
+    assert len(inds) == 13
+    audio, other = _split_audio_vs_other(inds)
+    assert all(i.gap == l1_indicators.GAP_MODALITY_MISSING for i in audio), (
+        [(i.name, i.gap) for i in audio])
+    assert all(i.gap == l1_indicators.GAP_NOT_STORED for i in other), (
+        "不吃音频的两条报成了「模态缺失」—— 它们的补救动作是提取序列/转写,不是查采集")
 
 
 def test_the_gap_note_tells_the_reader_the_recording_is_still_there(tmp_path, monkeypatch):

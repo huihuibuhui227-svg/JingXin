@@ -165,17 +165,22 @@ def test_the_vanished_dimension_is_not_counted_twice(monkeypatch, isolated):
     ## ⚠️ 2026-11-22:被测对象从"真消失的那一维"改成"构造一个消失维度"
 
     三条新指标补上之后**没有任何维度会整合消失**(见
-    `tests/test_vanished_dimensions_are_printable.py`)。这条不变量仍然必须有人守,
-    所以借三个**真的**没有对应指标的槽(`fluency_score`/`eye_contact`/`n_chars`)
-    构造一个全删维度,再问标题数了几个。判据一字未改:
+    `tests/test_vanished_dimensions_are_printable.py`);同日第二次补上
+    `gaze_dwell_p50` 之后,连"借三个真删槽"都做不到了(`fluency_score` /
+    `eye_contact` / `n_chars` 现在全部有对应指标)。所以改成**三个合成槽键**,
+    由本用例临时登记进 `SLOT_MAP`(键指向 `None` ⟹ 判为删槽),再问标题数了几个。
+    判据一字未改:
 
-        len(dimensions) == payload 里真在的维度数(4),
-        标题必须印 4,而不是 5(dimensions + vanished)。
+        len(dimensions) == payload 里真在的维度数(5),
+        标题必须印 5,而不是 6(dimensions + vanished)。
     """
+    syn = {"syn_heading_alpha": 0.4, "syn_heading_beta": 0.35, "syn_heading_gamma": 0.25}
+    for slot in syn:
+        assert slot not in l1_mapper.SLOT_MAP, f"{slot} 是真槽键,请换一个合成键"
+        monkeypatch.setitem(l1_mapper.SLOT_MAP, slot,
+                            (None, f"合成理由:{slot} 只为构造一个整维消失维度"))
     monkeypatch.setitem(l1_mapper.DIMENSIONS, "synthetic_dead_dim",
-                        {"name": "构造用整维",
-                         "slots": {"fluency_score": 0.4, "eye_contact": 0.35,
-                                   "n_chars": 0.25}})
+                        {"name": "构造用整维", "slots": syn})
     rec = build_l1_report(_SID, logs={})
     assert len(rec["vanished_dimensions"]) == 1, (
         f"构造前提不成立:{[v['key'] for v in rec['vanished_dimensions']]}")

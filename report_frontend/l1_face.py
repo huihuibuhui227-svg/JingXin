@@ -1,20 +1,28 @@
 # report_frontend/l1_face.py
-"""**M4.3 F 族(面部)15 个 L1 指标**。
+"""**M4.3 F 族(面部)16 个 L1 指标**。
 
 选 F 族先做,理由只有一条:**它不需要跨模态对齐**。全部由 face 日志 + 回答窗口得出,
 所以不必等 M4.0 的墙钟问题定案就能独立验收。
 
-## 15 条的产出状态:5 条相对量 + 9 条 τ 型 + 1 条分位量
+## 16 条的产出状态:6 条相对量 + 9 条 τ 型 + 1 条分位量
 
 | 类型 | 条数 | 出值条件 | τ 从哪来 |
 |---|---|---|---|
-| 相对量 / 率 | **5** | 只用"相对量/率",不需要任何外部阈值 | 不需要 τ |
+| 相对量 / 率 | **6** | 只用"相对量/率",不需要任何外部阈值 | 不需要 τ |
 | τ 型 · 声明常量 | **3** | `au12_smile` 超过声明常量 `AU12_SMILE_TAU`(0.263) | `l1_thresholds.RESOLUTION` 的 `declared` 分支 |
 | τ 型 · 自比基线 | **5** | 阈值 = **本人中位数 ± `SELF_K`(3.0)·MAD**;名字带 `_vs_baseline` | `l1_thresholds.self_tau`(`self_baseline` 分支) |
 | τ 型 · 两种并用 | **1** | 可信 AU 里**至少一条**过阈即算该帧激活 | 上面两种并用于不同列 |
 | 分位量(F8) | **1** | `p90(1 − symmetry_score)`;不需要 τ(与 G 族的量同一取法) | 不需要 τ |
 
-5 + 3 + 5 + 1 + 1 = 15,与 `_ALL_SPECS` / `indicator_names()` 逐条一致。
+6 + 3 + 5 + 1 + 1 = 16,与 `_ALL_SPECS` / `indicator_names()` 逐条一致。
+
+### 2026-11-22(第二次):补进 `gaze_dwell_p50` —— F 族 15 → 16
+
+第 14 个槽(`eye_contact` / 眼神接触)原本是唯一一个没有同构念指标的槽。补进的是
+**时长面**:连续待在那条"注视带"里的段长中位(秒),定义写在 `_gaze_dwell_block` 的
+docstring 里。为什么是这个构念、以及它与既有三条 gaze 指标的 Spearman ρ 体检表
+(45 场语料,任何 |ρ| > 0.85 即否决),见
+`07_三方向与评审筹备/系统补强/22_补齐第14槽与全量重钉_20261121.md`。
 
 ## 2026-11-22:退掉 2 条从未出过值的 `micro_exp_*`,补进 1 条 `facial_asymmetry_p90`
 
@@ -34,9 +42,14 @@
 
 ### 逐条对应(名字 → 策略)
 
-* **相对量 / 率(5)**:`gaze_stability`、`blink_rate_per_min`、`blink_duration_mean`、
-  `head_motion_per_sec`、`au_variability_per_sec`。这些是"视频内标准化过的比值"或
-  "每分钟/每秒次数",阈值只进 `confidence` 的档位(`l1_indicators.confidence_for`)。
+* **相对量 / 率(6)**:`gaze_stability`、`gaze_dwell_p50`、`blink_rate_per_min`、
+  `blink_duration_mean`、`head_motion_per_sec`、`au_variability_per_sec`。
+  这些是"视频内标准化过的比值"或"每分钟/每秒次数",阈值只进 `confidence` 的档位
+  (`l1_indicators.confidence_for`)。
+  ⚠️ `gaze_dwell_p50` **用到了自比基线的 τ,但它的指标量不是"超阈占比"** ——
+  τ 只用来**切出注视带**(带内 / 带外),报的是"带内连续段长中位"。它因此
+  不叫 `_vs_baseline`:名字要跟"报的是什么"走,而它报的是**时长**(秒),
+  不是相对本人基线的偏离量。这条区别同时写进了 `l1_mapper.SLOT_MAP` 的换槽理由。
 * **声明常量(3)**:`smile_ratio`、`smile_rate_per_min`、`smile_duration_p50` ——
   都吃 `au12_smile`,分界点 `0.263`。**这不是标定值**:它是全语料 41 场 16318 帧的
   p75,写死在 `l1_thresholds.AU12_SMILE_TAU`、可复核、非拟合;换语料就该重算重写。
@@ -349,6 +362,9 @@ def _family_for_window(sub: pd.DataFrame, tsub: np.ndarray, window: str,
     #   · 生产方已除掉本人基线的(`au12_smile`)→ **声明常量**,并写明"未标定"。
     _tau_block(sub, tsub, window, thr, got, n_total)
 
+    # ── F2 注视带停留时长(2026-11-22 补,补上第 14 个槽的时长面)──────────
+    _gaze_dwell_block(sub, tsub, window, thr, got, n_total)
+
     # ── F8 面部不对称(2026-11-22 补,替换掉恒为空的 2 条 `micro_exp_*`)──────
     _asymmetry_block(sub, window, thr, got, n_total)
 
@@ -358,6 +374,105 @@ def _family_for_window(sub: pd.DataFrame, tsub: np.ndarray, window: str,
             got[name] = _un(name, meta, window, GAP_NO_SAMPLES)
 
     return [got[name] for name in _ORDER]
+
+
+def _gaze_dwell_block(sub: pd.DataFrame, tsub: np.ndarray, window: str,
+                      thr: dict[str, int], got: dict[str, L1Indicator],
+                      n_total: int) -> None:
+    """F2 `gaze_dwell_p50` —— **注视带内连续段长的中位数**(秒)。
+
+    ## 构念(写死在这里,改它就是换构念、必须换名)
+
+    * **注视带** = `|gaze_direction_x| ≤ 本人中位数 + 3·MAD`(MAD 按 `|x|` 取)。
+      这条带子**就是** `l1_thresholds.RESOLUTION["gaze_direction_x"]` 那条自比基线
+      (`direction=">"`, `transform="abs"`, `k=SELF_K=3.0`)的同一条线 —— 本函数
+      **不另算一遍阈值**,直接 `l1_thresholds.resolve()` 取那个 τ,只是取它的**反面**:
+      `gaze_aversion_ratio_vs_baseline` / `gaze_aversion_rate_per_min_vs_baseline`
+      数"带外"(占多少、进出几次),本条数"带内**一次能待多久**"。
+    * **段** = 连续满足"在带内"的帧(中间缺一帧观测就断段 —— NaN 不算带内,
+      见下)。**段长 = 段内帧间隔之和**(`tsub` 的逐帧差,不是"帧数 × 1 秒"):
+      与 `blink_duration_mean` / `smile_duration_p50` **同一个** `_run_lengths`
+      实现(不另写一份),约定也一样 —— 段尾那一帧记到它之后的那一帧为止;
+      末尾那段没有"之后",因此少记一个间隔。1 fps 下 ⟹ 被截断的段 ≈ 帧数 × 1 s。
+    * **值 = 这些段长的中位数**(秒)。中位而不是均值:一两段超长注视会把均值拽走,
+      而"一次注视通常能维持多久"问的是**典型**那一段。
+
+    ## 为什么补这条(而不是第二条"偏离"指标)
+
+    既有三条 gaze 指标覆盖的是**比例**(`gaze_stability` 的波动度 /
+    `gaze_aversion_ratio_vs_baseline` 的带外帧占比)与**频率**
+    (`gaze_aversion_rate_per_min_vs_baseline` 的带外→回正次数每分钟)。
+    **没有一条回答"维持了多久"** —— 而"看回去之后能不能待住"恰恰是
+    眼神接触这个构念里最容易被忽略的一半。
+
+    另一个候选是"偏离后回归的中位时长"(带外段长中位)。**弃用的理由是实测**:
+    1 fps 采样下带外段几乎总是 1 帧,该量在 28/30 场里恒 ≈1.00~1.02 秒
+    (实测中位 1.007、p75 1.016)—— 一条**接近常量**的指标不是测量
+    (本仓对这类量的固定处置见 `evidence_gate` 里 `speech_ratio` / `pause_ratio`);
+    而且"全场一次都没偏离"的人**算不出**它(实测 2/30 场),丢掉的恰好是
+    眼神接触最好的那几个人。两个候选的 ρ 体检表都在交付说明里。
+
+    ## 两个"不许"的细节
+
+    1. **NaN 帧不算在带内。** `Tau.mask()` 对缺失帧返回 `False`(不拿缺失当阴性),
+       若直接把 `~mask` 当"在带内",缺测的帧会被算成"正在注视" ⟹ 段长虚高、
+       而且缺得越多报得越大。所以这里是 `观测到 & 不在带外`,缺测帧**断段**。
+    2. **帧间隔取真实 `tsub` 差的差**,不是帧数 × 假定帧率。1 fps 是实测中位,
+       不是契约(`video_pipeline` 会丢帧),用帧数当秒数会在丢帧的场上少报时长。
+
+    ## 缺口码(只用既有 9 类,不新增)
+
+    * 列不在 ⟹ `column_empty`;
+    * 有效帧 < 2 ⟹ `no_samples`;
+    * 时间轴不可用(长度对不上 / 跨度 0)⟹ `time_unusable`;
+    * τ 解析不出来(`self_tau` 在有效帧 < 5 时返回 `None`)⟹ `uncalibrated`;
+    * 一帧都不在带内(整场都在偏离)⟹ `no_samples`。
+
+    ## 仪器
+
+    依赖列只有 `gaze_direction_x` ⟹ `instrument_provenance` 的 `gaze_` 前缀命中
+    `geometric`(几何代理),不会落进 `unknown`。
+    """
+    name = "gaze_dwell_p50"
+    family, formula, cols = _ALL_SPECS[name]
+
+    if "gaze_direction_x" not in sub.columns:
+        got[name] = unavailable(name, family, formula, cols, window, "秒",
+                                GAP_COLUMN_EMPTY, n_total)
+        return
+    vals = _num(sub, "gaze_direction_x")
+    arr = vals.to_numpy(dtype=float)
+    observed = ~np.isnan(arr)
+    if observed.sum() < 2:
+        got[name] = unavailable(name, family, formula, cols, window, "秒",
+                                GAP_NO_SAMPLES, n_total)
+        return
+    if len(tsub) != len(sub) or _span_sec(tsub[observed]) <= 0:
+        # 帧间隔无从谈起 ⟹ 段长(秒)不存在。**不**退化成"帧数当中位数"。
+        got[name] = unavailable(name, family, formula, cols, window, "秒",
+                                GAP_TIME_UNUSABLE, n_total)
+        return
+
+    from . import l1_thresholds
+    tau = l1_thresholds.resolve("gaze_direction_x", vals)
+    if tau is None or tau.value is None:
+        got[name] = unavailable(name, family, formula, cols, window, "秒",
+                                GAP_UNCALIBRATED, n_total)
+        return
+
+    out_of_band = tau.mask(vals)              # 与两条 `_vs_baseline` 同一判据
+    in_band = observed & ~out_of_band         # ← 缺测帧不算带内(见 docstring ①)
+    dt = np.concatenate([[np.nan], np.diff(tsub)])
+    runs = _run_lengths(in_band.astype(np.int8), dt)
+    if not runs:
+        got[name] = unavailable(name, family, formula, cols, window, "秒",
+                                GAP_NO_SAMPLES, n_total)
+        return
+
+    got[name] = measured(name, family, formula, cols, window, "秒",
+                         value=float(np.median(runs)),
+                         n_valid=int(observed.sum()), n_total=n_total,
+                         threshold=thr.get("gaze", 30))
 
 
 def _asymmetry_block(sub: pd.DataFrame, window: str, thr: dict[str, int],
@@ -556,6 +671,15 @@ _ALL_SPECS: dict[str, tuple[str, str, tuple[str, ...]]] = {
     "gaze_aversion_rate_per_min_vs_baseline": ("F2_gaze", "偏离→回正次数 ÷ 分钟(阈值 = 本人|视线|中位数+3·MAD)", ("gaze_direction_x",)),
     "gaze_stability": ("F2_gaze", "1 − std(gaze_direction_x) / 视频内极差",
                        ("gaze_direction_x",)),
+    # ★ 2026-11-22 新增(第 14 个槽 `eye_contact` 的时长面)。
+    #   注视带 = |gaze_direction_x| ≤ 本人中位数+3·MAD(与两条 `_vs_baseline`
+    #   **同一条线**);段长 = 帧数 × 帧间隔;取中位。定义全文见 `_gaze_dwell_block`。
+    "gaze_dwell_p50": (
+        "F2_gaze",
+        "注视带内连续段长的中位数(秒);注视带 = |gaze_direction_x| ≤ 本人中位数+3·MAD"
+        "(与 `gaze_aversion_*` 同一条自比基线,本条取带内);"
+        "段长 = 段内**真实帧间隔之和**(不是帧数×1 秒);"
+        "⚠️ 缺测帧不算在带内(断段)。ρ 体检表见交付说明第 22 号", ("gaze_direction_x",)),
     "blink_rate_per_min": ("F3_blink", "is_blink 的 0→1 上升沿数 ÷ 有效分钟",
                            ("is_blink", "timestamp")),
     "blink_duration_mean": ("F3_blink", "连续 is_blink=1 段时长均值", ("is_blink", "timestamp")),
@@ -597,8 +721,9 @@ def _all_unavailable(windows: WindowSet, gap: str) -> list[L1Indicator]:
 
 
 def indicator_names() -> tuple[str, ...]:
-    """F 族对外承诺的 15 个名字。测试用它钉"条数恒定"。
+    """F 族对外承诺的 16 个名字。测试用它钉"条数恒定"。
 
     2026-11-22 由 16 变 15:退 2 条恒空的 `micro_exp_*`、补 1 条 `facial_asymmetry_p90`。
+    2026-11-22(同日第二次)由 15 变 16:补 `gaze_dwell_p50`(第 14 个槽的时长面)。
     """
     return _ORDER

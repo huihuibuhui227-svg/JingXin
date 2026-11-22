@@ -368,6 +368,15 @@ INDICATOR_LABEL: dict[str, str] = {
     "gaze_aversion_ratio_vs_baseline": "视线偏离占比",
     "gaze_aversion_rate_per_min_vs_baseline": "视线偏离次数",
     "gaze_stability": "视线稳定性",
+    # ★ 2026-11-22 新增(第 14 个槽 `eye_contact` 的时长面)。
+    #   ⚠️ 这一条与 `l1_mapper.SLOT_LABEL["eye_contact"]` =「眼神接触比例」**故意不同名**:
+    #   槽数的是**比例**(无量纲),这条数的是**秒**(注视带内连续段长的中位)。
+    #   同名会让读者把 12.5 读成"接触比例 12.5"(比例不可能 >1),含义整个错位。
+    #   与下面「面部不对称度」属于**两类不同的例外**,登记在
+    #   `tests/test_indicator_names_agree_with_slot_names.py`:
+    #   · `symmetry_score` = 方向相反(`_DIRECTION_FLIP`);
+    #   · `eye_contact` = **统计面不同:比例 → 秒**(`_DIFFERENT_STATISTIC`)。
+    "gaze_dwell_p50": "眼神接触时长",
     "blink_rate_per_min": "眨眼频率",
     "blink_duration_mean": "眨眼时长",
     "head_motion_per_sec": "头部运动量",

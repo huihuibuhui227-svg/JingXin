@@ -147,12 +147,15 @@ def test_l1_engine_answers_with_no_logs_and_says_why(isolated):
     assert res["coverage"]["n_passed"] == 0, res["coverage"]
     # 分母仍是**声明的全部旧槽数**(14,语义没动)。
     assert res["coverage"]["n_slots"] == 14, res["coverage"]
-    # ⚠️ 2026-11-22:删槽由 6 变 3。`symmetry_score` / `left_hand_spread` /
-    #    `shrug_level` 由"删"改为"换"(三条新指标各读一列真测量)⟹
-    #    只剩 `fluency_score` / `eye_contact` / `n_chars` 三个真删槽。
-    assert res["coverage"]["n_dropped"] == 3, res["coverage"]
-    assert res["coverage"]["n_measurable"] == 11, res["coverage"]
-    assert res["coverage"]["n_not_measured"] == 3, res["coverage"]
+    # ⚠️ 2026-11-22:删槽由 6 变 3(`symmetry_score` / `left_hand_spread` /
+    #    `shrug_level` 改判为"换");**同日第二次 3 变 0** —— `fluency_score` /
+    #    `n_chars` / `eye_contact` 也全部换成真指标(`pause_structure_entropy` /
+    #    `answer_detail_chars_p50` / `gaze_dwell_p50`)⟹ 14 槽全部可测。
+    #    注意 `n_measurable` 14 是"有指标承接","空数据下过门 0"是另一件事:
+    #    `n_passed == 0`(上一行)仍钉着,别把"可测"说成"通过"。
+    assert res["coverage"]["n_dropped"] == 0, res["coverage"]
+    assert res["coverage"]["n_measurable"] == 14, res["coverage"]
+    assert res["coverage"]["n_not_measured"] == 0, res["coverage"]
 
     # ⚠️ 2026-11-22:**没有任何维度整维消失**了(`行为表现活跃度` 复活到 2/3)。
     #    这条断言反过来钉住那个新事实 —— 若谁把三条新指标撤掉,这里立刻红。

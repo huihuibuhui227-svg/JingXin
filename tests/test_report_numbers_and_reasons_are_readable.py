@@ -137,18 +137,52 @@ def test_dropped_slot_reasons_in_the_report_are_plain_chinese(report_html):
 
 
 def test_every_dropped_slot_has_a_plain_reason():
-    """★ 红法:从 `DROP_REASON` 里删一条 ⟹ 这里红。
+    """★ 删槽与 `DROP_REASON` 必须**逐条对齐**;今天两边都是空集(14 换 0 删)。
 
-    地板:当前有 6 个槽在 L1 路径上被删(`SLOT_MAP` 里 `l1 is None`)。
-    没有这句,槽表被清空时下面的循环一次都不进,本测试静默全绿。
+    沿革(判据一直是"每个真删槽都要有一句人话结论",不是"表里有几条"):
+    6 → 3(`symmetry_score` / `left_hand_spread` / `shrug_level` 改判"换")→
+    **0**(`fluency_score` / `n_chars` 2026-11-21 改判、`eye_contact` 2026-11-22 改判)。
+
+    ⚠️ 两边都空 ⟹ 光有 `missing` 那条断言会退化成"空集减空集"(永远通过)。
+    所以另加两条**方向相反**的地板:
+    ① 真表零删槽(出现删槽就红,提醒按判据核);
+    ② `drop_reason()` 的兜底机制仍可执行(见下一条用例)。
+
+    红法:把 `eye_contact` 改回 `None` ⟹ ①红;给 `DROP_REASON` 留一条已映射槽的理由
+    (例如 `fluency_score`)⟹ ②红(那张表必须是**删槽**的镜像,不能留历史残留)。
     """
-    dropped = [s for s, (l1, _) in l1_mapper.SLOT_MAP.items() if l1 is None]
-    # ⚠️ 2026-11-22:6 → 3。`symmetry_score` / `left_hand_spread` / `shrug_level`
-    #    由"删"改为"换"(三条新指标各自读一列真测量)⟹ 它们不再需要"这套采集不测"
-    #    的人话理由(那三句已经成了假话,一并删掉)。地板仍然要有,只是新地板是 3。
-    assert len(dropped) == 3, f"删槽数变了:{dropped}"
+    dropped = sorted(s for s, (l1, _) in l1_mapper.SLOT_MAP.items() if l1 is None)
+    assert dropped == [], (
+        f"真表上又出现删槽了:{dropped} —— 请给它补一句人话结论再加回来")
     missing = sorted(set(dropped) - set(l1_mapper.DROP_REASON))
     assert not missing, f"这些槽没有给人看的删槽理由:{missing}"
+    # ② 反方向:表里**不许**留着已经不是删槽的历史条目(留着就是一句会印出去的假话)。
+    stale = sorted(set(l1_mapper.DROP_REASON) - set(dropped))
+    assert stale == [], (
+        f"`DROP_REASON` 里留着 {stale} —— 这些槽现在都映射到真指标了,"
+        "「这套采集不测」那句话已经成了假话")
+
+
+def test_the_plain_drop_reason_fallback_is_still_wired():
+    """★ 删槽的"人话结论"机制**必须仍然可用** —— 真表清零 ≠ 这条路可以删。
+
+    `drop_reason()` 的契约:登记过就返回那句人话,没登记就退回 `SLOT_MAP` 的审计原话
+    (宁可啰嗦,不许把这一条吞掉)。今天真表上没有删槽,所以用**合成槽**验这两条,
+    否则这段代码就是"没人跑过的一段"。
+
+    红法:把 `drop_reason()` 改成 `return ""`(或只返回登记表命中项)⟹ 第二条断言红。
+    """
+    audit = "已由 `gaze_aversion_ratio_vs_baseline` 覆盖同一件事,不重复产出"
+    monkeypatch = pytest.MonkeyPatch()
+    try:
+        monkeypatch.setitem(l1_mapper.SLOT_MAP, "syn_drop_plain", (None, audit))
+        monkeypatch.setitem(l1_mapper.DROP_REASON, "syn_drop_plain", "这句是给人读的")
+        assert l1_mapper.drop_reason("syn_drop_plain") == "这句是给人读的"
+        monkeypatch.delitem(l1_mapper.DROP_REASON, "syn_drop_plain")
+        assert l1_mapper.drop_reason("syn_drop_plain") == audit, (
+            "没登记人话时没有退回 `SLOT_MAP` 的审计原话 —— 那一条会被吞掉")
+    finally:
+        monkeypatch.undo()
 
 
 def test_plain_drop_reasons_do_not_name_internal_indicators():
@@ -164,20 +198,31 @@ def test_plain_drop_reasons_do_not_name_internal_indicators():
 
 
 def test_the_audit_reason_is_not_lost():
-    """★ 红法:把 `SLOT_MAP` 的 reason 也改成短句 ⟹ 这里红。
+    """★ 红法:把 `SLOT_MAP` 的某条理由削成短句 ⟹ 这里红。
 
     分层的意思是**两处各有各的话**,不是把审计细节删掉。核对口径的人
-    仍然要能查到"当初为什么判定它不是同一个构念"。
+    仍然要能查到"当初为什么判定它是/不是同一个构念"。
+
+    ⚠️ 2026-11-22:删槽清零(14 换 0 删)⟹ 原来那句"每个删槽 >20 字"退化成 0==0。
+    判据落到**由删改换的那三条**上(它们曾经是删槽,是这次判据变化的正主):
+    理由必须同时留下"为什么当年判删 / 为什么现在改判"这两件事,一条都不许被削短。
+    这比原来**更严**(原来是"删槽 >20 字",现在是"改判过的那三条 >40 字且必须点名新指标")。
     """
-    long_reasons = {s: r for s, (l1, r) in l1_mapper.SLOT_MAP.items()
-                    if l1 is None and len(r) > 20}
-    # ⚠️ 2026-11-22:地板由 `>= 5` 改为 `== 3` —— **不是放宽**,是删槽从 6 个变 3 个
-    #    (另三个槽由"删"改为"换",它们的审计理由仍在 `SLOT_MAP` 里,只是不再是删槽)。
-    #    判据的方向没变:每个删槽都必须带一条**超过 20 字**的审计理由,一条都不许被削短。
-    n_dropped = sum(1 for _s, (l1, _r) in l1_mapper.SLOT_MAP.items() if l1 is None)
-    assert n_dropped == 3, f"删槽数变了:{n_dropped}"
-    assert len(long_reasons) == n_dropped, (
-        f"`SLOT_MAP` 的删槽理由被削短了,审计细节丢了:{long_reasons}")
+    dropped = {slot: r for slot, (l1, r) in l1_mapper.SLOT_MAP.items()
+               if l1 is None}
+    long_dropped = {slot: r for slot, r in dropped.items() if len(r) > 20}
+    assert len(long_dropped) == len(dropped), (
+        f"`SLOT_MAP` 的删槽理由被削短了,审计细节丢了:{dropped}")
+
+    converted = ("fluency_score", "n_chars", "eye_contact")
+    known = _all_l1_names()
+    for slot in converted:
+        l1, reason = l1_mapper.SLOT_MAP[slot]
+        assert l1 is not None, f"{slot} 又变回删槽了"
+        assert l1 in known, f"{slot} 指向了不存在的指标 {l1}"
+        assert len(reason) > 40, (
+            f"{slot} 的审计理由被削短了({len(reason)} 字)—— 它曾经是删槽,"
+            f"必须留下改判的来龙去脉:{reason!r}")
 
 
 # ---------------------------------------------------------------------------

@@ -58,6 +58,20 @@ def _text_of(html: str) -> str:
 #: 构造用的"整维没有对应指标"维度键(用完即撤)。
 _SYNTHETIC_KEY = "synthetic_dead_dimension"
 
+#: 构造用的三个删槽:键 → (中文名, 人话理由)。三张真表都由 fixture 临时登记,
+#: 所以载荷里补 `human_name` / `plain_reason` 那一步读的仍是**共享表**,
+#: 而不是绕过它抄一份(那正是本文件要防的第二种病)。
+_SYN_SLOTS = {
+    "syn_html_alpha": ("构造槽甲", "这套采集里没有与它对应的量,不拿相邻的量顶替"),
+    "syn_html_beta": ("构造槽乙", "它要的那一路信号本套采集不含,再采也不会有"),
+    "syn_html_gamma": ("构造槽丙", "这个构念没有独立测量,报出来只是把别的量数两遍"),
+}
+
+#: **导入时**核对合成键不在真表里(否则构造的对象就是真删槽,断言会随槽表演进)。
+_COLLISIONS = {k for k in _SYN_SLOTS
+               if k in l1_mapper.SLOT_MAP or k in l1_mapper.SLOT_LABEL
+               or k in l1_mapper.DROP_REASON}
+
 
 @pytest.fixture
 def isolated(monkeypatch, tmp_path):
@@ -75,21 +89,34 @@ def payload(isolated, monkeypatch):
 
     补进三条新指标之后,生产数据里**再没有任何维度整体消失**
     (`行为表现活跃度` 从"3 槽全删"变成"2 槽有指标")。而"整维消失要在 HTML 里
-    说出来"这条判据仍然必须有人守。构造借的三个槽(`fluency_score` /
-    `eye_contact` / `n_chars`)是今天真的没有对应指标的那三个 ——
-    所以验的仍是真表(`SLOT_LABEL` / `DROP_REASON`),造出来的只是
-    "它们同属一个维度"这一件事。生产侧"一个都不消失"由
+    说出来"这条判据仍然必须有人守。
+
+    ⚠️ **2026-11-22(同日第二次)**:最后一条删槽 `eye_contact` 也换成了
+    `gaze_dwell_p50` ⟹ 连"借三个真删槽"都做不到了(`fluency_score` /
+    `eye_contact` / `n_chars` 现在全部有指标)。改用**三个合成槽键**:键、中文名、
+    人话理由都临时登记进三张真表(`SLOT_MAP` / `SLOT_LABEL` / `DROP_REASON`),
+    造出来的只是"它们同属一个维度"这一件事,渲染链一条没换。
+    生产侧"一个都不消失"由
     `tests/test_vanished_dimensions_are_printable.py::test_the_real_payload_no_longer_vanishes_any_dimension` 钉着。
 
     ⚠️ 三条旁路都得指到空目录,否则本机盘上的真实日志会让维度活过来,
     本测试的前提就不成立了(见 `tests/test_report_gaps_are_readable.py` 的同类说明)。
     """
+    assert not _COLLISIONS, (
+        f"合成槽键撞上了真表:{sorted(_COLLISIONS)} —— 请换键,"
+        "构造必须验的是「没登记/已删」这条路,不能借用真槽")
     # `map_l1_to_dimensions` 在**调用时**读模块级 `DIMENSIONS`
     # ⟹ 这里改的那张表就是装配时用到的同一张(HTML 那条路也一样,它内部也调
     # `build_l1_report`)。用完由 monkeypatch 自动撤回。
+    weights = (0.4, 0.35, 0.25)
+    for (slot, (label, plain)), weight in zip(_SYN_SLOTS.items(), weights):
+        monkeypatch.setitem(l1_mapper.SLOT_MAP, slot, (
+            None, f"合成理由:不拿任何现有指标顶替({slot}),只为走通渲染链"))
+        monkeypatch.setitem(l1_mapper.SLOT_LABEL, slot, label)
+        monkeypatch.setitem(l1_mapper.DROP_REASON, slot, plain)
     monkeypatch.setitem(l1_mapper.DIMENSIONS, _SYNTHETIC_KEY, {
         "name": "构造用整维",   # ≤6 字:雷达图轴名会截断(见 report_generator)
-        "slots": {"fluency_score": 0.4, "eye_contact": 0.35, "n_chars": 0.25},
+        "slots": dict(zip(_SYN_SLOTS, weights)),
     })
     got = build_l1_report(_SID, logs={})
     assert [v["key"] for v in got["vanished_dimensions"]] == [_SYNTHETIC_KEY], (
@@ -173,6 +200,9 @@ def test_the_vanished_block_names_no_internal_slot_key(html):
     block = _text_of(_vanished_block(html))
     leaked = sorted(s for s in SLOT_MAP if s in block)
     assert not leaked, f"「整维未出」那一块里露出了内部槽键:{leaked}"
+    # 合成槽键同样不许露 —— 它们也是"内部键"(读者只该看到中文名)。
+    assert not sorted(s for s in _SYN_SLOTS if s in block), (
+        f"「整维未出」那一块里露出了合成槽键:{sorted(s for s in _SYN_SLOTS if s in block)}")
 
 
 def test_radar_axis_uses_the_dimension_name_not_unknown(isolated, monkeypatch):
