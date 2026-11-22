@@ -340,8 +340,17 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    """健康检查接口"""
-    return {"status": "healthy"}
+    """健康检查接口。
+
+    ⚠️ 2026-11-22 加 `asr_endpoint`：此前 `/health` 只回 `{"status":"healthy"}`，
+    而「health 绿 + /asr 500」正是这次排障踩的坑 —— 服务活着不代表 ASR 端点可达。
+    现在把**当前实际要连的地址**回显出来（`FunASREngine.endpoint()` 现读配置），
+    端点写错/进程还拿旧配置时，一眼就能看出来。
+    """
+    from voice_interaction.asr.funasr_engine import FunASREngine
+
+    host, port = FunASREngine().endpoint()
+    return {"status": "healthy", "asr_endpoint": f"ws://{host}:{port}"}
 
 
 @app.post("/tts")
