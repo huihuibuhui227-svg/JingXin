@@ -78,10 +78,31 @@ class FunASREngine:
     def __init__(self, client: Any = None, host: str | None = None,
                  port: int | None = None, timeout_s: float | None = None):
         cfg = load_config()
+        # ⚠️ 2026-11-22 修「配置改了但进程还在用旧地址」:
+        #   原实现把 host/port **冻结在构造时**,而 `voice_interaction/api/app.py` 里
+        #   `asr_engine = FunASREngine()` 是 **import 时** 执行的 ⟹ 改
+        #   `asr_config.json` 后不重启进程,实时链路仍连旧地址(实测:配置已是
+        #   127.0.0.1、端点也活着,但 /asr 仍 10s 握手超时;对照实验同一段音频
+        #   `FunASREngine(host="127.0.0.1")` 4.4s 成功)。
+        #   现在:显式传入的 host/port 仍最高优先(测试与特派用),**没显式传的每次调用
+        #   现读配置** —— 改配置即生效,不必重启。
+        self._explicit_host = host
+        self._explicit_port = port
+        self._explicit_timeout = timeout_s
         self.host = host or cfg["funasr_host"]
         self.port = port or cfg["funasr_port"]
         self.timeout_s = timeout_s or float(cfg["timeout_s"])
         self.client = client or funasr_client
+
+    def endpoint(self) -> tuple[str, int]:
+        """当前要连的 FunASR 地址。**没显式传就现读配置**（见 `__init__` 的说明）。"""
+        if self._explicit_host is not None and self._explicit_port is not None:
+            return self._explicit_host, int(self._explicit_port)
+        cfg = load_config()
+        host = self._explicit_host or cfg["funasr_host"]
+        port = int(self._explicit_port or cfg["funasr_port"])
+        self.host, self.port = host, port      # 同步到属性,便于 /health 回显
+        return host, port
 
     def transcribe_pcm(self, pcm: bytes) -> AsrUtterance:
         """识别一段 16 kHz/16 bit/单声道 PCM。异常上抛,不吞。
@@ -89,8 +110,9 @@ class FunASREngine:
         关键字名以 vendored 客户端为准:`recognize_pcm(pcm, host=, port=, timeout=)`
         (timeout 是客户端自己的收尾等待上限;不是本地看门狗)。
         """
+        host, port = self.endpoint()          # 每次调用现读（除非显式传过）
         res = self.client.recognize_pcm(
-            pcm, host=self.host, port=self.port, timeout=self.timeout_s)
+            pcm, host=host, port=port, timeout=self.timeout_s)
         return self._to_utterance(res)
 
     @staticmethod
