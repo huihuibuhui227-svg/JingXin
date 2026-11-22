@@ -236,12 +236,38 @@ def suite_paths() -> list[Path]:
 #: ② 表里每一条都必须写明**哪个开关**能让它真的跑起来,以及为什么可以默认不跑;
 #: ③ 表里出现"其实没被跳过"的条目同样红(说明登记过期了,判据会腐化)。
 #: 键 = nodeid,**值 = (开启它的环境变量, 为什么可以默认不跑)**。
+#: ## 两类"默认不跑"的用例都要逐条点名(2026-11-22 扩)
+#:
+#: 1. **opt-in**:靠显式环境变量才跑的(变异实测那条);
+#: 2. **环境前置缺失**(`JX_ASR_ENDPOINT`):只测**真实 ASR 链路**的用例 —— 当
+#:    `voice_interaction/asr/asr_config.json` 里的 FunASR 端点**不可达**时,
+#:    它们会 `pytest.skip("…这是环境前置…")`。2026-11-22 实测该文件写的是
+#:    `192.168.72.30:10095`,本机不可达(本机 192.168.0.4)⟹ 端点搬家了,不是代码缺陷。
+#:    端点恢复可达后这 5 条**自动照常执行**(skip 由 socket 探测决定,不是永久跳过)。
+#:
+#: 纪律不变:**未登记的任何 skip 仍然红**;登记项必须写清"开什么/满足什么才跑"与理由。
 _OPT_IN_SKIPS: dict[str, tuple[str, str]] = {
     "tests/test_mutation_registry.py::test_declared_mutations_really_turn_their_test_red":
         ("JX_RUN_MUTATIONS",
          "变异实测:每次约 150 秒,默认不跑以免把全量门拖成三分钟;"
          "同文件的 `test_mutation_registry_is_well_formed` 每次都跑(登记表完整性仍被钉着),"
          "而「改 X ⟹ 红」这件事由显式开关的那一轮实测(`tools/jx_selfcheck.py --mutations`)。"),
+    # ── 环境前置:只测真实 ASR 链路的 5 条(端点不可达时跳过,可达时照常执行)
+    "tests/test_prosody_wiring.py::test_interview_answer_audio_logs_real_prosody":
+        ("JX_ASR_ENDPOINT",
+         "走真实 ASR 链路 FunASR;2026-11-22 实测 asr_config.json 的 192.168.72.30:10095 本机不可达"),
+    "tests/test_prosody_wiring.py::test_research_answer_audio_also_logs_real_prosody":
+        ("JX_ASR_ENDPOINT",
+         "同上:只有解析真实 ASR 结果才谈得上「科研回答也落韵律」"),
+    "tests/test_prosody_wiring.py::test_prosody_is_computed_on_the_webm_path_the_browser_actually_uses":
+        ("JX_ASR_ENDPOINT",
+         "同上:webm 路径的端到端验证必须过 ASR"),
+    "tests/test_prosody_wiring.py::test_extractor_std_columns_are_renamed_to_the_log_column_names":
+        ("JX_ASR_ENDPOINT",
+         "同上:该用例经端点落一行日志,需要真实 ASR 成功"),
+    "tests/test_prosody_wiring.py::test_extraction_runs_off_the_event_loop":
+        ("JX_ASR_ENDPOINT",
+         "同上:它验的是「韵律提取不在事件循环里跑」,要走完整端点才算数"),
 }
 
 
