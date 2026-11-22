@@ -153,10 +153,18 @@ def segments(session_id: str) -> list[dict] | None:
     * **`n_chars` 那一列不要用**:它是 `count_cjk_chars` 算的,只数汉字,
       英文/数字段恒为 0。要用字数请对 `text` 重新数(`count_non_space_chars`)。
     """
-    body = _body(session_id)
-    if not body:
+    # ⚠️ 2026-11-22 修:`_body()` 在**活路径**形状下返回的是 `raw["merged"]`,
+    #   而 `merged` 里**没有** `segments`(逐段结构在**顶层**)——于是本函数对
+    #   `recordings/<sid>/transcript.json` 一律返回 `None`,`answer_detail_chars_p50`
+    #   白白报 `not_stored`(实测 `95a8` 明明有 10 段)。⟹ 这里**先看顶层**,再看内层。
+    raw = _read(path(session_id)) or _read(_recording_transcript_path(session_id))
+    if not raw:
         return None
-    segs = body.get("segments")
+    segs = raw.get("segments")
+    if not isinstance(segs, list):
+        merged = raw.get("merged")
+        body = merged if isinstance(merged, dict) else raw
+        segs = body.get("segments")
     if not isinstance(segs, list):
         return None
     return [s for s in segs if isinstance(s, dict)]
