@@ -1,7 +1,7 @@
 {
   "_version": "0.1.0-provisional",
   "_provisional": true,
-  "funasr_host": "192.168.72.30",
+  "funasr_host": "127.0.0.1",
   "funasr_port": 10095,
   "timeout_s": 60.0,
   "models": {
@@ -20,5 +20,6 @@
     "value": 0.01,
     "_provisional": true,
     "basis": "16 bit PCM 归一化后的 RMS 下限 = -40 dBFS(满刻度的 1%)。正常增益下说话 RMS 约 0.05–0.2,安静房间底噪约 <0.005,0.01 取在两者之间。⚠️ 定义性下限,**未经本机实测**(开发机无麦克风;`_provisional` 即为此)—— 现场若发现说话也低于它(录音增益过低),按实测改这一个数,不要在代码里改。用途:listen_for_speech 判静音(能量不高于它即为静音)"
-  }
+  },
+  "_host_note": "2026-11-22: 由 192.168.72.30 改为 127.0.0.1 —— 本机网段是 192.168.0.4，原地址不可达；实测本机 FunASR 在 :10095 正常（WS 握手回 426 Upgrade Required）。若将来 FunASR 迁回独立机器，改回该机 IP 即可。"
 }
