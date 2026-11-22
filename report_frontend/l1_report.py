@@ -166,6 +166,28 @@ def _instrument_block(indicators: list[dict]) -> dict:
     }
 
 
+def _name_of(slot: dict) -> str:
+    """这条记录该印的**中文名** —— 有同构念 L1 指标就用**指标名**,否则退回槽名。
+
+    ## 为什么必须分两种(2026-11-22 修)
+
+    槽名是**旧引擎**的叫法,而值已经是新指标算的。两条槽上这件事直接说反了意思:
+
+    * `eye_contact` 槽叫「眼神接触**比例**」,承接它的 `gaze_dwell_p50` 数的是
+      「眼神接触**时长**」(秒)——按槽名印,读者会把 `15.335`（秒）当成比例;
+    * `symmetry_score` 槽叫「面部**对称**性」,承接它的 `facial_asymmetry_p90`
+      数的是 `p90(1 − symmetry_score)`（越大越**不**对称）——按槽名印,方向说反。
+
+    真删槽（没有对应指标）没有指标名可用,只能退槽名 —— 那是对的,报告里那些行
+    本来就在讲"这一条当前这套采集不测"。
+    """
+    l1 = (slot or {}).get("l1")
+    if isinstance(l1, str) and l1:
+        label = l1_quality.indicator_label(l1)
+        if isinstance(label, str) and label and label != l1:   # 未登记时它会原样吐键名
+            return label
+    return l1_mapper.slot_label((slot or {}).get("slot", ""))
+
 def _evidence_item(slot: dict, instruments: list[str]) -> dict:
     """一个槽 → 前端 `EvidenceItem`。字段名逐一对齐 `assessment.ts`。
 
@@ -173,7 +195,7 @@ def _evidence_item(slot: dict, instruments: list[str]) -> dict:
     没有"本场观测区间"可言。空数组是前端口径里"取不到区间"的写法,
     不是 0,也不是"区间是 [0,0]"。
 
-    `human_name` 用**槽的中文名**,不用 L1 的 `formula` ——
+    `human_name` 用**指标的中文名**(有指标时)或槽名(真删槽时),**不用** L1 的 `formula` ——
     后者是给开发者核对算法的(两百多字,带 `⚠️` 和 markdown 粗体,还会点出
     另一个内部键名),它该待在 `l1.indicators` 的审计链里,不该占着「指标」这一列。
     钉子:`tests/test_report_gaps_are_readable.py::test_evidence_chain_names_are_not_raw_formulas`。
@@ -184,7 +206,7 @@ def _evidence_item(slot: dict, instruments: list[str]) -> dict:
     """
     return {
         "feature": slot["l1"],
-        "human_name": l1_mapper.slot_label(slot["slot"]),
+        "human_name": _name_of(slot),
         "raw_value": slot["value"],
         "n_valid": slot["n_valid"],
         "std": None,
@@ -244,7 +266,7 @@ def _gap_lines(dim) -> list[str]:
             why = gap_explanations.explain_specific(
                 {"name": s["l1"], "gap": s["gap"],
                  "gap_detail": s.get("gap_detail")}) or _why(s["gap"])
-            out.append(f"{l1_mapper.slot_label(s['slot'])}:{why}")
+            out.append(f"{_name_of(s)}:{why}")
     return out
 
 
@@ -451,7 +473,7 @@ def build_l1_report(session_id: str, logs: dict | None = None) -> dict:
                 # 「指标」列给人看的是**中文槽名**,不是内部键 ——
                 # 缺口行已经说人话了,这里再露 `connective_density`,
                 # 读者会把同一个指标当成两个东西。内部键在 `feature` 里留着。
-                "indicator": l1_mapper.slot_label(s["slot"]),
+                "indicator": _name_of(s),
                 "feature": s["l1"],
                 "raw_value": s["value"],
                 "observed_interval": [],
