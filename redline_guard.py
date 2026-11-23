@@ -60,3 +60,24 @@ def find_redline_violations(text: str) -> list[str]:
         if hit not in seen:
             seen.append(hit)
     return seen
+
+
+_ASSISTANT_SCORE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"(?:总分|得分|打分|评分)\s*[：:为是]?\s*\d"),
+    re.compile(r"\b\d{1,3}(?:\.\d+)?\s*/\s*100\b"),
+    re.compile(r"(?:综合评级|能力等级|推荐录用|建议淘汰|心理诊断|情绪稳定|说谎|诚信|人格|心理画像|常模)"),
+)
+
+
+def find_assistant_violations(text: str) -> list[str]:
+    """面向本地辅助模型输出的双重合规审查：红线词表 + 违规打分/评级/心理推断检测。"""
+    hits = find_redline_violations(text)
+    if not text:
+        return hits
+    for pat in _ASSISTANT_SCORE_PATTERNS:
+        m = pat.search(text)
+        if m:
+            tok = m.group(0)
+            if tok not in hits:
+                hits.append(tok)
+    return hits

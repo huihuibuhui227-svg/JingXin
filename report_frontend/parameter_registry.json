@@ -296,6 +296,19 @@
       "affects_indicators": [],
       "provenance": "第二仪器独立对照附录的声明常量 0.5（不参与任何 L1 指标计算）",
       "upgrade_condition": "仅作第二仪器独立对照参考，正式使用需人工 FACS 标定"
+    },
+    {
+      "param_id": "signal_quality.usability_threshold",
+      "label": "自监督采集信号质量异常提示阈值",
+      "value": 0.5,
+      "unit": "概率",
+      "tier": "T3",
+      "sub_tier": "T3a",
+      "provisional": true,
+      "code_locations": ["report_frontend/signal_quality_clf.py:29"],
+      "affects_indicators": [],
+      "provenance": "纯 CPU 滑动窗采集质检模型默认二分阈值（仅作遮挡/冻结/抖动质检提示，绝不参与任何指标或评定）",
+      "upgrade_condition": "基于人工标注遮挡/卡顿片段集调校 PR 曲线工作点后升级为 T2b"
     }
   ]
 }

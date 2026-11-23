@@ -759,6 +759,52 @@ def activate_question_bank(module):
         return jsonify({"error": str(exc)}), 400
 
 
+# ── 本地按需辅助接口（严格隔离：零指标计算、零打分、红线审查 + 毫秒级回退） ──
+@app.route('/api/report/llm-assist', methods=['POST'])
+def report_llm_assist():
+    """按需生成脱敏报告的可读化摘要或基于证据缺口的追问提纲。"""
+    body = request.get_json(silent=True) or {}
+    session_id = (body.get("session_id") or request.args.get("session_id") or "").strip() or None
+    mode = (body.get("mode") or "summary").strip()
+    use_llm = bool(body.get("use_llm", True))
+    try:
+        from report_frontend.data_loader import LogDataLoader
+        from report_frontend.l1_report import build_l1_report
+        from report_frontend.local_llm_assistant import assist_report
+
+        loader = LogDataLoader()
+        data = loader.get_fused_latest_data(session_id)
+        payload = build_l1_report(loader.target_session, logs=data)
+        res = assist_report(payload, mode=mode, use_llm=use_llm)
+        return jsonify({
+            "status": "success",
+            "session_id": loader.target_session,
+            **res,
+        })
+    except Exception as exc:
+        logger.exception("报告本地辅助解读失败")
+        return jsonify({"status": "error", "message": str(exc)}), 500
+
+
+@app.route('/api/question-bank/llm-search', methods=['POST'])
+def question_bank_llm_search():
+    """毫秒级本地 TF-IDF 题库检索（可选本地小模型扩展查询词）。"""
+    body = request.get_json(silent=True) or {}
+    module = (body.get("module") or "interview").strip()
+    query = str(body.get("query") or "")
+    top_k = int(body.get("top_k") or 5)
+    use_llm = bool(body.get("use_llm", False))
+    try:
+        from report_frontend.local_llm_assistant import search_question_bank
+        res = search_question_bank(module, query, top_k=top_k, use_llm=use_llm)
+        return jsonify({"status": "success", **res})
+    except ValueError as exc:
+        return jsonify({"status": "error", "message": str(exc)}), 400
+    except Exception as exc:
+        logger.exception("题库语义检索失败")
+        return jsonify({"status": "error", "message": str(exc)}), 500
+
+
 if __name__ == '__main__':
     logger.info("=" * 50)
     logger.info(f"{brand.BRAND_FULL_TITLE} 总控服务启动中...")

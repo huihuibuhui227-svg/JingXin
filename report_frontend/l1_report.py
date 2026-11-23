@@ -85,6 +85,7 @@ from . import (
     l1_mapper,
     l1_quality,
     parameter_provenance,
+    signal_quality_clf,
     transcript_chars,
 )
 from .l1_quality import GAP_EXPLANATION, build_quality_report, explain_confidence
@@ -913,5 +914,6 @@ def build_l1_report(session_id: str, logs: dict | None = None) -> dict:
                 quality.indicators, governance_ledger["l0_blocked"]
             ),
             "second_instrument_appendix": _build_second_instrument_appendix(logs),
+            "signal_quality_audit": signal_quality_clf.audit_session_signal_quality(logs, session_id),
         },
     }
