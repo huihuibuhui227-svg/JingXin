@@ -1,0 +1,103 @@
+{
+  "trained_at": "2026-11-24 00:50:38",
+  "task_scope": "unsupervised_behavioral_regime_segmentation_only",
+  "scoring_participation": false,
+  "model_type": "GaussianMixture",
+  "n_components": 4,
+  "covariance_type": "diag",
+  "reg_covar": 0.1,
+  "model_size_kb": 3.7,
+  "window_size": 8,
+  "stride": 4,
+  "n_sessions": 47,
+  "n_sessions_with_voice_series": 21,
+  "n_windows": 5666,
+  "feature_names": [
+    "face_valid_ratio",
+    "mouth_open_mean",
+    "mouth_motion_std",
+    "gaze_dev_mean",
+    "head_motion_std",
+    "upper_body_motion",
+    "hand_visible_or_spread",
+    "voiced_ratio"
+  ],
+  "cv_scheme": "GroupKFold(n_splits=5, group=session_id)",
+  "full_silhouette": 0.2421,
+  "full_davies_bouldin": 1.5533,
+  "train_silhouette_mean": 0.2456,
+  "val_silhouette_mean": 0.2697,
+  "val_silhouette_std": 0.0479,
+  "val_davies_bouldin_mean": 1.569,
+  "cluster_stability_ari_mean": 0.9521,
+  "cluster_stability_nmi_mean": 0.9275,
+  "state_agreement_mean": 0.9796,
+  "cpu_inference_ms_per_30_windows": 2.379,
+  "inference_ms": 2.379,
+  "train_elapsed_sec": 5.9,
+  "state_distribution": {
+    "steady_speaking": {
+      "label": "平稳陈述态",
+      "count": 2830,
+      "ratio": 0.4995
+    },
+    "active_expressive": {
+      "label": "活跃表达态",
+      "count": 567,
+      "ratio": 0.1001
+    },
+    "pause_thinking": {
+      "label": "静默停顿态",
+      "count": 965,
+      "ratio": 0.1703
+    },
+    "low_signal": {
+      "label": "信号受限态",
+      "count": 1304,
+      "ratio": 0.2301
+    }
+  },
+  "cluster_centroids_z": {
+    "steady_speaking": {
+      "face_valid_ratio": 0.6282,
+      "mouth_open_mean": 0.5145,
+      "mouth_motion_std": 0.5112,
+      "gaze_dev_mean": -0.3727,
+      "head_motion_std": 0.0691,
+      "upper_body_motion": -0.239,
+      "hand_visible_or_spread": -0.0269,
+      "voiced_ratio": 0.1654
+    },
+    "active_expressive": {
+      "face_valid_ratio": -0.3172,
+      "mouth_open_mean": -0.1935,
+      "mouth_motion_std": -0.1563,
+      "gaze_dev_mean": 1.1593,
+      "head_motion_std": 1.3091,
+      "upper_body_motion": 1.3574,
+      "hand_visible_or_spread": -0.0846,
+      "voiced_ratio": -0.0569
+    },
+    "pause_thinking": {
+      "face_valid_ratio": 0.6349,
+      "mouth_open_mean": -1.4561,
+      "mouth_motion_std": -1.4853,
+      "gaze_dev_mean": 0.2954,
+      "head_motion_std": -0.892,
+      "upper_body_motion": -0.4379,
+      "hand_visible_or_spread": 0.197,
+      "voiced_ratio": -0.4657
+    },
+    "low_signal": {
+      "face_valid_ratio": -1.6754,
+      "mouth_open_mean": 0.0584,
+      "mouth_motion_std": 0.0698,
+      "gaze_dev_mean": 0.0511,
+      "head_motion_std": -0.0908,
+      "upper_body_motion": 0.2144,
+      "hand_visible_or_spread": -0.049,
+      "voiced_ratio": 0.0145
+    }
+  },
+  "boundary_note": "本模型仅在纯 CPU 下对多模态外显动作与发声节律做无监督区间切分，不代表任何个人特质，也不产出任何数值汇总。"
+}

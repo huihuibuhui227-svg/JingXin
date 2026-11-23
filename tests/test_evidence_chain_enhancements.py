@@ -143,7 +143,7 @@ def test_build_l1_report_exposes_all_additive_evidence_blocks():
         "lead_summary", "indicator_meta", "zero_explanations", "dimension_registry",
         "parameter_provenance", "cross_modal_coverage", "asr_confidence_disclosure",
         "governance_ledger", "blocked_dependency_warnings", "second_instrument_appendix",
-        "speaker_turn_audit",
+        "face_dual_instrument", "behavior_regimes", "signal_quality_audit", "speaker_turn_audit",
     ):
         assert k in l1, f"l1 载荷缺少增量字段 {k}"
     assert len(l1["indicator_meta"]) == 41
@@ -152,3 +152,50 @@ def test_build_l1_report_exposes_all_additive_evidence_blocks():
         assert dim_info.get("user_summary")
         assert dim_info.get("literature_anchor")
     assert l1["speaker_turn_audit"]["isolation_mode"] == "mixed_unsegmented"
+    assert l1["behavior_regimes"]["available"] is False
+    assert l1["behavior_regimes"]["advisory_only"] is True
+    assert l1["face_dual_instrument"]["available"] is False
+
+
+def test_transcript_chars_merges_whisper_conf_sidecar(tmp_path, monkeypatch):
+    import json
+    monkeypatch.setenv("JINGXIN_TRANSCRIPTS_DIR", str(tmp_path))
+    sid = "20261124_000001_ab12"
+    (tmp_path / f"{sid}.json").write_text(
+        json.dumps({
+            "text": "这是一段用于测试旁路合并的中文回答内容。",
+            "n_chars": 21,
+            "asr": {
+                "engine": "funasr",
+                "asr_confidence": None,
+                "asr_confidence_source": "unavailable",
+            },
+        }),
+        encoding="utf-8",
+    )
+    (tmp_path / f"{sid}.whisper_conf.json").write_text(
+        json.dumps({
+            "session_id": sid,
+            "asr_confidence_source": "word_prob_aligned_same_engine",
+            "engine": "faster-whisper",
+            "model_size": "tiny",
+            "audio_scope": "qa_segment",
+            "word_conf_summary": {
+                "n_words": 15,
+                "median": 0.88,
+                "p20": 0.65,
+                "low_word_ratio_lt_0_5": 0.05,
+            },
+        }),
+        encoding="utf-8",
+    )
+    tr = transcript_chars.load_transcript_with_asr(sid)
+    assert tr is not None
+    assert tr["asr"]["confidence_engine"] == "faster-whisper"
+    assert tr["asr"]["word_conf_summary"]["median"] == 0.88
+    disc = l1_report._build_asr_confidence_disclosure(
+        sid, [{"name": "discourse_marker_rate", "value": 1.2}]
+    )
+    assert disc["status"] == "available"
+    assert disc["degraded_indicators"] == []
+    assert "旁路同音频识别模型" in disc["note_plain"]

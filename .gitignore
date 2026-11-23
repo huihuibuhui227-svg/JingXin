@@ -102,3 +102,9 @@ _jxwork/
 data/logs_recomputed/
 _backup_asr_20261121/
 voice_interaction/asr/asr_config.json.bak-*
+
+# 2026-11-24: research_lab feature caches and large trained weights
+research_lab/cache/
+models/research/*.joblib
+models/research/*.pt
+models/research/*.pth

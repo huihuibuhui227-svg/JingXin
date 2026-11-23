@@ -326,7 +326,10 @@ async def health_check():
     """健康检查接口"""
     return {
         "status": "healthy",
-        "active_sessions": len(session_pipelines)
+        "active_sessions": len(session_pipelines),
+        "landmarker_3d_matrix": True,
+        "blendshapes_count": 52,
+        "live_framing": "on" if _FACE_FRAMING_ENABLED else "off",
     }
 
 
@@ -415,99 +418,116 @@ async def analyze_frame(
 
         if result_obj is None:
             logger.warning("未检测到人脸")
-            return JSONResponse(content={
+            no_face_payload = {
                 "status": "no_face",
                 "session_id": session_id,
                 "probe": probe,
-                "message": "未检测到人脸"
-            })
+                "message": "未检测到人脸",
+            }
+            if isinstance(features_dict, dict):
+                frame_quality = features_dict.get("frame_quality")
+                if frame_quality is not None:
+                    no_face_payload["frame_quality"] = frame_quality
+                head_pose_3d = features_dict.get("head_pose_3d")
+                if head_pose_3d is not None:
+                    no_face_payload["head_pose_3d"] = head_pose_3d
+            return JSONResponse(content=no_face_payload)
 
         logger.info(f"分析完成: {features_dict.get('dominant_emotion', 'unknown')} "
               f"(置信度: {features_dict.get('confidence', 0):.2f})")
 
         # 构建完整响应
+        result_payload = {
+            # 基础信息
+            "timestamp": features_dict.get("timestamp", 0),
+            "focus_score": features_dict.get("focus_score", 0),
+            # 面部尺度(0~1,脸高/画面高)—— 设备自检用它判断"是不是离得太远"。
+            "face_scale": features_dict.get("face_scale"),
+
+            # AU 特征
+            "au_features": {
+                "au1_inner_brow_raise": features_dict.get("au1_inner_brow_raise", 0),
+                "au2_outer_brow_raise": features_dict.get("au2_outer_brow_raise", 0),
+                "au4_frown": features_dict.get("au4_frown", 0),
+                "au6_cheek_raise": features_dict.get("au6_cheek_raise", 0),
+                "au7_eye_squeeze": features_dict.get("au7_eye_squeeze", 0),
+                "au9_nose_wrinkle": features_dict.get("au9_nose_wrinkle", 0),
+                "au10_upper_lip_raise": features_dict.get("au10_upper_lip_raise", 0),
+                "au12_smile": features_dict.get("au12_smile", 0),
+                "au14_dimpler": features_dict.get("au14_dimpler", 0),
+                "au15_mouth_down": features_dict.get("au15_mouth_down", 0),
+                "au20_lip_stretcher": features_dict.get("au20_lip_stretcher", 0),
+                "au23_lip_compression": features_dict.get("au23_lip_compression", 0),
+                "au25_mouth_open": features_dict.get("au25_mouth_open", 0),
+                "au26_jaw_drop": features_dict.get("au26_jaw_drop", 0),
+                "avg_ear": features_dict.get("avg_ear", 0),
+                "head_yaw": features_dict.get("head_yaw", 0),
+                "head_pitch": features_dict.get("head_pitch", 0),
+                "symmetry_score": features_dict.get("symmetry_score", 1.0),
+                "blink_rate_per_min": features_dict.get("blink_rate_per_min", 0),
+                "eye_closed_sec": features_dict.get("eye_closed_sec", 0),
+                "is_blink": features_dict.get("is_blink", False),
+                "left_iris_x": features_dict.get("left_iris_x", 0),
+                "left_iris_y": features_dict.get("left_iris_y", 0),
+                "right_iris_x": features_dict.get("right_iris_x", 0),
+                "right_iris_y": features_dict.get("right_iris_y", 0),
+                "gaze_direction_x": features_dict.get("gaze_direction_x", 0),
+                "gaze_direction_y": features_dict.get("gaze_direction_y", 0),
+                "gaze_deviation": features_dict.get("gaze_deviation", 0)
+            },
+
+            # 情绪分析
+            "emotion": {
+                "primary_emotion": features_dict.get("dominant_emotion", "neutral"),
+                "confidence": features_dict.get("confidence", 0),
+                "scores": {
+                    k: v for k, v in features_dict.items()
+                    if k.startswith("emotion_")
+                },
+                "composite_emotions": [],
+                "psychological_summary": ""
+            },
+
+            # 紧张度分析
+            "tension": {
+                "tension_score": features_dict.get("tension_score", 0),
+                "tension_level": features_dict.get("tension_level", "low"),
+                "sources": {
+                    "brow_furrow": features_dict.get("tension_sources_brow_furrow", 0),
+                    "lip_compression": features_dict.get("tension_sources_lip_compression", 0),
+                    "eye_closure": features_dict.get("tension_sources_eye_closure", 0),
+                    "expression_instability": features_dict.get("tension_sources_expression_instability", 0),
+                    "emotional_influence": features_dict.get("tension_sources_emotional_influence", 0)
+                }
+            },
+
+            # 微表情
+            "micro_expressions": {
+                "au_name": features_dict.get("micro_exp_au_name"),
+                "intensity": features_dict.get("micro_exp_intensity"),
+                "duration_frames": features_dict.get("micro_exp_duration_frames"),
+                "onset_frame": features_dict.get("micro_exp_onset_frame")
+            },
+
+            # 时间序列统计（关键！）
+            "temporal_stats": {
+                k: v for k, v in features_dict.items()
+                if any(k.endswith(suffix) for suffix in ["_trend", "_volatility", "_change_rate"])
+            }
+        }
+        if isinstance(features_dict, dict):
+            head_pose_3d = features_dict.get("head_pose_3d")
+            if head_pose_3d is not None:
+                result_payload["head_pose_3d"] = head_pose_3d
+            frame_quality = features_dict.get("frame_quality")
+            if frame_quality is not None:
+                result_payload["frame_quality"] = frame_quality
+
         return JSONResponse(content={
             "status": "success",
             "session_id": session_id,
             "probe": probe,
-            "result": {
-                # 基础信息
-                "timestamp": features_dict.get("timestamp", 0),
-                "focus_score": features_dict.get("focus_score", 0),
-                # 面部尺度(0~1,脸高/画面高)—— 设备自检用它判断"是不是离得太远"。
-                "face_scale": features_dict.get("face_scale"),
-
-                # AU 特征
-                "au_features": {
-                    "au1_inner_brow_raise": features_dict.get("au1_inner_brow_raise", 0),
-                    "au2_outer_brow_raise": features_dict.get("au2_outer_brow_raise", 0),
-                    "au4_frown": features_dict.get("au4_frown", 0),
-                    "au6_cheek_raise": features_dict.get("au6_cheek_raise", 0),
-                    "au7_eye_squeeze": features_dict.get("au7_eye_squeeze", 0),
-                    "au9_nose_wrinkle": features_dict.get("au9_nose_wrinkle", 0),
-                    "au10_upper_lip_raise": features_dict.get("au10_upper_lip_raise", 0),
-                    "au12_smile": features_dict.get("au12_smile", 0),
-                    "au14_dimpler": features_dict.get("au14_dimpler", 0),
-                    "au15_mouth_down": features_dict.get("au15_mouth_down", 0),
-                    "au20_lip_stretcher": features_dict.get("au20_lip_stretcher", 0),
-                    "au23_lip_compression": features_dict.get("au23_lip_compression", 0),
-                    "au25_mouth_open": features_dict.get("au25_mouth_open", 0),
-                    "au26_jaw_drop": features_dict.get("au26_jaw_drop", 0),
-                    "avg_ear": features_dict.get("avg_ear", 0),
-                    "head_yaw": features_dict.get("head_yaw", 0),
-                    "head_pitch": features_dict.get("head_pitch", 0),
-                    "symmetry_score": features_dict.get("symmetry_score", 1.0),
-                    "blink_rate_per_min": features_dict.get("blink_rate_per_min", 0),
-                    "eye_closed_sec": features_dict.get("eye_closed_sec", 0),
-                    "is_blink": features_dict.get("is_blink", False),
-                    "left_iris_x": features_dict.get("left_iris_x", 0),
-                    "left_iris_y": features_dict.get("left_iris_y", 0),
-                    "right_iris_x": features_dict.get("right_iris_x", 0),
-                    "right_iris_y": features_dict.get("right_iris_y", 0),
-                    "gaze_direction_x": features_dict.get("gaze_direction_x", 0),
-                    "gaze_direction_y": features_dict.get("gaze_direction_y", 0),
-                    "gaze_deviation": features_dict.get("gaze_deviation", 0)
-                },
-
-                # 情绪分析
-                "emotion": {
-                    "primary_emotion": features_dict.get("dominant_emotion", "neutral"),
-                    "confidence": features_dict.get("confidence", 0),
-                    "scores": {
-                        k: v for k, v in features_dict.items()
-                        if k.startswith("emotion_")
-                    },
-                    "composite_emotions": [],
-                    "psychological_summary": ""
-                },
-
-                # 紧张度分析
-                "tension": {
-                    "tension_score": features_dict.get("tension_score", 0),
-                    "tension_level": features_dict.get("tension_level", "low"),
-                    "sources": {
-                        "brow_furrow": features_dict.get("tension_sources_brow_furrow", 0),
-                        "lip_compression": features_dict.get("tension_sources_lip_compression", 0),
-                        "eye_closure": features_dict.get("tension_sources_eye_closure", 0),
-                        "expression_instability": features_dict.get("tension_sources_expression_instability", 0),
-                        "emotional_influence": features_dict.get("tension_sources_emotional_influence", 0)
-                    }
-                },
-
-                # 微表情
-                "micro_expressions": {
-                    "au_name": features_dict.get("micro_exp_au_name"),
-                    "intensity": features_dict.get("micro_exp_intensity"),
-                    "duration_frames": features_dict.get("micro_exp_duration_frames"),
-                    "onset_frame": features_dict.get("micro_exp_onset_frame")
-                },
-
-                # 时间序列统计（关键！）
-                "temporal_stats": {
-                    k: v for k, v in features_dict.items()
-                    if any(k.endswith(suffix) for suffix in ["_trend", "_volatility", "_change_rate"])
-                }
-            }
+            "result": result_payload,
         })
 
     except HTTPException:

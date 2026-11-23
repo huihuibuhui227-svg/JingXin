@@ -75,7 +75,54 @@ def _default_factory(model_path: Path, *, num_faces: int,
         #   `au_calculator` 那些 `au*` 列是手写几何比率(实测 au7 ≡ 1-avg_ear),
         #   这一开,日志里就有了**有依据**的那一份。开它只多出输出,不动 landmark,
         #   所以 M1.5 的 landmark 等价性基线不受影响。
-        output_face_blendshapes=True))
+        output_face_blendshapes=True,
+        # ★ 开启 4x4 面部变换矩阵输出,用于相机坐标系下真三维头部姿态(yaw/pitch/roll)。
+        output_facial_transformation_matrixes=True))
+
+
+def extract_euler_3d_from_matrix(mat4x4) -> dict[str, float] | None:
+    """将 MediaPipe 4x4 面部变换矩阵转为三维欧拉角(度)。
+
+    采用 OpenGL 右手相机坐标系(+X 向右、+Y 向上、+Z 朝向镜头)下的内旋 Y-X-Z
+    分解(R = R_y(yaw) @ R_x(pitch) @ R_z(roll)):
+      - yaw_deg:   绕 Y 轴偏航(面向画面右侧为正,左侧为负)
+      - pitch_deg: 绕 X 轴俯仰(低头为正,抬头为负;万向锁在 ±90°)
+      - roll_deg:  绕 Z 轴翻滚(画面逆时针倾斜为正)
+
+    输入为 None、形状非 (4, 4)、含 NaN/Inf 或奇异矩阵时返回 None。
+    """
+    if mat4x4 is None:
+        return None
+    try:
+        arr = np.asarray(mat4x4, dtype=np.float64)
+    except (TypeError, ValueError):
+        return None
+    if arr.ndim != 2 or arr.shape != (4, 4):
+        return None
+    if not np.all(np.isfinite(arr)):
+        return None
+
+    rot = arr[:3, :3]
+    if float(np.linalg.det(rot)) <= 1e-3:
+        return None
+
+    sin_pitch = float(np.clip(-rot[1, 2], -1.0, 1.0))
+    pitch_rad = float(np.arcsin(sin_pitch))
+    cos_pitch = float(np.cos(pitch_rad))
+
+    if abs(cos_pitch) > 1e-6:
+        yaw_rad = float(np.arctan2(rot[0, 2], rot[2, 2]))
+        roll_rad = float(np.arctan2(rot[1, 0], rot[1, 1]))
+    else:
+        # 万向锁(pitch ≈ ±90°):固定 roll=0 并合并解析 yaw
+        yaw_rad = float(np.arctan2(-rot[2, 0], rot[0, 0]))
+        roll_rad = 0.0
+
+    return {
+        "yaw_deg": float(np.degrees(yaw_rad)) + 0.0,
+        "pitch_deg": float(np.degrees(pitch_rad)) + 0.0,
+        "roll_deg": float(np.degrees(roll_rad)) + 0.0,
+    }
 
 
 class FaceDetector:
@@ -101,16 +148,7 @@ class FaceDetector:
             min_detection_confidence=min_detection_confidence,
             min_tracking_confidence=min_tracking_confidence)
 
-    def detect_with_blendshapes(self, image_rgb: np.ndarray, timestamp_ms: int):
-        """交出 `(landmarks | None, blendshapes: dict[str, float])`。
-
-        `landmarks` 与 `detect()` 逐字同形(`[(x, y)]`);`blendshapes` 是模型那 52 个
-        分数按**名字**存的字典(没检出脸时是**空字典**,不是 52 个 0 —— 编 0 会让
-        "没测到"看起来像"测到了 0",正是本项目在杀的形态)。
-
-        名字不在 `BLENDSHAPE_NAMES` 里的,这里**报出来**(换模型版本时先响),
-        但仍然收进字典 —— 丢不丢是调用方的事,不是探测器悄悄决定的。
-        """
+    def _run_result(self, image_rgb: np.ndarray, timestamp_ms: int):
         import mediapipe as mp
 
         if self._last_ts is not None and timestamp_ms < self._last_ts:
@@ -123,8 +161,13 @@ class FaceDetector:
                          data=np.ascontiguousarray(image_rgb))
         result = self._landmarker.detect_for_video(image, int(timestamp_ms))
         self._frame_index += 1
-        if not result.face_landmarks:
-            return None, {}
+        return result
+
+    def _extract_from_result(
+        self, result
+    ) -> tuple[list[tuple[float, float]] | None, dict[str, float], dict[str, float] | None]:
+        if not getattr(result, "face_landmarks", None):
+            return None, {}, None
 
         # `getattr` 而不是 `result.face_blendshapes`:真 mediapipe 的结果对象在没开
         # 那个开关时也有这个属性(值为 None),但**替身与将来的结果对象不一定有** ——
@@ -141,7 +184,34 @@ class FaceDetector:
                 "(换模型版本了?改 face_expression/models/blendshapes.py)",
                 len(extra), extra)
 
-        return [(p.x, p.y) for p in result.face_landmarks[0]], blendshapes
+        landmarks = [(p.x, p.y) for p in result.face_landmarks[0]]
+
+        matrices = getattr(result, "facial_transformation_matrixes", None)
+        head_pose_3d = None
+        if matrices is not None and len(matrices) > 0:
+            head_pose_3d = extract_euler_3d_from_matrix(matrices[0])
+
+        return landmarks, blendshapes, head_pose_3d
+
+    def detect_full(
+        self, image_rgb: np.ndarray, timestamp_ms: int
+    ) -> tuple[list[tuple[float, float]] | None, dict[str, float], dict[str, float] | None]:
+        """交出 `(landmarks | None, blendshapes: dict[str, float], head_pose_3d | None)`。"""
+        result = self._run_result(image_rgb, timestamp_ms)
+        return self._extract_from_result(result)
+
+    def detect_with_blendshapes(self, image_rgb: np.ndarray, timestamp_ms: int):
+        """交出 `(landmarks | None, blendshapes: dict[str, float])`。
+
+        `landmarks` 与 `detect()` 逐字同形(`[(x, y)]`);`blendshapes` 是模型那 52 个
+        分数按**名字**存的字典(没检出脸时是**空字典**,不是 52 个 0 —— 编 0 会让
+        "没测到"看起来像"测到了 0",正是本项目在杀的形态)。
+
+        名字不在 `BLENDSHAPE_NAMES` 里的,这里**报出来**(换模型版本时先响),
+        但仍然收进字典 —— 丢不丢是调用方的事,不是探测器悄悄决定的。
+        """
+        landmarks, blendshapes, _ = self.detect_full(image_rgb, timestamp_ms)
+        return landmarks, blendshapes
 
     def detect(self, image_rgb: np.ndarray, timestamp_ms: int):
         """VIDEO 模式:时间戳由**调用方**给(M2.5 spec §5.1)。
@@ -153,7 +223,7 @@ class FaceDetector:
         ⚠️ 契约与迁移前**逐字一致**(`[(x, y)]` 或 None,tests/test_detector_contract.py
         钉着)。要 blendshape 的调用方走 `detect_with_blendshapes()`。
         """
-        landmarks, _ = self.detect_with_blendshapes(image_rgb, timestamp_ms)
+        landmarks, _, _ = self.detect_full(image_rgb, timestamp_ms)
         return landmarks
 
     def reset(self) -> None:

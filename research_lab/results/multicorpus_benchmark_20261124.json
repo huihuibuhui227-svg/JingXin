@@ -1,0 +1,2475 @@
+{
+  "generated_at": "2026-11-24 01:40:38",
+  "research_only": true,
+  "total_training_elapsed_sec": 375.68,
+  "extraction_summary": {
+    "elapsed_sec": 365.64,
+    "total_clips_scheduled": 598,
+    "total_clips_succeeded": 598,
+    "total_clips_failed": 0,
+    "clips_per_sec": 1.635,
+    "workers": 14,
+    "frames_per_clip": 8,
+    "corpora": {
+      "mit": {
+        "n_clips": 138,
+        "n_features": 167,
+        "n_targets": 18,
+        "csv_path": "/home/zgy/JingXin/jingxin/research_lab/cache/mit_multimodal_features.csv",
+        "npz_path": "/home/zgy/JingXin/jingxin/research_lab/cache/mit_multimodal_features.npz",
+        "mean_face_valid_ratio": 0.9891304347826086,
+        "silero_onnx_count": 138
+      },
+      "recruitview": {
+        "n_clips": 160,
+        "n_features": 167,
+        "n_targets": 12,
+        "csv_path": "/home/zgy/JingXin/jingxin/research_lab/cache/recruitview_multimodal_features.csv",
+        "npz_path": "/home/zgy/JingXin/jingxin/research_lab/cache/recruitview_multimodal_features.npz",
+        "mean_face_valid_ratio": 1.0,
+        "silero_onnx_count": 160
+      },
+      "chalearn": {
+        "n_clips": 300,
+        "n_features": 167,
+        "n_targets": 6,
+        "csv_path": "/home/zgy/JingXin/jingxin/research_lab/cache/chalearn_multimodal_features.csv",
+        "npz_path": "/home/zgy/JingXin/jingxin/research_lab/cache/chalearn_multimodal_features.npz",
+        "mean_face_valid_ratio": 0.9941666666666666,
+        "silero_onnx_count": 300
+      }
+    }
+  },
+  "experiment_1_mit": {
+    "dataset": "MIT_INTERVIEW_DATASET",
+    "n_interviews": 138,
+    "n_participants": 69,
+    "cv_scheme": "GroupKFold(n_splits=5, group=participant_id)",
+    "n_official_behavior_features": 272,
+    "n_extracted_av_features": 161,
+    "core_targets": [
+      "Overall",
+      "RecommendHiring",
+      "EyeContact",
+      "Smiled",
+      "SpeakingRate",
+      "Paused",
+      "StructuredAnswers",
+      "Focused"
+    ],
+    "all_targets": [
+      "Overall",
+      "RecommendHiring",
+      "Colleague",
+      "Engaged",
+      "Excited",
+      "EyeContact",
+      "Smiled",
+      "SpeakingRate",
+      "NoFillers",
+      "Friendly",
+      "Paused",
+      "EngagingTone",
+      "StructuredAnswers",
+      "Calm",
+      "NotStressed",
+      "Focused",
+      "Authentic",
+      "NotAwkward"
+    ],
+    "best_model": "Behavior-RF",
+    "gpu_mlp_hardware": {
+      "device_name": "Tesla P40",
+      "torch_version": "2.5.1+cu121",
+      "dtype": "torch.float32",
+      "elapsed_sec": 4.6054,
+      "peak_vram_mb": 17.81,
+      "epochs_per_fold": 160,
+      "n_folds": 5,
+      "available": true
+    },
+    "models": {
+      "Behavior-Ridge": {
+        "macro": {
+          "pearson_r": 0.3898,
+          "spearman_rho": 0.3733,
+          "rmse": 0.6208,
+          "mae": 0.4932,
+          "acc_1_minus_mae": 0.5068
+        },
+        "per_target": {
+          "Overall": {
+            "pearson_r": 0.464,
+            "spearman_rho": 0.3874,
+            "rmse": 0.5662,
+            "mae": 0.4598,
+            "acc_1_minus_mae": 0.5402
+          },
+          "RecommendHiring": {
+            "pearson_r": 0.5123,
+            "spearman_rho": 0.4632,
+            "rmse": 0.6216,
+            "mae": 0.4941,
+            "acc_1_minus_mae": 0.5059
+          },
+          "Colleague": {
+            "pearson_r": 0.4691,
+            "spearman_rho": 0.4122,
+            "rmse": 0.5594,
+            "mae": 0.452,
+            "acc_1_minus_mae": 0.548
+          },
+          "Engaged": {
+            "pearson_r": 0.4888,
+            "spearman_rho": 0.4903,
+            "rmse": 0.5809,
+            "mae": 0.4438,
+            "acc_1_minus_mae": 0.5562
+          },
+          "Excited": {
+            "pearson_r": 0.7128,
+            "spearman_rho": 0.6944,
+            "rmse": 0.6018,
+            "mae": 0.4749,
+            "acc_1_minus_mae": 0.5251
+          },
+          "EyeContact": {
+            "pearson_r": 0.087,
+            "spearman_rho": 0.1122,
+            "rmse": 0.8272,
+            "mae": 0.6512,
+            "acc_1_minus_mae": 0.3488
+          },
+          "Smiled": {
+            "pearson_r": 0.6931,
+            "spearman_rho": 0.6948,
+            "rmse": 0.6928,
+            "mae": 0.5467,
+            "acc_1_minus_mae": 0.4533
+          },
+          "SpeakingRate": {
+            "pearson_r": 0.1258,
+            "spearman_rho": 0.1041,
+            "rmse": 0.3893,
+            "mae": 0.3205,
+            "acc_1_minus_mae": 0.6795
+          },
+          "NoFillers": {
+            "pearson_r": 0.2226,
+            "spearman_rho": 0.2702,
+            "rmse": 1.0077,
+            "mae": 0.789,
+            "acc_1_minus_mae": 0.211
+          },
+          "Friendly": {
+            "pearson_r": 0.6413,
+            "spearman_rho": 0.6336,
+            "rmse": 0.6245,
+            "mae": 0.5001,
+            "acc_1_minus_mae": 0.4999
+          },
+          "Paused": {
+            "pearson_r": 0.4711,
+            "spearman_rho": 0.4335,
+            "rmse": 0.4249,
+            "mae": 0.3521,
+            "acc_1_minus_mae": 0.6479
+          },
+          "EngagingTone": {
+            "pearson_r": 0.7156,
+            "spearman_rho": 0.6941,
+            "rmse": 0.6993,
+            "mae": 0.5573,
+            "acc_1_minus_mae": 0.4427
+          },
+          "StructuredAnswers": {
+            "pearson_r": 0.3622,
+            "spearman_rho": 0.4017,
+            "rmse": 0.6449,
+            "mae": 0.4993,
+            "acc_1_minus_mae": 0.5007
+          },
+          "Calm": {
+            "pearson_r": 0.0681,
+            "spearman_rho": 0.0537,
+            "rmse": 0.6492,
+            "mae": 0.5299,
+            "acc_1_minus_mae": 0.4701
+          },
+          "NotStressed": {
+            "pearson_r": 0.0486,
+            "spearman_rho": 0.0458,
+            "rmse": 0.6083,
+            "mae": 0.4742,
+            "acc_1_minus_mae": 0.5258
+          },
+          "Focused": {
+            "pearson_r": 0.2777,
+            "spearman_rho": 0.2361,
+            "rmse": 0.524,
+            "mae": 0.4165,
+            "acc_1_minus_mae": 0.5835
+          },
+          "Authentic": {
+            "pearson_r": 0.3744,
+            "spearman_rho": 0.3549,
+            "rmse": 0.3745,
+            "mae": 0.3046,
+            "acc_1_minus_mae": 0.6954
+          },
+          "NotAwkward": {
+            "pearson_r": 0.2823,
+            "spearman_rho": 0.2372,
+            "rmse": 0.7779,
+            "mae": 0.6121,
+            "acc_1_minus_mae": 0.3879
+          }
+        },
+        "core_macro": {
+          "pearson_r": 0.3741,
+          "spearman_rho": 0.3541,
+          "rmse": 0.5864,
+          "mae": 0.4675,
+          "acc_1_minus_mae": 0.5325
+        }
+      },
+      "Behavior-RF": {
+        "macro": {
+          "pearson_r": 0.4023,
+          "spearman_rho": 0.3976,
+          "rmse": 0.6231,
+          "mae": 0.49,
+          "acc_1_minus_mae": 0.51
+        },
+        "per_target": {
+          "Overall": {
+            "pearson_r": 0.4738,
+            "spearman_rho": 0.436,
+            "rmse": 0.5691,
+            "mae": 0.4528,
+            "acc_1_minus_mae": 0.5472
+          },
+          "RecommendHiring": {
+            "pearson_r": 0.509,
+            "spearman_rho": 0.4757,
+            "rmse": 0.6342,
+            "mae": 0.5049,
+            "acc_1_minus_mae": 0.4951
+          },
+          "Colleague": {
+            "pearson_r": 0.514,
+            "spearman_rho": 0.469,
+            "rmse": 0.5526,
+            "mae": 0.4278,
+            "acc_1_minus_mae": 0.5722
+          },
+          "Engaged": {
+            "pearson_r": 0.5322,
+            "spearman_rho": 0.5612,
+            "rmse": 0.5738,
+            "mae": 0.436,
+            "acc_1_minus_mae": 0.564
+          },
+          "Excited": {
+            "pearson_r": 0.7138,
+            "spearman_rho": 0.7154,
+            "rmse": 0.6552,
+            "mae": 0.5023,
+            "acc_1_minus_mae": 0.4977
+          },
+          "EyeContact": {
+            "pearson_r": 0.0759,
+            "spearman_rho": 0.1138,
+            "rmse": 0.776,
+            "mae": 0.604,
+            "acc_1_minus_mae": 0.396
+          },
+          "Smiled": {
+            "pearson_r": 0.6701,
+            "spearman_rho": 0.6642,
+            "rmse": 0.7823,
+            "mae": 0.6074,
+            "acc_1_minus_mae": 0.3926
+          },
+          "SpeakingRate": {
+            "pearson_r": 0.2019,
+            "spearman_rho": 0.184,
+            "rmse": 0.3648,
+            "mae": 0.2907,
+            "acc_1_minus_mae": 0.7093
+          },
+          "NoFillers": {
+            "pearson_r": 0.275,
+            "spearman_rho": 0.3131,
+            "rmse": 0.9648,
+            "mae": 0.7566,
+            "acc_1_minus_mae": 0.2434
+          },
+          "Friendly": {
+            "pearson_r": 0.6735,
+            "spearman_rho": 0.6439,
+            "rmse": 0.6488,
+            "mae": 0.526,
+            "acc_1_minus_mae": 0.474
+          },
+          "Paused": {
+            "pearson_r": 0.3612,
+            "spearman_rho": 0.3558,
+            "rmse": 0.4571,
+            "mae": 0.3724,
+            "acc_1_minus_mae": 0.6276
+          },
+          "EngagingTone": {
+            "pearson_r": 0.6981,
+            "spearman_rho": 0.6976,
+            "rmse": 0.7648,
+            "mae": 0.5963,
+            "acc_1_minus_mae": 0.4037
+          },
+          "StructuredAnswers": {
+            "pearson_r": 0.411,
+            "spearman_rho": 0.4296,
+            "rmse": 0.6372,
+            "mae": 0.5055,
+            "acc_1_minus_mae": 0.4945
+          },
+          "Calm": {
+            "pearson_r": 0.1476,
+            "spearman_rho": 0.1687,
+            "rmse": 0.6066,
+            "mae": 0.4862,
+            "acc_1_minus_mae": 0.5138
+          },
+          "NotStressed": {
+            "pearson_r": 0.0428,
+            "spearman_rho": 0.0803,
+            "rmse": 0.5778,
+            "mae": 0.4575,
+            "acc_1_minus_mae": 0.5425
+          },
+          "Focused": {
+            "pearson_r": 0.2775,
+            "spearman_rho": 0.2242,
+            "rmse": 0.5083,
+            "mae": 0.3958,
+            "acc_1_minus_mae": 0.6042
+          },
+          "Authentic": {
+            "pearson_r": 0.4441,
+            "spearman_rho": 0.426,
+            "rmse": 0.364,
+            "mae": 0.2922,
+            "acc_1_minus_mae": 0.7078
+          },
+          "NotAwkward": {
+            "pearson_r": 0.2202,
+            "spearman_rho": 0.1974,
+            "rmse": 0.7781,
+            "mae": 0.6058,
+            "acc_1_minus_mae": 0.3942
+          }
+        },
+        "core_macro": {
+          "pearson_r": 0.3726,
+          "spearman_rho": 0.3604,
+          "rmse": 0.5911,
+          "mae": 0.4667,
+          "acc_1_minus_mae": 0.5333
+        }
+      },
+      "Behavior-HistGBT": {
+        "macro": {
+          "pearson_r": 0.3939,
+          "spearman_rho": 0.3825,
+          "rmse": 0.6234,
+          "mae": 0.4972,
+          "acc_1_minus_mae": 0.5028
+        },
+        "per_target": {
+          "Overall": {
+            "pearson_r": 0.3662,
+            "spearman_rho": 0.3262,
+            "rmse": 0.6034,
+            "mae": 0.4822,
+            "acc_1_minus_mae": 0.5178
+          },
+          "RecommendHiring": {
+            "pearson_r": 0.4284,
+            "spearman_rho": 0.4091,
+            "rmse": 0.6577,
+            "mae": 0.536,
+            "acc_1_minus_mae": 0.464
+          },
+          "Colleague": {
+            "pearson_r": 0.4366,
+            "spearman_rho": 0.3948,
+            "rmse": 0.5709,
+            "mae": 0.4586,
+            "acc_1_minus_mae": 0.5414
+          },
+          "Engaged": {
+            "pearson_r": 0.5636,
+            "spearman_rho": 0.5665,
+            "rmse": 0.5475,
+            "mae": 0.4203,
+            "acc_1_minus_mae": 0.5797
+          },
+          "Excited": {
+            "pearson_r": 0.6374,
+            "spearman_rho": 0.6279,
+            "rmse": 0.6608,
+            "mae": 0.5151,
+            "acc_1_minus_mae": 0.4849
+          },
+          "EyeContact": {
+            "pearson_r": 0.0038,
+            "spearman_rho": 0.0293,
+            "rmse": 0.8353,
+            "mae": 0.6631,
+            "acc_1_minus_mae": 0.3369
+          },
+          "Smiled": {
+            "pearson_r": 0.6885,
+            "spearman_rho": 0.6915,
+            "rmse": 0.6972,
+            "mae": 0.557,
+            "acc_1_minus_mae": 0.443
+          },
+          "SpeakingRate": {
+            "pearson_r": 0.1956,
+            "spearman_rho": 0.127,
+            "rmse": 0.3795,
+            "mae": 0.3129,
+            "acc_1_minus_mae": 0.6871
+          },
+          "NoFillers": {
+            "pearson_r": 0.3692,
+            "spearman_rho": 0.4036,
+            "rmse": 0.9316,
+            "mae": 0.7327,
+            "acc_1_minus_mae": 0.2673
+          },
+          "Friendly": {
+            "pearson_r": 0.6703,
+            "spearman_rho": 0.6614,
+            "rmse": 0.6046,
+            "mae": 0.4822,
+            "acc_1_minus_mae": 0.5178
+          },
+          "Paused": {
+            "pearson_r": 0.3854,
+            "spearman_rho": 0.3285,
+            "rmse": 0.4499,
+            "mae": 0.3738,
+            "acc_1_minus_mae": 0.6262
+          },
+          "EngagingTone": {
+            "pearson_r": 0.6736,
+            "spearman_rho": 0.6567,
+            "rmse": 0.7344,
+            "mae": 0.5835,
+            "acc_1_minus_mae": 0.4165
+          },
+          "StructuredAnswers": {
+            "pearson_r": 0.514,
+            "spearman_rho": 0.5166,
+            "rmse": 0.5896,
+            "mae": 0.4757,
+            "acc_1_minus_mae": 0.5243
+          },
+          "Calm": {
+            "pearson_r": 0.134,
+            "spearman_rho": 0.1834,
+            "rmse": 0.6436,
+            "mae": 0.5262,
+            "acc_1_minus_mae": 0.4738
+          },
+          "NotStressed": {
+            "pearson_r": 0.2375,
+            "spearman_rho": 0.2508,
+            "rmse": 0.57,
+            "mae": 0.4574,
+            "acc_1_minus_mae": 0.5426
+          },
+          "Focused": {
+            "pearson_r": 0.1722,
+            "spearman_rho": 0.1654,
+            "rmse": 0.5499,
+            "mae": 0.4216,
+            "acc_1_minus_mae": 0.5784
+          },
+          "Authentic": {
+            "pearson_r": 0.4415,
+            "spearman_rho": 0.3545,
+            "rmse": 0.3611,
+            "mae": 0.2998,
+            "acc_1_minus_mae": 0.7002
+          },
+          "NotAwkward": {
+            "pearson_r": 0.1716,
+            "spearman_rho": 0.1923,
+            "rmse": 0.8345,
+            "mae": 0.6515,
+            "acc_1_minus_mae": 0.3485
+          }
+        },
+        "core_macro": {
+          "pearson_r": 0.3443,
+          "spearman_rho": 0.3242,
+          "rmse": 0.5953,
+          "mae": 0.4778,
+          "acc_1_minus_mae": 0.5222
+        }
+      },
+      "Text-TFIDF-Ridge": {
+        "macro": {
+          "pearson_r": 0.21,
+          "spearman_rho": 0.1974,
+          "rmse": 0.6809,
+          "mae": 0.5355,
+          "acc_1_minus_mae": 0.4645
+        },
+        "per_target": {
+          "Overall": {
+            "pearson_r": 0.359,
+            "spearman_rho": 0.3362,
+            "rmse": 0.5949,
+            "mae": 0.4657,
+            "acc_1_minus_mae": 0.5343
+          },
+          "RecommendHiring": {
+            "pearson_r": 0.232,
+            "spearman_rho": 0.2006,
+            "rmse": 0.7074,
+            "mae": 0.5592,
+            "acc_1_minus_mae": 0.4408
+          },
+          "Colleague": {
+            "pearson_r": 0.1575,
+            "spearman_rho": 0.1222,
+            "rmse": 0.6339,
+            "mae": 0.4926,
+            "acc_1_minus_mae": 0.5074
+          },
+          "Engaged": {
+            "pearson_r": 0.3259,
+            "spearman_rho": 0.269,
+            "rmse": 0.6271,
+            "mae": 0.4911,
+            "acc_1_minus_mae": 0.5089
+          },
+          "Excited": {
+            "pearson_r": 0.1074,
+            "spearman_rho": 0.0625,
+            "rmse": 0.8728,
+            "mae": 0.7041,
+            "acc_1_minus_mae": 0.2959
+          },
+          "EyeContact": {
+            "pearson_r": 0.2218,
+            "spearman_rho": 0.1729,
+            "rmse": 0.7581,
+            "mae": 0.6129,
+            "acc_1_minus_mae": 0.3871
+          },
+          "Smiled": {
+            "pearson_r": 0.1606,
+            "spearman_rho": 0.1531,
+            "rmse": 0.9683,
+            "mae": 0.757,
+            "acc_1_minus_mae": 0.243
+          },
+          "SpeakingRate": {
+            "pearson_r": -0.0013,
+            "spearman_rho": 0.0096,
+            "rmse": 0.3922,
+            "mae": 0.3102,
+            "acc_1_minus_mae": 0.6898
+          },
+          "NoFillers": {
+            "pearson_r": 0.4659,
+            "spearman_rho": 0.4521,
+            "rmse": 0.893,
+            "mae": 0.7091,
+            "acc_1_minus_mae": 0.2909
+          },
+          "Friendly": {
+            "pearson_r": 0.162,
+            "spearman_rho": 0.1219,
+            "rmse": 0.8162,
+            "mae": 0.653,
+            "acc_1_minus_mae": 0.347
+          },
+          "Paused": {
+            "pearson_r": 0.1432,
+            "spearman_rho": 0.133,
+            "rmse": 0.4849,
+            "mae": 0.3976,
+            "acc_1_minus_mae": 0.6024
+          },
+          "EngagingTone": {
+            "pearson_r": 0.1883,
+            "spearman_rho": 0.195,
+            "rmse": 0.9835,
+            "mae": 0.7628,
+            "acc_1_minus_mae": 0.2372
+          },
+          "StructuredAnswers": {
+            "pearson_r": 0.3995,
+            "spearman_rho": 0.3945,
+            "rmse": 0.6277,
+            "mae": 0.4855,
+            "acc_1_minus_mae": 0.5145
+          },
+          "Calm": {
+            "pearson_r": 0.1623,
+            "spearman_rho": 0.1213,
+            "rmse": 0.6162,
+            "mae": 0.4976,
+            "acc_1_minus_mae": 0.5024
+          },
+          "NotStressed": {
+            "pearson_r": 0.1753,
+            "spearman_rho": 0.1847,
+            "rmse": 0.5759,
+            "mae": 0.4353,
+            "acc_1_minus_mae": 0.5647
+          },
+          "Focused": {
+            "pearson_r": 0.3328,
+            "spearman_rho": 0.376,
+            "rmse": 0.4991,
+            "mae": 0.3729,
+            "acc_1_minus_mae": 0.6271
+          },
+          "Authentic": {
+            "pearson_r": -0.0849,
+            "spearman_rho": -0.0651,
+            "rmse": 0.4354,
+            "mae": 0.3539,
+            "acc_1_minus_mae": 0.6461
+          },
+          "NotAwkward": {
+            "pearson_r": 0.2725,
+            "spearman_rho": 0.3137,
+            "rmse": 0.7689,
+            "mae": 0.5787,
+            "acc_1_minus_mae": 0.4213
+          }
+        },
+        "core_macro": {
+          "pearson_r": 0.2309,
+          "spearman_rho": 0.222,
+          "rmse": 0.6291,
+          "mae": 0.4951,
+          "acc_1_minus_mae": 0.5049
+        }
+      },
+      "Early-Fusion-Ridge": {
+        "macro": {
+          "pearson_r": 0.3919,
+          "spearman_rho": 0.3767,
+          "rmse": 0.6213,
+          "mae": 0.4932,
+          "acc_1_minus_mae": 0.5068
+        },
+        "per_target": {
+          "Overall": {
+            "pearson_r": 0.4631,
+            "spearman_rho": 0.3978,
+            "rmse": 0.567,
+            "mae": 0.4618,
+            "acc_1_minus_mae": 0.5382
+          },
+          "RecommendHiring": {
+            "pearson_r": 0.5111,
+            "spearman_rho": 0.4604,
+            "rmse": 0.6226,
+            "mae": 0.4947,
+            "acc_1_minus_mae": 0.5053
+          },
+          "Colleague": {
+            "pearson_r": 0.4663,
+            "spearman_rho": 0.4099,
+            "rmse": 0.561,
+            "mae": 0.4499,
+            "acc_1_minus_mae": 0.5501
+          },
+          "Engaged": {
+            "pearson_r": 0.4855,
+            "spearman_rho": 0.4885,
+            "rmse": 0.5831,
+            "mae": 0.4416,
+            "acc_1_minus_mae": 0.5584
+          },
+          "Excited": {
+            "pearson_r": 0.7011,
+            "spearman_rho": 0.6851,
+            "rmse": 0.6108,
+            "mae": 0.4796,
+            "acc_1_minus_mae": 0.5204
+          },
+          "EyeContact": {
+            "pearson_r": 0.0811,
+            "spearman_rho": 0.1099,
+            "rmse": 0.8307,
+            "mae": 0.6601,
+            "acc_1_minus_mae": 0.3399
+          },
+          "Smiled": {
+            "pearson_r": 0.7,
+            "spearman_rho": 0.6982,
+            "rmse": 0.6867,
+            "mae": 0.542,
+            "acc_1_minus_mae": 0.458
+          },
+          "SpeakingRate": {
+            "pearson_r": 0.1238,
+            "spearman_rho": 0.095,
+            "rmse": 0.3911,
+            "mae": 0.3218,
+            "acc_1_minus_mae": 0.6782
+          },
+          "NoFillers": {
+            "pearson_r": 0.246,
+            "spearman_rho": 0.2942,
+            "rmse": 0.997,
+            "mae": 0.7793,
+            "acc_1_minus_mae": 0.2207
+          },
+          "Friendly": {
+            "pearson_r": 0.6416,
+            "spearman_rho": 0.6348,
+            "rmse": 0.6244,
+            "mae": 0.5,
+            "acc_1_minus_mae": 0.5
+          },
+          "Paused": {
+            "pearson_r": 0.4672,
+            "spearman_rho": 0.4328,
+            "rmse": 0.4265,
+            "mae": 0.3522,
+            "acc_1_minus_mae": 0.6478
+          },
+          "EngagingTone": {
+            "pearson_r": 0.7072,
+            "spearman_rho": 0.694,
+            "rmse": 0.7057,
+            "mae": 0.5588,
+            "acc_1_minus_mae": 0.4412
+          },
+          "StructuredAnswers": {
+            "pearson_r": 0.3753,
+            "spearman_rho": 0.4149,
+            "rmse": 0.6409,
+            "mae": 0.4942,
+            "acc_1_minus_mae": 0.5058
+          },
+          "Calm": {
+            "pearson_r": 0.0857,
+            "spearman_rho": 0.0678,
+            "rmse": 0.6499,
+            "mae": 0.5323,
+            "acc_1_minus_mae": 0.4677
+          },
+          "NotStressed": {
+            "pearson_r": 0.0665,
+            "spearman_rho": 0.0656,
+            "rmse": 0.6081,
+            "mae": 0.4765,
+            "acc_1_minus_mae": 0.5235
+          },
+          "Focused": {
+            "pearson_r": 0.2762,
+            "spearman_rho": 0.253,
+            "rmse": 0.525,
+            "mae": 0.4173,
+            "acc_1_minus_mae": 0.5827
+          },
+          "Authentic": {
+            "pearson_r": 0.3683,
+            "spearman_rho": 0.339,
+            "rmse": 0.3768,
+            "mae": 0.3062,
+            "acc_1_minus_mae": 0.6938
+          },
+          "NotAwkward": {
+            "pearson_r": 0.2882,
+            "spearman_rho": 0.2397,
+            "rmse": 0.776,
+            "mae": 0.6085,
+            "acc_1_minus_mae": 0.3915
+          }
+        },
+        "core_macro": {
+          "pearson_r": 0.3747,
+          "spearman_rho": 0.3578,
+          "rmse": 0.5863,
+          "mae": 0.468,
+          "acc_1_minus_mae": 0.532
+        }
+      },
+      "Late-Fusion": {
+        "macro": {
+          "pearson_r": 0.3276,
+          "spearman_rho": 0.3274,
+          "rmse": 0.6198,
+          "mae": 0.4901,
+          "acc_1_minus_mae": 0.5099
+        },
+        "per_target": {
+          "Overall": {
+            "pearson_r": 0.3728,
+            "spearman_rho": 0.315,
+            "rmse": 0.597,
+            "mae": 0.4709,
+            "acc_1_minus_mae": 0.5291
+          },
+          "RecommendHiring": {
+            "pearson_r": 0.4185,
+            "spearman_rho": 0.3891,
+            "rmse": 0.6633,
+            "mae": 0.5263,
+            "acc_1_minus_mae": 0.4737
+          },
+          "Colleague": {
+            "pearson_r": 0.3963,
+            "spearman_rho": 0.3558,
+            "rmse": 0.5848,
+            "mae": 0.4536,
+            "acc_1_minus_mae": 0.5464
+          },
+          "Engaged": {
+            "pearson_r": 0.5428,
+            "spearman_rho": 0.5615,
+            "rmse": 0.5806,
+            "mae": 0.4538,
+            "acc_1_minus_mae": 0.5462
+          },
+          "Excited": {
+            "pearson_r": 0.6798,
+            "spearman_rho": 0.6682,
+            "rmse": 0.6513,
+            "mae": 0.5029,
+            "acc_1_minus_mae": 0.4971
+          },
+          "EyeContact": {
+            "pearson_r": -0.0845,
+            "spearman_rho": -0.0499,
+            "rmse": 0.7809,
+            "mae": 0.6253,
+            "acc_1_minus_mae": 0.3747
+          },
+          "Smiled": {
+            "pearson_r": 0.701,
+            "spearman_rho": 0.7065,
+            "rmse": 0.6939,
+            "mae": 0.55,
+            "acc_1_minus_mae": 0.45
+          },
+          "SpeakingRate": {
+            "pearson_r": -0.262,
+            "spearman_rho": -0.1812,
+            "rmse": 0.3806,
+            "mae": 0.3048,
+            "acc_1_minus_mae": 0.6952
+          },
+          "NoFillers": {
+            "pearson_r": 0.5308,
+            "spearman_rho": 0.5299,
+            "rmse": 0.8936,
+            "mae": 0.6961,
+            "acc_1_minus_mae": 0.3039
+          },
+          "Friendly": {
+            "pearson_r": 0.6764,
+            "spearman_rho": 0.6543,
+            "rmse": 0.6191,
+            "mae": 0.5102,
+            "acc_1_minus_mae": 0.4898
+          },
+          "Paused": {
+            "pearson_r": 0.3407,
+            "spearman_rho": 0.3435,
+            "rmse": 0.4614,
+            "mae": 0.3783,
+            "acc_1_minus_mae": 0.6217
+          },
+          "EngagingTone": {
+            "pearson_r": 0.6946,
+            "spearman_rho": 0.6788,
+            "rmse": 0.7293,
+            "mae": 0.5734,
+            "acc_1_minus_mae": 0.4266
+          },
+          "StructuredAnswers": {
+            "pearson_r": 0.5373,
+            "spearman_rho": 0.5525,
+            "rmse": 0.6048,
+            "mae": 0.4797,
+            "acc_1_minus_mae": 0.5203
+          },
+          "Calm": {
+            "pearson_r": -0.0095,
+            "spearman_rho": -0.0113,
+            "rmse": 0.6153,
+            "mae": 0.4927,
+            "acc_1_minus_mae": 0.5073
+          },
+          "NotStressed": {
+            "pearson_r": 0.0146,
+            "spearman_rho": 0.0427,
+            "rmse": 0.5771,
+            "mae": 0.4569,
+            "acc_1_minus_mae": 0.5431
+          },
+          "Focused": {
+            "pearson_r": 0.1261,
+            "spearman_rho": 0.1223,
+            "rmse": 0.5247,
+            "mae": 0.403,
+            "acc_1_minus_mae": 0.597
+          },
+          "Authentic": {
+            "pearson_r": 0.2775,
+            "spearman_rho": 0.2539,
+            "rmse": 0.3873,
+            "mae": 0.3107,
+            "acc_1_minus_mae": 0.6893
+          },
+          "NotAwkward": {
+            "pearson_r": -0.0558,
+            "spearman_rho": -0.0391,
+            "rmse": 0.8111,
+            "mae": 0.6327,
+            "acc_1_minus_mae": 0.3673
+          }
+        },
+        "core_macro": {
+          "pearson_r": 0.2687,
+          "spearman_rho": 0.2747,
+          "rmse": 0.5883,
+          "mae": 0.4673,
+          "acc_1_minus_mae": 0.5327
+        }
+      },
+      "Extracted-AV-Ridge": {
+        "macro": {
+          "pearson_r": 0.3797,
+          "spearman_rho": 0.3789,
+          "rmse": 0.6289,
+          "mae": 0.5003,
+          "acc_1_minus_mae": 0.4997
+        },
+        "per_target": {
+          "Overall": {
+            "pearson_r": 0.4463,
+            "spearman_rho": 0.4331,
+            "rmse": 0.5727,
+            "mae": 0.4591,
+            "acc_1_minus_mae": 0.5409
+          },
+          "RecommendHiring": {
+            "pearson_r": 0.5132,
+            "spearman_rho": 0.5039,
+            "rmse": 0.6204,
+            "mae": 0.4863,
+            "acc_1_minus_mae": 0.5137
+          },
+          "Colleague": {
+            "pearson_r": 0.399,
+            "spearman_rho": 0.3627,
+            "rmse": 0.5865,
+            "mae": 0.4805,
+            "acc_1_minus_mae": 0.5195
+          },
+          "Engaged": {
+            "pearson_r": 0.4567,
+            "spearman_rho": 0.5014,
+            "rmse": 0.5918,
+            "mae": 0.4545,
+            "acc_1_minus_mae": 0.5455
+          },
+          "Excited": {
+            "pearson_r": 0.6828,
+            "spearman_rho": 0.6865,
+            "rmse": 0.6266,
+            "mae": 0.486,
+            "acc_1_minus_mae": 0.514
+          },
+          "EyeContact": {
+            "pearson_r": 0.1658,
+            "spearman_rho": 0.1836,
+            "rmse": 0.8051,
+            "mae": 0.6364,
+            "acc_1_minus_mae": 0.3636
+          },
+          "Smiled": {
+            "pearson_r": 0.601,
+            "spearman_rho": 0.6321,
+            "rmse": 0.7683,
+            "mae": 0.6087,
+            "acc_1_minus_mae": 0.3913
+          },
+          "SpeakingRate": {
+            "pearson_r": 0.0865,
+            "spearman_rho": 0.1095,
+            "rmse": 0.3946,
+            "mae": 0.3166,
+            "acc_1_minus_mae": 0.6834
+          },
+          "NoFillers": {
+            "pearson_r": 0.1977,
+            "spearman_rho": 0.1988,
+            "rmse": 1.0152,
+            "mae": 0.8029,
+            "acc_1_minus_mae": 0.1971
+          },
+          "Friendly": {
+            "pearson_r": 0.6001,
+            "spearman_rho": 0.5863,
+            "rmse": 0.6503,
+            "mae": 0.5226,
+            "acc_1_minus_mae": 0.4774
+          },
+          "Paused": {
+            "pearson_r": 0.2955,
+            "spearman_rho": 0.2856,
+            "rmse": 0.4687,
+            "mae": 0.3794,
+            "acc_1_minus_mae": 0.6206
+          },
+          "EngagingTone": {
+            "pearson_r": 0.7052,
+            "spearman_rho": 0.7012,
+            "rmse": 0.7089,
+            "mae": 0.5637,
+            "acc_1_minus_mae": 0.4363
+          },
+          "StructuredAnswers": {
+            "pearson_r": 0.3221,
+            "spearman_rho": 0.3215,
+            "rmse": 0.6565,
+            "mae": 0.5235,
+            "acc_1_minus_mae": 0.4765
+          },
+          "Calm": {
+            "pearson_r": 0.2087,
+            "spearman_rho": 0.1882,
+            "rmse": 0.6121,
+            "mae": 0.4962,
+            "acc_1_minus_mae": 0.5038
+          },
+          "NotStressed": {
+            "pearson_r": 0.1233,
+            "spearman_rho": 0.1723,
+            "rmse": 0.5993,
+            "mae": 0.4738,
+            "acc_1_minus_mae": 0.5262
+          },
+          "Focused": {
+            "pearson_r": 0.2853,
+            "spearman_rho": 0.272,
+            "rmse": 0.5208,
+            "mae": 0.4155,
+            "acc_1_minus_mae": 0.5845
+          },
+          "Authentic": {
+            "pearson_r": 0.3748,
+            "spearman_rho": 0.3418,
+            "rmse": 0.3752,
+            "mae": 0.3049,
+            "acc_1_minus_mae": 0.6951
+          },
+          "NotAwkward": {
+            "pearson_r": 0.3708,
+            "spearman_rho": 0.3398,
+            "rmse": 0.7473,
+            "mae": 0.5946,
+            "acc_1_minus_mae": 0.4054
+          }
+        },
+        "core_macro": {
+          "pearson_r": 0.3395,
+          "spearman_rho": 0.3427,
+          "rmse": 0.6009,
+          "mae": 0.4782,
+          "acc_1_minus_mae": 0.5218
+        }
+      },
+      "GPU-FP32-MLP": {
+        "macro": {
+          "pearson_r": 0.3627,
+          "spearman_rho": 0.3473,
+          "rmse": 0.6783,
+          "mae": 0.5362,
+          "acc_1_minus_mae": 0.4638
+        },
+        "per_target": {
+          "Overall": {
+            "pearson_r": 0.4286,
+            "spearman_rho": 0.3941,
+            "rmse": 0.6143,
+            "mae": 0.5023,
+            "acc_1_minus_mae": 0.4977
+          },
+          "RecommendHiring": {
+            "pearson_r": 0.4742,
+            "spearman_rho": 0.4321,
+            "rmse": 0.6751,
+            "mae": 0.5405,
+            "acc_1_minus_mae": 0.4595
+          },
+          "Colleague": {
+            "pearson_r": 0.4687,
+            "spearman_rho": 0.4231,
+            "rmse": 0.5778,
+            "mae": 0.4623,
+            "acc_1_minus_mae": 0.5377
+          },
+          "Engaged": {
+            "pearson_r": 0.4996,
+            "spearman_rho": 0.5226,
+            "rmse": 0.6002,
+            "mae": 0.453,
+            "acc_1_minus_mae": 0.547
+          },
+          "Excited": {
+            "pearson_r": 0.6025,
+            "spearman_rho": 0.5946,
+            "rmse": 0.701,
+            "mae": 0.5295,
+            "acc_1_minus_mae": 0.4705
+          },
+          "EyeContact": {
+            "pearson_r": 0.0981,
+            "spearman_rho": 0.1159,
+            "rmse": 0.9285,
+            "mae": 0.7282,
+            "acc_1_minus_mae": 0.2718
+          },
+          "Smiled": {
+            "pearson_r": 0.6184,
+            "spearman_rho": 0.6017,
+            "rmse": 0.7782,
+            "mae": 0.6057,
+            "acc_1_minus_mae": 0.3943
+          },
+          "SpeakingRate": {
+            "pearson_r": 0.1535,
+            "spearman_rho": 0.0957,
+            "rmse": 0.4043,
+            "mae": 0.3375,
+            "acc_1_minus_mae": 0.6625
+          },
+          "NoFillers": {
+            "pearson_r": 0.1633,
+            "spearman_rho": 0.1912,
+            "rmse": 1.1049,
+            "mae": 0.8525,
+            "acc_1_minus_mae": 0.1475
+          },
+          "Friendly": {
+            "pearson_r": 0.5699,
+            "spearman_rho": 0.5649,
+            "rmse": 0.692,
+            "mae": 0.5414,
+            "acc_1_minus_mae": 0.4586
+          },
+          "Paused": {
+            "pearson_r": 0.3076,
+            "spearman_rho": 0.2813,
+            "rmse": 0.5007,
+            "mae": 0.413,
+            "acc_1_minus_mae": 0.587
+          },
+          "EngagingTone": {
+            "pearson_r": 0.6249,
+            "spearman_rho": 0.6368,
+            "rmse": 0.7917,
+            "mae": 0.6041,
+            "acc_1_minus_mae": 0.3959
+          },
+          "StructuredAnswers": {
+            "pearson_r": 0.4478,
+            "spearman_rho": 0.4535,
+            "rmse": 0.651,
+            "mae": 0.5196,
+            "acc_1_minus_mae": 0.4804
+          },
+          "Calm": {
+            "pearson_r": 0.1079,
+            "spearman_rho": 0.063,
+            "rmse": 0.7187,
+            "mae": 0.5857,
+            "acc_1_minus_mae": 0.4143
+          },
+          "NotStressed": {
+            "pearson_r": 0.1166,
+            "spearman_rho": 0.1064,
+            "rmse": 0.6537,
+            "mae": 0.5233,
+            "acc_1_minus_mae": 0.4767
+          },
+          "Focused": {
+            "pearson_r": 0.3601,
+            "spearman_rho": 0.3489,
+            "rmse": 0.5379,
+            "mae": 0.4358,
+            "acc_1_minus_mae": 0.5642
+          },
+          "Authentic": {
+            "pearson_r": 0.2437,
+            "spearman_rho": 0.2316,
+            "rmse": 0.4285,
+            "mae": 0.3448,
+            "acc_1_minus_mae": 0.6552
+          },
+          "NotAwkward": {
+            "pearson_r": 0.2439,
+            "spearman_rho": 0.1943,
+            "rmse": 0.8514,
+            "mae": 0.6731,
+            "acc_1_minus_mae": 0.3269
+          }
+        },
+        "core_macro": {
+          "pearson_r": 0.361,
+          "spearman_rho": 0.3404,
+          "rmse": 0.6362,
+          "mae": 0.5103,
+          "acc_1_minus_mae": 0.4897
+        }
+      }
+    },
+    "saved_model_path": "/home/zgy/JingXin/jingxin/models/research/mit_interview_multimodal.joblib"
+  },
+  "experiment_2_recruitview": {
+    "dataset": "RecruitView",
+    "cv_scheme": "GroupKFold(n_splits=5, group=user_no)",
+    "targets_personality": [
+      "openness",
+      "conscientiousness",
+      "extraversion",
+      "agreeableness",
+      "neuroticism",
+      "overall_personality"
+    ],
+    "targets_interview": [
+      "interview_score",
+      "answer_score",
+      "speaking_skills",
+      "confidence_score",
+      "facial_expression",
+      "overall_performance"
+    ],
+    "track_a_full_metadata_text": {
+      "n_clips": 2011,
+      "n_users": 331,
+      "models": {
+        "Text-TFIDF-Ridge": {
+          "macro": {
+            "pearson_r": 0.2171,
+            "spearman_rho": 0.2442,
+            "rmse": 1.0633,
+            "mae": 0.7072,
+            "acc_1_minus_mae": 0.9528
+          },
+          "per_target": {
+            "openness": {
+              "pearson_r": 0.2324,
+              "spearman_rho": 0.2712,
+              "rmse": 1.096,
+              "mae": 0.7126,
+              "acc_1_minus_mae": 0.9584
+            },
+            "conscientiousness": {
+              "pearson_r": 0.1531,
+              "spearman_rho": 0.1864,
+              "rmse": 0.8669,
+              "mae": 0.6047,
+              "acc_1_minus_mae": 0.9554
+            },
+            "extraversion": {
+              "pearson_r": 0.1942,
+              "spearman_rho": 0.2363,
+              "rmse": 1.077,
+              "mae": 0.7096,
+              "acc_1_minus_mae": 0.9559
+            },
+            "agreeableness": {
+              "pearson_r": 0.2465,
+              "spearman_rho": 0.2761,
+              "rmse": 1.165,
+              "mae": 0.7448,
+              "acc_1_minus_mae": 0.9578
+            },
+            "neuroticism": {
+              "pearson_r": 0.0516,
+              "spearman_rho": 0.0747,
+              "rmse": 0.4889,
+              "mae": 0.3773,
+              "acc_1_minus_mae": 0.9214
+            },
+            "overall_personality": {
+              "pearson_r": 0.234,
+              "spearman_rho": 0.263,
+              "rmse": 1.1705,
+              "mae": 0.7885,
+              "acc_1_minus_mae": 0.9531
+            },
+            "interview_score": {
+              "pearson_r": 0.2774,
+              "spearman_rho": 0.2982,
+              "rmse": 1.1844,
+              "mae": 0.7687,
+              "acc_1_minus_mae": 0.9554
+            },
+            "answer_score": {
+              "pearson_r": 0.2852,
+              "spearman_rho": 0.2916,
+              "rmse": 1.1296,
+              "mae": 0.7512,
+              "acc_1_minus_mae": 0.9603
+            },
+            "speaking_skills": {
+              "pearson_r": 0.2276,
+              "spearman_rho": 0.2646,
+              "rmse": 1.2445,
+              "mae": 0.7877,
+              "acc_1_minus_mae": 0.9545
+            },
+            "confidence_score": {
+              "pearson_r": 0.2119,
+              "spearman_rho": 0.2307,
+              "rmse": 1.0552,
+              "mae": 0.7239,
+              "acc_1_minus_mae": 0.9488
+            },
+            "facial_expression": {
+              "pearson_r": 0.238,
+              "spearman_rho": 0.2582,
+              "rmse": 1.1186,
+              "mae": 0.7461,
+              "acc_1_minus_mae": 0.9554
+            },
+            "overall_performance": {
+              "pearson_r": 0.2528,
+              "spearman_rho": 0.2793,
+              "rmse": 1.1632,
+              "mae": 0.7708,
+              "acc_1_minus_mae": 0.9576
+            }
+          },
+          "core_macro": {
+            "pearson_r": 0.1853,
+            "spearman_rho": 0.218,
+            "rmse": 0.9774,
+            "mae": 0.6562,
+            "acc_1_minus_mae": 0.9503
+          }
+        },
+        "Text-SVD-HistGBT": {
+          "macro": {
+            "pearson_r": 0.2325,
+            "spearman_rho": 0.2412,
+            "rmse": 1.0607,
+            "mae": 0.713,
+            "acc_1_minus_mae": 0.9524
+          },
+          "per_target": {
+            "openness": {
+              "pearson_r": 0.2543,
+              "spearman_rho": 0.2695,
+              "rmse": 1.0913,
+              "mae": 0.7211,
+              "acc_1_minus_mae": 0.9579
+            },
+            "conscientiousness": {
+              "pearson_r": 0.1684,
+              "spearman_rho": 0.1867,
+              "rmse": 0.8694,
+              "mae": 0.6071,
+              "acc_1_minus_mae": 0.9552
+            },
+            "extraversion": {
+              "pearson_r": 0.2108,
+              "spearman_rho": 0.1988,
+              "rmse": 1.0769,
+              "mae": 0.7193,
+              "acc_1_minus_mae": 0.9553
+            },
+            "agreeableness": {
+              "pearson_r": 0.2334,
+              "spearman_rho": 0.2541,
+              "rmse": 1.1698,
+              "mae": 0.7531,
+              "acc_1_minus_mae": 0.9573
+            },
+            "neuroticism": {
+              "pearson_r": 0.0737,
+              "spearman_rho": 0.0736,
+              "rmse": 0.49,
+              "mae": 0.3803,
+              "acc_1_minus_mae": 0.9208
+            },
+            "overall_personality": {
+              "pearson_r": 0.2527,
+              "spearman_rho": 0.2567,
+              "rmse": 1.1655,
+              "mae": 0.7899,
+              "acc_1_minus_mae": 0.953
+            },
+            "interview_score": {
+              "pearson_r": 0.2904,
+              "spearman_rho": 0.3062,
+              "rmse": 1.1779,
+              "mae": 0.7698,
+              "acc_1_minus_mae": 0.9554
+            },
+            "answer_score": {
+              "pearson_r": 0.2956,
+              "spearman_rho": 0.2972,
+              "rmse": 1.1238,
+              "mae": 0.7554,
+              "acc_1_minus_mae": 0.9601
+            },
+            "speaking_skills": {
+              "pearson_r": 0.2488,
+              "spearman_rho": 0.288,
+              "rmse": 1.2392,
+              "mae": 0.7967,
+              "acc_1_minus_mae": 0.954
+            },
+            "confidence_score": {
+              "pearson_r": 0.2449,
+              "spearman_rho": 0.248,
+              "rmse": 1.0489,
+              "mae": 0.7255,
+              "acc_1_minus_mae": 0.9486
+            },
+            "facial_expression": {
+              "pearson_r": 0.2377,
+              "spearman_rho": 0.2312,
+              "rmse": 1.1216,
+              "mae": 0.7633,
+              "acc_1_minus_mae": 0.9543
+            },
+            "overall_performance": {
+              "pearson_r": 0.2796,
+              "spearman_rho": 0.2849,
+              "rmse": 1.1539,
+              "mae": 0.7745,
+              "acc_1_minus_mae": 0.9573
+            }
+          },
+          "core_macro": {
+            "pearson_r": 0.1989,
+            "spearman_rho": 0.2066,
+            "rmse": 0.9771,
+            "mae": 0.6618,
+            "acc_1_minus_mae": 0.9499
+          }
+        }
+      }
+    },
+    "track_b_multimodal": {
+      "n_clips": 160,
+      "n_users": 80,
+      "n_behavior_features": 161,
+      "best_model": "Behavior-HistGBT",
+      "models": {
+        "Behavior-Ridge": {
+          "macro": {
+            "pearson_r": 0.1421,
+            "spearman_rho": 0.1561,
+            "rmse": 0.9678,
+            "mae": 0.7045,
+            "acc_1_minus_mae": 0.9529
+          },
+          "per_target": {
+            "openness": {
+              "pearson_r": 0.0374,
+              "spearman_rho": 0.0835,
+              "rmse": 1.0562,
+              "mae": 0.7406,
+              "acc_1_minus_mae": 0.9568
+            },
+            "conscientiousness": {
+              "pearson_r": 0.0755,
+              "spearman_rho": 0.1311,
+              "rmse": 0.85,
+              "mae": 0.5692,
+              "acc_1_minus_mae": 0.958
+            },
+            "extraversion": {
+              "pearson_r": 0.0144,
+              "spearman_rho": 0.016,
+              "rmse": 0.9096,
+              "mae": 0.6955,
+              "acc_1_minus_mae": 0.9568
+            },
+            "agreeableness": {
+              "pearson_r": 0.2366,
+              "spearman_rho": 0.209,
+              "rmse": 0.8912,
+              "mae": 0.7072,
+              "acc_1_minus_mae": 0.9599
+            },
+            "neuroticism": {
+              "pearson_r": 0.2206,
+              "spearman_rho": 0.2041,
+              "rmse": 0.4834,
+              "mae": 0.3867,
+              "acc_1_minus_mae": 0.9195
+            },
+            "overall_personality": {
+              "pearson_r": 0.1949,
+              "spearman_rho": 0.2239,
+              "rmse": 1.0122,
+              "mae": 0.7265,
+              "acc_1_minus_mae": 0.9567
+            },
+            "interview_score": {
+              "pearson_r": -0.012,
+              "spearman_rho": 0.0104,
+              "rmse": 1.0561,
+              "mae": 0.7964,
+              "acc_1_minus_mae": 0.9538
+            },
+            "answer_score": {
+              "pearson_r": 0.1828,
+              "spearman_rho": 0.1872,
+              "rmse": 0.978,
+              "mae": 0.7559,
+              "acc_1_minus_mae": 0.9601
+            },
+            "speaking_skills": {
+              "pearson_r": 0.1658,
+              "spearman_rho": 0.2192,
+              "rmse": 1.3256,
+              "mae": 0.8591,
+              "acc_1_minus_mae": 0.9504
+            },
+            "confidence_score": {
+              "pearson_r": 0.2852,
+              "spearman_rho": 0.2828,
+              "rmse": 1.0031,
+              "mae": 0.6909,
+              "acc_1_minus_mae": 0.9511
+            },
+            "facial_expression": {
+              "pearson_r": 0.0467,
+              "spearman_rho": 0.0439,
+              "rmse": 0.9795,
+              "mae": 0.7549,
+              "acc_1_minus_mae": 0.9548
+            },
+            "overall_performance": {
+              "pearson_r": 0.2571,
+              "spearman_rho": 0.2627,
+              "rmse": 1.0691,
+              "mae": 0.7711,
+              "acc_1_minus_mae": 0.9575
+            }
+          },
+          "core_macro": {
+            "pearson_r": 0.1299,
+            "spearman_rho": 0.1446,
+            "rmse": 0.8671,
+            "mae": 0.6376,
+            "acc_1_minus_mae": 0.9513
+          }
+        },
+        "Behavior-RF": {
+          "macro": {
+            "pearson_r": 0.2118,
+            "spearman_rho": 0.2274,
+            "rmse": 0.9466,
+            "mae": 0.6903,
+            "acc_1_minus_mae": 0.9538
+          },
+          "per_target": {
+            "openness": {
+              "pearson_r": 0.1816,
+              "spearman_rho": 0.2133,
+              "rmse": 1.0116,
+              "mae": 0.7207,
+              "acc_1_minus_mae": 0.9579
+            },
+            "conscientiousness": {
+              "pearson_r": 0.0878,
+              "spearman_rho": 0.1137,
+              "rmse": 0.8409,
+              "mae": 0.5667,
+              "acc_1_minus_mae": 0.9582
+            },
+            "extraversion": {
+              "pearson_r": 0.1221,
+              "spearman_rho": 0.1398,
+              "rmse": 0.8853,
+              "mae": 0.6857,
+              "acc_1_minus_mae": 0.9574
+            },
+            "agreeableness": {
+              "pearson_r": 0.2604,
+              "spearman_rho": 0.2617,
+              "rmse": 0.8842,
+              "mae": 0.6997,
+              "acc_1_minus_mae": 0.9604
+            },
+            "neuroticism": {
+              "pearson_r": 0.1874,
+              "spearman_rho": 0.1661,
+              "rmse": 0.4869,
+              "mae": 0.3868,
+              "acc_1_minus_mae": 0.9195
+            },
+            "overall_personality": {
+              "pearson_r": 0.2342,
+              "spearman_rho": 0.2278,
+              "rmse": 0.9986,
+              "mae": 0.7203,
+              "acc_1_minus_mae": 0.9571
+            },
+            "interview_score": {
+              "pearson_r": 0.1799,
+              "spearman_rho": 0.2237,
+              "rmse": 1.0024,
+              "mae": 0.7542,
+              "acc_1_minus_mae": 0.9563
+            },
+            "answer_score": {
+              "pearson_r": 0.2109,
+              "spearman_rho": 0.2412,
+              "rmse": 0.9698,
+              "mae": 0.7429,
+              "acc_1_minus_mae": 0.9607
+            },
+            "speaking_skills": {
+              "pearson_r": 0.2743,
+              "spearman_rho": 0.3309,
+              "rmse": 1.2844,
+              "mae": 0.8314,
+              "acc_1_minus_mae": 0.952
+            },
+            "confidence_score": {
+              "pearson_r": 0.2846,
+              "spearman_rho": 0.2734,
+              "rmse": 1.0042,
+              "mae": 0.6922,
+              "acc_1_minus_mae": 0.951
+            },
+            "facial_expression": {
+              "pearson_r": 0.1914,
+              "spearman_rho": 0.2241,
+              "rmse": 0.9439,
+              "mae": 0.7214,
+              "acc_1_minus_mae": 0.9568
+            },
+            "overall_performance": {
+              "pearson_r": 0.3265,
+              "spearman_rho": 0.3131,
+              "rmse": 1.047,
+              "mae": 0.7619,
+              "acc_1_minus_mae": 0.958
+            }
+          },
+          "core_macro": {
+            "pearson_r": 0.1789,
+            "spearman_rho": 0.1871,
+            "rmse": 0.8512,
+            "mae": 0.63,
+            "acc_1_minus_mae": 0.9517
+          }
+        },
+        "Behavior-HistGBT": {
+          "macro": {
+            "pearson_r": 0.2145,
+            "spearman_rho": 0.2116,
+            "rmse": 0.9946,
+            "mae": 0.7463,
+            "acc_1_minus_mae": 0.9504
+          },
+          "per_target": {
+            "openness": {
+              "pearson_r": -0.0065,
+              "spearman_rho": 0.029,
+              "rmse": 1.1572,
+              "mae": 0.8449,
+              "acc_1_minus_mae": 0.9507
+            },
+            "conscientiousness": {
+              "pearson_r": 0.1033,
+              "spearman_rho": 0.1712,
+              "rmse": 0.9022,
+              "mae": 0.6226,
+              "acc_1_minus_mae": 0.954
+            },
+            "extraversion": {
+              "pearson_r": 0.1981,
+              "spearman_rho": 0.2118,
+              "rmse": 0.9086,
+              "mae": 0.7024,
+              "acc_1_minus_mae": 0.9564
+            },
+            "agreeableness": {
+              "pearson_r": 0.3061,
+              "spearman_rho": 0.2908,
+              "rmse": 0.9056,
+              "mae": 0.7413,
+              "acc_1_minus_mae": 0.958
+            },
+            "neuroticism": {
+              "pearson_r": 0.3373,
+              "spearman_rho": 0.3024,
+              "rmse": 0.4708,
+              "mae": 0.3902,
+              "acc_1_minus_mae": 0.9188
+            },
+            "overall_personality": {
+              "pearson_r": 0.3033,
+              "spearman_rho": 0.2828,
+              "rmse": 1.0084,
+              "mae": 0.7304,
+              "acc_1_minus_mae": 0.9565
+            },
+            "interview_score": {
+              "pearson_r": 0.2471,
+              "spearman_rho": 0.2689,
+              "rmse": 1.0302,
+              "mae": 0.7834,
+              "acc_1_minus_mae": 0.9546
+            },
+            "answer_score": {
+              "pearson_r": 0.2653,
+              "spearman_rho": 0.2576,
+              "rmse": 0.9942,
+              "mae": 0.7771,
+              "acc_1_minus_mae": 0.9589
+            },
+            "speaking_skills": {
+              "pearson_r": 0.1886,
+              "spearman_rho": 0.1876,
+              "rmse": 1.3878,
+              "mae": 0.9612,
+              "acc_1_minus_mae": 0.9445
+            },
+            "confidence_score": {
+              "pearson_r": 0.2861,
+              "spearman_rho": 0.2428,
+              "rmse": 1.0325,
+              "mae": 0.7534,
+              "acc_1_minus_mae": 0.9467
+            },
+            "facial_expression": {
+              "pearson_r": 0.1025,
+              "spearman_rho": 0.0737,
+              "rmse": 1.0197,
+              "mae": 0.8041,
+              "acc_1_minus_mae": 0.9519
+            },
+            "overall_performance": {
+              "pearson_r": 0.2426,
+              "spearman_rho": 0.2207,
+              "rmse": 1.1178,
+              "mae": 0.8451,
+              "acc_1_minus_mae": 0.9535
+            }
+          },
+          "core_macro": {
+            "pearson_r": 0.2069,
+            "spearman_rho": 0.2147,
+            "rmse": 0.8921,
+            "mae": 0.672,
+            "acc_1_minus_mae": 0.9491
+          }
+        },
+        "Text-TFIDF-Ridge": {
+          "macro": {
+            "pearson_r": -0.0261,
+            "spearman_rho": 0.0064,
+            "rmse": 0.9847,
+            "mae": 0.7175,
+            "acc_1_minus_mae": 0.9521
+          },
+          "per_target": {
+            "openness": {
+              "pearson_r": -0.0032,
+              "spearman_rho": 0.0078,
+              "rmse": 1.0366,
+              "mae": 0.74,
+              "acc_1_minus_mae": 0.9568
+            },
+            "conscientiousness": {
+              "pearson_r": -0.0631,
+              "spearman_rho": -0.0958,
+              "rmse": 0.8669,
+              "mae": 0.5867,
+              "acc_1_minus_mae": 0.9567
+            },
+            "extraversion": {
+              "pearson_r": 0.0081,
+              "spearman_rho": -0.0016,
+              "rmse": 0.8953,
+              "mae": 0.6845,
+              "acc_1_minus_mae": 0.9575
+            },
+            "agreeableness": {
+              "pearson_r": -0.0874,
+              "spearman_rho": -0.1148,
+              "rmse": 0.9329,
+              "mae": 0.7349,
+              "acc_1_minus_mae": 0.9584
+            },
+            "neuroticism": {
+              "pearson_r": 0.0966,
+              "spearman_rho": 0.1633,
+              "rmse": 0.4941,
+              "mae": 0.3911,
+              "acc_1_minus_mae": 0.9186
+            },
+            "overall_personality": {
+              "pearson_r": -0.0078,
+              "spearman_rho": 0.0912,
+              "rmse": 1.0397,
+              "mae": 0.7481,
+              "acc_1_minus_mae": 0.9555
+            },
+            "interview_score": {
+              "pearson_r": -0.0699,
+              "spearman_rho": 0.0111,
+              "rmse": 1.0348,
+              "mae": 0.7904,
+              "acc_1_minus_mae": 0.9542
+            },
+            "answer_score": {
+              "pearson_r": -0.0168,
+              "spearman_rho": 0.0568,
+              "rmse": 1.0014,
+              "mae": 0.7819,
+              "acc_1_minus_mae": 0.9587
+            },
+            "speaking_skills": {
+              "pearson_r": -0.0619,
+              "spearman_rho": 0.0017,
+              "rmse": 1.3606,
+              "mae": 0.8854,
+              "acc_1_minus_mae": 0.9488
+            },
+            "confidence_score": {
+              "pearson_r": -0.0071,
+              "spearman_rho": -0.011,
+              "rmse": 1.0596,
+              "mae": 0.7215,
+              "acc_1_minus_mae": 0.9489
+            },
+            "facial_expression": {
+              "pearson_r": -0.0826,
+              "spearman_rho": -0.0723,
+              "rmse": 0.9792,
+              "mae": 0.7617,
+              "acc_1_minus_mae": 0.9544
+            },
+            "overall_performance": {
+              "pearson_r": -0.0182,
+              "spearman_rho": 0.04,
+              "rmse": 1.1151,
+              "mae": 0.7832,
+              "acc_1_minus_mae": 0.9569
+            }
+          },
+          "core_macro": {
+            "pearson_r": -0.0095,
+            "spearman_rho": 0.0084,
+            "rmse": 0.8776,
+            "mae": 0.6475,
+            "acc_1_minus_mae": 0.9506
+          }
+        },
+        "Early-Fusion-Ridge": {
+          "macro": {
+            "pearson_r": 0.1444,
+            "spearman_rho": 0.1605,
+            "rmse": 0.9675,
+            "mae": 0.7039,
+            "acc_1_minus_mae": 0.953
+          },
+          "per_target": {
+            "openness": {
+              "pearson_r": 0.0483,
+              "spearman_rho": 0.0892,
+              "rmse": 1.0522,
+              "mae": 0.738,
+              "acc_1_minus_mae": 0.9569
+            },
+            "conscientiousness": {
+              "pearson_r": 0.0536,
+              "spearman_rho": 0.0941,
+              "rmse": 0.855,
+              "mae": 0.5725,
+              "acc_1_minus_mae": 0.9577
+            },
+            "extraversion": {
+              "pearson_r": 0.0388,
+              "spearman_rho": 0.0429,
+              "rmse": 0.9049,
+              "mae": 0.692,
+              "acc_1_minus_mae": 0.957
+            },
+            "agreeableness": {
+              "pearson_r": 0.2259,
+              "spearman_rho": 0.199,
+              "rmse": 0.8942,
+              "mae": 0.7087,
+              "acc_1_minus_mae": 0.9599
+            },
+            "neuroticism": {
+              "pearson_r": 0.2579,
+              "spearman_rho": 0.2511,
+              "rmse": 0.4787,
+              "mae": 0.3832,
+              "acc_1_minus_mae": 0.9202
+            },
+            "overall_personality": {
+              "pearson_r": 0.2072,
+              "spearman_rho": 0.246,
+              "rmse": 1.0082,
+              "mae": 0.7263,
+              "acc_1_minus_mae": 0.9568
+            },
+            "interview_score": {
+              "pearson_r": -0.0121,
+              "spearman_rho": 0.0052,
+              "rmse": 1.0552,
+              "mae": 0.7946,
+              "acc_1_minus_mae": 0.9539
+            },
+            "answer_score": {
+              "pearson_r": 0.1848,
+              "spearman_rho": 0.1926,
+              "rmse": 0.9773,
+              "mae": 0.7566,
+              "acc_1_minus_mae": 0.96
+            },
+            "speaking_skills": {
+              "pearson_r": 0.1703,
+              "spearman_rho": 0.2261,
+              "rmse": 1.3234,
+              "mae": 0.8558,
+              "acc_1_minus_mae": 0.9506
+            },
+            "confidence_score": {
+              "pearson_r": 0.2764,
+              "spearman_rho": 0.2763,
+              "rmse": 1.0059,
+              "mae": 0.6913,
+              "acc_1_minus_mae": 0.9511
+            },
+            "facial_expression": {
+              "pearson_r": 0.0327,
+              "spearman_rho": 0.0393,
+              "rmse": 0.9825,
+              "mae": 0.7561,
+              "acc_1_minus_mae": 0.9548
+            },
+            "overall_performance": {
+              "pearson_r": 0.2485,
+              "spearman_rho": 0.264,
+              "rmse": 1.072,
+              "mae": 0.7723,
+              "acc_1_minus_mae": 0.9575
+            }
+          },
+          "core_macro": {
+            "pearson_r": 0.1386,
+            "spearman_rho": 0.1537,
+            "rmse": 0.8655,
+            "mae": 0.6368,
+            "acc_1_minus_mae": 0.9514
+          }
+        },
+        "Late-Fusion": {
+          "macro": {
+            "pearson_r": 0.1035,
+            "spearman_rho": 0.1281,
+            "rmse": 0.9641,
+            "mae": 0.706,
+            "acc_1_minus_mae": 0.9528
+          },
+          "per_target": {
+            "openness": {
+              "pearson_r": -0.0508,
+              "spearman_rho": 0.0141,
+              "rmse": 1.0386,
+              "mae": 0.738,
+              "acc_1_minus_mae": 0.9569
+            },
+            "conscientiousness": {
+              "pearson_r": -0.0419,
+              "spearman_rho": 0.0405,
+              "rmse": 0.8456,
+              "mae": 0.5672,
+              "acc_1_minus_mae": 0.9581
+            },
+            "extraversion": {
+              "pearson_r": 0.0245,
+              "spearman_rho": 0.0252,
+              "rmse": 0.8891,
+              "mae": 0.6801,
+              "acc_1_minus_mae": 0.9577
+            },
+            "agreeableness": {
+              "pearson_r": 0.167,
+              "spearman_rho": 0.1821,
+              "rmse": 0.9029,
+              "mae": 0.7145,
+              "acc_1_minus_mae": 0.9595
+            },
+            "neuroticism": {
+              "pearson_r": 0.246,
+              "spearman_rho": 0.2519,
+              "rmse": 0.4879,
+              "mae": 0.3913,
+              "acc_1_minus_mae": 0.9185
+            },
+            "overall_personality": {
+              "pearson_r": 0.2297,
+              "spearman_rho": 0.2357,
+              "rmse": 1.0004,
+              "mae": 0.7209,
+              "acc_1_minus_mae": 0.9571
+            },
+            "interview_score": {
+              "pearson_r": -0.0248,
+              "spearman_rho": 0.0308,
+              "rmse": 1.0279,
+              "mae": 0.7891,
+              "acc_1_minus_mae": 0.9542
+            },
+            "answer_score": {
+              "pearson_r": 0.1337,
+              "spearman_rho": 0.1848,
+              "rmse": 0.982,
+              "mae": 0.7636,
+              "acc_1_minus_mae": 0.9596
+            },
+            "speaking_skills": {
+              "pearson_r": 0.1166,
+              "spearman_rho": 0.1618,
+              "rmse": 1.3288,
+              "mae": 0.8736,
+              "acc_1_minus_mae": 0.9495
+            },
+            "confidence_score": {
+              "pearson_r": 0.2155,
+              "spearman_rho": 0.2086,
+              "rmse": 1.0223,
+              "mae": 0.6983,
+              "acc_1_minus_mae": 0.9506
+            },
+            "facial_expression": {
+              "pearson_r": -0.0275,
+              "spearman_rho": -0.0214,
+              "rmse": 0.9722,
+              "mae": 0.7582,
+              "acc_1_minus_mae": 0.9546
+            },
+            "overall_performance": {
+              "pearson_r": 0.254,
+              "spearman_rho": 0.2227,
+              "rmse": 1.072,
+              "mae": 0.7777,
+              "acc_1_minus_mae": 0.9572
+            }
+          },
+          "core_macro": {
+            "pearson_r": 0.0958,
+            "spearman_rho": 0.1249,
+            "rmse": 0.8607,
+            "mae": 0.6353,
+            "acc_1_minus_mae": 0.9513
+          }
+        }
+      }
+    },
+    "saved_model_path": "/home/zgy/JingXin/jingxin/models/research/recruitview_bigfive_multimodal.joblib"
+  },
+  "experiment_3_chalearn": {
+    "dataset": "ChaLearn_First_Impressions_V2",
+    "split_counts": {
+      "train": 180,
+      "val": 60,
+      "test": 60
+    },
+    "n_visual_features": 140,
+    "n_acoustic_features": 21,
+    "n_total_features": 161,
+    "targets": [
+      "extraversion",
+      "neuroticism",
+      "agreeableness",
+      "conscientiousness",
+      "openness",
+      "interview"
+    ],
+    "best_model": "AudioVisual-Ridge",
+    "models": {
+      "AudioVisual-Ridge": {
+        "macro": {
+          "pearson_r": 0.4563,
+          "spearman_rho": 0.463,
+          "rmse": 0.1105,
+          "mae": 0.0874,
+          "acc_1_minus_mae": 0.9126
+        },
+        "per_target": {
+          "extraversion": {
+            "pearson_r": 0.6338,
+            "spearman_rho": 0.6751,
+            "rmse": 0.1043,
+            "mae": 0.0798,
+            "acc_1_minus_mae": 0.9202
+          },
+          "neuroticism": {
+            "pearson_r": 0.4827,
+            "spearman_rho": 0.4239,
+            "rmse": 0.1084,
+            "mae": 0.0879,
+            "acc_1_minus_mae": 0.9121
+          },
+          "agreeableness": {
+            "pearson_r": 0.351,
+            "spearman_rho": 0.467,
+            "rmse": 0.1191,
+            "mae": 0.0941,
+            "acc_1_minus_mae": 0.9059
+          },
+          "conscientiousness": {
+            "pearson_r": 0.3936,
+            "spearman_rho": 0.4061,
+            "rmse": 0.114,
+            "mae": 0.0928,
+            "acc_1_minus_mae": 0.9072
+          },
+          "openness": {
+            "pearson_r": 0.4441,
+            "spearman_rho": 0.3889,
+            "rmse": 0.114,
+            "mae": 0.0888,
+            "acc_1_minus_mae": 0.9112
+          },
+          "interview": {
+            "pearson_r": 0.4323,
+            "spearman_rho": 0.417,
+            "rmse": 0.103,
+            "mae": 0.081,
+            "acc_1_minus_mae": 0.919
+          }
+        },
+        "tuned_hyperparams": {
+          "alpha": 1000.0
+        }
+      },
+      "AudioVisual-RF": {
+        "macro": {
+          "pearson_r": 0.4298,
+          "spearman_rho": 0.4174,
+          "rmse": 0.113,
+          "mae": 0.0903,
+          "acc_1_minus_mae": 0.9096
+        },
+        "per_target": {
+          "extraversion": {
+            "pearson_r": 0.5639,
+            "spearman_rho": 0.5899,
+            "rmse": 0.1123,
+            "mae": 0.0868,
+            "acc_1_minus_mae": 0.9132
+          },
+          "neuroticism": {
+            "pearson_r": 0.421,
+            "spearman_rho": 0.4293,
+            "rmse": 0.1121,
+            "mae": 0.0912,
+            "acc_1_minus_mae": 0.9088
+          },
+          "agreeableness": {
+            "pearson_r": 0.4146,
+            "spearman_rho": 0.4028,
+            "rmse": 0.1174,
+            "mae": 0.0952,
+            "acc_1_minus_mae": 0.9048
+          },
+          "conscientiousness": {
+            "pearson_r": 0.3097,
+            "spearman_rho": 0.2921,
+            "rmse": 0.118,
+            "mae": 0.0975,
+            "acc_1_minus_mae": 0.9025
+          },
+          "openness": {
+            "pearson_r": 0.4379,
+            "spearman_rho": 0.378,
+            "rmse": 0.1151,
+            "mae": 0.0903,
+            "acc_1_minus_mae": 0.9097
+          },
+          "interview": {
+            "pearson_r": 0.4317,
+            "spearman_rho": 0.4121,
+            "rmse": 0.1029,
+            "mae": 0.0811,
+            "acc_1_minus_mae": 0.9189
+          }
+        },
+        "tuned_hyperparams": {
+          "min_samples_leaf": 4,
+          "max_features": "sqrt"
+        }
+      },
+      "AudioVisual-HistGBT": {
+        "macro": {
+          "pearson_r": 0.3498,
+          "spearman_rho": 0.3328,
+          "rmse": 0.1157,
+          "mae": 0.0904,
+          "acc_1_minus_mae": 0.9095
+        },
+        "per_target": {
+          "extraversion": {
+            "pearson_r": 0.6005,
+            "spearman_rho": 0.627,
+            "rmse": 0.105,
+            "mae": 0.0797,
+            "acc_1_minus_mae": 0.9203
+          },
+          "neuroticism": {
+            "pearson_r": 0.3578,
+            "spearman_rho": 0.3661,
+            "rmse": 0.1157,
+            "mae": 0.0903,
+            "acc_1_minus_mae": 0.9097
+          },
+          "agreeableness": {
+            "pearson_r": 0.1932,
+            "spearman_rho": 0.1407,
+            "rmse": 0.1273,
+            "mae": 0.1016,
+            "acc_1_minus_mae": 0.8984
+          },
+          "conscientiousness": {
+            "pearson_r": 0.212,
+            "spearman_rho": 0.2194,
+            "rmse": 0.1255,
+            "mae": 0.0989,
+            "acc_1_minus_mae": 0.9011
+          },
+          "openness": {
+            "pearson_r": 0.4519,
+            "spearman_rho": 0.3846,
+            "rmse": 0.1113,
+            "mae": 0.0867,
+            "acc_1_minus_mae": 0.9133
+          },
+          "interview": {
+            "pearson_r": 0.2832,
+            "spearman_rho": 0.2591,
+            "rmse": 0.1096,
+            "mae": 0.0855,
+            "acc_1_minus_mae": 0.9145
+          }
+        },
+        "tuned_hyperparams": {
+          "max_depth": 2,
+          "learning_rate": 0.03,
+          "l2_regularization": 0.5
+        }
+      },
+      "Visual-only-Ridge": {
+        "macro": {
+          "pearson_r": 0.375,
+          "spearman_rho": 0.3893,
+          "rmse": 0.1182,
+          "mae": 0.0958,
+          "acc_1_minus_mae": 0.9042
+        },
+        "per_target": {
+          "extraversion": {
+            "pearson_r": 0.6053,
+            "spearman_rho": 0.6232,
+            "rmse": 0.1163,
+            "mae": 0.0947,
+            "acc_1_minus_mae": 0.9053
+          },
+          "neuroticism": {
+            "pearson_r": 0.4899,
+            "spearman_rho": 0.4735,
+            "rmse": 0.1155,
+            "mae": 0.0944,
+            "acc_1_minus_mae": 0.9056
+          },
+          "agreeableness": {
+            "pearson_r": 0.2285,
+            "spearman_rho": 0.3171,
+            "rmse": 0.1245,
+            "mae": 0.0991,
+            "acc_1_minus_mae": 0.9009
+          },
+          "conscientiousness": {
+            "pearson_r": 0.2058,
+            "spearman_rho": 0.2251,
+            "rmse": 0.1223,
+            "mae": 0.1019,
+            "acc_1_minus_mae": 0.8981
+          },
+          "openness": {
+            "pearson_r": 0.3859,
+            "spearman_rho": 0.3598,
+            "rmse": 0.1212,
+            "mae": 0.097,
+            "acc_1_minus_mae": 0.903
+          },
+          "interview": {
+            "pearson_r": 0.3344,
+            "spearman_rho": 0.3373,
+            "rmse": 0.1092,
+            "mae": 0.088,
+            "acc_1_minus_mae": 0.912
+          }
+        },
+        "tuned_hyperparams": {
+          "alpha": 3000.0
+        }
+      },
+      "Acoustic-only-Ridge": {
+        "macro": {
+          "pearson_r": 0.3322,
+          "spearman_rho": 0.3049,
+          "rmse": 0.1175,
+          "mae": 0.094,
+          "acc_1_minus_mae": 0.906
+        },
+        "per_target": {
+          "extraversion": {
+            "pearson_r": 0.3984,
+            "spearman_rho": 0.4253,
+            "rmse": 0.1228,
+            "mae": 0.0976,
+            "acc_1_minus_mae": 0.9024
+          },
+          "neuroticism": {
+            "pearson_r": 0.2457,
+            "spearman_rho": 0.2053,
+            "rmse": 0.1182,
+            "mae": 0.0986,
+            "acc_1_minus_mae": 0.9014
+          },
+          "agreeableness": {
+            "pearson_r": 0.3506,
+            "spearman_rho": 0.2962,
+            "rmse": 0.1207,
+            "mae": 0.0955,
+            "acc_1_minus_mae": 0.9045
+          },
+          "conscientiousness": {
+            "pearson_r": 0.3252,
+            "spearman_rho": 0.3332,
+            "rmse": 0.1171,
+            "mae": 0.0954,
+            "acc_1_minus_mae": 0.9046
+          },
+          "openness": {
+            "pearson_r": 0.3353,
+            "spearman_rho": 0.2529,
+            "rmse": 0.1198,
+            "mae": 0.0933,
+            "acc_1_minus_mae": 0.9067
+          },
+          "interview": {
+            "pearson_r": 0.3378,
+            "spearman_rho": 0.3164,
+            "rmse": 0.1064,
+            "mae": 0.0838,
+            "acc_1_minus_mae": 0.9162
+          }
+        },
+        "tuned_hyperparams": {
+          "alpha": 1000.0
+        }
+      }
+    },
+    "saved_model_path": "/home/zgy/JingXin/jingxin/models/research/chalearn_bigfive_behavioral.joblib"
+  },
+  "experiment_4_regime_transfer": {
+    "shared_features": [
+      "face_valid_ratio",
+      "mouth_open_mean",
+      "mouth_motion_std",
+      "gaze_dev_mean",
+      "head_motion_std",
+      "voiced_ratio"
+    ],
+    "chinese_corpus": {
+      "n_sessions": 47,
+      "n_sessions_with_voice": 21,
+      "n_windows": 5666
+    },
+    "english_corpus": {
+      "n_clips": 598,
+      "breakdown": {
+        "mit": 138,
+        "recruitview": 160,
+        "chalearn": 300
+      }
+    },
+    "regimes": {
+      "Chinese-only-GMM (5-fold GroupKFold)": {
+        "val_silhouette_mean": 0.3372,
+        "val_davies_bouldin_mean": 1.2687,
+        "ari_vs_chinese_ref": 0.9785,
+        "nmi_vs_chinese_ref": 0.9513,
+        "state_agreement_vs_chinese_ref": 0.9892,
+        "chinese_state_distribution": {
+          "steady_speaking": 0.5138,
+          "active_expressive": 0.0711,
+          "pause_thinking": 0.1821,
+          "low_signal": 0.233
+        }
+      },
+      "English-pretrained-GMM (Zero-Shot on Chinese)": {
+        "silhouette_on_chinese": 0.2829,
+        "davies_bouldin_on_chinese": 1.1925,
+        "ari_vs_chinese_ref": 0.4433,
+        "nmi_vs_chinese_ref": 0.505,
+        "state_agreement_vs_chinese_ref": 0.7076,
+        "chinese_state_distribution": {
+          "steady_speaking": 0.5169,
+          "active_expressive": 0.0798,
+          "pause_thinking": 0.0736,
+          "low_signal": 0.3297
+        }
+      },
+      "Bilingual-Joint-GMM (5-fold GroupKFold on Chinese)": {
+        "val_silhouette_mean": 0.3562,
+        "val_davies_bouldin_mean": 1.4088,
+        "ari_vs_chinese_ref": 0.8971,
+        "nmi_vs_chinese_ref": 0.8315,
+        "state_agreement_vs_chinese_ref": 0.9486,
+        "chinese_state_distribution": {
+          "steady_speaking": 0.5042,
+          "active_expressive": 0.0559,
+          "pause_thinking": 0.2061,
+          "low_signal": 0.2337
+        }
+      }
+    },
+    "saved_model_path": "/home/zgy/JingXin/jingxin/models/research/behavior_regime_multicorpus.joblib"
+  },
+  "saved_model_sizes_kb": {
+    "behavior_regime_multicorpus.joblib": 4.13,
+    "chalearn_bigfive_behavioral.joblib": 14.57,
+    "mit_interview_multimodal.joblib": 279.89,
+    "recruitview_bigfive_multimodal.joblib": 2146.52
+  }
+}

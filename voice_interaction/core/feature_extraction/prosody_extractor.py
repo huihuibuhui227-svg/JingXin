@@ -14,16 +14,21 @@ from typing import Dict, Any
 class ProsodyFeatureExtractor:
     """语音韵律特征提取器"""
 
-    def __init__(self, sample_rate: int = 16000):
+    def __init__(self, sample_rate: int = 16000, pitch_backend: str = "librosa",
+                 use_silero_vad: bool = False):
         """
         初始化特征提取器
 
         参数:
             sample_rate: 音频采样率
+            pitch_backend: 基频后端 ("librosa" 或 "parselmouth")
+            use_silero_vad: 是否在停顿特征提取中使用 Silero VAD
         """
         self.sample_rate = sample_rate
         self.fmin = librosa.note_to_hz('C2')
         self.fmax = librosa.note_to_hz('C7')
+        self.pitch_backend = (pitch_backend or "librosa").strip().lower()
+        self.use_silero_vad = bool(use_silero_vad)
 
     def extract_pitch_features(self, audio: np.ndarray) -> Dict[str, Any]:
         """
@@ -59,9 +64,31 @@ class ProsodyFeatureExtractor:
         # 所以 pitch 那四行**仍是未门控的现状**,`pitch_mean` 实测最大仍是 398.20 Hz、
         # `pitch_p90` 最大仍是 1729.76 Hz。门控要用什么量、阈值取多少,是**标定集**的事
         # (M3.1 已被使用者裁定跳过)—— 那两行留在 `pending` 就是这个原因。
-        f0, voiced_flag, voiced_prob = librosa.pyin(
-            audio, fmin=self.fmin, fmax=self.fmax, sr=self.sample_rate
-        )
+        if self.pitch_backend == "parselmouth":
+            import parselmouth
+
+            arr = np.asarray(audio)
+            y64 = (arr.astype(np.float64) / 32768.0
+                   if np.issubdtype(arr.dtype, np.integer)
+                   else arr.astype(np.float64, copy=False))
+            try:
+                snd = parselmouth.Sound(y64, sampling_frequency=self.sample_rate)
+                pitch = snd.to_pitch_ac(
+                    time_step=0.032, pitch_floor=self.fmin, pitch_ceiling=self.fmax
+                )
+                freq = np.asarray(pitch.selected_array["frequency"], dtype=float)
+                strength = np.asarray(pitch.selected_array["strength"], dtype=float)
+                voiced_flag = freq > 0.0
+                f0 = np.where(voiced_flag, freq, np.nan)
+                voiced_prob = np.where(np.isfinite(strength), np.clip(strength, 0.0, 1.0), 0.0)
+            except Exception:
+                f0 = np.array([np.nan], dtype=float)
+                voiced_flag = np.array([False], dtype=bool)
+                voiced_prob = np.array([0.0], dtype=float)
+        else:
+            f0, voiced_flag, voiced_prob = librosa.pyin(
+                audio, fmin=self.fmin, fmax=self.fmax, sr=self.sample_rate
+            )
         f0_voiced = f0[voiced_flag]
 
         # ★ 零浊音帧(全静音):`voiced_flag` 全 `False` ⟹ `f0_voiced` 是空的、`f0` 全 `nan`。
@@ -214,16 +241,89 @@ class ProsodyFeatureExtractor:
 
         return round(speech_ratio, 2)
 
-    def extract_pause_features(self, audio: np.ndarray) -> Dict[str, Any]:
+    def extract_prosody_parselmouth(self, audio: np.ndarray) -> Dict[str, Any]:
+        """使用 Praat/Parselmouth 提取音高与声学质量特征（HNR / Jitter / Shimmer）。"""
+        empty = {
+            "pitch_mean": None,
+            "pitch_std": None,
+            "pitch_p10": None,
+            "pitch_p90": None,
+            "hnr_db": None,
+            "jitter_local": None,
+            "shimmer_local": None,
+            "pitch_backend": "parselmouth",
+        }
+        if audio is None or len(audio) == 0:
+            return empty
+
+        import parselmouth
+
+        arr = np.asarray(audio)
+        y64 = (arr.astype(np.float64) / 32768.0
+               if np.issubdtype(arr.dtype, np.integer)
+               else arr.astype(np.float64, copy=False))
+        snd = parselmouth.Sound(y64, sampling_frequency=self.sample_rate)
+
+        out = dict(empty)
+        try:
+            pitch = snd.to_pitch_ac(
+                time_step=0.032, pitch_floor=self.fmin, pitch_ceiling=self.fmax
+            )
+            freq = np.asarray(pitch.selected_array["frequency"], dtype=float)
+            f0_voiced = freq[freq > 0.0]
+            if len(f0_voiced) > 0:
+                out["pitch_mean"] = round(float(np.mean(f0_voiced)), 2)
+                out["pitch_std"] = round(float(np.std(f0_voiced)), 2)
+                out["pitch_p10"] = round(float(np.percentile(f0_voiced, 10)), 2)
+                out["pitch_p90"] = round(float(np.percentile(f0_voiced, 90)), 2)
+        except Exception:
+            pass
+
+        try:
+            harm = snd.to_harmonicity_cc()
+            hnr_raw = float(parselmouth.praat.call(harm, "Get mean", 0.0, 0.0))
+            if math.isfinite(hnr_raw):
+                out["hnr_db"] = round(hnr_raw, 2)
+        except Exception:
+            pass
+
+        try:
+            pp = parselmouth.praat.call(
+                snd, "To PointProcess (periodic, cc)", self.fmin, self.fmax
+            )
+            jitter_raw = float(
+                parselmouth.praat.call(pp, "Get jitter (local)", 0.0, 0.0, 0.0001, 0.02, 1.3)
+            )
+            if math.isfinite(jitter_raw):
+                out["jitter_local"] = round(jitter_raw, 6)
+            shimmer_raw = float(
+                parselmouth.praat.call(
+                    [snd, pp], "Get shimmer (local)", 0.0, 0.0, 0.0001, 0.02, 1.3, 1.6
+                )
+            )
+            if math.isfinite(shimmer_raw):
+                out["shimmer_local"] = round(shimmer_raw, 6)
+        except Exception:
+            pass
+
+        return out
+
+    def extract_pause_features(self, audio: np.ndarray,
+                               use_silero_vad: bool | None = None) -> Dict[str, Any]:
         """
         提取停顿相关特征
 
         参数:
             audio: 音频数据
+            use_silero_vad: 是否使用 Silero VAD（默认跟随实例配置，兼容既有 RMS 行为）
 
         返回:
             包含停顿特征的字典
         """
+        use_vad = self.use_silero_vad if use_silero_vad is None else bool(use_silero_vad)
+        if use_vad:
+            return self._extract_pause_features_silero(audio)
+
         # 空音频 = 一帧都没有 ⟹ 五个键**一律留空**(`speech_onset_sec` 本来就是 `None`),
         # **不写 0.0** —— 那四个 0.0 正是「没测到写成了 0」这个形态。
         # 判据与 `extract_pitch_features` 的空音频支完全相同(那里有完整说明);
@@ -297,6 +397,64 @@ class ProsodyFeatureExtractor:
             "pause_frequency": pause_frequency,
             "speech_duration_sec": speech_seconds,
             "speech_onset_sec": speech_onset
+        }
+
+    def _extract_pause_features_silero(self, audio: np.ndarray) -> Dict[str, Any]:
+        """使用 Silero VAD ONNX（失败时自动回退 RMS）提取停顿特征。"""
+        if audio is None or len(audio) == 0:
+            return {
+                "pause_duration_mean": None,
+                "pause_duration_max": None,
+                "pause_frequency": None,
+                "speech_duration_sec": None,
+                "speech_onset_sec": None,
+                "vad_backend": "silero_vad_onnx",
+            }
+
+        from .silero_vad_wrapper import detect_speech_segments
+
+        vad = detect_speech_segments(audio, sr=self.sample_rate)
+        duration = float(len(audio)) / float(self.sample_rate)
+        segments = vad["speech_segments"]
+        speech_seconds = round(float(vad["speech_duration_sec"]), 2)
+
+        pause_intervals: list[float] = []
+        if not segments:
+            if duration > 0.1:
+                pause_intervals.append(duration)
+            speech_onset = None
+        else:
+            speech_onset = round(float(segments[0]["start_sec"]), 2)
+            if segments[0]["start_sec"] > 0.1:
+                pause_intervals.append(float(segments[0]["start_sec"]))
+            for i in range(len(segments) - 1):
+                gap = float(segments[i + 1]["start_sec"] - segments[i]["end_sec"])
+                if gap > 0.1:
+                    pause_intervals.append(gap)
+            tail = float(duration - segments[-1]["end_sec"])
+            if tail > 0.1:
+                pause_intervals.append(tail)
+
+        if pause_intervals:
+            pause_duration_mean = round(float(np.mean(pause_intervals)), 2)
+            pause_duration_max = round(float(np.max(pause_intervals)), 2)
+            pause_frequency = (
+                round(len(pause_intervals) / speech_seconds * 60.0, 2)
+                if speech_seconds > 0
+                else None
+            )
+        else:
+            pause_duration_mean = 0.0
+            pause_duration_max = 0.0
+            pause_frequency = 0.0
+
+        return {
+            "pause_duration_mean": pause_duration_mean,
+            "pause_duration_max": pause_duration_max,
+            "pause_frequency": pause_frequency,
+            "speech_duration_sec": speech_seconds,
+            "speech_onset_sec": speech_onset,
+            "vad_backend": vad["vad_backend"],
         }
 
     def extract_all_features(self, audio: np.ndarray) -> Dict[str, Any]:

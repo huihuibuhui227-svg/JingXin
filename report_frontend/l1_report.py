@@ -77,9 +77,11 @@ import json
 from pathlib import Path
 
 from . import (
+    behavior_regime_model,
     brand,
     cross_modal_coverage,
     evidence_gate,
+    face_dual_instrument_audit,
     gap_explanations,
     instrument_provenance,
     l1_mapper,
@@ -341,11 +343,13 @@ def _build_asr_confidence_disclosure(session_id: str, indicators: list[dict]) ->
                 degraded.append(row["name"])
 
     scope_cn = "逐题音频" if audio_scope == "qa_segment" else "整场混音"
+    conf_engine = str(asr.get("confidence_engine") or "")
+    engine_hint = "旁路同音频识别模型" if conf_engine == "faster-whisper" else "同源词级置信度"
     note_plain = (
-        f"同源词级置信度已核验（{scope_cn}，中位概率 {median:.2f}，后 20% 分位 {p20:.2f}，"
-        f"低于 0.50 词占比 {low_ratio:.0%}）："
-        + ("转写噪音偏高，建议将 5 项文本相关指标置信度降档解读。" if need_degrade
-           else "词级概率分布处于常规区间，无额外降档触发。")
+        f"已完成词级识别概率核验，音频口径为{scope_cn}，由{engine_hint}给出，"
+        f"中位概率 {median:.2f}、后 20% 分位 {p20:.2f}、低于 0.50 词占比 {low_ratio:.0%}："
+        + ("转写噪音偏高，建议将 5 项文本相关指标降档解读。" if need_degrade
+           else "词级概率分布处于常规区间，无需额外降档。")
     )
     return {
         "status": "available",
@@ -914,6 +918,8 @@ def build_l1_report(session_id: str, logs: dict | None = None) -> dict:
                 quality.indicators, governance_ledger["l0_blocked"]
             ),
             "second_instrument_appendix": _build_second_instrument_appendix(logs),
+            "face_dual_instrument": face_dual_instrument_audit.audit_face_dual_instrument(logs),
+            "behavior_regimes": behavior_regime_model.segment_session_regimes(logs, session_id),
             "signal_quality_audit": signal_quality_clf.audit_session_signal_quality(logs, session_id),
             "speaker_turn_audit": speaker_turn_audit.audit_speaker_turns(session_id, logs=logs),
         },

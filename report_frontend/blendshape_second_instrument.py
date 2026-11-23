@@ -190,31 +190,79 @@ def _unavailable(construct: str, why: str) -> dict:
     return _result(construct, math.nan, 0, None, f"算不出来:{why}")
 
 
+# ── 扩展信息通道常量(仅用于第二仪器独立对照附录) ───────────────────────────────
+
+JAW_OPEN_P50 = "jaw_open_p50"
+MOUTH_PRESS = "mouth_press_ratio"
+
+#: `mouth_press_ratio` 的声明常量 0.25。
+#: 实测全语料 44 场 / 16872 非空帧:(bs_mouthPressLeft+R)/2 的 p90=0.062、p95=0.114、p99=0.339;
+#: 阈值取 0.5 时仅 15/44 场非零(场中位数 0.0000、均值 0.0025),几乎贴底;
+#: 阈值取 0.25 时 22/44 场有激活(场中位数 0.0013、均值 0.0462、最大 0.5000),兼具分辨力与稀疏性。
+MOUTH_PRESS_THRESHOLD: float = 0.25
+
+_INDICATOR_META: tuple[dict[str, str], ...] = (
+    {
+        "name": SMILE,
+        "label": "微笑帧占比",
+        "unit": "比例",
+        "geometric_counterpart": "smile_ratio",
+        "comparable_note": "双侧均值超过 0.5 的帧占比，与几何侧口径相近，但模型系数与几何比值不可直接混算",
+    },
+    {
+        "name": BROW,
+        "label": "皱眉帧占比",
+        "unit": "比例",
+        "geometric_counterpart": "brow_furrow_ratio_vs_baseline",
+        "comparable_note": "双侧均值超过 0.5 的帧占比，通道激活极少，与几何侧相对本人基线口径不同不可直比",
+    },
+    {
+        "name": BLINK,
+        "label": "眨眼频率",
+        "unit": "次/分钟",
+        "geometric_counterpart": "blink_rate_per_min",
+        "comparable_note": "按双侧闭合上升沿除以有效分钟，与几何侧构念一致，仅闭合判定分别来自模型系数与眼纵横比",
+    },
+    {
+        "name": ANY_AU,
+        "label": "面部动作活跃帧占比",
+        "unit": "比例",
+        "geometric_counterpart": "au_activation_any_ratio",
+        "comparable_note": "本场 51 维模型系数逐列上十分位自检占比，仅用于核验通道活性，不可与几何侧直接比较",
+    },
+    {
+        "name": JAW_OPEN_P50,
+        "label": "口部张开中位系数",
+        "unit": "模型系数",
+        "geometric_counterpart": "au25_mouth_open",
+        "comparable_note": "模型通道高活跃参考项，统计口部张开系数中位数，对应几何侧口内开合度比值",
+    },
+    {
+        "name": MOUTH_PRESS,
+        "label": "唇部压紧帧占比",
+        "unit": "比例",
+        "geometric_counterpart": "lip_compression_ratio_vs_baseline",
+        "comparable_note": "双侧唇部压紧模型系数超过 0.25 的帧占比，用于观察唇部收紧活跃度，不可与几何侧直接混算",
+    },
+)
+
+
+def _finite_or_none(value: float | None) -> float | None:
+    """将 NaN / Inf 转为 None，确保序列化为严格合法 JSON。"""
+    if value is None:
+        return None
+    f = float(value)
+    return f if math.isfinite(f) else None
+
+
 # ── 主入口 ────────────────────────────────────────────────────────────────────
 
-def compute_second_instrument(csv_path: Path, construct: str) -> dict:
-    """在**一份** `data/logs/face_au_log_*.csv` 上算一个构念的 blendshape 侧数值。
-
-    返回五个键:`construct` / `blendshape_value` / `n_frames` / `threshold_used` /
-    `threshold_basis`。语义:
-
-    * `blendshape_value`:比率类构造给占比(0–1),`blink_rate_per_min` 给次/分钟;
-    * `n_frames`:**参与计算的配对有效帧数**(不是文件行数)。分母就是这个数,
-      读的人可以自己乘回去复核;
-    * `threshold_used`:三个声明常量构念给**数值阈值**;`au_activation_any_ratio`
-      给**分位水平 0.90**(它逐列取值,"有没有一个数值"这一栏只能记分位水平),
-      见其 `threshold_basis`;
-    * 数据不够(缺列 / 全空 / 跨越时间为 0)⟹ `blendshape_value = NaN` 且
-      `threshold_basis` 以"算不出来:"开头。**不抛异常** —— 采集缺列是常态,
-      抛异常会让整份验证脚本停在第 1 个文件。
-
-    `construct` 不在 `CONSTRUCTS` 里 ⟹ `ValueError`(那是调用方的编程错误,
-    与数据无关)。
-    """
+def _compute_construct_from_df(df: pd.DataFrame, construct: str) -> dict:
+    """在内存中的面部日志 DataFrame 上计算单个核心构念的 blendshape 侧数值。"""
     if construct not in CONSTRUCTS:
         raise ValueError(f"construct 只能是 {CONSTRUCTS},收到 {construct!r}")
-
-    df = _read_csv(Path(csv_path))
+    if df is None or not isinstance(df, pd.DataFrame):
+        df = pd.DataFrame()
 
     if construct == ANY_AU:
         return _any_au(df, construct)
@@ -255,6 +303,103 @@ def compute_second_instrument(csv_path: Path, construct: str) -> dict:
     n_edges = _rising_edges(closed.astype(np.int8))
     return _result(construct, n_edges / (span / 60.0), n_ok,
                    tau, THRESHOLD_BASIS[construct])
+
+
+def compute_second_instrument(csv_path: Path, construct: str) -> dict:
+    """在**一份** `data/logs/face_au_log_*.csv` 上算一个构念的 blendshape 侧数值。
+
+    返回五个键:`construct` / `blendshape_value` / `n_frames` / `threshold_used` /
+    `threshold_basis`。语义:
+
+    * `blendshape_value`:比率类构造给占比(0–1),`blink_rate_per_min` 给次/分钟;
+    * `n_frames`:**参与计算的配对有效帧数**(不是文件行数)。分母就是这个数,
+      读的人可以自己乘回去复核;
+    * `threshold_used`:三个声明常量构念给**数值阈值**;`au_activation_any_ratio`
+      给**分位水平 0.90**(它逐列取值,"有没有一个数值"这一栏只能记分位水平),
+      见其 `threshold_basis`;
+    * 数据不够(缺列 / 全空 / 跨越时间为 0)⟹ `blendshape_value = NaN` 且
+      `threshold_basis` 以"算不出来:"开头。**不抛异常** —— 采集缺列是常态,
+      抛异常会让整份验证脚本停在第 1 个文件。
+
+    `construct` 不在 `CONSTRUCTS` 里 ⟹ `ValueError`(那是调用方的编程错误,
+    与数据无关)。
+    """
+    if construct not in CONSTRUCTS:
+        raise ValueError(f"construct 只能是 {CONSTRUCTS},收到 {construct!r}")
+
+    df = _read_csv(Path(csv_path))
+    return _compute_construct_from_df(df, construct)
+
+
+def _compute_jaw_open_p50(df: pd.DataFrame) -> tuple[float | None, int, float | None]:
+    """计算 `bs_jawOpen` 有效帧中位数。"""
+    if "bs_jawOpen" not in df.columns:
+        return None, 0, None
+    arr = _num(df, "bs_jawOpen").to_numpy(dtype=float)
+    arr = arr[np.isfinite(arr)]
+    if arr.size == 0:
+        return None, 0, None
+    return float(np.median(arr)), int(arr.size), None
+
+
+def _compute_mouth_press_ratio(df: pd.DataFrame) -> tuple[float | None, int, float | None]:
+    """计算双侧唇部压紧模型系数超过 `MOUTH_PRESS_THRESHOLD` 的帧占比。"""
+    cols = ("bs_mouthPressLeft", "bs_mouthPressRight")
+    if any(c not in df.columns for c in cols):
+        return None, 0, None
+    series, n_frames = _paired_mean(df, cols)
+    if n_frames == 0:
+        return None, 0, None
+    flag = series > MOUTH_PRESS_THRESHOLD
+    return float(flag.sum()) / n_frames, int(n_frames), MOUTH_PRESS_THRESHOLD
+
+
+def compute_blendshape_indicators(df: pd.DataFrame) -> list[dict]:
+    """在内存中的面部日志上计算 6 项第二仪器独立对照指标。
+
+    包括 4 项核心构念与 2 项高活跃模型通道(`jaw_open_p50`、`mouth_press_ratio`)。
+    若输入为空或所有 `bs_*` 列均无有效观测，返回空列表；否则返回 6 个严格
+    JSON 合法的字典(`NaN` 一律转为 `None`)。
+    """
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return []
+
+    bs_cols = [c for c in df.columns if isinstance(c, str) and c.startswith("bs_")]
+    if not bs_cols:
+        return []
+    has_valid_bs = any(
+        np.isfinite(_num(df, c).to_numpy(dtype=float)).any()
+        for c in bs_cols
+    )
+    if not has_valid_bs:
+        return []
+
+    computed: dict[str, tuple[float | None, int, float | None]] = {}
+    for construct in CONSTRUCTS:
+        res = _compute_construct_from_df(df, construct)
+        computed[construct] = (
+            _finite_or_none(res["blendshape_value"]),
+            int(res["n_frames"]),
+            _finite_or_none(res["threshold_used"]),
+        )
+    computed[JAW_OPEN_P50] = _compute_jaw_open_p50(df)
+    computed[MOUTH_PRESS] = _compute_mouth_press_ratio(df)
+
+    rows: list[dict] = []
+    for meta in _INDICATOR_META:
+        name = meta["name"]
+        value, n_valid, threshold_used = computed[name]
+        rows.append({
+            "name": name,
+            "label": meta["label"],
+            "value": _finite_or_none(value),
+            "unit": meta["unit"],
+            "n_valid": int(n_valid),
+            "threshold_used": _finite_or_none(threshold_used),
+            "geometric_counterpart": meta["geometric_counterpart"],
+            "comparable_note": meta["comparable_note"],
+        })
+    return rows
 
 
 def _any_au(df: pd.DataFrame, construct: str) -> dict:

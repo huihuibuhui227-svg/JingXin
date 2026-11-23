@@ -73,6 +73,7 @@ def _reset_session(session_id: str) -> bool:
         del session_analyzers[session_id]
         session_loggers.pop(session_id, None)
     dets = detectors.pop(session_id, None)
+    detectors_backend.pop(session_id, None)
     if dets is not None:
         for d in dets.values():
             close_detached(d)  # 5.0s/个 → 后台,否则 /reset 冻住整个服务(I1)
@@ -85,6 +86,7 @@ def _reset_session(session_id: str) -> bool:
 # 迁移前 `hands`/`pose` 是模块级单例，所有客户端共用；tasks 的 VIDEO 模式把跟踪状态
 # 挂在探测器实例上，单例会让并发会话互相污染跟踪（spec §3.5）。
 detectors: dict = {}
+detectors_backend: dict[str, str] = {}
 
 # 会话 id 直接进日志文件名（`gesture_emotion_log_{session_id}.csv`），而它是客户端可控的
 # （query 参数），所以只收 `[A-Za-z0-9_-]{1,128}` —— 路径分隔符与 `..` 一概不收。
@@ -167,6 +169,7 @@ def get_or_create_analyzers(session_id: str):
         del session_analyzers[sid]
         session_loggers.pop(sid, None)
         dets = detectors.pop(sid, None)
+        detectors_backend.pop(sid, None)
         if dets is not None:
             for d in dets.values():
                 close_detached(d)  # 必须显式关:持 native 句柄(spec §6.3)。5.0s/个 → 后台(I1)
@@ -231,20 +234,67 @@ def get_or_create_detectors(session_id: str):
     ]
     for sid in expired:
         dets = detectors.pop(sid, None)
+        detectors_backend.pop(sid, None)
         if dets is not None:
             for d in dets.values():
                 close_detached(d)  # 同上:回收路径不许在事件循环里等 5.0s(I1)
 
     if session_id not in detectors:
-        from gesture_analysis.core.detectors import HandDetector, PoseDetector
         from gesture_analysis.config import HAND_MODEL, POSE_MODEL
-        detectors[session_id] = {
-            'hands': HandDetector(HAND_MODEL, **{
-                k: v for k, v in MEDIAPIPE_CONFIG['hands'].items()}),
-            'pose': PoseDetector(POSE_MODEL, **{
-                k: v for k, v in MEDIAPIPE_CONFIG['pose'].items() if k != 'tier'}),
-        }
-        logger.info(f"创建手势探测器会话: {session_id}")
+
+        backend = os.getenv("JX_GESTURE_BACKEND", "mediapipe").strip().lower() or "mediapipe"
+        if backend == "mediapipe":
+            from gesture_analysis.core.detectors import HandDetector, PoseDetector
+
+            detectors[session_id] = {
+                'hands': HandDetector(HAND_MODEL, **{
+                    k: v for k, v in MEDIAPIPE_CONFIG['hands'].items()}),
+                'pose': PoseDetector(POSE_MODEL, **{
+                    k: v for k, v in MEDIAPIPE_CONFIG['pose'].items() if k != 'tier'}),
+            }
+            detectors_backend[session_id] = "mediapipe"
+        elif backend in ("rtmw", "auto"):
+            import gesture_analysis.core.detectors as detectors_mod
+            from gesture_analysis.core.rtmpose_backend import (
+                RTMWHandAdapter,
+                RTMWPoseAdapter,
+            )
+
+            hand_det, pose_det = detectors_mod.create_gesture_detectors(
+                HAND_MODEL,
+                POSE_MODEL,
+                backend=backend,
+                hand_kwargs={k: v for k, v in MEDIAPIPE_CONFIG['hands'].items()},
+                pose_kwargs={k: v for k, v in MEDIAPIPE_CONFIG['pose'].items() if k != 'tier'},
+            )
+            detectors[session_id] = {
+                'hands': hand_det,
+                'pose': pose_det,
+            }
+            if (
+                isinstance(hand_det, RTMWHandAdapter)
+                or isinstance(pose_det, RTMWPoseAdapter)
+                or getattr(hand_det, "engine", None) is not None
+                or getattr(pose_det, "engine", None) is not None
+            ):
+                resolved_backend = "rtmw"
+            elif (
+                (isinstance(detectors_mod.HandDetector, type) and isinstance(hand_det, detectors_mod.HandDetector))
+                or (isinstance(detectors_mod.PoseDetector, type) and isinstance(pose_det, detectors_mod.PoseDetector))
+            ):
+                resolved_backend = "mediapipe"
+            else:
+                resolved_backend = "rtmw" if backend == "rtmw" else "mediapipe"
+            detectors_backend[session_id] = resolved_backend
+        else:
+            raise ValueError(
+                f"不支持的手势检测后端: {backend!r}（仅支持 'mediapipe'、'rtmw'、'auto'）"
+            )
+        logger.info(
+            "创建手势探测器会话: %s (backend=%s)",
+            session_id,
+            detectors_backend[session_id],
+        )
     return detectors[session_id]
 
 
@@ -453,7 +503,9 @@ async def health_check():
     """健康检查接口"""
     return {
         "status": "healthy",
-        "active_sessions": len(session_analyzers)
+        "active_sessions": len(session_analyzers),
+        "backend": os.getenv("JX_GESTURE_BACKEND", "mediapipe"),
+        "supported_backends": ["mediapipe", "rtmw"],
     }
 
 
@@ -547,6 +599,7 @@ async def analyze_image(
             "status": "success",
             "session_id": session_id,
             "probe": probe,
+            "detector_backend": detectors_backend.get(session_id, "mediapipe"),
             "result": {
                 # 检测状态
                 "detected_hands": detected_hands,
@@ -700,6 +753,7 @@ async def reset_analyzers(session_id: str = None):
                 for d in dets.values():
                     close_detached(d)  # 无 id 的 /reset 会关掉所有会话:实测同步时 20.04s(I1)
             detectors.clear()
+            detectors_backend.clear()
             session_analyzers.clear()
             session_loggers.clear()
             session_clocks.clear()   # M2.5:无 id 的 /reset 连时钟一起清

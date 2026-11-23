@@ -123,14 +123,21 @@ class FunASREngine:
         out: list[dict[str, Any]] = []
         for i, s in enumerate(segs):
             raw = getattr(s, "raw", None) or {}
-            out.append({
+            seg_dict: dict[str, Any] = {
                 "index": i,
                 "text": getattr(s, "text", "") or "",
                 "n_chars": count_cjk_chars(getattr(s, "text", "") or ""),
                 "timestamps_ms": raw.get("timestamp") or [],
                 "punc_array": raw.get("punc_array") or [],
                 "ts_origin": "segment_relative",
-            })
+            }
+            spk_name = raw.get("spk_name")
+            if spk_name is not None and spk_name != "":
+                seg_dict["spk_name"] = spk_name
+            spk_score = raw.get("spk_score")
+            if spk_score is not None:
+                seg_dict["spk_score"] = spk_score
+            out.append(seg_dict)
         text = getattr(res, "text", "") or ""
         return AsrUtterance(text=text, n_chars=count_cjk_chars(text),
                             n_segments=len(out), vad_split=len(out) > 1, segments=out)

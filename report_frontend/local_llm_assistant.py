@@ -24,11 +24,16 @@ import redline_guard
 
 DEFAULT_LLM_BASE_URL = "http://127.0.0.1:8080/v1"
 DEFAULT_LLM_MODEL = "Ternary-Bonsai-2-27B"
-DEFAULT_LLM_TIMEOUT_SEC = 4.0
+DEFAULT_LLM_TIMEOUT_SEC = 10.0
 
 ASSISTANT_WATERMARK = (
     "由本地辅助模块生成，仅作文本可读化与追问/检索参考，不参与任何指标计算与评定。"
 )
+
+
+def _llm_thinking_enabled() -> bool:
+    val = str(os.getenv("JX_LLM_THINKING", "0")).strip().lower()
+    return val in ("1", "true", "yes", "on")
 
 
 def _llm_config() -> tuple[str, str, float]:
@@ -56,6 +61,7 @@ def _call_local_openai_chat(
         "model": model,
         "temperature": 0.2,
         "max_tokens": max_tokens,
+        "chat_template_kwargs": {"enable_thinking": _llm_thinking_enabled()},
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
@@ -128,6 +134,9 @@ def _deterministic_report_summary(payload: dict[str, Any]) -> str:
         lines.append(f"5. 画面与声音同步：{cm['summary_plain']}")
     if sq.get("summary_plain"):
         lines.append(f"6. 采集画面质量：{sq['summary_plain']}")
+    br = l1.get("behavior_regimes") or {}
+    if br.get("available") and br.get("summary_plain"):
+        lines.append(f"7. 外显行为节奏：{br['summary_plain']}")
 
     return "\n".join(lines)
 
@@ -215,6 +224,7 @@ def _compact_facts_for_prompt(payload: dict[str, Any]) -> str:
         ],
         "cross_modal": (l1.get("cross_modal_coverage") or {}).get("summary_plain"),
         "signal_quality": (l1.get("signal_quality_audit") or {}).get("summary_plain"),
+        "behavior_regimes": (l1.get("behavior_regimes") or {}).get("summary_plain"),
     }
     return json.dumps(facts, ensure_ascii=False)
 

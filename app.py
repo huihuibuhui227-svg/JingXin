@@ -632,7 +632,20 @@ def _probe_http_health(name: str, url: str, timeout: float = 1.2) -> tuple[str, 
                 "latency_ms": dt_ms,
                 "url": url,
             }
-            for extra_k in ("asr_endpoint", "asr_reachable"):
+            for extra_k in (
+                "asr_endpoint",
+                "asr_reachable",
+                "backend",
+                "supported_backends",
+                "pitch_backend",
+                "vad_backend",
+                "live_pitch_backend",
+                "live_vad_backend",
+                "whisper_conf_ready",
+                "landmarker_3d_matrix",
+                "blendshapes_count",
+                "live_framing",
+            ):
                 if extra_k in payload:
                     info[extra_k] = payload[extra_k]
             return name, info

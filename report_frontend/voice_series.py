@@ -235,21 +235,21 @@ def answer_audio_files(session_id: str) -> list[tuple[int, Path]]:
 
 # ── 提取 ──────────────────────────────────────────────────────────────────────
 
-def extract_file(path: str | Path, session_id: str = "", index: int | None = None,
-                 sr: int = SAMPLE_RATE) -> VoiceSeries:
-    """一段音频 → 逐帧序列。**这是唯一真正做重活的地方。**
+def _empty_series(path: str | Path, session_id: str, index: int | None) -> VoiceSeries:
+    return VoiceSeries(session_id=session_id, index=index, frame_sec=0.0,
+                       f0=np.array([]), voiced_prob=np.array([]),
+                       rms=np.array([]), source=str(path))
 
-    `librosa.pyin` 的第三个返回值是逐帧"是否浊音"的概率;这里**只存不用**
-    —— 门控实验证明它不能用来筛帧(见 `prosody_extractor` 的实测记录)。
-    """
+
+def _extract_file_librosa(path: str | Path, session_id: str = "",
+                          index: int | None = None, sr: int = SAMPLE_RATE) -> VoiceSeries:
+    """使用 librosa.pyin 提取逐帧序列。"""
     import librosa  # 延迟导入:没装音频库时不影响其它模块
 
     y, _ = librosa.load(str(path), sr=sr, mono=True)
     if len(y) == 0:
         # 空音频 = 一帧都没有。交**空数组**而不是补零 —— 补零会算出"完全静音"的读数。
-        return VoiceSeries(session_id=session_id, index=index, frame_sec=0.0,
-                           f0=np.array([]), voiced_prob=np.array([]),
-                           rms=np.array([]), source=str(path))
+        return _empty_series(path, session_id, index)
     f0, _voiced_flag, voiced_prob = librosa.pyin(y, fmin=FMIN, fmax=FMAX, sr=sr)
     frame_sec = float(len(y)) / sr / len(f0)
     # RMS 用与 pyin 相同的帧数/帧移,保证两列可以逐帧对齐(不对齐就无法做"每秒变化量")
@@ -260,6 +260,57 @@ def extract_file(path: str | Path, session_id: str = "", index: int | None = Non
                        f0=np.asarray(f0, dtype=float),
                        voiced_prob=np.asarray(voiced_prob, dtype=float),
                        rms=np.asarray(rms, dtype=float), source=str(path))
+
+
+def extract_file_parselmouth(path: str | Path, session_id: str = "",
+                             index: int | None = None, sr: int = SAMPLE_RATE) -> VoiceSeries:
+    """使用 Praat/Parselmouth 自相关基频法提取逐帧序列。"""
+    import librosa
+    import parselmouth
+
+    y, _ = librosa.load(str(path), sr=sr, mono=True)
+    if len(y) == 0:
+        return _empty_series(path, session_id, index)
+    snd = parselmouth.Sound(np.asarray(y, dtype=np.float64), sampling_frequency=sr)
+    try:
+        pitch = snd.to_pitch_ac(time_step=0.032, pitch_floor=FMIN, pitch_ceiling=FMAX)
+    except parselmouth.PraatError:
+        return _empty_series(path, session_id, index)
+
+    freq = np.asarray(pitch.selected_array["frequency"], dtype=float)
+    strength = np.asarray(pitch.selected_array["strength"], dtype=float)
+    if len(freq) == 0:
+        return _empty_series(path, session_id, index)
+
+    f0 = np.where(freq > 0.0, freq, np.nan)
+    voiced_prob = np.where(np.isfinite(strength), np.clip(strength, 0.0, 1.0), 0.0)
+    frame_sec = float(pitch.dx) if getattr(pitch, "dx", 0.0) > 0 else float(len(y)) / sr / len(f0)
+    hop = max(1, int(round(frame_sec * sr)))
+    rms = librosa.feature.rms(y=y, frame_length=max(hop * 2, 512), hop_length=hop)[0]
+    rms = _fit_length(rms, len(f0))
+    return VoiceSeries(session_id=session_id, index=index, frame_sec=frame_sec,
+                       f0=f0, voiced_prob=voiced_prob,
+                       rms=np.asarray(rms, dtype=float), source=str(path))
+
+
+def extract_file(path: str | Path, session_id: str = "", index: int | None = None,
+                 sr: int = SAMPLE_RATE, backend: str | None = None) -> VoiceSeries:
+    """一段音频 → 逐帧序列。
+
+    `backend` 支持 `"parselmouth"` / `"librosa"` / `"auto"`；未传时读取
+    环境变量 `JX_PITCH_BACKEND`（默认 `"parselmouth"`）。
+    """
+    chosen = (backend or os.getenv("JX_PITCH_BACKEND", "parselmouth")).strip().lower()
+    if chosen == "librosa":
+        return _extract_file_librosa(path, session_id=session_id, index=index, sr=sr)
+    if chosen == "parselmouth":
+        return extract_file_parselmouth(path, session_id=session_id, index=index, sr=sr)
+    if chosen == "auto":
+        try:
+            return extract_file_parselmouth(path, session_id=session_id, index=index, sr=sr)
+        except Exception:
+            return _extract_file_librosa(path, session_id=session_id, index=index, sr=sr)
+    raise ValueError(f"不支持的基频后端: {chosen!r}")
 
 
 def _fit_length(a: np.ndarray, n: int) -> np.ndarray:

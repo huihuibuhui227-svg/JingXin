@@ -176,6 +176,16 @@ _EXTRACTOR_TO_LOG_COLUMNS = {
 }
 
 
+def _resolve_live_voice_backends() -> tuple[str, bool]:
+    """解析实时语音采集端点的基频与 VAD 后端配置。"""
+    raw_pitch = os.getenv("JX_LIVE_PITCH_BACKEND", "librosa").strip().lower() or "librosa"
+    live_pitch = raw_pitch if raw_pitch in ("librosa", "parselmouth") else "librosa"
+    use_silero = os.getenv("JX_LIVE_USE_SILERO_VAD", "0").strip().lower() in (
+        "1", "true", "yes", "on"
+    )
+    return live_pitch, use_silero
+
+
 def _asr_meta() -> dict:
     """会话清单(session.json)里的 asr provenance 块(spec §6.4)。
 
@@ -254,7 +264,43 @@ def prosody_features_from_pcm(audio_data: bytes) -> dict:
       · 整段都是静音时,那一段就是**一处占满全长的停顿**(收尾的推论,不是缺陷)。
     """
     audio = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
-    raw = prosody_extractor.extract_all_features(audio)
+    live_pitch, use_silero = _resolve_live_voice_backends()
+    if live_pitch == "librosa" and not use_silero:
+        raw = prosody_extractor.extract_all_features(audio)
+        return {_EXTRACTOR_TO_LOG_COLUMNS.get(k, k): v for k, v in raw.items()}
+
+    if len(audio) == 0:
+        return {}
+
+    if isinstance(prosody_extractor, ProsodyFeatureExtractor):
+        ext = ProsodyFeatureExtractor(
+            SAMPLE_RATE, pitch_backend=live_pitch, use_silero_vad=use_silero
+        )
+        try:
+            raw = ext.extract_all_features(audio)
+        except ImportError:
+            logger.warning("Parselmouth 不可用，实时基频提取回退到 librosa")
+            live_pitch = "librosa"
+            ext = ProsodyFeatureExtractor(
+                SAMPLE_RATE, pitch_backend="librosa", use_silero_vad=use_silero
+            )
+            raw = ext.extract_all_features(audio)
+    else:
+        raw = prosody_extractor.extract_all_features(audio)
+
+    if live_pitch == "parselmouth" and raw and hasattr(prosody_extractor, "extract_prosody_parselmouth"):
+        try:
+            pm = prosody_extractor.extract_prosody_parselmouth(audio)
+            raw = dict(raw)
+            for k in ("hnr_db", "jitter_local", "shimmer_local", "pitch_backend"):
+                if k in pm:
+                    raw[k] = pm[k]
+            for k in ("pitch_mean", "pitch_std", "pitch_p10", "pitch_p90"):
+                if k in pm and (pm[k] is not None or raw.get(k) is None):
+                    raw[k] = pm[k]
+        except Exception:
+            logger.warning("Parselmouth 声学质量特征提取失败，保留主特征", exc_info=True)
+
     return {_EXTRACTOR_TO_LOG_COLUMNS.get(k, k): v for k, v in raw.items()}
 
 
@@ -406,14 +452,30 @@ async def health_check():
     ⚠️ 2026-11-22 加 `asr_endpoint`；2026-11-23 加 1s 非阻塞 TCP 探活 `asr_reachable`，
     端点不可达时返回 `status: "degraded"`，避免「health 绿 + /asr 报错」的假健康。
     """
+    import importlib.util
     from voice_interaction.asr.funasr_engine import FunASREngine
 
     host, port = FunASREngine().endpoint()
     reachable = await asyncio.to_thread(_tcp_probe, host, port, 1.0)
+    has_parselmouth = importlib.util.find_spec("parselmouth") is not None
+    has_silero_ort = (
+        importlib.util.find_spec("silero_vad") is not None
+        and importlib.util.find_spec("onnxruntime") is not None
+    )
+    has_faster_whisper = importlib.util.find_spec("faster_whisper") is not None
+    live_pitch, use_silero = _resolve_live_voice_backends()
     return {
         "status": "healthy" if reachable else "degraded",
         "asr_endpoint": f"ws://{host}:{port}",
         "asr_reachable": reachable,
+        "pitch_backend": os.getenv(
+            "JX_PITCH_BACKEND",
+            "parselmouth" if has_parselmouth else "librosa",
+        ),
+        "vad_backend": "silero_vad_onnx" if has_silero_ort else "rms_fallback",
+        "whisper_conf_ready": has_faster_whisper,
+        "live_pitch_backend": live_pitch,
+        "live_vad_backend": "silero_vad_onnx" if use_silero else "rms_threshold",
     }
 
 

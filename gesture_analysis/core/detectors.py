@@ -16,8 +16,9 @@ from __future__ import annotations
 
 import concurrent.futures
 import logging
+import os
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 
@@ -258,3 +259,90 @@ def verify_models(hand_path: Path | None = None, pose_path: Path | None = None,
                           min_tracking_confidence=0.5).close()
     _default_pose_factory(pp, num_poses=1, min_detection_confidence=0.6,
                           min_tracking_confidence=0.6).close()
+
+
+def create_gesture_detectors(
+    hand_path: Path | str | None = None,
+    pose_path: Path | str | None = None,
+    backend: str | None = None,
+    **kwargs: Any,
+) -> tuple[Any, Any]:
+    """按配置构造手部与姿态探测器对 ``(hand_detector, pose_detector)``。
+
+    读取 ``backend`` 或环境变量 ``JX_GESTURE_BACKEND``（默认 ``"mediapipe"``，
+    支持 ``"mediapipe"`` / ``"rtmw"`` / ``"auto"``）。当选择 ``"rtmw"``（或 ``"auto"``
+    检测到已缓存权重）且初始化失败或权重不可用时，记录告警并平滑回退到 MediaPipe。
+    """
+    if (
+        backend is None
+        and pose_path is None
+        and isinstance(hand_path, str)
+        and hand_path.strip().lower() in ("mediapipe", "rtmw", "auto")
+    ):
+        backend = hand_path
+        hand_path = None
+
+    raw_backend = backend if backend is not None else os.getenv("JX_GESTURE_BACKEND", "mediapipe")
+    selected = (raw_backend or "mediapipe").strip().lower()
+    if selected not in ("mediapipe", "rtmw", "auto"):
+        raise ValueError(
+            f"不支持的手势检测后端: {selected!r}（仅支持 'mediapipe'、'rtmw'、'auto'）"
+        )
+
+    hand_kwargs = dict(kwargs.pop("hand_kwargs", None) or {})
+    pose_kwargs = dict(kwargs.pop("pose_kwargs", None) or {})
+    factory = kwargs.pop("factory", None)
+    rtmw_mode = kwargs.pop("rtmw_mode", None)
+    rtmw_backend = kwargs.pop("rtmw_backend", "onnxruntime")
+    rtmw_device = kwargs.pop("rtmw_device", "cpu")
+    min_conf = float(kwargs.pop("min_conf", 0.3))
+    mediapipe_handedness = bool(kwargs.pop("mediapipe_handedness", True))
+    wholebody_factory = kwargs.pop("wholebody_factory", None)
+    if kwargs:
+        raise TypeError(f"create_gesture_detectors 收到未识别参数: {sorted(kwargs.keys())}")
+
+    def _build_mediapipe() -> tuple[HandDetector, PoseDetector]:
+        from ..config import HAND_MODEL, MEDIAPIPE_CONFIG, POSE_MODEL
+
+        hp = Path(hand_path) if hand_path is not None else Path(HAND_MODEL)
+        pp = Path(pose_path) if pose_path is not None else Path(POSE_MODEL)
+
+        h_opts = {k: v for k, v in MEDIAPIPE_CONFIG["hands"].items()}
+        h_opts.update(hand_kwargs)
+        if factory is not None:
+            h_opts.setdefault("factory", factory)
+
+        p_opts = {k: v for k, v in MEDIAPIPE_CONFIG["pose"].items() if k != "tier"}
+        p_opts.update(pose_kwargs)
+        if factory is not None:
+            p_opts.setdefault("factory", factory)
+
+        return HandDetector(hp, **h_opts), PoseDetector(pp, **p_opts)
+
+    if selected in ("rtmw", "auto"):
+        try:
+            from .rtmpose_backend import (
+                RTMWHandAdapter,
+                RTMWPoseAdapter,
+                RTMWWholeBodyEngine,
+                has_cached_rtmw_weights,
+            )
+
+            if selected == "auto" and wholebody_factory is None and not has_cached_rtmw_weights(rtmw_mode):
+                logger.info("JX_GESTURE_BACKEND=auto 未发现本地 RTMW 权重缓存，使用 MediaPipe")
+                return _build_mediapipe()
+
+            engine = RTMWWholeBodyEngine(
+                mode=rtmw_mode,
+                backend=rtmw_backend,
+                device=rtmw_device,
+                min_conf=min_conf,
+                mediapipe_handedness=mediapipe_handedness,
+                wholebody_factory=wholebody_factory,
+            )
+            engine.ensure_ready()
+            return RTMWHandAdapter(engine), RTMWPoseAdapter(engine)
+        except Exception as exc:
+            logger.warning("RTMW 后端初始化失败(%s)，平滑回退到 MediaPipe: %s", selected, exc)
+
+    return _build_mediapipe()

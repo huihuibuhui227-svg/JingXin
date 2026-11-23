@@ -117,10 +117,16 @@ def meta(session_id: str) -> dict | None:
         _read(_recording_transcript_path(session_id)))
 
 
+def whisper_conf_path(session_id: str) -> Path:
+    return transcript_dir() / f"{session_id}.whisper_conf.json"
+
+
 def load_transcript_with_asr(session_id: str) -> dict | None:
     """读取整场转写并**完整保留 `asr` 元数据块**（引擎、音频范围、词级概率摘要）。
 
     与 `meta()` 的区别：不丢弃 `asr` 块，供证据门做 ASR 置信度诚实披露与同源降档。
+    若存在旁路 faster-whisper 词级置信度缓存 `<sid>.whisper_conf.json`，
+    在主块无词级概率时以同音频旁路字段形式合并补充，绝不覆盖原始转写正文。
     """
     raw = _read(path(session_id))
     source_kind = "cache"
@@ -131,9 +137,22 @@ def load_transcript_with_asr(session_id: str) -> dict | None:
         return None
     norm = _norm(raw) or {}
     merged = raw.get("merged") if isinstance(raw.get("merged"), dict) else {}
-    asr_block = raw.get("asr") or merged.get("asr") or {}
+    asr_block = dict(raw.get("asr") or merged.get("asr") or {})
     if not isinstance(asr_block, dict):
         asr_block = {}
+
+    sidecar = _read(whisper_conf_path(session_id))
+    if sidecar and isinstance(sidecar.get("word_conf_summary"), dict):
+        if asr_block.get("asr_confidence_source") != "word_prob_aligned_same_engine":
+            asr_block["asr_confidence_source"] = sidecar.get(
+                "asr_confidence_source", "word_prob_aligned_same_engine"
+            )
+            asr_block["word_conf_summary"] = dict(sidecar["word_conf_summary"])
+            asr_block["confidence_engine"] = sidecar.get("engine", "faster-whisper")
+            asr_block["confidence_model_size"] = sidecar.get("model_size")
+            if sidecar.get("audio_scope") and not asr_block.get("audio_scope"):
+                asr_block["audio_scope"] = sidecar.get("audio_scope")
+
     return {
         **norm,
         "source_kind": source_kind,

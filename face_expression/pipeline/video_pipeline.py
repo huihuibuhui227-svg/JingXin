@@ -1,5 +1,6 @@
 import collections
 import copy
+import cv2
 import numpy as np
 from scipy.spatial import distance as dist
 
@@ -11,6 +12,70 @@ from ..core.analysis.tension_engine import TensionEngine
 from ..core.analysis.emotion_engine import EmotionEngine
 from ..models.features import TemporalStats
 from ..models.results import AnalysisFrameResult
+
+
+def assess_frame_quality(image_rgb_or_bgr, landmarks=None) -> dict:
+    """评估单帧采集画面质量(亮度均值、拉普拉斯清晰度与人脸占比)。"""
+    warnings: list[str] = []
+    brightness_mean = 0.0
+    blur_laplacian = 0.0
+
+    if image_rgb_or_bgr is not None:
+        arr = np.asarray(image_rgb_or_bgr)
+        if arr.size > 0 and arr.ndim in (2, 3):
+            if arr.ndim == 2:
+                gray = arr
+            elif arr.shape[2] == 1:
+                gray = arr[:, :, 0]
+            elif arr.shape[2] == 4:
+                src = arr.astype(np.float32) if arr.dtype == np.float64 else arr
+                gray = cv2.cvtColor(src, cv2.COLOR_RGBA2GRAY)
+            else:
+                src = arr.astype(np.float32) if arr.dtype == np.float64 else arr
+                gray = cv2.cvtColor(src, cv2.COLOR_RGB2GRAY)
+
+            brightness_mean = round(float(np.mean(gray)), 2)
+            blur_laplacian = round(float(cv2.Laplacian(gray, cv2.CV_64F).var()), 2)
+
+    if brightness_mean < 35.0:
+        warnings.append("光线偏暗")
+    elif brightness_mean > 230.0:
+        warnings.append("画面过亮")
+
+    if blur_laplacian < 15.0:
+        warnings.append("画面模糊")
+
+    face_area_ratio: float | None = None
+    if landmarks is not None and len(landmarks) > 0:
+        xs: list[float] = []
+        ys: list[float] = []
+        for pt in landmarks:
+            if hasattr(pt, "x") and hasattr(pt, "y"):
+                x, y = float(pt.x), float(pt.y)
+            else:
+                x, y = float(pt[0]), float(pt[1])
+            if np.isfinite(x) and np.isfinite(y):
+                xs.append(x)
+                ys.append(y)
+        if xs and ys:
+            min_x = max(0.0, min(1.0, min(xs)))
+            max_x = max(0.0, min(1.0, max(xs)))
+            min_y = max(0.0, min(1.0, min(ys)))
+            max_y = max(0.0, min(1.0, max(ys)))
+            face_area_ratio = round(
+                float(max(0.0, max_x - min_x) * max(0.0, max_y - min_y)), 6
+            )
+
+    if face_area_ratio is None:
+        warnings.append("未检测到人脸")
+
+    return {
+        "brightness_mean": brightness_mean,
+        "blur_laplacian": blur_laplacian,
+        "face_area_ratio": face_area_ratio,
+        "quality_ok": len(warnings) == 0,
+        "warnings": warnings,
+    }
 
 
 class VideoPipeline:
@@ -55,12 +120,25 @@ class VideoPipeline:
         self.n_submitted += 1
 
         h, w = image_rgb.shape[:2]
-        # 一并取回模型那 52 个 blendshape(2026-09-26 才接上;在此之前模型的这一半输出
-        # 从来没进过日志)。没检出脸时 landmarks 为 None、blendshapes 为**空字典**。
-        landmarks_norm, blendshapes = self.detector.detect_with_blendshapes(
-            image_rgb, timestamp_ms)
+        # 优先走 detect_full 取回 landmarks + 52 blendshape + 3D 变换矩阵欧拉角;
+        # 对旧测试注入的轻量替身逐级回退至 detect_with_blendshapes / detect。
+        head_pose_3d = None
+        detect_full = getattr(self.detector, "detect_full", None)
+        if callable(detect_full):
+            landmarks_norm, blendshapes, head_pose_3d = detect_full(
+                image_rgb, timestamp_ms)
+        else:
+            detect_with_bs = getattr(self.detector, "detect_with_blendshapes", None)
+            if callable(detect_with_bs):
+                landmarks_norm, blendshapes = detect_with_bs(
+                    image_rgb, timestamp_ms)
+            else:
+                landmarks_norm = self.detector.detect(image_rgb, timestamp_ms)
+                blendshapes = {}
 
-        if not landmarks_norm:
+        frame_quality = assess_frame_quality(image_rgb, landmarks_norm)
+
+        if landmarks_norm is None or len(landmarks_norm) == 0:
             # ★ 审查 F2:没脸的帧也要推进「上一帧时刻」。否则 `_update_blink_state` 里那个
             # `timestamp_ms - history_last_ms` 会跨过整段无人脸的时间,把它算成**一个闭眼帧**
             # —— 实测:有脸闭眼帧 + 10 秒无脸 + 有脸闭眼帧 → eye_closed_sec = 10.0 秒。
@@ -70,7 +148,12 @@ class VideoPipeline:
             # M2.5 的 E2E 实测抓到的:5 帧里有 1 帧没检出脸,那一行的 timestamp 于是成了
             # 1.790318e+09(绝对 epoch 秒),而其余四行是 0.00 / 0.09 / 0.15 / 0.19 ——
             # 整列时间戳被混进了第二个时间源,正是 spec §5.1 要根除的东西。
-            return None, None, {"emotion": "no_face", "timestamp": timestamp_ms / 1000.0}
+            return None, None, {
+                "emotion": "no_face",
+                "timestamp": timestamp_ms / 1000.0,
+                "head_pose_3d": None,
+                "frame_quality": frame_quality,
+            }
 
         # ★ **面部尺度 = 面部轮廓高**(2026-09-27,源头就这一处):
         #   前额顶(`FOREHEAD_TOP`)→ 下巴(`CHIN`),两端都在**面部中轴轮廓**上。
@@ -224,7 +307,10 @@ class VideoPipeline:
         # 第二槽原是 mediapipe 的原始 results 对象(`mp.solutions` 那代);换成 tasks 之后
         # 探测器交出的就是摊平后的 landmarks,所以这里跟着换成 `landmarks_norm` —— 沿用
         # 原名 `results` 会 NameError。真值语义(有真值 ⟺ 本帧检出脸)与迁移前一致。
-        return result, landmarks_norm, result.to_dict()
+        output_dict = result.to_dict()
+        output_dict["head_pose_3d"] = head_pose_3d
+        output_dict["frame_quality"] = frame_quality
+        return result, landmarks_norm, output_dict
 
     def reset(self) -> None:
         """把本管线恢复到「会话刚开始」:探测器、帧计数、时钟基线、历史窗全归零。
