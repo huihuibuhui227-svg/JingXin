@@ -111,10 +111,13 @@ def _deterministic_report_summary(payload: dict[str, Any]) -> str:
 
     dim_bits: list[str] = []
     for _k, d in dims.items():
-        name = d.get("name") or _k
-        c = d.get("coverage") or {}
+        name = d.get("display_name") or d.get("name") or _k
+        matched = d.get("matched_indicators")
+        if not matched:
+            c = d.get("coverage") or {}
+            matched = f"{c.get('n_passed', 0)}/{c.get('n_slots', 0)}"
         conf = d.get("confidence") or "待核验"
-        dim_bits.append(f"{name}（{c.get('n_passed', 0)}/{c.get('n_slots', 0)}，置信度：{conf}）")
+        dim_bits.append(f"{name}（{matched}，置信度：{conf}）")
     if dim_bits:
         lines.append("3. 分维度证据厚度：" + "；".join(dim_bits) + "。")
 
@@ -136,9 +139,19 @@ def _deterministic_interview_guide(payload: dict[str, Any]) -> str:
     gaps: list[str] = []
     thin_dims: list[str] = []
     for _k, d in dims.items():
-        name = d.get("name") or _k
-        c = d.get("coverage") or {}
-        if (c.get("n_passed", 0) < c.get("n_slots", 0)) or d.get("confidence") in ("不足", "低"):
+        name = d.get("display_name") or d.get("name") or _k
+        matched = str(d.get("matched_indicators") or "")
+        incomplete = False
+        if "/" in matched:
+            try:
+                p_str, t_str = matched.split("/", 1)
+                incomplete = int(p_str.strip()) < int(t_str.strip())
+            except ValueError:
+                incomplete = False
+        else:
+            c = d.get("coverage") or {}
+            incomplete = c.get("n_passed", 0) < c.get("n_slots", 0)
+        if incomplete or d.get("confidence") in ("不足", "低"):
             thin_dims.append(name)
         for g in (d.get("evidence_gaps") or []):
             if isinstance(g, str) and g.strip():

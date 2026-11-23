@@ -364,8 +364,20 @@ async def analyze_frame(
         logger.info(f"收到帧上传请求: session={session_id}, file={file.filename}")
 
         contents = await file.read()
-        arr = np.frombuffer(contents, dtype=np.uint8)
-        image = cv2.imdecode(arr, cv2.IMREAD_COLOR) if arr.size else None
+        if hasattr(cv2, "imdecode"):
+            arr = np.frombuffer(contents, dtype=np.uint8)
+            image = cv2.imdecode(arr, cv2.IMREAD_COLOR) if arr.size else None
+        else:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
+                tmp.write(contents)
+                tmp_path = tmp.name
+            try:
+                image = cv2.imread(tmp_path)
+            finally:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
         if image is None:
             raise HTTPException(status_code=400, detail="无法读取图片")
 

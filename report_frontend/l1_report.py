@@ -192,7 +192,7 @@ def _load_l0_blocked() -> list[dict]:
         if not isinstance(c, dict) or c.get("status") != "blocked":
             continue
         mod = c.get("modality", "")
-        name = c.get("name", "")
+        name = c.get("column") or c.get("name") or ""
         plain = _L0_BLOCKED_PLAIN.get(name)
         label = plain[0] if plain else _strip_dev_markup(c.get("label") or name)
         reason_plain = plain[1] if plain else _strip_dev_markup(c.get("notes") or "当前硬件或上游接口不支持该列真值测量")

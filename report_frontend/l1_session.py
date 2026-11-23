@@ -117,7 +117,7 @@ def segment_gap_note(segs: list[tuple[float, float]],
                     "同一场里不同模态的观察窗口不同,不可互相印证")
         return msg + "。"
     if audio_sec and total > 0 and not 0.8 <= total / audio_sec <= 1.2:
-        return (f"面部与手势覆盖 {total:.0f} 秒,而留存音频只有 {audio_sec:.1f} 秒"
+        return (f"F/G 两族覆盖 {total:.0f} 秒,而留存音频只有 {audio_sec:.1f} 秒"
                 f"(时长比 {total / audio_sec:.2f})—— 语音与文本的观察窗口与视觉不同,"
                 "不可互相印证")
     return None
@@ -155,8 +155,9 @@ def series_gap_note(voice, series, session_id: str | None = None) -> str | None:
     """
     if voice is None or series is not None:
         return None
-    return ("语音日志在,但帧级声学序列缓存尚未生成 —— 语音序列类指标这一场暂未出值"
-            "（" + l1_quality.GAP_EXPLANATION[l1_quality.GAP_NOT_EXTRACTED] + "）")
+    return ("语音日志在,但帧级声学序列缓存尚未生成 —— 8 项语音序列类指标这一场暂未出值"
+            "（" + l1_quality.GAP_EXPLANATION[l1_quality.GAP_NOT_EXTRACTED]
+            + "，可通过 voice_series.extract_session 离线补提）")
 
 
 def voice_gap_note(voice, voice_inds, session_id: str | None = None) -> str | None:

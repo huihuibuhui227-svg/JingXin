@@ -357,7 +357,7 @@ def _subject_block(session_id: Optional[str]) -> str:
         label = read_label(session_id)
     except Exception:
         return ('<div class="subject subject-missing">被测者：'
-                '<strong>读取失败</strong>（会话目录里的身份标注文件读取异常，'
+                '<strong>读取失败</strong>（会话目录里的身份标注文件 <code>label.json</code> 读取异常，'
                 '请检查原始录制目录）</div>')
     if not label:
         return ('<div class="subject subject-missing">被测者：<strong>未标注</strong>'

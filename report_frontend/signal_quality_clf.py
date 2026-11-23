@@ -276,7 +276,7 @@ def audit_session_signal_quality(
             "model_used": False,
             "model_type": None,
             "cv_metrics": cv_metrics,
-            "inference_ms": round((time.perf_counter() - t0) * 1000.0, 2),
+            "inference_ms": 0.0,
         }
 
     mdl = _load_model(model_path)

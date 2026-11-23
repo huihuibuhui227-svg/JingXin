@@ -4,6 +4,10 @@
 
 set -u
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=jx_env.sh
+source "$SCRIPT_DIR/jx_env.sh"
+
 UNITS=(jingxin-frontend jingxin-panel jingxin-gesture jingxin-voice jingxin-face)
 PORTS=(5173 5000 8002 8001 8000)
 
