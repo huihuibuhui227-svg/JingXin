@@ -126,13 +126,13 @@ def _pair_metrics(
     jaccard = round(overlap / union, 4)
     if overlap < min_overlap_sec or jaccard < JOINT_COV_BLOCK:
         status = "blocked"
-        reason = f"共同有效覆盖仅 {overlap} 秒（交并比 {jaccard:.0%}），低于阻断线 {JOINT_COV_BLOCK:.0%}"
+        reason = f"共同有效覆盖仅 {overlap} 秒，重合率 {jaccard:.0%}，低于 {JOINT_COV_BLOCK:.0%} 门槛"
     elif jaccard < JOINT_COV_OK:
         status = "degraded"
-        reason = f"共同有效覆盖 {overlap} 秒（交并比 {jaccard:.0%}），仅部分时段重合，跨模态联合解读需谨慎"
+        reason = f"共同有效覆盖 {overlap} 秒，重合率 {jaccard:.0%}，仅部分时段重合"
     else:
         status = "aligned"
-        reason = f"共同有效覆盖 {overlap} 秒（交并比 {jaccard:.0%}），时间对齐充分"
+        reason = f"共同有效覆盖 {overlap} 秒，重合率 {jaccard:.0%}，时间对齐充分"
 
     return {
         "overlap_sec": overlap,
@@ -269,28 +269,30 @@ def evaluate_cross_modal_coverage(
                 "face_gesture": fg,
             })
 
-    # 一句话人话汇总
+    # 一句话人话汇总（无嵌套括号，直白好读）
     fg_pair = pairs["face_gesture"]
     fv_pair = pairs["face_voice"]
     parts_plain: list[str] = []
     if fg_pair["status"] == "aligned":
         parts_plain.append(
-            f"面部与手势按秒对齐充分（共同有效观测 {fg_pair['overlap_sec']} 秒，交并比 {fg_pair['jaccard']:.0%}）"
+            f"面部与手势画面同步良好，重合 {fg_pair['overlap_sec']} 秒，重合率 {fg_pair['jaccard']:.0%}"
         )
     elif fg_pair["status"] == "degraded":
         parts_plain.append(
-            f"面部与手势仅部分时段重合（交并比 {fg_pair['jaccard']:.0%}），跨模态对照需谨慎"
+            f"面部与手势仅部分时段重合，重合率 {fg_pair['jaccard']:.0%}"
         )
     else:
-        parts_plain.append(f"面部与手势未通过跨模态时间对齐门控（{fg_pair['reason']}）")
+        parts_plain.append(f"面部与手势同步时段不足：{fg_pair['reason']}")
 
     if fv_pair["status"] == "aligned":
-        parts_plain.append(f"视觉与语音对齐充分（交并比 {fv_pair['jaccard']:.0%}）")
+        parts_plain.append(f"画面与语音同步良好，重合率 {fv_pair['jaccard']:.0%}")
     elif fv_pair["status"] == "unverifiable":
-        ratio_txt = f"（时长比 {fv_pair['span_ratio']:.2f}）" if fv_pair.get("span_ratio") is not None else ""
-        parts_plain.append(f"语音时间轴无挂钟锚点{ratio_txt}，与视觉指标分项呈现、不做逐秒联合推断")
+        ratio_txt = f"，时长比 {fv_pair['span_ratio']:.2f}" if fv_pair.get("span_ratio") is not None else ""
+        parts_plain.append(f"语音为分段录音{ratio_txt}，与画面指标分项展示")
     else:
-        parts_plain.append(f"视觉与语音未对齐（{fv_pair['reason']}）")
+        ov_sec = fv_pair.get("overlap_sec")
+        ov_txt = f"，与全程画面重合 {ov_sec} 秒" if ov_sec is not None else ""
+        parts_plain.append(f"语音为按题分段采集{ov_txt}，两类指标分项展示")
 
     return {
         "resolution_sec": RESOLUTION_SEC,

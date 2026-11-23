@@ -86,6 +86,7 @@ from . import (
     l1_quality,
     parameter_provenance,
     signal_quality_clf,
+    speaker_turn_audit,
     transcript_chars,
 )
 from .l1_quality import GAP_EXPLANATION, build_quality_report, explain_confidence
@@ -321,8 +322,8 @@ def _build_asr_confidence_disclosure(session_id: str, indicators: list[dict]) ->
             "word_conf_summary": None,
             "degraded_indicators": [],
             "note_plain": (
-                "当前语音转写引擎不返回逐词置信度概率：5 项文本相关指标已通过字数样本门槛检验，"
-                "但底层转写识别准确率未独立测量，复核时请结合原始转写文本确认。"
+                "语音转写文本由本地识别引擎自动生成，5 项文本指标已满足字数门槛；"
+                "因引擎不输出逐字识别概率，复核具体字词时可对照原始转写文本。"
             ),
         }
 
@@ -896,9 +897,8 @@ def build_l1_report(session_id: str, logs: dict | None = None) -> dict:
             "gaps": list(result.gaps),
             "dispersion": dict(getattr(result, "dispersion", None) or {}),
             "dispersion_note": (
-                "逐题值的题间离散度(中位/IQR/极值)，只在本场内有意义 —— "
-                "它不能与别的场次直接相减，也不是会话级值；会话级全部指标见明细表"
-                "（口径：所有回答窗内帧的并集）。单题时不出现在这里（没有离散度可言）。"
+                "展示本场各道题之间的数值波动范围，包含最小值、中位数、最大值与中间半数区间；"
+                "仅用于观察本场不同题目间的变化，不能跨场次直接相减。"
             ),
             "instruments": _instrument_block(quality.indicators),
             # ── 2026-11-23 增量顶层证据链披露字段（不动既有行键，向后兼容） ──
@@ -915,5 +915,6 @@ def build_l1_report(session_id: str, logs: dict | None = None) -> dict:
             ),
             "second_instrument_appendix": _build_second_instrument_appendix(logs),
             "signal_quality_audit": signal_quality_clf.audit_session_signal_quality(logs, session_id),
+            "speaker_turn_audit": speaker_turn_audit.audit_speaker_turns(session_id, logs=logs),
         },
     }

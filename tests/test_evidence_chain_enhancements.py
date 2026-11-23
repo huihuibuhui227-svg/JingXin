@@ -143,7 +143,12 @@ def test_build_l1_report_exposes_all_additive_evidence_blocks():
         "lead_summary", "indicator_meta", "zero_explanations", "dimension_registry",
         "parameter_provenance", "cross_modal_coverage", "asr_confidence_disclosure",
         "governance_ledger", "blocked_dependency_warnings", "second_instrument_appendix",
+        "speaker_turn_audit",
     ):
         assert k in l1, f"l1 载荷缺少增量字段 {k}"
     assert len(l1["indicator_meta"]) == 41
     assert len(l1["governance_ledger"]["l0_blocked"]) == 5
+    for dim_info in l1["dimension_registry"].values():
+        assert dim_info.get("user_summary")
+        assert dim_info.get("literature_anchor")
+    assert l1["speaker_turn_audit"]["isolation_mode"] == "mixed_unsegmented"

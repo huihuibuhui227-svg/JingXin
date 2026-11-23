@@ -313,14 +313,13 @@ def audit_session_signal_quality(
 
     if not flagged:
         summary_plain = (
-            f"共巡检 {len(X)} 个采集滑动窗（每窗 {WINDOW_SIZE} 帧），"
-            f"信号可用率 {ratio * 100:.1f}%（{n_usable}/{len(X)}），未发现明显遮挡、冻结或尖峰异常。"
+            f"共检查 {len(X)} 段连续画面窗口，信号可用率 {ratio * 100:.1f}%，未发现明显遮挡、画面卡顿或坐标跳变。"
         )
     else:
         top_hint = max(hint_counts.items(), key=lambda kv: kv[1])[0]
         summary_plain = (
-            f"共巡检 {len(X)} 个采集滑动窗，信号可用率 {ratio * 100:.1f}%（{n_usable}/{len(X)}），"
-            f"检出 {len(X) - n_usable} 个疑似信号降质窗（主要提示：{top_hint}）。"
+            f"共检查 {len(X)} 段连续画面窗口，信号可用率 {ratio * 100:.1f}%，"
+            f"发现 {len(X) - n_usable} 段存在信号波动，主要原因为{top_hint}。"
         )
 
     return {

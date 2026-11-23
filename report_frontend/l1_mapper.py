@@ -422,32 +422,42 @@ DIMENSIONS: dict[str, dict] = {
     },
 }
 
-#: 5 大维度的中性规范键注册表（保留 `DIMENSIONS` 历史协议键向后兼容，同时显式声明非心理推断）
+#: 5 大维度的中性规范键注册表（保留 `DIMENSIONS` 历史协议键向后兼容，补充自然人话说明与外显行为编码文献出处）
 DIMENSION_REGISTRY: dict[str, dict[str, str]] = {
     "logical_thinking": {
         "canonical_id": "discourse_structure",
         "display_name": "话语结构特征",
-        "disclaimer": "仅作历史协议兼容键名，汇总连接词与视觉局部观测，不作思维或认知能力推断。",
+        "user_summary": "记录作答中的连接词使用频率、视线保持稳定度与眉部动作。",
+        "literature_anchor": "Borkenau & Liebler (1992) 五因素外显行为编码：话语衔接与视听注意保持线索",
+        "disclaimer": "汇总连接词与视线局部观测，不作思维或认知能力推断。",
     },
     "stress_resilience": {
         "canonical_id": "situational_motor_stability",
         "display_name": "情境行为稳定性",
-        "disclaimer": "仅作历史协议兼容键名，汇总唇部形变、上肢抖动与面部不对称度，不作心理状态或情绪推断。",
+        "user_summary": "记录作答期间的抿唇占比、上肢微幅晃动与面部左右对称情况。",
+        "literature_anchor": "Ekman & Friesen (1978) / Burgoon (2016) 非言语行为编码：问答情境姿态平稳度线索",
+        "disclaimer": "汇总唇部形变、上肢抖动与面部不对称度，不作心理状态或情绪推断。",
     },
     "communication_fluency": {
         "canonical_id": "speech_delivery_continuity",
         "display_name": "沟通表达流畅度",
-        "disclaimer": "仅作历史协议兼容键名，汇总停顿分布、语调变化与停顿中位时长，不作语言能力打分。",
+        "user_summary": "记录说话时的停顿分布均匀程度、语调起伏与单次停顿时长。",
+        "literature_anchor": "De Jong et al. (2015) 言语产出韵律学：口语停顿节律与基频变化线索",
+        "disclaimer": "汇总停顿分布、语调变化与停顿中位时长，不作语言能力打分。",
     },
     "confidence_level": {
         "canonical_id": "visible_behavior_activity",
         "display_name": "行为表现活跃度",
-        "disclaimer": "仅作历史协议兼容键名，汇总手掌张开度、耸肩幅度与眼神接触时长，不作自信心或主观特质推断。",
+        "user_summary": "记录表达时的手部舒展幅度、肩部动作变化与单次注视持续时间。",
+        "literature_anchor": "Borkenau & Liebler (1992) / Gifford (1994) 五因素外显行为编码：肢体舒展度与注视参与线索",
+        "disclaimer": "汇总手掌张开度、耸肩幅度与眼神接触时长，不作自信心或主观特质推断。",
     },
     "cognitive_efficiency": {
         "canonical_id": "response_execution_profile",
         "display_name": "作答过程特征",
-        "disclaimer": "仅作历史协议兼容键名，汇总逐段非空白字符数与应答启动间隔，不作认知效率评定。",
+        "user_summary": "记录提问结束到开口作答的间隔时长与单题回答字数。",
+        "literature_anchor": "Stivers et al. (2009) 会话轮次转换研究：应答潜伏期与话语详尽度线索",
+        "disclaimer": "汇总逐段非空白字符数与应答启动间隔，不作认知效率评定。",
     },
 }
 

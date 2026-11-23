@@ -86,18 +86,19 @@ def _call_local_openai_chat(
 
 
 def _deterministic_report_summary(payload: dict[str, Any]) -> str:
-    """毫秒级确定性结构化摘要（零外部依赖、零幻觉、100% 红线安全）。"""
+    """毫秒级确定性结构化摘要（自然直白中文，零术语堆砌）。"""
     cov = payload.get("coverage") or {}
     l1 = payload.get("l1") or {}
     dims = payload.get("dimensions") or {}
     lead = l1.get("lead_summary") or {}
     cm = l1.get("cross_modal_coverage") or {}
     sq = l1.get("signal_quality_audit") or {}
+    st = l1.get("speaker_turn_audit") or {}
 
     n_passed = cov.get("n_passed", 0)
     n_slots = cov.get("n_slots", 14)
     lines: list[str] = [
-        f"1. 证据覆盖概览：本场共有 {n_passed} / {n_slots} 项核心行为指标通过白盒审查。",
+        f"1. 整体完成度：本场 14 项核心观测指标中有 {n_passed} / {n_slots} 项拿到了有效实测数据。",
     ]
     lead_text = (
         lead.strip()
@@ -107,7 +108,7 @@ def _deterministic_report_summary(payload: dict[str, Any]) -> str:
         else ""
     )
     if lead_text:
-        lines.append(f"2. 结构化导读：{lead_text}")
+        lines.append(f"2. 核心结论：{lead_text}")
 
     dim_bits: list[str] = []
     for _k, d in dims.items():
@@ -117,16 +118,17 @@ def _deterministic_report_summary(payload: dict[str, Any]) -> str:
             c = d.get("coverage") or {}
             matched = f"{c.get('n_passed', 0)}/{c.get('n_slots', 0)}"
         conf = d.get("confidence") or "待核验"
-        dim_bits.append(f"{name}（{matched}，置信度：{conf}）")
+        dim_bits.append(f"{name} {matched} 项有值，证据可信度为{conf}")
     if dim_bits:
-        lines.append("3. 分维度证据厚度：" + "；".join(dim_bits) + "。")
+        lines.append("3. 各维度实况：" + "；".join(dim_bits) + "。")
 
+    if st.get("summary_plain"):
+        lines.append(f"4. 问答与声音分离：{st['summary_plain']}")
     if cm.get("summary_plain"):
-        lines.append(f"4. 跨模态时间窗对齐：{cm['summary_plain']}")
+        lines.append(f"5. 画面与声音同步：{cm['summary_plain']}")
     if sq.get("summary_plain"):
-        lines.append(f"5. 采集信号质检参考：{sq['summary_plain']}")
+        lines.append(f"6. 采集画面质量：{sq['summary_plain']}")
 
-    lines.append("6. 审阅边界：所有数值均为客观行为观测记录，不包含任何分数、排序或主观定性结论。")
     return "\n".join(lines)
 
 
