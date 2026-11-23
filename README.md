@@ -1,8 +1,10 @@
-# JingXin
+# 《衡才智析——多模态行为证据披露系统》（原开发代号 JingXin）
 
-一套**结构化行为记录**系统。把一场面试里受试者的面部动作单元、手部/姿态、语音韵律、
-话语结构采下来，落成逐帧/逐回答的 CSV，再由报告层按**有出处的判据**披露
-「哪些行为线索有证据、哪些没有」。
+> **软著名**：`衡才智析——科研行为证据门控评估系统 V1.0` ｜ **核心理念**：「不给分，只给证据与缺口」 / 「仪器可以是黑盒，裁判必须是白盒」
+
+一套**多模态行为证据披露**系统。把一场面试或科研汇报中受试者的面部动作单元、手部/姿态、语音韵律、
+话语结构采下来，落成逐帧/逐回答的 CSV，再由零机器学习的白盒证据门按**有出处的判据**披露
+「哪些行为线索有证据、证据有多硬、哪些没量到且为什么、出自哪套仪器」。
 
 > ⚠️ **它不是心理测量工具，也不做心理识别结论。** 这条是硬约束，不是措辞偏好：
 >
@@ -31,15 +33,18 @@
 仓库内布局：
 
 ```
-app.py                  Flask 报告面板(:5000)
-face_expression/        面部服务(:8000)   core/feature_extraction/au_calculator.py 出 iris 四列+AU
-gesture_analysis/       手势服务(:8002)
-voice_interaction/      语音服务(:8001)   asr/ 是转写缝(funasr_client → funasr_engine)
-report_frontend/        报告层:data_loader → 回答窗口 → L1 指标(38 条) → 质量门 → 维度映射 → report_generator
+app.py                  Flask 报告面板(:5000，含脱敏/鉴权、健康探活、本地辅助解读与题库检索)
+redline_guard.py        品牌与法规红线词/打分正则硬守卫（独立于 report_frontend/）
+face_expression/        面部服务(:8000)   内存 cv2.imdecode，输出 iris 四列 + AU + 52 Blendshape
+gesture_analysis/       手势服务(:8002)   Hand 21 点 + Pose 33 点
+voice_interaction/      语音服务(:8001)   多会话隔离、FunASR 转写 + 韵律、历史场次 fail-closed 防误删
+report_frontend/        报告层:data_loader → 回答窗口 → L1 指标(41 条) → 质量门 → 维度映射 →
+                         参数来源(T1/T2/T3) + 跨模态覆盖门控 + 治理台账 + 信号质检 + report_generator
                          （旧引擎 feature_engine → research_mapper 仅 ?engine=legacy 对照）
+models/                 预训练 MediaPipe 模型 + 35.3 KB 纯 CPU 自监督信号质检模型(signal_quality_clf.joblib)
 media_retention.py      留存与账本(三服务共用的横切模块)
 l0_columns.json         ★ L0 列表的唯一权威(86 列,status × maturity 两轴)
-tools/                  起服务 / 验收 / 结构图 / 会话审计 / 转写
+tools/                  起停服务(start_all.sh / stop_all.sh) / 验收 / CPU 基准 / 信号质检训练 / 转写
 docs/                   文档(见 §4「权威在哪」)
 data/logs/              运行日志 CSV(gitignored)
 data/transcripts/       ASR 转写产物(gitignored,**含真实受试者个人信息,只能留服务器**)
@@ -69,26 +74,28 @@ data/transcripts/       ASR 转写产物(gitignored,**含真实受试者个人�
 
 ```bash
 cd ~/JingXin/jingxin
-source tools/jx_env.sh          # 拿到 $JX_PY / $JX_REPO 等
+source tools/jx_env.sh          # 拿到 $JX_PY / $JX_REPO / $JINGXIN_RECORDINGS_DIR
 
-# 起全套(三个采集服务 + 面板 + 前端,幂等)
-bash tools/start_all.sh
+# 生产模式一键启动(三个采集服务 + 面板 + 前端,幂等,自动加载 ~/JingXin/.env + HTTP 探活)
+bash tools/start_all.sh --prod
+
+# 一键优雅停止全部 5 个服务(兼容 systemd --user 与手动拉起)
+bash tools/stop_all.sh
 ```
 
 | 服务 | 端口 | 作用 |
 |---|---|---|
-| face_expression | 8000 | 面部 AU / iris / 头姿 |
-| voice_interaction | 8001 | FunASR 转写 + 韵律 |
-| gesture_analysis | 8002 | 姿态 + 手部 landmark |
-| app.py（面板） | 5000 | 报告面板 API / 文件浏览 |
-| 前端（Vite） | 5173 | 界面 |
+| face_expression | 8000 | 面部 478 点 AU / iris / 52 Blendshape |
+| voice_interaction | 8001 | FunASR 转写 + 韵律 + 多会话隔离 |
+| gesture_analysis | 8002 | Pose 33 点 + Hand 21 点 |
+| app.py（面板） | 5000 | 报告面板 API / 脱敏输出 / 导出 / 题库 / 本地助手 |
+| 前端（Vite） | 5173 | 《衡才智析》Web 界面 |
 | FunASR 运行时 | 10095 | 独立部署，见 §5 |
 
-自检：
+一键全链路自检：
 
 ```bash
-curl -s localhost:8000/health; curl -s localhost:8001/health
-curl -s localhost:8002/health; curl -s localhost:5000/api/health
+curl --noproxy '*' -s http://127.0.0.1:5000/api/system/health
 ```
 
 > ⚠️ **三个服务没有启动脚本，必须 `setsid` 脱离终端起。**
@@ -262,5 +269,36 @@ git add <具体路径>        # ★ 禁止 git add -A
 ### 已知
 
 - 整场 `camera.webm` 上传实测约 0.5 MB/s（客户端与服务器未建立 Tailscale 直连，
-  走 DERP 中继、RTT ~1 s）；服务器侧不是瓶颈。打通直连 / 同网段走 LAN 可显著提速。
+  走 DERP 中继、RTT ~1 s）；服务器侧不是瓶颈。打通直连 / 同网段走 SSH 端口转发可显著提速。
 - 微表情 4 列实测 0 非空；手部指标样本极少；这些在报告层按 gap 报"结构性不产出"。
+
+---
+
+## 2026-11-23 全栈升级与挑战杯产品级打磨
+
+### 新模块与基准工具
+
+| 文件 | 作用 |
+|---|---|
+| `report_frontend/brand.py` + `redline_guard.py` | 统一《衡才智析》品牌与红线词/打分正则硬守卫 |
+| `report_frontend/parameter_registry.json` + `parameter_provenance.py` | 21 项关键参数 T1/T2/T3 三级来源登记与常量一致性校验 |
+| `report_frontend/cross_modal_coverage.py` | 跨模态逐秒时间窗覆盖率门控（`aligned/degraded/blocked/unverifiable`） |
+| `report_frontend/signal_quality_clf.py` + `tools/train_signal_quality_model.py` | 35.3 KB 纯 CPU 自监督采集信号质检分类器（GroupKFold ROC-AUC `0.9996`，严格只读绝不参评） |
+| `report_frontend/local_llm_assistant.py` | 隔离按需本地小模型摘要/追问提纲（4s 超时 + 红线硬复检 + 毫秒级确定性回退）与 TF-IDF 题库检索 |
+| `tools/jx_cpu_benchmark.py` + `tools/stop_all.sh` | 纯 CPU 端到端性能与峰值内存基准测试 + 一键优雅停机 |
+
+### 新增/加固接口
+
+| 接口 | 说明 |
+|---|---|
+| `GET /api/system/health` | 并行探活 4 路后端 + FunASR `:10095` 状态与延迟（绕过代理） |
+| `POST /api/report/llm-assist` | 按需本地辅助解读（`summary` / `interview_guide`），含合规水印与硬红线复检 |
+| `POST /api/question-bank/llm-search` | 毫秒级本地 TF-IDF 题库语义检索（可选本地小模型扩展） |
+| `/api/report/structured` · `/api/files/reports` · `/output/*` | 未登录自动脱敏剥离姓名/学号/院系，管理员登录解锁完整信息 |
+| `/api/question-bank/*/banks` · `/active` · `:8001/session/<sid>/discard` | 题库写删需管理员鉴权；历史场次丢弃无条件 fail-closed 返回 403 |
+
+### 纯 CPU 轻量化实测（`CUDA_VISIBLE_DEVICES=""`）
+面部 `43.39 ms/帧`（`23.05 FPS`） · 手势+全身姿态 `109.66 ms/帧`（`9.12 FPS`） · 语音韵律 `RTF 0.1406`（`7.11×` 实时） · 全链路报告 `176.54 ms` · 同进程峰值内存 `589.5 MB`。
+
+### 新增核心测试
+`tests/test_dimension_table_uses_indicator_labels.py`、`tests/test_evidence_chain_enhancements.py`、`tests/test_auth_and_redaction.py`、`tests/test_voice_session_isolation_and_research_series.py`、`tests/test_signal_quality_and_local_assistant.py`。
