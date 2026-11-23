@@ -1,12 +1,20 @@
 # report_frontend/brand.py
-"""《衡才智析》后端单一品牌与红线口径常量源。
+"""《衡才智析》后端单一品牌常量源。
 
 全仓所有对外输出（HTML 报告、导出文件头、Flask 面板、CLI 摘要、合规守卫测试）
-统一从本模块读取正式品牌名与红线禁用词，杜绝多处硬编码导致旧名残留或口径漂移。
+统一从本模块读取正式品牌名与文件命名规则；红线词表与扫描器由根模块 `redline_guard`
+提供并在此统一转出。
 """
 from __future__ import annotations
 
 import re
+
+from redline_guard import (
+    FORBIDDEN_BRAND_AND_HYPE_TERMS,
+    FORBIDDEN_CLINICAL_EMOTION_TERMS,
+    FORBIDDEN_USER_TEXT_RE,
+    find_redline_violations,
+)
 
 # ── 对外正式品牌口径（见 24_定稿名称与夸大的边界_20261121.md） ─────────────
 BRAND_NAME = "衡才智析"
@@ -31,56 +39,21 @@ REPORT_FILENAME_RE = re.compile(
     re.IGNORECASE,
 )
 
-# ── 绝对红线禁用词（面向用户界面/报告/导出正文与实时 API 文案） ──────────
-# 1. 停用旧名与虚假/夸大技术词
-FORBIDDEN_BRAND_AND_HYPE_TERMS: tuple[str, ...] = (
-    "镜心",
-    "JingXin",
-    "科研心流态智能判推系统",
-    "数字化仪表盘",
-    "综合得分",
-    "量子融合",
-    "ST-GNN",
-    "临床级",
-    "2000例",
-    "60Hz 眼动仪",
-    "4K 自适应",
-    "边缘即时销毁",
-)
-
-# 2. 违规情绪/临床/心理诊断词（欧盟 AI Act + 中国 NMPA 红线）
-FORBIDDEN_CLINICAL_EMOTION_TERMS: tuple[str, ...] = (
-    "高度焦虑",
-    "焦虑",
-    "紧张度",
-    "轻微紧张",
-    "高紧张",
-    "处于紧张",
-    "抑郁",
-    "心理风险",
-    "压力韧性",
-    "抗压",
-    "微表情",
-    "语音情感",
-    "科研潜质评估",
-    "候选人得分",
-)
-
-FORBIDDEN_USER_TEXT_RE = re.compile(
-    "|".join(
-        re.escape(w)
-        for w in (*FORBIDDEN_BRAND_AND_HYPE_TERMS, *FORBIDDEN_CLINICAL_EMOTION_TERMS)
-    )
-)
-
-
-def find_redline_violations(text: str) -> list[str]:
-    """扫描面向用户文本中的红线违规词，返回去重后的命中列表。"""
-    if not text:
-        return []
-    seen: list[str] = []
-    for m in FORBIDDEN_USER_TEXT_RE.finditer(text):
-        hit = m.group(0)
-        if hit not in seen:
-            seen.append(hit)
-    return seen
+__all__ = [
+    "BRAND_NAME",
+    "BRAND_SUBTITLE",
+    "BRAND_FULL_TITLE",
+    "BRAND_ENGLISH",
+    "COPYRIGHT_SOFTWARE_NAME",
+    "BRAND_SLOGAN",
+    "ARCHITECTURE_SLOGAN",
+    "REPORT_HTML_TITLE",
+    "REPORT_HTML_FOOTER",
+    "TRANSCRIPT_EXPORT_HEADER",
+    "REPORT_FILENAME_PREFIX",
+    "REPORT_FILENAME_RE",
+    "FORBIDDEN_BRAND_AND_HYPE_TERMS",
+    "FORBIDDEN_CLINICAL_EMOTION_TERMS",
+    "FORBIDDEN_USER_TEXT_RE",
+    "find_redline_violations",
+]

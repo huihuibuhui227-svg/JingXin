@@ -33,8 +33,8 @@ except ImportError as e:
     raise
 
 app = FastAPI(
-    title="Face Expression Analysis API",
-    description="面部表情分析API，支持视频流实时分析"
+    title="衡才智析 · 面部几何与动作单元观测 API",
+    description="面部 478 点网格、52 项动作单元及视线几何代理实时采集服务"
 )
 
 # 添加 CORS 中间件
@@ -363,51 +363,43 @@ async def analyze_frame(
     try:
         logger.info(f"收到帧上传请求: session={session_id}, file={file.filename}")
 
-        temp_path = None
-        try:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_file:
-                contents = await file.read()
-                temp_file.write(contents)
-                temp_path = temp_file.name
+        contents = await file.read()
+        arr = np.frombuffer(contents, dtype=np.uint8)
+        image = cv2.imdecode(arr, cv2.IMREAD_COLOR) if arr.size else None
+        if image is None:
+            raise HTTPException(status_code=400, detail="无法读取图片")
 
-            image = cv2.imread(temp_path)
-            if image is None:
-                raise HTTPException(status_code=400, detail="无法读取图片")
+        logger.info(f"图片加载成功: {image.shape}")
 
-            logger.info(f"图片加载成功: {image.shape}")
+        # 获取或创建 VideoPipeline
+        pipeline = get_or_create_pipeline(session_id)
+        timestamp_ms = _clock_for(session_id).stamp_ms()
+        # M2.6:先把这一帧的原始字节存一份,再算 —— 算的过程中抛异常也不丢素材。
+        # 留存关掉时(默认开)这里什么都不做,行为与 M2.6 之前逐字节相同。
+        # ★ probe(开录前的设备自检):只做检测,**不留存、不写日志、不落取景决策**
+        #   —— 自检帧不该污染这一场的素材与 CSV。
+        if not probe:
+            media_retention.retain_frame(session_id, "face", contents,
+                                         declared_ts=timestamp_ms, source="/analyze")
 
-            # 获取或创建 VideoPipeline
-            pipeline = get_or_create_pipeline(session_id)
-            timestamp_ms = _clock_for(session_id).stamp_ms()
-            # M2.6:先把这一帧的原始字节存一份,再算 —— 算的过程中抛异常也不丢素材。
-            # 留存关掉时(默认开)这里什么都不做,行为与 M2.6 之前逐字节相同。
-            # ★ probe(开录前的设备自检):只做检测,**不留存、不写日志、不落取景决策**
-            #   —— 自检帧不该污染这一场的素材与 CSV。
-            if not probe:
-                media_retention.retain_frame(session_id, "face", contents,
-                                             declared_ts=timestamp_ms, source="/analyze")
+        # 取景：整场只决定一次，必要时中央裁切放大（见 `_framing_for` 的说明）。
+        # ⚠️ 顺序要紧：**放在 `retain_frame` 之后** —— 留存必须是上传的原始帧，
+        #    与取景决策无关；这样全画幅永远留在盘上，随时可离线重提取。
+        crop = (None if probe else
+                _framing_for(session_id, image, timestamp_ms))
 
-            # 取景：整场只决定一次，必要时中央裁切放大（见 `_framing_for` 的说明）。
-            # ⚠️ 顺序要紧：**放在 `retain_frame` 之后** —— 留存必须是上传的原始帧，
-            #    与取景决策无关；这样全画幅永远留在盘上，随时可离线重提取。
-            crop = (None if probe else
-                    _framing_for(session_id, image, timestamp_ms))
+        # 处理帧（`crop` 为 None 时 apply_crop 原样返回 ⟹ 全画幅路径零行为变化）
+        result_obj, mesh_results, features_dict = pipeline.process_frame(
+            cv2.cvtColor(apply_crop(image, crop), cv2.COLOR_BGR2RGB),
+            timestamp_ms)
 
-            # 处理帧（`crop` 为 None 时 apply_crop 原样返回 ⟹ 全画幅路径零行为变化）
-            result_obj, mesh_results, features_dict = pipeline.process_frame(
-                cv2.cvtColor(apply_crop(image, crop), cv2.COLOR_BGR2RGB),
-                timestamp_ms)
-
-            # 将帧数据写入 CSV 日志（供 report_frontend 批量读取）
-            if not probe and session_id in session_loggers:
-                try:
-                    face_logger, _ = session_loggers[session_id]
-                    face_logger.log(features_dict)
-                except Exception as log_err:
-                    logger.warning("CSV日志写入失败: %s", log_err)
-        finally:
-            if temp_path and os.path.exists(temp_path):
-                os.unlink(temp_path)
+        # 将帧数据写入 CSV 日志（供 report_frontend 批量读取）
+        if not probe and session_id in session_loggers:
+            try:
+                face_logger, _ = session_loggers[session_id]
+                face_logger.log(features_dict)
+            except Exception as log_err:
+                logger.warning("CSV日志写入失败: %s", log_err)
 
         if result_obj is None:
             logger.warning("未检测到人脸")

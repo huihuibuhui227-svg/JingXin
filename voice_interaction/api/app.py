@@ -10,9 +10,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 import asyncio
+import hmac
 import json
 import os
 import logging
+import secrets
+import socket
 import wave
 import io
 
@@ -44,8 +47,8 @@ from voice_interaction.asr.transcribe import log_recognition
 from voice_interaction.asr.transcribe import transcribe as _transcribe
 
 app = FastAPI(
-    title="Voice Interaction API",
-    description="语音交互API，提供语音识别、语音合成和面试评估功能"
+    title="衡才智析 · 语音交互与韵律采集 API",
+    description="提供语音转写、逐题韵律采集与问答记录汇总接口"
 )
 
 # 添加 CORS 中间件
@@ -65,6 +68,52 @@ app.add_middleware(
 tts_engine = TTSEngine()
 interview_assessment = InterviewAssessmentPipeline()
 research_assessment = ResearchAssessmentPipeline()
+
+# 按会话隔离的问答管线与日志器表（保留上面全局引用以兼容既有测试与不传 session_id 的旧调用方）
+_MAX_CACHED_SESSIONS = 64
+_interview_sessions: dict[str, tuple[InterviewAssessmentPipeline, VoiceLogger]] = {}
+_research_sessions: dict[str, tuple[ResearchAssessmentPipeline, VoiceLogger]] = {}
+# 本进程内新铸会话的作废令牌（防止未授权外部请求误删盘上历史正式场次）
+_MINTED_DISCARD_TOKENS: dict[str, str] = {}
+
+
+def _server_tts_enabled() -> bool:
+    """服务端播报开关：默认关闭，避免在无声卡服务器或与浏览器播报叠加产生回声。"""
+    return os.getenv("JX_SERVER_TTS", "0").strip().lower() in ("1", "true", "yes")
+
+
+def _speak_if_enabled(text: str) -> None:
+    if _server_tts_enabled():
+        try:
+            tts_engine.speak(text)
+        except Exception:
+            logger.warning("服务端 TTS 播报跳过", exc_info=True)
+
+
+def _prune_session_map(store: dict) -> None:
+    while len(store) > _MAX_CACHED_SESSIONS:
+        oldest = next(iter(store))
+        store.pop(oldest, None)
+
+
+def _get_interview_pair(sid: str | None = None) -> tuple[InterviewAssessmentPipeline, VoiceLogger]:
+    if sid and sid in _interview_sessions:
+        return _interview_sessions[sid]
+    return interview_assessment, voice_logger
+
+
+def _get_research_pair(sid: str | None = None) -> tuple[ResearchAssessmentPipeline, VoiceLogger]:
+    if sid and sid in _research_sessions:
+        return _research_sessions[sid]
+    return research_assessment, research_logger
+
+
+def _tcp_probe(host: str, port: int, timeout: float = 1.0) -> bool:
+    try:
+        with socket.create_connection((host, int(port)), timeout=timeout):
+            return True
+    except OSError:
+        return False
 
 
 def _reload_question_bank(pipeline, module: str) -> None:
@@ -155,6 +204,18 @@ async def _transcribe_async(pcm: bytes):
     (识别约 1.75 s,期间服务还能接别的请求)。
     """
     return await asyncio.to_thread(_transcribe, pcm)
+
+
+async def _transcribe_or_503(pcm: bytes):
+    """调用转写并在 FunASR 不可达/超时时返回明确 503 中文提示。"""
+    try:
+        return await _transcribe_async(pcm)
+    except (ConnectionError, TimeoutError, asyncio.TimeoutError, OSError) as exc:
+        logger.warning("FunASR 端点不可达或超时: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail="语音识别服务（FunASR）当前不可达或响应超时，请稍后重试或改用文字回答",
+        )
 
 
 def prosody_features_from_pcm(audio_data: bytes) -> dict:
@@ -333,7 +394,7 @@ async def root():
             "/research/question": "GET - 获取下一个问题",
             "/research/answer": "POST - 提交文本回答",
             "/research/answer_audio": "POST - 提交语音回答（自动识别）",
-            "/research/evaluation": "GET - 获取科研潜质评估"
+            "/research/evaluation": "GET - 获取科研行为观测记录汇总"
         }
     }
 
@@ -342,15 +403,18 @@ async def root():
 async def health_check():
     """健康检查接口。
 
-    ⚠️ 2026-11-22 加 `asr_endpoint`：此前 `/health` 只回 `{"status":"healthy"}`，
-    而「health 绿 + /asr 500」正是这次排障踩的坑 —— 服务活着不代表 ASR 端点可达。
-    现在把**当前实际要连的地址**回显出来（`FunASREngine.endpoint()` 现读配置），
-    端点写错/进程还拿旧配置时，一眼就能看出来。
+    ⚠️ 2026-11-22 加 `asr_endpoint`；2026-11-23 加 1s 非阻塞 TCP 探活 `asr_reachable`，
+    端点不可达时返回 `status: "degraded"`，避免「health 绿 + /asr 报错」的假健康。
     """
     from voice_interaction.asr.funasr_engine import FunASREngine
 
     host, port = FunASREngine().endpoint()
-    return {"status": "healthy", "asr_endpoint": f"ws://{host}:{port}"}
+    reachable = await asyncio.to_thread(_tcp_probe, host, port, 1.0)
+    return {
+        "status": "healthy" if reachable else "degraded",
+        "asr_endpoint": f"ws://{host}:{port}",
+        "asr_reachable": reachable,
+    }
 
 
 @app.post("/tts")
@@ -452,7 +516,7 @@ async def speech_to_text(request: Request, audio: UploadFile = File(...),
                     audio_data = wf.readframes(wf.getnframes())
 
                     logger.info("开始 ASR 识别...")
-                    utt = await _transcribe_async(audio_data)
+                    utt = await _transcribe_or_503(audio_data)
                     text = utt.text.strip()
                     # 空结果不落盘:不留一场没有段的会话文件。
                     # `record=False` = 预览(见 docstring):不记账,但仍把文本回给调用方。
@@ -521,7 +585,7 @@ async def speech_to_text(request: Request, audio: UploadFile = File(...),
 
             # 使用 ASR 识别
             logger.info("开始 ASR 识别...")
-            utt = await _transcribe_async(audio_data)
+            utt = await _transcribe_or_503(audio_data)
             text = utt.text.strip()
             if text and record:      # 同上面那条 WAV 分支:预览不记账
                 transcript_store.append_utterance(sid, utt)
@@ -545,11 +609,11 @@ async def speech_to_text(request: Request, audio: UploadFile = File(...),
 
 @app.post("/interview/start")
 async def start_interview():
-    global voice_logger
+    global interview_assessment, voice_logger
     try:
-        interview_assessment.reset()
-        _reload_question_bank(interview_assessment, "interview")
-        first_question = interview_assessment.get_next_question()
+        pipe = InterviewAssessmentPipeline()
+        _reload_question_bank(pipe, "interview")
+        first_question = pipe.get_next_question()
         if not first_question:
             raise HTTPException(status_code=500, detail="无法获取问题")
 
@@ -559,13 +623,20 @@ async def start_interview():
         # 换个带 id 的 logger:文件名是**构造函数**算的(interview_emotion_log_<sid>.csv),
         # 事后改 .session_id 只换列、不换文件名 —— 而 session.json 的 expected_file
         # 记的就是带 id 的名字,不换文件名 refresh_manifest 会把 voice 日志标成 missing。
-        voice_logger = VoiceLogger(log_type='interview', session_id=sid)
+        vlog = VoiceLogger(log_type='interview', session_id=sid)
+        _interview_sessions[sid] = (pipe, vlog)
+        _prune_session_map(_interview_sessions)
+        interview_assessment = pipe
+        voice_logger = vlog
+        discard_token = secrets.token_urlsafe(24)
+        _MINTED_DISCARD_TOKENS[sid] = discard_token
+        _prune_session_map(_MINTED_DISCARD_TOKENS)
 
-        tts_engine.speak(first_question)
+        _speak_if_enabled(first_question)
         # 题库共几题由服务端给:前端手里没有任何来源(`setQuestions` 是死代码),
         # 它原先写死的 `/10` 与真题库(8 题)无关,进度条永远到不了 100%。
-        return {"status": "started", "session_id": sid, "question": first_question,
-                "total_questions": len(interview_assessment.questions)}
+        return {"status": "started", "session_id": sid, "discard_token": discard_token,
+                "question": first_question, "total_questions": len(pipe.questions)}
     except HTTPException:
         raise          # 别再包一层:否则 500 会变成"启动面试失败: 500: 无法获取问题"
     except Exception as e:
@@ -573,27 +644,25 @@ async def start_interview():
 
 
 @app.get("/interview/question")
-async def get_next_question():
+async def get_next_question(session_id: Optional[str] = None):
     try:
-        question = interview_assessment.get_next_question()
+        pipe, _ = _get_interview_pair(session_id)
+        question = pipe.get_next_question()
         if question:
-            tts_engine.speak(question)
+            _speak_if_enabled(question)
             return {"question": question}
         else:
-            return {"message": "面试已结束，请获取评估结果"}
+            return {"message": "面试已结束，请获取观测汇总"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取问题失败: {str(e)}")
 
 
 @app.post("/interview/answer")
-async def submit_answer(request: AnswerRequest):
+async def submit_answer(request: AnswerRequest, session_id: Optional[str] = None):
     """提交文本回答"""
     try:
-        # ⚠️ 这里**不再**调 `save_log()`。每答一题调一次曾是盘上 515 份空产物的来源:
-        # 活路径不传 prosody ⟹ 每调一次多一个只有表头的 `assessment_note_*.csv`,
-        # 而 `except Exception: pass` 让它连失败都不出声。产物只在
-        # `/interview/evaluation` 收尾时落一次(见 `_write_note`)。
-        interview_assessment.add_answer(request.answer)
+        pipe, _ = _get_interview_pair(session_id)
+        pipe.add_answer(request.answer)
         return {"status": "success", "message": "回答已记录"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"提交回答失败: {str(e)}")
@@ -630,7 +699,7 @@ async def submit_answer_audio(request: Request, audio: UploadFile = File(...),
                 raise HTTPException(status_code=400, detail="音频格式要求：16kHz, 16bit, 单声道")
             audio_data = wf.readframes(wf.getnframes())
 
-        utt = await _transcribe_async(audio_data)
+        utt = await _transcribe_or_503(audio_data)
         text = utt.text.strip()
 
         if not text:
@@ -640,10 +709,11 @@ async def submit_answer_audio(request: Request, audio: UploadFile = File(...),
         transcript_store.append_utterance(sid, utt)
         # 连接词密度:纯文本层,分母是字数(刻意不含时长,spec D4/D8);过短/空 → None(不写 0)
         density = connective_density(text)
+        pipe, vlog = _get_interview_pair(sid)
         # question_index 与 assessment.save_log 的 enumerate 同为 0 基:回答前 qa_pairs 的长度
         # 就是这题的下标。
-        question_index = len(interview_assessment.qa_pairs)
-        voice_logger.session_id = sid          # 首列随会话(文件名在 /interview/start 里定)
+        question_index = len(pipe.qa_pairs)
+        vlog.session_id = sid          # 首列随会话(文件名在 /interview/start 里定)
         # 语调特征:拿**这段 PCM 的真值**,不再传空字典(§0.1 第 1 件)。
         # 放在文本闸**之后** —— 识别不出文字的请求上面已经 400 了,不必白算一次 pyin。
         prosody = await _prosody_async(audio_data)
@@ -663,13 +733,13 @@ async def submit_answer_audio(request: Request, audio: UploadFile = File(...),
                    if w.get("index") == question_index), None)
         prosody.update(reaction_time_features(
             prosody, (_raw or {}).get("received_at_wall"), _q))
-        voice_logger.log_prosody(
+        vlog.log_prosody(
             prosody, question_index=question_index, emotion="", feedback="",
             # 整句算一次:一个样本参与,n_rows=1;单个值的标准差按定义为 0.0
             # (与"没算出来"的 connective_density=None 是两回事,别混)
             connective_density=density, connective_density_std=0.0, n_rows=1)
 
-        interview_assessment.add_answer(text)
+        pipe.add_answer(text)
         # 不在这里落产物 —— 理由见 `/interview/answer` 里的注释。
         return {"status": "success", "session_id": sid, "recognized_text": text,
                 "connective_density": density}
@@ -680,19 +750,20 @@ async def submit_answer_audio(request: Request, audio: UploadFile = File(...),
 
 
 @app.get("/interview/evaluation")
-async def get_interview_evaluation():
-    """获取面试评估结果并保存日志"""
+async def get_interview_evaluation(session_id: Optional[str] = None):
+    """获取面试观测汇总并保存日志"""
     try:
-        result = interview_assessment.get_comprehensive_evaluation()
+        pipe, vlog = _get_interview_pair(session_id)
+        result = pipe.get_comprehensive_evaluation()
 
         # 保存日志到文件
-        log_path = interview_assessment.save_log()
+        log_path = pipe.save_log()
 
         # 记录结构化日志
-        voice_logger.log_assessment(
-            total_questions=len(interview_assessment.questions),
-            answered_questions=len(interview_assessment.qa_pairs),
-            ai_model="qwen-plus",
+        vlog.log_assessment(
+            total_questions=len(pipe.questions),
+            answered_questions=len(pipe.qa_pairs),
+            ai_model="rule-summary",
             max_tokens=300,
             evaluation_result=result
         )
@@ -700,8 +771,8 @@ async def get_interview_evaluation():
         return {
             "evaluation": result,
             "log_path": log_path,
-            "csv_log": voice_logger.get_csv_path(),
-            "json_log": voice_logger.get_json_path()
+            "csv_log": vlog.get_csv_path(),
+            "json_log": vlog.get_json_path()
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取评估结果失败: {str(e)}")
@@ -738,21 +809,34 @@ async def submit_session_label(session_id: str, body: SessionLabel):
 
 
 @app.post("/session/{session_id}/discard")
-async def discard_session(session_id: str):
+async def discard_session(session_id: str, request: Request = None):
     """**真删本场**(「不留存 / 这是测试」与「不同意录制」那条路)。
 
-    ⚠️ **这个端点没有管理员密码**,是刻意的:录制页在录的时候**没有**管理员 token
-       (那是素材页的东西,而且 token 在 sessionStorage 里、按标签页隔离),而
-       "不留存"是录制结束时当场要做的动作。与同组的 `/session/{sid}/label`、
-       `/session/{sid}/question` 同一姿态 —— 那些本来就能改身份数据。
-       服务只绑 loopback、经 `tailscale serve` 发布,边界是 tailnet。
-       ⚠️ 这是使用者 2026-09-28 确认过的取舍,不是遗漏。
-
-    实现在 `session_purge.purge_session`(与面板那条 purge 端点**共用同一份**)——
-    删四处:场次目录、`data/logs/` 里按 sid 落盘的 CSV、`data/output/` 里**正文
-    点名了这个 sid** 的报告及其独占图表、`data/l0_series/<sid>.npz`。
-    后两处是 2026-10-25 补的:此前只删前两处,于是「不留存」之后报告还在。
+    安全护栏（2026-11-23 加固）：
+    - 本进程通过 `/interview/start` 或 `/research/start` 新铸的会话会下发一次性
+      `discard_token`；若请求携带了 `X-Discard-Token`（或 query `discard_token`），必须匹配；
+    - 对于**非本进程新铸的历史场次**，若环境配置了 `JX_ADMIN_PASSWORD` 且经 HTTP 调用，
+      则拒绝匿名删除（返回 403），需在素材管理页通过管理员身份删除或携带 `X-Admin-Password`；
+    - 直接 Python 调用（单元测试 `request=None`）保持原有签名兼容。
     """
+    if request is not None:
+        presented_tok = (
+            request.headers.get("X-Discard-Token")
+            or request.query_params.get("discard_token")
+            or ""
+        ).strip()
+        expected_tok = _MINTED_DISCARD_TOKENS.get(session_id)
+        admin_pw = os.getenv("JX_ADMIN_PASSWORD") or ""
+        presented_pw = request.headers.get("X-Admin-Password") or ""
+        is_admin_pw = bool(admin_pw and presented_pw and hmac.compare_digest(presented_pw, admin_pw))
+        if expected_tok is not None:
+            if presented_tok and not hmac.compare_digest(presented_tok, expected_tok) and not is_admin_pw:
+                raise HTTPException(status_code=403, detail="会话作废令牌不匹配")
+        elif admin_pw and not is_admin_pw:
+            raise HTTPException(
+                status_code=403,
+                detail="历史正式场次受保护：请通过素材管理页以管理员身份删除",
+            )
     try:
         removed = session_purge.purge_session(session_id)
     except ValueError as exc:
@@ -761,6 +845,9 @@ async def discard_session(session_id: str):
         raise HTTPException(status_code=404, detail=str(exc))
     except OSError as exc:
         raise HTTPException(status_code=500, detail=f"删除失败:{exc}")
+    _MINTED_DISCARD_TOKENS.pop(session_id, None)
+    _interview_sessions.pop(session_id, None)
+    _research_sessions.pop(session_id, None)
     return {"status": "success", "session_id": session_id, **removed}
 
 
@@ -918,8 +1005,11 @@ async def submit_session_media(session_id: str, file: UploadFile = File(...)):
 
 @app.get("/session/{session_id}/summary")
 async def get_session_summary(session_id: str, type: str = "interview"):
-    """获取语音评估会话的实时摘要（当前为全局单例，session_id 预留做向前兼容）"""
-    pipeline = interview_assessment if type == "interview" else research_assessment
+    """获取语音会话的实时摘要（优先读取按 session_id 隔离的会话实例）。"""
+    pipeline, _ = (
+        _get_interview_pair(session_id) if type == "interview"
+        else _get_research_pair(session_id)
+    )
 
     try:
         evaluation = pipeline.get_comprehensive_evaluation()
@@ -951,27 +1041,29 @@ async def get_session_summary(session_id: str, type: str = "interview"):
 
 @app.post("/research/start")
 async def start_research_assessment():
-    global research_logger
+    global research_assessment, research_logger
     try:
-        research_assessment.reset()
-        _reload_question_bank(research_assessment, "research")
-        first_question = research_assessment.get_next_question()
+        pipe = ResearchAssessmentPipeline()
+        _reload_question_bank(pipe, "research")
+        first_question = pipe.get_next_question()
         if not first_question:
             raise HTTPException(status_code=500, detail="无法获取问题")
 
         # 科研评估**自成一场**(M2.1 / 第 19 条):与 /interview/start 对称铸号。
-        # 不铸的话科研回答只能带客户端自己的 id —— 新页面直接做科研会落 NONE,
-        # 而"先面试、再科研"会顺延上一场的号,把科研回答的原句写进**面试会话**的录制目录。
         sid = session_mod.new_session_id()
         transcript_store.ensure_manifest(sid, _asr_meta())
-        # 科研那条日志器也**带号建**:不换的话科研会话的特征行恒落
-        # `research_emotion_log_NONE_<时间戳>.csv`,读侧于是**永远**把 `语音（科研）`
-        # 判成 missing —— 一场科研会话再完整也描述不出来。
-        research_logger = VoiceLogger(log_type='research', session_id=sid)
+        rlog = VoiceLogger(log_type='research', session_id=sid)
+        _research_sessions[sid] = (pipe, rlog)
+        _prune_session_map(_research_sessions)
+        research_assessment = pipe
+        research_logger = rlog
+        discard_token = secrets.token_urlsafe(24)
+        _MINTED_DISCARD_TOKENS[sid] = discard_token
+        _prune_session_map(_MINTED_DISCARD_TOKENS)
 
-        tts_engine.speak(first_question)
-        return {"status": "started", "session_id": sid, "question": first_question,
-                "total_questions": len(research_assessment.questions)}
+        _speak_if_enabled(first_question)
+        return {"status": "started", "session_id": sid, "discard_token": discard_token,
+                "question": first_question, "total_questions": len(pipe.questions)}
     except HTTPException:
         raise          # 别再包一层:否则 500 会变成"启动科研评估失败: 500: 无法获取问题"
     except Exception as e:
@@ -979,23 +1071,24 @@ async def start_research_assessment():
 
 
 @app.get("/research/question")
-async def get_research_question():
+async def get_research_question(session_id: Optional[str] = None):
     try:
-        question = research_assessment.get_next_question()
+        pipe, _ = _get_research_pair(session_id)
+        question = pipe.get_next_question()
         if question:
-            tts_engine.speak(question)
+            _speak_if_enabled(question)
             return {"question": question}
         else:
-            return {"message": "评估已结束，请获取评估结果"}
+            return {"message": "观测问答已结束，请获取观测汇总"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取问题失败: {str(e)}")
 
 
 @app.post("/research/answer")
-async def submit_research_answer(request: AnswerRequest):
+async def submit_research_answer(request: AnswerRequest, session_id: Optional[str] = None):
     try:
-        # 不在这里落产物 —— 理由见 `/interview/answer` 里的注释。
-        research_assessment.add_answer(request.answer)
+        pipe, _ = _get_research_pair(session_id)
+        pipe.add_answer(request.answer)
         return {"status": "success", "message": "回答已记录"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"提交回答失败: {str(e)}")
@@ -1029,7 +1122,7 @@ async def submit_research_answer_audio(request: Request, audio: UploadFile = Fil
                 raise HTTPException(status_code=400, detail="音频格式要求：16kHz, 16bit, 单声道")
             audio_data = wf.readframes(wf.getnframes())
 
-        utt = await _transcribe_async(audio_data)
+        utt = await _transcribe_or_503(audio_data)
         text = utt.text.strip()
 
         if not text:
@@ -1042,8 +1135,9 @@ async def submit_research_answer_audio(request: Request, audio: UploadFile = Fil
         # 与面试侧**同口径**地写下这条 L0 特征行(此前科研侧完全没有产出方):
         # 连接词密度是纯文本层,分母是字数(刻意不含时长,spec D4/D8);过短/空 → None(不写 0)。
         density = connective_density(text)
-        question_index = len(research_assessment.qa_pairs)
-        research_logger.session_id = sid     # 首列随会话(文件名在 /research/start 里定)
+        pipe, rlog = _get_research_pair(sid)
+        question_index = len(pipe.qa_pairs)
+        rlog.session_id = sid     # 首列随会话(文件名在 /research/start 里定)
         # 与面试侧同一条:真值替掉空字典(§0.1 第 1 件,两处都接)。
         prosody = await _prosody_async(audio_data)
         # 回答长度与语速 —— 与面试侧**逐字同一条算法**(两个端点是对称的,只改一边
@@ -1059,11 +1153,11 @@ async def submit_research_answer_audio(request: Request, audio: UploadFile = Fil
                    if w.get("index") == question_index), None)
         prosody.update(reaction_time_features(
             prosody, (_raw or {}).get("received_at_wall"), _q))
-        research_logger.log_prosody(
+        rlog.log_prosody(
             prosody, question_index=question_index, emotion="", feedback="",
             connective_density=density, connective_density_std=0.0, n_rows=1)
 
-        research_assessment.add_answer(text)
+        pipe.add_answer(text)
         # 不在这里落产物 —— 理由见 `/interview/answer` 里的注释。
         return {"status": "success", "session_id": sid, "recognized_text": text}
     except HTTPException:
@@ -1073,20 +1167,19 @@ async def submit_research_answer_audio(request: Request, audio: UploadFile = Fil
 
 
 @app.get("/research/evaluation")
-async def get_research_evaluation():
-    """获取科研评估结果并保存日志"""
+async def get_research_evaluation(session_id: Optional[str] = None):
+    """获取科研行为观测汇总并保存日志"""
     try:
-        result = research_assessment.get_comprehensive_evaluation()
+        pipe, rlog = _get_research_pair(session_id)
+        result = pipe.get_comprehensive_evaluation()
 
         # 保存日志到文件
-        log_path = research_assessment.save_log()
+        log_path = pipe.save_log()
 
-        # 用**带会话号的那一个**(模块级,`/research/start` 里建的)—— 不再现造一个不带号的:
-        # 现造会把评估行写进 `research_emotion_log_NONE_<时间戳>.csv`,与特征行分了家。
-        research_logger.log_assessment(
-            total_questions=len(research_assessment.questions),
-            answered_questions=len(research_assessment.qa_pairs),
-            ai_model="qwen-plus",
+        rlog.log_assessment(
+            total_questions=len(pipe.questions),
+            answered_questions=len(pipe.qa_pairs),
+            ai_model="rule-summary",
             max_tokens=300,
             evaluation_result=result
         )
@@ -1094,8 +1187,8 @@ async def get_research_evaluation():
         return {
             "evaluation": result,
             "log_path": log_path,
-            "csv_log": research_logger.get_csv_path(),
-            "json_log": research_logger.get_json_path()
+            "csv_log": rlog.get_csv_path(),
+            "json_log": rlog.get_json_path()
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取评估结果失败: {str(e)}")

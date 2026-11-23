@@ -3,6 +3,7 @@ import copy
 import numpy as np
 from scipy.spatial import distance as dist
 
+from ..config import EYE_CONFIG
 from ..core.feature_extraction.au_calculator import AUFeatureCalculator
 from ..core.feature_extraction.landmarks import CHIN, FOREHEAD_TOP
 from ..core.analysis.micro_expression import MicroExpressionDetector
@@ -22,7 +23,7 @@ class VideoPipeline:
         self.eye_closed_duration = 0.0
         self.last_blink_time = None
         self.history_last_ms = None
-        self.EAR_THRESHOLD = 0.21
+        self.EAR_THRESHOLD = float(EYE_CONFIG["EAR_THRESHOLD"])
 
         # 历史窗按**秒**定,不按帧数定(旧的是 `int(3 * fps)` = 90 帧)。
         # 实时 1 fps 下 90 帧是 90 秒,与「最近 3 秒」差了 30 倍(spec §3.3)。

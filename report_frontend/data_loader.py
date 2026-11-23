@@ -242,7 +242,12 @@ class LogDataLoader:
             return None                       # 坏引号等 → 交给 pandas(它整份算 0 行)
         return 0 if width < 0 else rows       # 空文件 / 只有空白行 → 0
 
-    def resolve_target_session(self, session_id: Optional[str] = None) -> Optional[str]:
+    def resolve_target_session(
+        self,
+        session_id: Optional[str] = None,
+        *,
+        groups: Optional[Dict[str, List[Dict]]] = None,
+    ) -> Optional[str]:
         """定这一场报告以哪个 `session_id` 为准(M2 spec §5.1)。
 
         * 显式给了 -> 就用它(`NONE` 除外 —— 那不是一场会话,是"没给 id"的占位)
@@ -255,7 +260,8 @@ class LogDataLoader:
         if session_id:
             return None if session_id == self.NONE_SESSION else session_id
 
-        candidates = [f for files in self._scan_and_group_files().values() for f in files
+        scanned = groups if groups is not None else self._scan_and_group_files()
+        candidates = [f for files in scanned.values() for f in files
                       if f["session_id"] != self.NONE_SESSION]
         if not candidates:
             return None
@@ -275,7 +281,8 @@ class LogDataLoader:
         print("\n🔍 按 session_id 取日志...")
         print("-" * 70)
 
-        target = self.resolve_target_session(session_id)
+        cached_groups = self._scan_and_group_files() if not session_id else None
+        target = self.resolve_target_session(session_id, groups=cached_groups)
         self.selected_sessions = {}
         self.target_session = target
         print(f"   目标会话:{target or '(无 —— 本场没有任何日志)'}")
@@ -295,7 +302,7 @@ class LogDataLoader:
         print("-" * 70)
 
         data_frames = {}
-        groups = self._scan_and_group_files()
+        groups = cached_groups if cached_groups is not None else self._scan_and_group_files()
 
         for modality, files in groups.items():
             # 统一模态键名，方便后续处理

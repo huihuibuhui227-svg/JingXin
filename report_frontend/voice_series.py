@@ -218,7 +218,10 @@ def answer_audio_files(session_id: str) -> list[tuple[int, Path]]:
             rec = json.loads(line)
         except Exception:
             continue
-        if rec.get("kind") == "raw" and rec.get("source_endpoint") == "/interview/answer_audio":
+        if rec.get("kind") == "raw" and rec.get("source_endpoint") in (
+            "/interview/answer_audio",
+            "/research/answer_audio",
+        ):
             seqs.append(int(rec["seq"]))
     out: list[tuple[int, Path]] = []
     for k, seq in enumerate(sorted(seqs)):

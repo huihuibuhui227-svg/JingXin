@@ -149,47 +149,47 @@ class EmotionInferencer:
 
     def _map_score_to_emotion(self, score: float) -> Tuple[str, str]:
         """
-        将评分映射到情绪状态
+        将上肢运动平稳度指数映射为客观活动水平档位（不做情绪或心理诊断）。
 
         参数:
-            score: 综合评分 (0-100)
+            score: 上肢平稳度参考值 (0-100)
 
         返回:
-            (情绪状态文本, emoji 表情)
+            (客观运动状态文本, 状态标识)
         """
         ranges = self.config['score_ranges']
 
         # 注意：区间是 >=，从高到低判断
         if score >= ranges['very_relaxed']:
-            return "非常放松", "🟢"
+            return "动作极平稳", "🟢"
         elif score >= ranges['relaxed']:
-            return "放松", "🟢"
+            return "动作平稳", "🟢"
         elif score >= ranges['neutral']:
-            return "中性", "🟡"
+            return "动作适中", "🟡"
         elif score >= ranges['slightly_nervous']:
-            return "轻微紧张", "🟠"
+            return "动作略活跃", "🟠"
         elif score >= ranges['nervous']:
-            return "紧张", "🔴"
+            return "动作较活跃", "🔴"
         else:
-            return "高度焦虑", "🔴"
+            return "动作高频波动", "🔴"
 
     def _get_emotion_feedback(self, score: float) -> Tuple[str, Tuple[int, int, int]]:
         """
-        获取情绪反馈文本和颜色
+        获取客观上肢运动观测提示和颜色（不输出情绪/心理诊断措辞）。
 
         参数:
-            score: 综合评分 (0-100)
+            score: 上肢平稳度参考值 (0-100)
 
         返回:
-            (反馈文本, BGR 颜色元组)
+            (观测提示文本, BGR 颜色元组)
         """
-        emotion_state, _ = self._map_score_to_emotion(score)
+        motion_state, _ = self._map_score_to_emotion(score)
 
-        if "放松" in emotion_state:
-            return "你看起来很放松，状态很棒！", (0, 255, 0)  # 绿色
-        elif "中性" in emotion_state:
-            return "状态平稳，保持自然呼吸", (255, 255, 0)  # 黄色
-        elif "轻微紧张" in emotion_state:
-            return "注意放松手部和肩膀，深呼吸～", (255, 165, 0)  # 橙色
+        if "平稳" in motion_state:
+            return "上肢与肩部姿态保持平稳", (0, 255, 0)
+        elif "适中" in motion_state:
+            return "上肢动作幅度适中，姿态稳定", (255, 255, 0)
+        elif "略活跃" in motion_state:
+            return "上肢位移略有增加，请保持在摄像头取景范围内", (255, 165, 0)
         else:
-            return "你可能处于紧张或焦虑状态，建议暂停休息", (0, 0, 255)  # 红色
+            return "检测到较高频的上肢位移波动，建议保持坐姿稳定以便采集", (0, 0, 255)

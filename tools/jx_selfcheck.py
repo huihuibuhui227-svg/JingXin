@@ -50,11 +50,14 @@ _FAST_GROUPS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
       "tests/test_l0_column_table.py",
       "tests/test_l0_reference_paths.py")),
     ("口径纪律",
-     "报告层「把没测到说成测到了」那一类话的钉子",
+     "报告层「把没测到说成测到了」、旧名/违规词与可读性约束的钉子",
      ("tests/test_report_layer.py",
       "tests/test_evidence_gaps_tell_the_truth.py",
       "tests/test_evidence_gate.py",
-      "tests/test_sample_size_honesty.py")),
+      "tests/test_sample_size_honesty.py",
+      "tests/test_report_says_something_to_a_person.py",
+      "tests/test_dimension_table_uses_indicator_labels.py",
+      "tests/test_evidence_chain_enhancements.py")),
 )
 
 #: `--all` 追加的:全量套件(慢)。

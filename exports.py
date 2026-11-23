@@ -25,6 +25,7 @@ import pandas as pd
 from flask import Blueprint, Response, jsonify, request, send_file
 
 import media_retention
+from report_frontend import brand
 # 鉴权**只有一处定义**(`recordings_browser`)。这里复用它的装饰器,不另写一份:
 # 两份鉴权一旦分叉,"哪一页受保护"就会变成一个要靠读代码回答的问题。
 from recordings_browser import _admin_required
@@ -171,7 +172,7 @@ def csv_file(sid: str, key: str) -> tuple[Path, str]:
 def transcript_payload(sid: str) -> dict:
     tr = _read_transcript(sid)
     if tr is None:
-        raise FileNotFoundError("这一场没有语音转写（transcript.json 不存在）")
+        raise FileNotFoundError("这一场没有语音转写记录")
     return tr
 
 
@@ -193,7 +194,7 @@ def _label_line(sid: str) -> str:
         from session_meta import read_label
         rec = read_label(sid) or {}
     except Exception:
-        return "被测者：（标注读取失败 —— 检查会话目录 label.json）"
+        return "被测者：（身份标注读取失败，请检查录制目录）"
     fields = [("姓名", rec.get("name")), ("学号", rec.get("student_id")),
               ("院系", rec.get("department")), ("场次", rec.get("serial"))]
     got = [f"{k}：{str(v).strip()}" for k, v in fields if v and str(v).strip()]
@@ -203,11 +204,11 @@ def _label_line(sid: str) -> str:
 def transcript_txt(sid: str) -> str:
     tr = _read_transcript(sid)
     if tr is None:
-        raise FileNotFoundError("这一场没有语音转写（transcript.json 不存在）")
+        raise FileNotFoundError("这一场没有语音转写记录")
     merged = tr.get("merged") or {}
     rows = _qa_rows(sid)
     head = [
-        "JingXin 语音转写导出",
+        brand.TRANSCRIPT_EXPORT_HEADER,
         f"会话：{sid}",
         _label_line(sid),
         f"录制时间：{tr.get('recorded_at') or '—'}",
@@ -226,7 +227,7 @@ def transcript_txt(sid: str) -> str:
 
 def transcript_csv(sid: str) -> str:
     if _read_transcript(sid) is None:
-        raise FileNotFoundError("这一场没有语音转写（transcript.json 不存在）")
+        raise FileNotFoundError("这一场没有语音转写记录")
     buf = io.StringIO()
     w = csv.writer(buf)
     try:
@@ -403,14 +404,12 @@ _AU_LABELS = {
 _FACE_OTHER = [
     ("gaze_direction_x", "视线 X（归一化）", 3),
     ("gaze_direction_y", "视线 Y（归一化）", 3),
-    ("gaze_deviation", "视线偏离度", 3),
     ("head_yaw", "头部偏航", 3),
     ("head_pitch", "头部俯仰", 3),
     ("avg_ear", "平均眼开度 EAR", 3),
     ("blink_rate_per_min", "眨眼率（次/分）", 2),
     ("eye_closed_sec", "闭眼时长（秒）", 2),
     ("symmetry_score", "面部对称度", 3),
-    ("focus_score", "专注度", 2),
 ]
 
 #: 手势的稳定性指标（抖动类，单位一致，可同表比较）。

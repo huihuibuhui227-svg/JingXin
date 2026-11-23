@@ -366,26 +366,18 @@ class EmotionEngine:
         )
 
     def _generate_psychological_summary(self, emotions, au_features, micro_expressions):
+        """生成客观面部动作单元活动摘要（不做情绪或心理诊断推断）。"""
         summary_parts = []
-
-        dominant = max(emotions, key=emotions.get)
-        conf = emotions[dominant]
-        if conf > 0.5:
-            summary_parts.append(f"主导情绪为{dominant}（置信度{conf:.2f}）")
-
-        composite = [k for k in ["forced_smile", "contempt", "cognitive_load", "moral_disgust"] if emotions.get(k, 0) > 0.3]
-        if composite:
-            summary_parts.append("检测到复合情绪：" + "、".join(composite))
-
-        if micro_expressions and any(micro_expressions.data.values()):
-            summary_parts.append("发现微表情活动")
-
-        tension = getattr(au_features, 'psychological_signals', {}).get('tension_score', 0)
-        if tension > 0.6:
-            summary_parts.append("处于高紧张状态")
-        elif tension > 0.3:
-            summary_parts.append("有中等紧张表现")
-
+        au_dict = getattr(au_features, 'au_intensities', {}) or {}
+        if au_dict:
+            active_aus = [k for k, v in au_dict.items() if isinstance(v, (int, float)) and v > 0.35]
+            if active_aus:
+                summary_parts.append(f"当前检测到 {len(active_aus)} 项动作单元活跃")
+        brow_lip = getattr(au_features, 'psychological_signals', {}).get('tension_score', 0)
+        if brow_lip > 0.6:
+            summary_parts.append("眉唇收紧幅度较高")
+        elif brow_lip > 0.3:
+            summary_parts.append("眉唇存在中等幅度收缩")
         if not summary_parts:
-            return "当前情绪状态平稳"
+            return "当前面部动作幅度平稳"
         return "；".join(summary_parts) + "。"

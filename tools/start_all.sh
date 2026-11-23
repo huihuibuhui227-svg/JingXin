@@ -10,6 +10,26 @@
 
 set -u
 source "$(dirname "${BASH_SOURCE[0]}")/jx_env.sh"
+
+# 加载环境变量文件（含 JX_ADMIN_PASSWORD 等密钥，不入库）
+JX_ENV_FILE="${JX_ENV_FILE:-$HOME/JingXin/.env}"
+if [ -f "$JX_ENV_FILE" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$JX_ENV_FILE"
+  set +a
+fi
+
+# 后台服务模式下禁止报告生成器自动拉起服务器浏览器
+export JX_NO_BROWSER="${JX_NO_BROWSER:-1}"
+
+PROD_MODE=0
+for arg in "$@"; do
+  case "$arg" in
+    --prod) PROD_MODE=1 ;;
+  esac
+done
+
 PY="$JX_PY"
 UP=()   ; SKIP=() ; BAD=()
 
@@ -102,7 +122,15 @@ start 8001 "voice   " "$REPO" $PY -m voice_interaction.api.app
 start 8000 "face    " "$REPO" $PY -m face_expression.api.app
 start 8002 "gesture " "$REPO" $PY -m gesture_analysis.api.app
 start 5000 "面板    " "$REPO" $PY app.py
-start 5173 "前端    " "$JX_FRONTEND" npm run dev "${FE_ARGS[@]:-}"
+if [ "$PROD_MODE" = "1" ]; then
+  if [ ! -d "$JX_FRONTEND/dist" ]; then
+    echo "  --prod 模式：未检测到 dist/，先执行前端生产构建..."
+    ( cd "$JX_FRONTEND" && npm run build )
+  fi
+  start 5173 "前端(prod)" "$JX_FRONTEND" npm run preview -- --port 5173 --strictPort "${FE_ARGS[@]:-}"
+else
+  start 5173 "前端    " "$JX_FRONTEND" npm run dev "${FE_ARGS[@]:-}"
+fi
 
 for s in "${SKIP[@]:-}"; do [ -n "$s" ] && echo "  已在跑,跳过: $s"; done
 for s in "${UP[@]:-}";   do [ -n "$s" ] && echo "  已启动:       $s"; done
@@ -111,19 +139,42 @@ for s in "${BAD[@]:-}";  do [ -n "$s" ] && echo "  ★ 没起:$s"; done
 echo
 echo "── 等就绪(gesture 要 ~11s:加载两个模型)──"
 $PY - <<'POLL'
-import socket, time
+import json, socket, time, urllib.request
 need = {8000:"face", 8001:"voice", 8002:"gesture", 5000:"面板", 5173:"前端"}
+health_urls = {
+    8000: "http://127.0.0.1:8000/health",
+    8001: "http://127.0.0.1:8001/health",
+    8002: "http://127.0.0.1:8002/health",
+    5000: "http://127.0.0.1:5000/api/system/health",
+}
+opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 up, t0 = set(), time.time()
 while time.time()-t0 < 180 and len(up) < len(need):
     for p, n in need.items():
         if n in up: continue
         try:
-            socket.create_connection(("127.0.0.1", p), 0.3).close()
-            up.add(n); print(f"  ✓ {n:8s} :{p}")
-        except OSError: pass
+            if p in health_urls:
+                with opener.open(health_urls[p], timeout=1.0) as resp:
+                    raw = resp.read().decode("utf-8", errors="replace")
+                extra = ""
+                if p == 8001 and raw.strip().startswith("{"):
+                    d = json.loads(raw)
+                    if d.get("asr_reachable") is False:
+                        extra = f" (⚠ FunASR 未就绪: {d.get('asr_endpoint')})"
+                up.add(n); print(f"  ✓ {n:8s} :{p}{extra}")
+            else:
+                socket.create_connection(("127.0.0.1", p), 0.3).close()
+                up.add(n); print(f"  ✓ {n:8s} :{p}")
+        except Exception:
+            pass
     time.sleep(0.3)
 bad = {n for p, n in need.items() if n not in up}
 if bad: print(f"  ✗ 没起来: {bad} —— 看 /tmp/jx_<端口>.log")
+try:
+    socket.create_connection(("127.0.0.1", 10095), 0.5).close()
+    print("  ✓ FunASR   :10095")
+except OSError:
+    print("  ⚠ FunASR   :10095 未监听（语音转写将降级返回 503 提示）")
 POLL
 
 cat <<'EOF'

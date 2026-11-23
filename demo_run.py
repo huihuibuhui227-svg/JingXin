@@ -64,7 +64,7 @@ REQUIRED_MODULES: list[tuple[str, str]] = [
 
 #: 软依赖:只在特定分支上用到,缺了本次演示照样能跑。
 OPTIONAL_MODULES: list[tuple[str, str]] = [
-    ("mediapipe", "仅当 data/l0_series/<sid>.npz 缺失、需要从录音重算序列时用到"),
+    ("librosa", "仅当 data/l0_series/<sid>.npz 缺失、需要从录音重算序列时用到"),
     ("flask", "只有起 Web 服务时才需要;本脚本不用"),
 ]
 
@@ -73,7 +73,7 @@ OPTIONAL_MODULES: list[tuple[str, str]] = [
 MODEL_FILES: list[tuple[str, str]] = [
     ("models/mediapipe/face_landmarker.task", "面部 478 点"),
     ("models/mediapipe/hand_landmarker.task", "手部 21 点"),
-    ("models/mediapipe/pose_landmarker_lite.task", "体态(轻)"),
+    ("models/mediapipe/pose_landmarker_full.task", "体态(全量)"),
 ]
 
 W = 74  # 分隔线宽度
@@ -431,7 +431,7 @@ def main(argv: list[str] | None = None) -> int:
     out_dir = Path(args.out_dir).expanduser() if args.out_dir else None
     t_all = time.time()
     say("=" * W)
-    say("  JingXin 单场一键演示 · 依赖 → L0 → L1 → 报告")
+    say("  衡才智析 · 单场一键演示 · 依赖 → L0 → L1 → 报告")
     say(f"  会话:{args.session}")
     say(f"  仓库:{REPO}")
     say("=" * W)

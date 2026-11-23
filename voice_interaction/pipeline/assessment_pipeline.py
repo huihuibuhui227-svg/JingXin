@@ -222,9 +222,9 @@ class InterviewAssessmentPipeline(AssessmentPipeline):
         prosody_feedback = self._analyze_prosody()
 
         full_report = (
-            "【核心胜任力与品质评估】\n"
+            "【问答记录与主题词统计（非评分）】\n"
             f"{core_competency}\n\n"
-            "【语音表达表现】\n"
+            "【语音表达观测】\n"
             f"{prosody_feedback}"
         )
 
@@ -238,62 +238,33 @@ class InterviewAssessmentPipeline(AssessmentPipeline):
         )
 
     def _analyze_core_competency(self) -> str:
-        """分析核心胜任力"""
+        """汇总本场面试问答的客观记录统计（只报字数与词项命中数，不下能力判语）。"""
         answers = self.get_valid_answers()
         if not answers:
-            return "未检测到有效回答内容，无法评估胜任力。"
+            return "本场未记录到有效回答文本。"
 
         full_text = " ".join(answers).lower()
+        lengths = sorted(len(a.strip()) for a in answers)
+        total_chars = sum(lengths)
+        median_chars = lengths[len(lengths) // 2]
 
-        # 能力维度关键词
-        research_keywords = ["实验", "数据", "论文", "方法", "分析", "模型", "验证", "创新", "研究", "课题", "文献", "算法"]
-        problem_solving = ["解决", "克服", "应对", "处理", "优化", "改进", "调试", "失败", "挫折", "困难", "挑战"]
-        teamwork = ["合作", "团队", "沟通", "协调", "帮助", "讨论", "协作", "配合", "集体"]
-        motivation = ["兴趣", "热爱", "目标", "规划", "长期", "坚持", "动力", "热情", "志向"]
-        critical_thinking = ["思考", "逻辑", "推理", "质疑", "反思", "深度", "本质", "原因"]
+        domains = [
+            ("研究方法与实验词项", ["实验", "数据", "论文", "方法", "分析", "模型", "验证", "创新", "研究", "课题", "文献", "算法"]),
+            ("问题拆解与排查词项", ["解决", "克服", "应对", "处理", "优化", "改进", "调试", "失败", "困难", "挑战"]),
+            ("团队协作与沟通词项", ["合作", "团队", "沟通", "协调", "帮助", "讨论", "协作", "配合", "集体"]),
+            ("目标规划与持续投入词项", ["兴趣", "热爱", "目标", "规划", "长期", "坚持", "动力", "热情", "志向"]),
+            ("推理反思词项", ["思考", "逻辑", "推理", "质疑", "反思", "深度", "本质", "原因"]),
+        ]
 
-        feedback = []
-
-        # 科研意识
-        research_score = sum(1 for w in research_keywords if w in full_text)
-        if research_score >= 3:
-            feedback.append("✅ 科研意识强：能具体提及研究方法、论文或技术细节，展现出扎实的学术基础。")
-        elif research_score >= 1:
-            feedback.append("🟡 科研意识一般：有科研相关表述，但缺乏具体案例或深度。")
-        else:
-            feedback.append("🔴 科研意识薄弱：回答中较少体现科研经验或学术思维。")
-
-        # 问题解决能力
-        ps_score = sum(1 for w in problem_solving if w in full_text)
-        if ps_score >= 2:
-            feedback.append("✅ 问题解决能力强：能清晰描述面对挑战的应对策略，体现抗压与应变能力。")
-        elif ps_score >= 1:
-            feedback.append("🟡 具备基本问题解决意识，但解决方案可更具体、结构化。")
-        else:
-            feedback.append("🔴 未充分展示解决复杂问题的经验，建议加强实例描述。")
-
-        # 团队合作
-        team_score = sum(1 for w in teamwork if w in full_text)
-        if team_score >= 1:
-            feedback.append("✅ 团队协作意识良好：强调合作价值，符合科研工作对沟通能力的要求。")
-        else:
-            feedback.append("⚠️ 较少提及团队合作，建议在科研场景中突出协作经验。")
-
-        # 内在动机
-        mot_score = sum(1 for w in motivation if w in full_text)
-        if mot_score >= 2:
-            feedback.append("✅ 动机明确：展现出清晰的职业规划与科研热情，稳定性高。")
-        elif mot_score >= 1:
-            feedback.append("🟡 有一定目标感，但长期发展路径可更具体。")
-        else:
-            feedback.append("⚠️ 动机表述模糊，建议明确科研兴趣与个人驱动力。")
-
-        # 批判性思维
-        ct_score = sum(1 for w in critical_thinking if w in full_text)
-        if ct_score >= 1:
-            feedback.append("✨ 具备批判性思维：能进行反思或深入分析，展现科研潜力。")
-
-        return "\n".join(feedback)
+        lines = [
+            f"有效回答：{len(answers)} / {len(self.qa_pairs)} 题；累计 {total_chars} 字，单题中位长度 {median_chars} 字。"
+        ]
+        for label, words in domains:
+            hits = [w for w in words if w in full_text]
+            hit_desc = f"命中 {len(hits)} 项（{'、'.join(hits[:5])}）" if hits else "本场转写中未出现该词表词项"
+            lines.append(f"- {label}：{hit_desc}")
+        lines.append("说明：以上仅为语音转写客观记录与词汇命中统计，不构成任何能力评分、排序或心理推断；完整多模态证据与缺口请查看《衡才智析》行为证据披露报告。")
+        return "\n".join(lines)
 
     def _analyze_prosody(self) -> str:
         """语音表达的**观测**文本 —— 只报"量到了几段",不下判语。
@@ -403,9 +374,9 @@ class ResearchAssessmentPipeline(AssessmentPipeline):
         prosody_feedback = self._analyze_prosody()
 
         full_report = (
-            "【科研能力评估】\n"
+            "【科研问答记录与主题词统计（非评分）】\n"
             f"{research_capability}\n\n"
-            "【语音表达表现】\n"
+            "【语音表达观测】\n"
             f"{prosody_feedback}"
         )
 
@@ -419,66 +390,33 @@ class ResearchAssessmentPipeline(AssessmentPipeline):
         )
 
     def _analyze_research_capability(self) -> str:
-        """分析科研能力"""
+        """汇总本场科研问答的客观记录统计（只报字数与词项命中数，不下能力判语）。"""
         answers = self.get_valid_answers()
         if not answers:
-            return "未检测到有效回答内容，无法评估科研能力。"
+            return "本场未记录到有效回答文本。"
 
         full_text = " ".join(answers).lower()
+        lengths = sorted(len(a.strip()) for a in answers)
+        total_chars = sum(lengths)
+        median_chars = lengths[len(lengths) // 2]
 
-        # 能力维度关键词
-        methodology = ["方法", "实验", "数据", "分析", "验证", "模型", "算法", "测试"]
-        critical_thinking = ["质疑", "反思", "逻辑", "推理", "深度", "本质", "原因", "漏洞"]
-        innovation = ["创新", "新颖", "独特", "突破", "改进", "优化", "原创"]
-        feasibility = ["可行", "现实", "实用", "实现", "落地", "应用"]
-        persistence = ["坚持", "反复", "多次", "尝试", "失败", "挫折", "困难"]
+        domains = [
+            ("方法与实验设计词项", ["方法", "实验", "数据", "分析", "验证", "模型", "算法", "测试"]),
+            ("逻辑反思与证伪词项", ["质疑", "反思", "逻辑", "推理", "深度", "本质", "原因", "漏洞"]),
+            ("方案改进与创新词项", ["创新", "新颖", "独特", "突破", "改进", "优化", "原创"]),
+            ("工程可行性与落地词项", ["可行", "现实", "实用", "实现", "落地", "应用"]),
+            ("迭代排查与复盘词项", ["坚持", "反复", "多次", "尝试", "失败", "困难"]),
+        ]
 
-        feedback = []
-
-        # 方法论能力
-        method_score = sum(1 for w in methodology if w in full_text)
-        if method_score >= 3:
-            feedback.append("✅ 方法论能力强：能清晰描述研究方法和实验设计，展现系统性思维。")
-        elif method_score >= 1:
-            feedback.append("🟡 方法论能力一般：有方法意识，但描述不够具体。")
-        else:
-            feedback.append("🔴 方法论能力薄弱：缺乏对研究方法的系统描述。")
-
-        # 批判性思维
-        ct_score = sum(1 for w in critical_thinking if w in full_text)
-        if ct_score >= 2:
-            feedback.append("✅ 批判性思维强：能深入分析问题本质，发现潜在问题。")
-        elif ct_score >= 1:
-            feedback.append("🟡 具备一定批判性思维，但深度有待提升。")
-        else:
-            feedback.append("⚠️ 批判性思维不足：建议加强逻辑推理和反思能力。")
-
-        # 创新能力
-        innovation_score = sum(1 for w in innovation if w in full_text)
-        if innovation_score >= 2:
-            feedback.append("✅ 创新意识强：能提出新颖观点或解决方案。")
-        elif innovation_score >= 1:
-            feedback.append("🟡 有一定创新意识，但可更加大胆。")
-        else:
-            feedback.append("⚠️ 创新意识一般：建议多思考突破性方案。")
-
-        # 可行性评估
-        feas_score = sum(1 for w in feasibility if w in full_text)
-        if feas_score >= 1:
-            feedback.append("✅ 可行性意识好：能平衡创新与现实约束。")
-        else:
-            feedback.append("⚠️ 可行性评估不足：建议关注实际应用场景。")
-
-        # 坚持与韧性
-        persist_score = sum(1 for w in persistence if w in full_text)
-        if persist_score >= 2:
-            feedback.append("✅ 坚韧性强：面对挫折能持续尝试，展现科研韧性。")
-        elif persist_score >= 1:
-            feedback.append("🟡 有一定韧性，但可进一步加强。")
-        else:
-            feedback.append("⚠️ 韧性表现不足：建议多分享克服困难的经历。")
-
-        return "\n".join(feedback)
+        lines = [
+            f"有效回答：{len(answers)} / {len(self.qa_pairs)} 题；累计 {total_chars} 字，单题中位长度 {median_chars} 字。"
+        ]
+        for label, words in domains:
+            hits = [w for w in words if w in full_text]
+            hit_desc = f"命中 {len(hits)} 项（{'、'.join(hits[:5])}）" if hits else "本场转写中未出现该词表词项"
+            lines.append(f"- {label}：{hit_desc}")
+        lines.append("说明：以上仅为语音转写客观记录与词汇命中统计，不构成任何能力评分、排序或心理推断；完整多模态证据与缺口请查看《衡才智析》行为证据披露报告。")
+        return "\n".join(lines)
 
     def _analyze_prosody(self) -> str:
         """语音表达的**观测**文本 —— 只报"量到了几段",不下判语。

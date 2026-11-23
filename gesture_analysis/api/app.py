@@ -32,8 +32,8 @@ from gesture_analysis.config import API_CONFIG, MEDIAPIPE_CONFIG, LOGS_DIR
 from gesture_analysis.core.detectors import close_detached
 
 app = FastAPI(
-    title="Gesture Analysis API",
-    description="手势、肩部和手臂情绪分析API"
+    title="衡才智析 · 上肢与体态运动观测 API",
+    description="手部、肩部与上肢几何位移及姿态角度实时采集服务"
 )
 
 # 添加 CORS 中间件
@@ -221,8 +221,14 @@ def get_or_create_detectors(session_id: str):
     """取或建本会话的探测器。VIDEO 模式的跟踪状态挂在实例上,所以必须按会话(spec D3)。"""
     current_time = time.time()
 
-    expired = [sid for sid, (_, last) in session_analyzers.items()
-               if current_time - last > SESSION_TIMEOUT]
+    # 检查过期或已从 session_analyzers 清理的残留探测器（修复先清 analyzer 后漏清 detector 的死清理问题）
+    expired = [
+        sid for sid in list(detectors.keys())
+        if sid != session_id and (
+            sid not in session_analyzers
+            or (current_time - session_analyzers[sid][1] > SESSION_TIMEOUT)
+        )
+    ]
     for sid in expired:
         dets = detectors.pop(sid, None)
         if dets is not None:
@@ -663,6 +669,14 @@ async def get_session_summary(session_id: str):
             },
         },
     }
+
+
+@app.post("/session/{session_id}/reset")
+async def reset_session_by_path(session_id: str):
+    """按路径参数重置单个会话的分析器、探测器与时钟（与面部服务保持接口对称）。"""
+    if _reset_session(session_id):
+        return {"status": "success", "session_id": session_id, "message": f"会话 {session_id} 已重置"}
+    return {"status": "not_found", "session_id": session_id, "message": f"会话 {session_id} 不存在"}
 
 
 @app.post("/reset")

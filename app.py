@@ -1,15 +1,22 @@
 import os
 import re
 import sys
+import hashlib
+import json as _json
 import subprocess
 import threading
+import urllib.error
+import urllib.request
 import uuid
 import time
 import logging
-from flask import Flask, render_template, jsonify, request, send_from_directory, send_file
+from concurrent.futures import ThreadPoolExecutor
+from flask import Flask, Response, render_template, jsonify, request, send_from_directory, send_file
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from logging_config import setup_logging
+from report_frontend import brand
+import session_purge
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -70,13 +77,141 @@ REPORT_FOLDER = "reports"          # 前端用这个别名请求根下的报告
 #:
 #: 判据收在后端,`/api/files/reports` 只回报告。前端那两处过滤留着是幂等的,
 #: 但事实只有这一份。
-REPORT_FILENAME_RE = re.compile(r"Assessment_Report.*\.html$", re.IGNORECASE)
+REPORT_FILENAME_RE = brand.REPORT_FILENAME_RE
+
+# 含受试者后缀的报告文件名（如 Research_Assessment_Report_20261122_131902-姓名.html）。
+# 未认证演示模式对外隐藏后缀真实姓名，并通过不可逆短 token 提供脱敏版 HTML。
+_NAMED_REPORT_RE = re.compile(
+    r"^((?:HengCai_Evidence_Report|Research_Assessment_Report)_(?:Live_)?\d{8}_\d{6})-([^/\\]+)\.html$",
+    re.IGNORECASE,
+)
+_SUBJECT_DIV_RE = re.compile(
+    r'<div\s+class="subject(?:\s+[^"]*)?"[^>]*>.*?</div>',
+    re.S,
+)
+_REDACTED_SUBJECT_HTML = (
+    '<div class="subject subject-missing">受试者身份：'
+    '<strong>已脱敏（演示模式）</strong>'
+    '（仅展示多模态行为证据与缺口；管理员登录后可见完整身份信息）</div>'
+)
+_REDACTED_SUBJECT_OBJ = {
+    "status": "redacted",
+    "note": "演示模式已脱敏隐藏受试者身份（管理员登录后可见完整信息）",
+}
+
+_REPORT_SID_CACHE: dict[tuple[str, int, int], str | None] = {}
+_REPORT_SID_LOCK = threading.Lock()
+_REDACTED_TOKENS: dict[str, str] = {}
+_REDACTED_TOKENS_LOCK = threading.Lock()
+_TASK_MAX_ENTRIES = 200
 
 # 任务状态追踪
 task_status = {}
 
 
-def run_script(task_id, module_name, extra_args=None):
+def _prune_task_status() -> None:
+    if len(task_status) <= _TASK_MAX_ENTRIES:
+        return
+    finished = sorted(
+        (
+            (v.get("finished_at") or v.get("started_at") or 0.0, k)
+            for k, v in task_status.items()
+            if v.get("status") in ("success", "error")
+        ),
+        key=lambda x: x[0],
+    )
+    drop = len(task_status) - _TASK_MAX_ENTRIES
+    for _, k in finished[:drop]:
+        task_status.pop(k, None)
+
+
+def _report_token(filename: str) -> str:
+    tok = hashlib.sha256(filename.encode("utf-8")).hexdigest()[:16]
+    with _REDACTED_TOKENS_LOCK:
+        _REDACTED_TOKENS[tok] = filename
+    return tok
+
+
+def _resolve_redacted_token(token: str) -> str | None:
+    if not token or not re.fullmatch(r"[0-9a-f]{16}", token):
+        return None
+    with _REDACTED_TOKENS_LOCK:
+        hit = _REDACTED_TOKENS.get(token)
+    if hit and os.path.isfile(os.path.join(OUTPUT_DIR, hit)):
+        return hit
+    if os.path.isdir(OUTPUT_DIR):
+        for f in os.listdir(OUTPUT_DIR):
+            if REPORT_FILENAME_RE.search(f) and hashlib.sha256(f.encode("utf-8")).hexdigest()[:16] == token:
+                with _REDACTED_TOKENS_LOCK:
+                    _REDACTED_TOKENS[token] = f
+                return f
+    return None
+
+
+def _extract_report_session_id(full_path: str) -> str | None:
+    try:
+        st = os.stat(full_path)
+    except OSError:
+        return None
+    key = (full_path, st.st_mtime_ns, st.st_size)
+    with _REPORT_SID_LOCK:
+        if key in _REPORT_SID_CACHE:
+            return _REPORT_SID_CACHE[key]
+    sid: str | None = None
+    try:
+        with open(full_path, "r", encoding="utf-8", errors="replace") as fh:
+            head = fh.read(8192)
+        m = session_purge.SID_IN_TEXT.search(head)
+        if m:
+            sid = m.group(0)
+    except OSError:
+        sid = None
+    with _REPORT_SID_LOCK:
+        if len(_REPORT_SID_CACHE) > 2000:
+            _REPORT_SID_CACHE.clear()
+        _REPORT_SID_CACHE[key] = sid
+    return sid
+
+
+def _public_report_ref(filename: str, *, is_admin: bool) -> tuple[str, str, bool]:
+    """返回 `(对外文件名, URL, 是否已脱敏)`。"""
+    m = _NAMED_REPORT_RE.match(filename)
+    if (not is_admin) and m and not re.fullmatch(r"[0-9a-fA-F_-]+", m.group(2)):
+        safe_name = f"{m.group(1)}-已脱敏.html"
+        return safe_name, f"/output/redacted/{_report_token(filename)}", True
+    return filename, f"/output/{filename}", False
+
+
+def _redact_report_html(html_text: str) -> str:
+    return _SUBJECT_DIV_RE.sub(_REDACTED_SUBJECT_HTML, html_text)
+
+
+def _serve_report_html(filename: str, *, redact: bool):
+    full = os.path.join(OUTPUT_DIR, filename)
+    if not os.path.isfile(full):
+        return jsonify({"status": "error", "message": "报告文件不存在"}), 404
+    if not redact:
+        return send_from_directory(OUTPUT_DIR, filename)
+    with open(full, "r", encoding="utf-8", errors="replace") as fh:
+        body = _redact_report_html(fh.read())
+    resp = Response(body, mimetype="text/html; charset=utf-8")
+    resp.headers["X-JX-Redacted"] = "1"
+    return resp
+
+
+def _parse_report_path_from_stdout(stdout: str) -> str | None:
+    if not stdout:
+        return None
+    for line in reversed(stdout.splitlines()):
+        line = line.strip()
+        if line.startswith("REPORT_PATH="):
+            cand = line[len("REPORT_PATH="):].strip()
+            if cand:
+                return cand
+    return None
+
+
+def run_script(task_id, module_name, extra_args=None, is_admin: bool = False):
     """在后台线程运行脚本，避免阻塞网页。
 
     `extra_args`:附加到命令行的参数(M2 起用来透传 `--session-id`)。
@@ -88,22 +223,35 @@ def run_script(task_id, module_name, extra_args=None):
             cmd.extend(extra_args)
         logger.info(f"正在启动任务 {task_id}：{cmd}")
 
+        env = dict(os.environ)
+        env["JX_NO_BROWSER"] = "1"
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
             cwd=os.path.dirname(__file__),
+            env=env,
             encoding='utf-8',
             errors='replace'
         )
 
         if result.returncode == 0:
-            task_status[task_id].update({
+            report_path = _parse_report_path_from_stdout(result.stdout)
+            update_data = {
                 "status": "success",
                 "message": "任务完成！",
                 "logs": result.stdout,
                 "finished_at": time.time()
-            })
+            }
+            if report_path:
+                fname = os.path.basename(report_path)
+                disp_name, url, redacted = _public_report_ref(fname, is_admin=is_admin)
+                update_data.update({
+                    "report_name": disp_name,
+                    "report_url": url,
+                    "redacted": redacted,
+                })
+            task_status[task_id].update(update_data)
         else:
             task_status[task_id].update({
                 "status": "error",
@@ -117,6 +265,8 @@ def run_script(task_id, module_name, extra_args=None):
             "message": str(e),
             "finished_at": time.time()
         })
+    finally:
+        _prune_task_status()
 
 
 # --- 路由：主页 ---
@@ -139,6 +289,7 @@ def get_files(folder_name):
     if not os.path.exists(folder_path):
         return jsonify([])
 
+    is_admin = recordings_browser._is_admin()
     files = []
     for f in os.listdir(folder_path):
         if not f.lower().endswith(('.png', '.jpg', '.jpeg', '.html')):
@@ -148,19 +299,50 @@ def get_files(folder_name):
         # 面板那张卡片取前 6 个 iframe 全是雷达图(见 `REPORT_FILENAME_RE` 上方说明)。
         if folder_name == REPORT_FOLDER and not REPORT_FILENAME_RE.search(f):
             continue
-        files.append({
-            "name": f,
-            # URL 必须跟着**真实位置**走:别名目录下的文件在根上,
-            # 写成 /output/reports/<f> 会 404(静态路由按 OUTPUT_DIR 相对解析)
-            "url": f"{url_prefix}/{f}"
-        })
-    files.sort(key=lambda x: x['name'], reverse=True)
+        full_path = os.path.join(folder_path, f)
+        try:
+            mtime = os.path.getmtime(full_path)
+        except OSError:
+            mtime = 0.0
+        if folder_name == REPORT_FOLDER:
+            disp_name, url, redacted = _public_report_ref(f, is_admin=is_admin)
+            files.append({
+                "name": disp_name,
+                "display_name": disp_name,
+                "url": url,
+                "session_id": _extract_report_session_id(full_path),
+                "mtime": mtime,
+                "redacted": redacted,
+            })
+        else:
+            files.append({
+                "name": f,
+                "url": f"{url_prefix}/{f}",
+                "mtime": mtime,
+            })
+    if folder_name == REPORT_FOLDER:
+        files.sort(key=lambda x: (x.get('mtime', 0.0), x['name']), reverse=True)
+    else:
+        files.sort(key=lambda x: x['name'], reverse=True)
     return jsonify(files)
 
 
-# --- API: 提供静态文件访问 ---
+# --- API: 提供静态文件访问（未认证演示模式对报告 HTML 自动脱敏受试者身份） ---
+@app.route('/output/redacted/<token>')
+def serve_redacted_report(token):
+    real_name = _resolve_redacted_token(token)
+    if not real_name:
+        return jsonify({"status": "error", "message": "报告文件不存在或令牌无效"}), 404
+    is_admin = recordings_browser._is_admin(allow_query=True)
+    return _serve_report_html(real_name, redact=not is_admin)
+
+
 @app.route('/output/<path:filename>')
 def serve_output(filename):
+    is_admin = recordings_browser._is_admin(allow_query=True)
+    # 根目录 HTML 报告：未登录管理员一律剥除身份横幅
+    if os.path.dirname(filename) == "" and REPORT_FILENAME_RE.search(filename):
+        return _serve_report_html(filename, redact=not is_admin)
     return send_from_directory(OUTPUT_DIR, filename)
 
 
@@ -170,18 +352,22 @@ def trigger_module(module):
     # 实时报告走独立流程（需要 session_id）
     if module == "report_live":
         return _trigger_live_report()
+    if module == "voice_series":
+        return _trigger_voice_series()
 
     module_map = {
-        "face": "feature_engine",
-        "gesture": "visualizer",
         "report": "report_generator"
     }
 
     target_module = module_map.get(module)
 
     if not target_module:
-        return jsonify({"status": "error", "message": "未知的模块"})
+        return jsonify({
+            "status": "error",
+            "message": f"不支持运行模块 {module!r}（仅支持 report / report_live / voice_series）"
+        }), 400
 
+    is_admin = recordings_browser._is_admin()
     task_id = str(uuid.uuid4())[:8]
     task_status[task_id] = {
         "module": module,
@@ -198,7 +384,7 @@ def trigger_module(module):
     if module == "report" and sid:
         extra = ["--session-id", sid]
 
-    thread = threading.Thread(target=run_script, args=(task_id, target_module, extra))
+    thread = threading.Thread(target=run_script, args=(task_id, target_module, extra, is_admin))
     thread.start()
 
     return jsonify({
@@ -206,6 +392,59 @@ def trigger_module(module):
         "task_id": task_id,
         "message": f"任务 [{module}] 已启动，task_id: {task_id}"
     })
+
+
+def _trigger_voice_series():
+    """管理员按会话触发语音序列重建（data/l0_series/<sid>.npz）。"""
+    if recordings_browser._admin_password() is None:
+        return recordings_browser._password_missing()
+    if not recordings_browser._is_admin():
+        return jsonify({"status": "error", "message": "需要管理员密码"}), 401
+    body = request.get_json(silent=True) or {}
+    sid = (body.get("session_id") or request.args.get("session_id") or "").strip()
+    if not sid:
+        return jsonify({"status": "error", "message": "缺少 session_id 参数"}), 400
+    force = bool(body.get("force", False))
+    task_id = str(uuid.uuid4())[:8]
+    task_status[task_id] = {
+        "module": "voice_series",
+        "status": "pending",
+        "session_id": sid,
+        "started_at": time.time(),
+        "finished_at": None,
+        "message": "",
+        "logs": "",
+    }
+    thread = threading.Thread(target=_run_voice_series, args=(task_id, sid, force))
+    thread.start()
+    return jsonify({
+        "status": "started",
+        "task_id": task_id,
+        "session_id": sid,
+        "message": f"语音序列重建任务已启动，session: {sid}, task_id: {task_id}",
+    })
+
+
+def _run_voice_series(task_id: str, session_id: str, force: bool = False):
+    task_status[task_id]["status"] = "running"
+    try:
+        from report_frontend.voice_series import extract_session
+        got = extract_session(session_id, force=force)
+        task_status[task_id].update({
+            "status": "success" if got else "error",
+            "message": f"语音序列重建完成（共 {len(got)} 段）" if got else "未找到可提取的原始音频",
+            "logs": f"extracted_segments={len(got)}",
+            "finished_at": time.time(),
+        })
+    except Exception as e:
+        logger.exception("语音序列重建失败")
+        task_status[task_id].update({
+            "status": "error",
+            "message": str(e),
+            "finished_at": time.time(),
+        })
+    finally:
+        _prune_task_status()
 
 
 def _trigger_live_report():
@@ -216,6 +455,7 @@ def _trigger_live_report():
     if not session_id:
         return jsonify({"status": "error", "message": "缺少 session_id 参数"}), 400
 
+    is_admin = recordings_browser._is_admin()
     task_id = str(uuid.uuid4())[:8]
     task_status[task_id] = {
         "module": "report_live",
@@ -227,7 +467,7 @@ def _trigger_live_report():
         "logs": ""
     }
 
-    thread = threading.Thread(target=_run_live_report, args=(task_id, session_id))
+    thread = threading.Thread(target=_run_live_report, args=(task_id, session_id, is_admin))
     thread.start()
 
     return jsonify({
@@ -238,21 +478,31 @@ def _trigger_live_report():
     })
 
 
-def _run_live_report(task_id, session_id):
+def _run_live_report(task_id, session_id, is_admin: bool = False):
     """在后台线程中运行实时报告生成"""
     task_status[task_id]["status"] = "running"
     try:
+        os.environ.setdefault("JX_NO_BROWSER", "1")
         from report_frontend.report_generator import ReportGenerator
         gen = ReportGenerator()
         path = gen.generate_report_live(session_id)
         # 「没产出」不许报成功(第 17 条同族)—— `generate_report_live` 失败时正是 `return ""`,
         # 而这条路的旧实现无条件报「实时报告生成完成！」,把静默失败原样搬到了隔壁这条路上。
-        task_status[task_id].update({
+        update_data = {
             "status": "success" if path else "error",
             "message": "实时报告生成完成！" if path else "实时报告生成失败",
             "logs": f"报告路径: {path}" if path else "生成失败",
             "finished_at": time.time()
-        })
+        }
+        if path:
+            fname = os.path.basename(path)
+            disp_name, url, redacted = _public_report_ref(fname, is_admin=is_admin)
+            update_data.update({
+                "report_name": disp_name,
+                "report_url": url,
+                "redacted": redacted,
+            })
+        task_status[task_id].update(update_data)
     except Exception as e:
         logger.exception("实时报告生成失败")
         task_status[task_id].update({
@@ -260,6 +510,8 @@ def _run_live_report(task_id, session_id):
             "message": str(e),
             "finished_at": time.time()
         })
+    finally:
+        _prune_task_status()
 
 
 # --- API: 查询任务状态 ---
@@ -335,6 +587,10 @@ def get_structured_report():
         except Exception:
             logger.exception("读本场标注失败(报告照常返回)")
 
+        is_admin = recordings_browser._is_admin()
+        if subject and not is_admin:
+            subject = dict(_REDACTED_SUBJECT_OBJ)
+
         # 「测试时间」= 铸号时刻(会话 id 自带),不是本请求的时刻。
         # 「报告生成时间」= 这一次生成的时刻。两个都回,前端同屏印。
         try:
@@ -350,13 +606,77 @@ def get_structured_report():
             "engine": which,
             "result": result,
             "subject": subject,
+            "is_admin": is_admin,
             "tested_at": _started.strftime("%Y-%m-%d %H:%M:%S") if _started else None,
             "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         })
 
     except Exception as e:
         logger.exception("获取结构化评估报告失败")
-        return jsonify({"status": "error", "message": str(e)})
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# --- API: 聚合系统健康检查（绕过系统代理，1.2s 并行探活） ---
+def _probe_http_health(name: str, url: str, timeout: float = 1.2) -> tuple[str, dict]:
+    t0 = time.perf_counter()
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(url, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+            dt_ms = round((time.perf_counter() - t0) * 1000, 1)
+            payload = _json.loads(raw) if raw.strip().startswith("{") else {}
+            status = str(payload.get("status") or ("healthy" if resp.status == 200 else "degraded"))
+            info = {
+                "ok": resp.status == 200 and status == "healthy",
+                "status": status,
+                "latency_ms": dt_ms,
+                "url": url,
+            }
+            for extra_k in ("asr_endpoint", "asr_reachable"):
+                if extra_k in payload:
+                    info[extra_k] = payload[extra_k]
+            return name, info
+    except Exception as exc:
+        dt_ms = round((time.perf_counter() - t0) * 1000, 1)
+        return name, {
+            "ok": False,
+            "status": "offline",
+            "latency_ms": dt_ms,
+            "url": url,
+            "error": type(exc).__name__,
+        }
+
+
+@app.route('/api/system/health', methods=['GET'])
+def system_health():
+    """聚合面板、面部、语音(+ASR)、手势四路服务的实时就绪状态。"""
+    targets = {
+        "face": os.getenv("JX_FACE_HEALTH_URL", "http://127.0.0.1:8000/health"),
+        "voice": os.getenv("JX_VOICE_HEALTH_URL", "http://127.0.0.1:8001/health"),
+        "gesture": os.getenv("JX_GESTURE_HEALTH_URL", "http://127.0.0.1:8002/health"),
+    }
+    services: dict[str, dict] = {
+        "panel": {"ok": True, "status": "healthy", "latency_ms": 0.0, "url": "http://127.0.0.1:5000"},
+    }
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        futs = [pool.submit(_probe_http_health, k, u) for k, u in targets.items()]
+        for fut in futs:
+            k, info = fut.result()
+            services[k] = info
+
+    all_ok = all(v.get("ok") for v in services.values())
+    any_ok = any(v.get("ok") for k, v in services.items() if k != "panel")
+    overall = "healthy" if all_ok else ("degraded" if any_ok else "offline")
+    return jsonify({
+        "status": overall,
+        "brand": brand.BRAND_NAME,
+        "subtitle": brand.BRAND_SUBTITLE,
+        "software_name": brand.COPYRIGHT_SOFTWARE_NAME,
+        "admin_configured": recordings_browser._admin_password() is not None,
+        "is_admin": recordings_browser._is_admin(),
+        "services": services,
+        "checked_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+    })
 
 
 # ── 题库:查看 / 上传替换 / 恢复默认 ──────────────────────────────────────
@@ -372,6 +692,7 @@ def get_question_bank(module):
 
 
 @app.route('/api/question-bank/<module>/banks', methods=['POST'])
+@recordings_browser._admin_required()
 def create_question_bank(module):
     """新建一套题库（不覆盖已有的任何一套）。"""
     body = request.get_json(silent=True) or {}
@@ -384,6 +705,7 @@ def create_question_bank(module):
 
 
 @app.route('/api/question-bank/<module>/banks/<bank_id>', methods=['PUT'])
+@recordings_browser._admin_required()
 def update_question_bank(module, bank_id):
     body = request.get_json(silent=True) or {}
     import question_bank
@@ -396,6 +718,7 @@ def update_question_bank(module, bank_id):
 
 
 @app.route('/api/question-bank/<module>/banks/<bank_id>', methods=['DELETE'])
+@recordings_browser._admin_required()
 def delete_question_bank(module, bank_id):
     import question_bank
     try:
@@ -425,6 +748,7 @@ def download_sample_question_bank(module):
 
 
 @app.route('/api/question-bank/<module>/active', methods=['POST'])
+@recordings_browser._admin_required()
 def activate_question_bank(module):
     """把某套设为"下一场评估用这一套"；`id=null` 表示回到内置默认。"""
     body = request.get_json(silent=True) or {}
@@ -437,7 +761,7 @@ def activate_question_bank(module):
 
 if __name__ == '__main__':
     logger.info("=" * 50)
-    logger.info("JingXin 总控平台启动中...")
+    logger.info(f"{brand.BRAND_FULL_TITLE} 总控服务启动中...")
     logger.info(f"数据目录: {OUTPUT_DIR}")
     logger.info("访问地址：http://127.0.0.1:5000")
     logger.info("=" * 50)

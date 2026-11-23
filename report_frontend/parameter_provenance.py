@@ -76,7 +76,7 @@ def build_parameter_provenance(indicator_names: list[str] | tuple[str, ...]) -> 
         f"共登记 {n_total} 项核心阈值与参数：物理/数学定义（T1）{counts['T1']} 项、"
         f"文献基准（T2a）{counts['T2a']} 项、本校自采标定（T2b）{counts['T2b']} 项、"
         f"经验临时值（T3a）{counts['T3a']} 项、公开集研究参考（T3b）{counts['T3b']} 项；"
-        f"其中 {n_prov} 项带有未标定标记，不得当作已标定常模解读。"
+        f"其中 {n_prov} 项带有未标定标记，不得当作已标定群体基线解读。"
     )
     return {
         "schema_version": raw.get("_schema_version", "1.0.0"),

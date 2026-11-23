@@ -96,6 +96,7 @@ async def arecognize_pcm(
     on_partial: Optional[Callable[[ASRResult], None]] = None,
     realtime: bool = False,
     timeout: float = 60.0,
+    open_timeout: float = 5.0,
 ) -> ASRResult:
     """
     识别一段完整 PCM (整段音频已拿到手时用这个)
@@ -119,6 +120,7 @@ async def arecognize_pcm(
 
     async with websockets.connect(
         uri, subprotocols=["binary"], ping_interval=None, max_size=None,
+        open_timeout=open_timeout,
     ) as ws:
         # 1) 配置
         await ws.send(json.dumps({

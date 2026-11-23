@@ -272,7 +272,7 @@ def test_rename_map_has_no_silent_gap_between_extractor_and_logger():
 
 
 # ---------------------------------------------------- 第 3 件:不许卡住事件循环
-def test_extraction_runs_off_the_event_loop(asr_reachable, monkeypatch):
+def test_extraction_runs_off_the_event_loop(asr_reachable, logged, monkeypatch):
     """pyin 是**同步重活**:实测 3 s 音频 ≈ 0.3 s、29.5 s ≈ 3.7 s(与 ASR 的 1.75 s 同量级)。
 
     端点都是 `async def`,直接在协程里算会**卡住整个事件循环** —— 期间服务连

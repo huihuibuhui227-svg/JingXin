@@ -432,7 +432,7 @@ DIMENSION_REGISTRY: dict[str, dict[str, str]] = {
     "stress_resilience": {
         "canonical_id": "situational_motor_stability",
         "display_name": "情境行为稳定性",
-        "disclaimer": "仅作历史协议兼容键名，汇总唇部形变、上肢抖动与面部不对称度，不作心理压力或情绪推断。",
+        "disclaimer": "仅作历史协议兼容键名，汇总唇部形变、上肢抖动与面部不对称度，不作心理状态或情绪推断。",
     },
     "communication_fluency": {
         "canonical_id": "speech_delivery_continuity",
@@ -442,7 +442,7 @@ DIMENSION_REGISTRY: dict[str, dict[str, str]] = {
     "confidence_level": {
         "canonical_id": "visible_behavior_activity",
         "display_name": "行为表现活跃度",
-        "disclaimer": "仅作历史协议兼容键名，汇总手掌张开度、耸肩幅度与眼神接触时长，不作自信心或人格推断。",
+        "disclaimer": "仅作历史协议兼容键名，汇总手掌张开度、耸肩幅度与眼神接触时长，不作自信心或主观特质推断。",
     },
     "cognitive_efficiency": {
         "canonical_id": "response_execution_profile",

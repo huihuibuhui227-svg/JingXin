@@ -63,7 +63,8 @@ if [ -z "${JX_FRONTEND:-}" ]; then
   unset __cand
 fi
 
-export REPO JX_PY JX_RECORDINGS JX_FRONTEND
+export JINGXIN_RECORDINGS_DIR="${JINGXIN_RECORDINGS_DIR:-$JX_RECORDINGS}"
+export REPO JX_PY JX_RECORDINGS JX_FRONTEND JINGXIN_RECORDINGS_DIR
 
 __jx_latest_session() {
   # 取 JX_RECORDINGS 下**名字最新**的会话目录(排除 NONE 与 _试跑)
