@@ -93,6 +93,9 @@ class Timebase:
     #: 判断"两族看的是不是同一段时间"要比 `span_sec` —— 候选B那场就是
     #: 面部/手势 7427 秒、语音 434.7 秒(视频只剩最后一段),比帧数根本看不出来。
     span_sec: float | None = None
+    #: 是否具备可靠挂钟相位锚点（日志/帧账本为 True；整场音频重算序列无挂钟起点为 False）
+    anchored: bool = True
+    anchor_reason: str | None = None
 
     def __post_init__(self) -> None:
         if self.span_sec is None and self.t_sec is not None and len(self.t_sec):
@@ -254,7 +257,9 @@ def audio_timebase(series) -> Timebase | None:
     return Timebase(modality="voice", status=TimebaseStatus.OK,
                     t_sec=pd.Series(_np.arange(total, dtype=float) * frame),
                     n_frames=total, wall_back_steps=0, drift_sec=None,
-                    gap="时间轴由原始音频的帧序列重建(未与墙钟核对)")
+                    gap="时间轴由原始音频的帧序列重建(未与墙钟核对)",
+                    anchored=False,
+                    anchor_reason="no_wall_clock_in_media")
 
 
 # ── 单模态换算 ────────────────────────────────────────────────────────────────

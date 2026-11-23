@@ -365,9 +365,9 @@ PLAIN_WHAT: dict[str, str] = {
     "gaze_direction_x_std":
         "旧报告数的是视线的原始波动幅度,新报告数的是相对本场自身范围折算后的稳定性",
     "au4_frown":
-        "旧报告数的是皱眉动作的绝对强度,新报告数的是相对本人平静状态偏离了多少",
+        "旧报告数的是皱眉动作的绝对强度,新报告数的是相对本人本场中位基线偏离了多少",
     "au23_lip_compression":
-        "旧报告数的是唇部压缩的绝对强度,新报告数的是相对本人平静状态偏离了多少",
+        "旧报告数的是唇部压缩的绝对强度,新报告数的是相对本人本场中位基线偏离了多少",
     "left_wrist_jitter_world":
         "旧报告只数左腕的抖动,新报告把腕、肘、肩六列的抖动合在一起数",
     "pause_duration":
@@ -419,6 +419,35 @@ DIMENSIONS: dict[str, dict] = {
     "cognitive_efficiency": {
         "name": "作答过程特征",
         "slots": {"n_chars": 0.4, "reaction_time": 0.6},
+    },
+}
+
+#: 5 大维度的中性规范键注册表（保留 `DIMENSIONS` 历史协议键向后兼容，同时显式声明非心理推断）
+DIMENSION_REGISTRY: dict[str, dict[str, str]] = {
+    "logical_thinking": {
+        "canonical_id": "discourse_structure",
+        "display_name": "话语结构特征",
+        "disclaimer": "仅作历史协议兼容键名，汇总连接词与视觉局部观测，不作思维或认知能力推断。",
+    },
+    "stress_resilience": {
+        "canonical_id": "situational_motor_stability",
+        "display_name": "情境行为稳定性",
+        "disclaimer": "仅作历史协议兼容键名，汇总唇部形变、上肢抖动与面部不对称度，不作心理压力或情绪推断。",
+    },
+    "communication_fluency": {
+        "canonical_id": "speech_delivery_continuity",
+        "display_name": "沟通表达流畅度",
+        "disclaimer": "仅作历史协议兼容键名，汇总停顿分布、语调变化与停顿中位时长，不作语言能力打分。",
+    },
+    "confidence_level": {
+        "canonical_id": "visible_behavior_activity",
+        "display_name": "行为表现活跃度",
+        "disclaimer": "仅作历史协议兼容键名，汇总手掌张开度、耸肩幅度与眼神接触时长，不作自信心或人格推断。",
+    },
+    "cognitive_efficiency": {
+        "canonical_id": "response_execution_profile",
+        "display_name": "作答过程特征",
+        "disclaimer": "仅作历史协议兼容键名，汇总逐段非空白字符数与应答启动间隔，不作认知效率评定。",
     },
 }
 

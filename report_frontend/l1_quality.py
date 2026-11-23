@@ -38,23 +38,45 @@ FAMILY_MODALITY = {
     "F2_gaze": "face",
     "F3_blink": "face",
     "F4_head": "face",
-    "F5_tension": "face",
+    "F5_brow_lip": "face",
     "F6_expressivity": "face",
     # ★ 2026-11-22:退掉 `F7_micro`(它的两条指标 `micro_exp_*` 从没出过值,
     #   已随指标一起退),补进 `F8_symmetry`(`facial_asymmetry_p90`)。
-    #   留着一条**没有产出方**的族登记,会让"这一族依赖哪个模态"这张表
-    #   悄悄多一行没人验证的声明 —— 本仓对死登记一向是删而不是留。
     "F8_symmetry": "face",
     "G1_activity": "gesture",
     "G2_posture": "gesture",
     "G3_visibility": "gesture",
-    # ★ 2026-11-22:`hand_openness_p50` 的族。它是**同一 G 族内的新 family 名**,
-    #   不是新缺口族(缺口码仍只有 9 类)。
     "G4_hand": "gesture",
     "V1_amount": "voice",
     "V2_pause": "voice",
     "V3_pitch": "voice",
     "V4_energy": "voice",
+    # ★ 2026-11-23:补齐 T 族 3 个文本族,使 `validate()` 与 `modality_summary()` 覆盖全部 41 条。
+    "T1_lexical": "text",
+    "T2_discourse": "text",
+    "T3_repair": "text",
+}
+
+#: 指标族代码 → 中文显示名（面向前端与审计展示，不含任何心理/情绪词）
+FAMILY_LABEL: dict[str, str] = {
+    "F1_smile": "面部 · 微笑动作",
+    "F2_gaze": "面部 · 视线注视",
+    "F3_blink": "面部 · 眨眼节律",
+    "F4_head": "面部 · 头部运动（2D 代理）",
+    "F5_brow_lip": "面部 · 眉唇局部形变",
+    "F6_expressivity": "面部 · 动作活跃度",
+    "F8_symmetry": "面部 · 左右不对称度",
+    "G1_activity": "手势 · 上肢活动",
+    "G2_posture": "姿态 · 躯干与肩部",
+    "G3_visibility": "姿态 · 可见度协变量",
+    "G4_hand": "手势 · 手掌张开",
+    "V1_amount": "语音 · 发声与语速",
+    "V2_pause": "语音 · 停顿结构",
+    "V3_pitch": "语音 · 基频韵律",
+    "V4_energy": "语音 · 声学能量",
+    "T1_lexical": "文本 · 词汇丰富度",
+    "T2_discourse": "文本 · 话语连接词",
+    "T3_repair": "文本 · 自我修正",
 }
 
 #: 人话解释 —— 报告里给读者看的那一句。**不许直接渲染 `gap` 的英文常量。**
@@ -193,6 +215,12 @@ class QualityReport:
         if series_backed:
             missing.discard("voice")
             empty.discard("voice")
+        # 文本族由转写文件而非帧时间轴提供；仅当 coverage["text"] 显式声明不可用时触发拦截
+        text_cov = self.coverage.get("text")
+        if isinstance(text_cov, dict) and (
+            not text_cov.get("provided", False) or text_cov.get("usable_ratio", 0) == 0
+        ):
+            empty.add("text")
         for row in self.indicators:
             fam = row["family"]
             dep = FAMILY_MODALITY.get(fam)
@@ -395,16 +423,12 @@ INDICATOR_LABEL: dict[str, str] = {
     #   `tests/test_indicator_names_agree_with_slot_names.py` 的 `_DIRECTION_FLIP` 钉着。
     "facial_asymmetry_p90": "面部不对称度",
     # G 族(手势)
-    "gesture_activity_per_sec": "腕部抖动",
+    "gesture_activity_per_sec": "上肢活动抖动度",
     "gesture_burst_rate_per_min_vs_baseline": "手势爆发频率",
-    "posture_stability": "姿态稳定性",
+    "posture_stability": "躯干肩部抖动度",
     "postural_shift_rate_per_min_vs_baseline": "姿态变换频率",
     # ⚠️ 这两条**与槽名逐字相同**(「耸肩幅度」/「手掌张开度」):构念没变,
-    #   变的只是统计量(均值 → p90 / 中位),与 `pause_duration` → `pause_duration_p50`
-    #   那次处置一致(统计量写在 `formula` 里,不进名字)。
-    #   `shrug_level` 的槽名 2026-11-21 由「肩部放松度」改为「耸肩幅度」:列越大 = 越耸肩,
-    #   原名把方向说反(与 `_DIRECTION_FLIP` 那条规矩同源)。
-    #   由 `tests/test_indicator_names_agree_with_slot_names.py` 逐条对账。
+    #   变的只是统计量(均值 → p90 / 中位)。
     "shrug_elevation_p90": "耸肩幅度",
     "hand_openness_p50": "手掌张开度",
     "hand_visible_ratio_l": "左手可见占比",
@@ -414,7 +438,7 @@ INDICATOR_LABEL: dict[str, str] = {
     "speech_rate": "语音字数率",
     "voiced_ratio": "发声占比",
     "pause_rate_per_min": "停顿频率",
-    "pause_duration_p50": "平均停顿时长",
+    "pause_duration_p50": "停顿中位时长",
     "pause_duration_p90": "长停顿时长",
     # ★ 2026-11-22:`pause_ratio`("停顿占比")退役 —— 与 `voiced_ratio` 代数恒等
     #   (`1/voiced_ratio − 1`,残差 4.4e-16)。V 族由 12 条变 11 条。
@@ -428,11 +452,125 @@ INDICATOR_LABEL: dict[str, str] = {
     "lexical_diversity": "用词丰富度",
     "discourse_marker_rate": "连接词密度",
     "self_repair_rate": "自我修正频率",
-    # ★ 2026-11-21 补入的 V 族两条(标签与槽名逐字相同,由
-    #   tests/test_indicator_names_agree_with_slot_names.py 对账)
-    "pause_structure_entropy": "语音流畅度",
+    # ★ 2026-11-23 正名：`pause_structure_entropy` 实为停顿时长分布熵（见 _DIFFERENT_STATISTIC）
+    "pause_structure_entropy": "停顿结构均匀度",
     "answer_detail_chars_p50": "回答详尽度",
 }
+
+#: 41 条指标的统一元数据表（单位 / 方向极性 / 0 值语义分类 / 所属族），供载荷、HTML 与前端共用。
+#: zero_kind 五类枚举：
+#:   upper_threshold — 上尾超阈事件（如微笑、视线偏离、手势爆发）
+#:   lower_threshold — 下尾低于阈值事件（如皱眉、唇部压缩，越小越触发）
+#:   event_count     — 计数/占比事件（如眨眼、停顿、连接词、自我修正、可见占比）
+#:   zero_magnitude  — 差值/幅度/分位/波动类（0 表示实测变化幅度为零）
+#:   zero_duration   — 时长/延迟/速率类（0 表示实测时长或延迟为零）
+_INDICATOR_SPEC_TABLE: dict[str, tuple[str, str, str, str, str]] = {
+    # name: (family, unit, polarity, polarity_note, zero_kind)
+    "smile_ratio": ("F1_smile", "占比", "neutral", "微笑帧占有效观测帧的比例", "upper_threshold"),
+    "smile_rate_per_min": ("F1_smile", "次/分钟", "neutral", "每分钟超过微笑阈值的次数", "upper_threshold"),
+    "smile_duration_p50": ("F1_smile", "秒", "neutral", "单次微笑持续段长的中位数", "zero_duration"),
+    "gaze_aversion_ratio_vs_baseline": ("F2_gaze", "占比", "lower_is_steadier", "相对本人中位基线偏离注视带的帧占比，越小越稳定", "upper_threshold"),
+    "gaze_aversion_rate_per_min_vs_baseline": ("F2_gaze", "次/分钟", "lower_is_steadier", "每分钟视线偏离并回正的次数", "upper_threshold"),
+    "gaze_stability": ("F2_gaze", "无量纲", "higher_is_steadier", "相对本场极差归一化的视线稳定度，越大越稳", "zero_magnitude"),
+    "gaze_dwell_p50": ("F2_gaze", "秒", "higher_is_steadier", "单次注视带内连续停留时长中位数（秒）", "zero_duration"),
+    "blink_rate_per_min": ("F3_blink", "次/分钟", "neutral", "每分钟检测到的眨眼上升沿次数", "event_count"),
+    "blink_duration_mean": ("F3_blink", "秒", "neutral", "单次连续闭眼段平均时长", "zero_duration"),
+    "head_motion_per_sec": ("F4_head", "归一化位移/秒", "lower_is_steadier", "基于 2D 像素比代理的每秒头部累计位移，越小越平稳", "zero_magnitude"),
+    "head_away_ratio_vs_baseline": ("F4_head", "占比", "lower_is_steadier", "基于 2D 偏航代理超出本人基线的帧占比", "upper_threshold"),
+    "brow_furrow_ratio_vs_baseline": ("F5_brow_lip", "占比", "neutral", "双眉内侧距离低于本人中位基线（皱眉）的帧占比", "lower_threshold"),
+    "lip_compression_ratio_vs_baseline": ("F5_brow_lip", "占比", "neutral", "唇红厚度低于本人中位基线（抿唇）的帧占比", "lower_threshold"),
+    "au_activation_any_ratio": ("F6_expressivity", "占比", "neutral", "至少一条可信面部动作单元超阈的帧占比", "upper_threshold"),
+    "au_variability_per_sec": ("F6_expressivity", "1/秒", "neutral", "可信面部动作单元每秒累计变化幅度", "zero_magnitude"),
+    "facial_asymmetry_p90": ("F8_symmetry", "无量纲", "lower_is_steadier", "面部左右不对称度 90 分位，数值越大越不对称（含头姿滚转分量）", "zero_magnitude"),
+    "gesture_activity_per_sec": ("G1_activity", "1/秒", "neutral", "腕、肘、肩六关节按肩宽归一化的每秒累计抖动幅度", "zero_magnitude"),
+    "gesture_burst_rate_per_min_vs_baseline": ("G1_activity", "次/分钟", "neutral", "超出本人常态基线的连续上肢动作段频率", "upper_threshold"),
+    "posture_stability": ("G2_posture", "1/秒", "lower_is_steadier", "躯干与双肩归一化抖动幅度，数值越小表示躯干姿态越平稳", "zero_magnitude"),
+    "postural_shift_rate_per_min_vs_baseline": ("G2_posture", "次/分钟", "lower_is_steadier", "超出本人基线的连续躯干姿态变换段频率", "upper_threshold"),
+    "shrug_elevation_p90": ("G2_posture", "无量纲", "neutral", "相对本人中位肩高的 90 分位耸肩抬升幅度，0 表示与平时持平", "zero_magnitude"),
+    "hand_openness_p50": ("G4_hand", "无量纲", "neutral", "双侧指尖距腕比掌长的逐帧均值中位数", "zero_magnitude"),
+    "hand_visible_ratio_l": ("G3_visibility", "占比", "neutral", "左手在画面中可见的帧占比下界（协变量）", "event_count"),
+    "hand_visible_ratio_r": ("G3_visibility", "占比", "neutral", "右手在画面中可见的帧占比下界（协变量）", "event_count"),
+    "pose_valid_ratio": ("G3_visibility", "占比", "neutral", "躯干姿态关键点可读帧占比（协变量）", "event_count"),
+    "speech_rate": ("V1_amount", "字/秒", "neutral", "全场混音转写字数除以有声时长（含面试官话语）", "zero_duration"),
+    "voiced_ratio": ("V1_amount", "占比", "neutral", "有效基频检出（发声）帧占总帧比例", "event_count"),
+    "pause_rate_per_min": ("V2_pause", "次/分钟", "neutral", "每有声分钟内检测到的有效停顿次数", "event_count"),
+    "pause_duration_p50": ("V2_pause", "秒", "neutral", "有效停顿持续时长的中位数", "zero_duration"),
+    "pause_duration_p90": ("V2_pause", "秒", "neutral", "较长停顿（90 分位）的持续时长", "zero_duration"),
+    "pause_structure_entropy": ("V2_pause", "无量纲", "neutral", "停顿时长分布的归一化香农熵（0–1，越接近 1 表示各次停顿长短越均匀）", "zero_magnitude"),
+    "response_latency_sec": ("V1_amount", "秒", "neutral", "提问结束到首次开口响应的延迟时间中位数", "zero_duration"),
+    "answer_detail_chars_p50": ("V1_amount", "字", "neutral", "逐段转写非空白字符数的中位数", "event_count"),
+    "pitch_median": ("V3_pitch", "Hz", "neutral", "有声段基频中位数", "zero_magnitude"),
+    "pitch_range_semitone": ("V3_pitch", "半音", "neutral", "基频 95 与 5 分位之间的半音跨度", "zero_magnitude"),
+    "pitch_variability_per_sec": ("V3_pitch", "半音/秒", "neutral", "基频每秒累计半音变化率", "zero_magnitude"),
+    "energy_median": ("V4_energy", "RMS", "neutral", "录音均方根音量中位数（受麦克风增益影响，仅本场参考）", "zero_magnitude"),
+    "energy_dynamics_per_sec": ("V4_energy", "dB/秒", "neutral", "音量包络每秒累计分贝变化率", "zero_magnitude"),
+    "lexical_diversity": ("T1_lexical", "无量纲", "neutral", "100 字滑动窗口移动平均词汇丰富度（MATTR）", "zero_magnitude"),
+    "discourse_marker_rate": ("T2_discourse", "次/百字", "neutral", "每百字中逻辑与衔接词出现的频次", "event_count"),
+    "self_repair_rate": ("T3_repair", "次/百字", "neutral", "每百字中填充修正标记与紧邻重复出现的频次", "event_count"),
+}
+
+
+def build_indicator_meta() -> dict[str, dict[str, str]]:
+    """生成全部 41 条指标的结构化中文元数据字典，供载荷、HTML 与前端共享。"""
+    out: dict[str, dict[str, str]] = {}
+    for name, label in INDICATOR_LABEL.items():
+        fam, unit, polarity, polarity_note, zero_kind = _INDICATOR_SPEC_TABLE.get(
+            name, ("", "", "neutral", "", "zero_magnitude")
+        )
+        out[name] = {
+            "label": label,
+            "unit": unit,
+            "family": fam,
+            "family_label": FAMILY_LABEL.get(fam, fam),
+            "polarity": polarity,
+            "polarity_note": polarity_note,
+            "zero_kind": zero_kind,
+        }
+    return out
+
+
+def explain_zero(name: str, value, n_valid, n_total=None) -> str:
+    """为实测为 0（且已观测到有效样本）的指标生成精确人话说明，按 5 类语义区分。
+
+    非 0 或未有效观测返回空串。
+    """
+    if value is None:
+        return ""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return ""
+    if not (v == v) or abs(v) > 1e-9:
+        return ""
+    try:
+        n = int(n_valid) if n_valid is not None else 0
+    except (TypeError, ValueError):
+        n = 0
+    if n <= 0:
+        return ""
+
+    spec = _INDICATOR_SPEC_TABLE.get(name)
+    zero_kind = spec[4] if spec else "upper_threshold"
+
+    # 手势爆发/姿态变换的 n_valid 记的是段数（0 段时占位 1），展示帧数避免出现“看过 1 个有效观测”
+    if name in ("gesture_burst_rate_per_min_vs_baseline", "postural_shift_rate_per_min_vs_baseline"):
+        try:
+            nt = int(n_total) if n_total is not None else 0
+        except (TypeError, ValueError):
+            nt = 0
+        if nt > 1:
+            return f"整场观测了 {nt} 帧，一次也没超过触发阈值（并非没测到）"
+        return "整场观测期间未出现超过基线的连续动作段（并非没测到）"
+
+    if zero_kind == "upper_threshold":
+        return f"看过 {n} 个有效观测，一次也没超过阈值"
+    if zero_kind == "lower_threshold":
+        return f"看过 {n} 个有效观测，一次也没低于触发阈值"
+    if zero_kind == "event_count":
+        return f"在 {n} 个有效观测中未出现该事件（并非没测到）"
+    if zero_kind == "zero_duration":
+        return f"基于 {n} 个有效观测实测为 0（并非没测到）"
+    return f"测得 {n} 个有效观测，实测变化幅度为 0（并非没测到）"
 
 
 def indicator_label(name: str) -> str:
@@ -573,6 +711,16 @@ def explain_confidence(report: QualityReport, plain: bool = False) -> list[str]:
             continue
         name = row.get("name", "")
         reason = LOW_CONFIDENCE_REASON.get(name)
+        if not reason:
+            # 通用兜底：其余 31 条若以「低」出现，根据实际观测样本量动态给出人话说明（不含字段名）
+            nv = row.get("n_valid")
+            nt = row.get("n_total")
+            if isinstance(nv, int) and isinstance(nt, int) and nt > 0:
+                cov_pct = int(round(100 * nv / nt))
+                reason = (
+                    f"本场该指标有效观测仅 {nv} 项（占总记录约 {cov_pct}%），"
+                    "低于稳健估计建议样本量，读数仅供本场参考。"
+                )
         if reason:
             label = INDICATOR_LABEL.get(name, name) if plain else name
             out.append(f"{label}:{reason}")

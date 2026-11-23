@@ -71,6 +71,9 @@ _DIRECTION_FLIP = {
 #: 不合并成一个 `or` —— 合并之后一半断言会永远跑不到(本仓踩过)。
 _DIFFERENT_STATISTIC = {
     "eye_contact": ("gaze_dwell_p50", "比例→秒"),
+    "pause_duration": ("pause_duration_p50", "中位数"),
+    "left_wrist_jitter_world": ("gesture_activity_per_sec", "腕/肘/肩"),
+    "fluency_score": ("pause_structure_entropy", "熵"),
 }
 
 

@@ -110,15 +110,15 @@ def segment_gap_note(segs: list[tuple[float, float]],
     if len(segs) > 1:
         idle = (segs[-1][1] - segs[0][0]) - total
         msg = (f"本场由 {len(segs)} 段录制拼接而成(段间缺口合计 {idle:.0f} 秒,"
-               f"各段合计 {total:.0f} 秒);F/G 两族覆盖全部 {len(segs)} 段")
+               f"各段合计 {total:.0f} 秒);面部与手势观测覆盖全部 {len(segs)} 段")
         if audio_sec and total > 0 and not 0.8 <= total / audio_sec <= 1.2:
-            msg += (f",而盘上的 camera.webm 只保留了最后一段({audio_sec:.1f} 秒)"
-                    f",V/T 两族因此只覆盖最后 {audio_sec / 60:.1f} 分钟 —— "
-                    "同一场里不同族的观察窗口不同,不可互相印证")
+            msg += (f",而留存音视频文件只保留了最后一段({audio_sec:.1f} 秒)"
+                    f",语音与文本指标因此只覆盖最后 {audio_sec / 60:.1f} 分钟 —— "
+                    "同一场里不同模态的观察窗口不同,不可互相印证")
         return msg + "。"
     if audio_sec and total > 0 and not 0.8 <= total / audio_sec <= 1.2:
-        return (f"F/G 两族覆盖 {total:.0f} 秒,而盘上音频只有 {audio_sec:.1f} 秒"
-                f"(比 {total / audio_sec:.2f})—— V/T 两族的观察窗口与 F/G 不同,"
+        return (f"面部与手势覆盖 {total:.0f} 秒,而留存音频只有 {audio_sec:.1f} 秒"
+                f"(时长比 {total / audio_sec:.2f})—— 语音与文本的观察窗口与视觉不同,"
                 "不可互相印证")
     return None
 
@@ -155,9 +155,8 @@ def series_gap_note(voice, series, session_id: str | None = None) -> str | None:
     """
     if voice is None or series is not None:
         return None
-    return ("语音日志在,但帧级序列缓存还没生成 —— V 族 8 条序列指标这一场没有值"
-            "(" + l1_quality.GAP_EXPLANATION[l1_quality.GAP_NOT_EXTRACTED]
-            + ";入口 `report_frontend/voice_series.extract_session`)")
+    return ("语音日志在,但帧级声学序列缓存尚未生成 —— 语音序列类指标这一场暂未出值"
+            "（" + l1_quality.GAP_EXPLANATION[l1_quality.GAP_NOT_EXTRACTED] + "）")
 
 
 def voice_gap_note(voice, voice_inds, session_id: str | None = None) -> str | None:
@@ -255,10 +254,10 @@ def dispersion_of(per_window: list[L1Indicator]) -> dict:
         q25, q50, q75 = _np.percentile(arr, [25, 50, 75])
         out[name] = {
             "n_questions": int(arr.size),
-            "median": round(float(q50), 6),
-            "iqr": round(float(q75 - q25), 6),
-            "min": round(float(arr.min()), 6),
-            "max": round(float(arr.max()), 6),
+            "median": round(float(q50), 9),
+            "iqr": round(float(q75 - q25), 9),
+            "min": round(float(arr.min()), 9),
+            "max": round(float(arr.max()), 9),
         }
     return out
 
@@ -309,8 +308,7 @@ def compute_session_l1(session_id: str,
                 + l1_text.compute_text_indicators(
                     transcript_chars.text(session_id)))
         if transcript_chars.text(session_id) is None:
-            gaps.append("本场没有 ASR 转写 —— T 族 3 条全部不可出"
-                        "(可跑 tools/jx_transcribe_recordings.py 生成)")
+            gaps.append("本场尚无语音转写文本 —— 文本类 3 项指标暂不可出（可在管理后台补跑转写）")
         _vg = voice_gap_note(_pick_voice(logs), [i for i in inds
                                                  if i.family.startswith("V")],
                              session_id=session_id)
@@ -378,7 +376,7 @@ def compute_session_l1(session_id: str,
     # ── F 族(面部)──────────────────────────────────────────────────────
     if face is None or face_tb is None or not face_tb.usable:
         inds.extend(l1_face.compute_face_indicators(None, ws_union, None))
-        gaps.append("本场没有可用的 face 日志 —— F 族 16 条全部不可出")
+        gaps.append(f"本场没有可用的面部日志 —— 面部类 {len(l1_face.indicator_names())} 项指标全部不可出")
     else:
         inds.extend(l1_face.compute_face_indicators(face, ws_union, face_tb.t_sec))
 
@@ -387,26 +385,15 @@ def compute_session_l1(session_id: str,
     gest_tb = tl.modalities.get("gesture")
     if gest is None or gest_tb is None or not gest_tb.usable:
         inds.extend(l1_gesture.compute_gesture_indicators(None, ws_union, None))
-        gaps.append("本场没有可用的 gesture 日志 —— G 族 7 条全部不可出")
+        gaps.append(f"本场没有可用的手势姿态日志 —— 手势姿态类 {len(l1_gesture.indicator_names())} 项指标全部不可出")
     else:
         inds.extend(l1_gesture.compute_gesture_indicators(gest, ws_union, gest_tb.t_sec))
-        # ★ 拼接场守卫:一场访谈可能是**多段录制**拼起来的。
-        #
-        # 实测(2026-10-18,13 场 A 档):12 场是单段,但**候选B一场是 9 段**。
-        # 查证过程与结论:
-        #   · `retention.camera.jsonl` 有 **9 条**记录,全指向同一个 `media/camera.webm`、
-        #     `seq` 都是 1,但 9 个不同的大小与 sha256 ⟹ 每次都是**整文件重传并覆盖**;
-        #   · 9 次上传都紧跟在某一段结束后的 26~87 秒;
-        #   · 每份文件字节数 ÷ 该段时长恒为 **~315 KB/s** ⟹ 每次上传的就是**该段**的完整录像;
-        #   · 于是盘上只剩**最后一段**:camera.webm 实测 434.7 秒(视频 13029 包 / 音频 7245 包)。
-        # ⟹ 这一场的访谈真实时长是 9 段合计 6959 秒(124 分钟,段间缺口另 468 秒),
-        #   而 V/T 两族(读转写)只覆盖最后 7.2 分钟。**同一场里不同族的观察窗口不同**,
-        #   这是采集缺陷,不是计算问题;`session_timeline` 对它报 OK、drift −0.002,不会告警。
-        #
-        # ⚠️ 注意:两条手势率量的分母**不是**日志跨度,而是 `n_total × 帧间隔`
-        #   = 观测到的帧数(本场 6968 秒)—— 段间缺口本来就没算进分母。真正的问题是
-        #   "9 段拼接的率"与"其余场单段的率"不可比,以及 V/T 只看得到最后一段。
-        _note = segment_gap_note(capture_segments(gest_tb.t_sec),
+
+    # ★ 拼接场与观察窗失配守卫：优先手势轴，缺席时退回面部轴（避免手势缺席时漏检错配）
+    visual_tb = (gest_tb if (gest_tb is not None and gest_tb.usable)
+                 else (face_tb if (face_tb is not None and face_tb.usable) else None))
+    if visual_tb is not None:
+        _note = segment_gap_note(capture_segments(visual_tb.t_sec),
                                  transcript_chars.audio_seconds(session_id))
         if _note:
             gaps.append(_note)
@@ -456,8 +443,7 @@ def compute_session_l1(session_id: str,
     inds.extend(l1_text.compute_text_indicators(
         transcript_chars.text(session_id)))
     if transcript_chars.text(session_id) is None:
-        gaps.append("本场没有 ASR 转写 —— T 族 3 条全部不可出"
-                    "(可跑 tools/jx_transcribe_recordings.py 生成)")
+        gaps.append("本场尚无语音转写文本 —— 文本类 3 项指标暂不可出（可在管理后台补跑转写）")
 
     return L1Result(session_id, tl, ws, inds, gaps,
                     coverage=l1_quality.modality_coverage(logs),

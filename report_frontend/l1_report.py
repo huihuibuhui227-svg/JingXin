@@ -73,8 +73,20 @@
 from __future__ import annotations
 
 import datetime as _dt
+import json
+from pathlib import Path
 
-from . import gap_explanations, instrument_provenance, l1_mapper, l1_quality
+from . import (
+    brand,
+    cross_modal_coverage,
+    evidence_gate,
+    gap_explanations,
+    instrument_provenance,
+    l1_mapper,
+    l1_quality,
+    parameter_provenance,
+    transcript_chars,
+)
 from .l1_quality import GAP_EXPLANATION, build_quality_report, explain_confidence
 from .l1_session import compute_session_l1
 
@@ -93,56 +105,370 @@ NO_COMPOSITE = ("未产出综合评分,也不给评级:本系统尚无标定样�
 
 # ── A5 仪器来源披露(2026-11-21)──────────────────────────────────────────────
 
-#: 仪器名 → 中文标签。**给「逐条指标」那一列用**,页脚那句汇总仍由
-#: `instrument_provenance.format_footer()` 拼(A5 的规矩:那句话只许有一处拼法)。
-#:
-#: ⚠️ 这张表是 `format_footer()` 里那张**函数内局部表**的第二份。为什么不直接用它:
-#: 它是局部变量,本模块读不到;`instrument_provenance.py` 不归本次改动,不在这里动它。
-#: 两份措辞不一致的后果可预见:页脚写「几何代理」、指标旁边写「几何」,读者以为是
-#: 两样东西。⟹ 一致性由
-#: `tests/test_report_instrument_rendering.py::test_labels_agree_with_the_footer`
-#: 逐项对账(拿 `format_footer()` 的真实输出比),谁改了一处而漏了另一处当场红。
-INSTRUMENT_LABEL: dict[str, str] = {
-    instrument_provenance.INSTRUMENT_BLENDSHAPE: "模型系数",
-    instrument_provenance.INSTRUMENT_GEOMETRIC: "几何代理",
-    instrument_provenance.INSTRUMENT_AUDIO: "音频",
-    instrument_provenance.INSTRUMENT_TEXT: "文本",
-    # ⚠️ 「未登记」**不是一种仪器**,是一条披露缺口。措辞里不许出现"其他""未知"
-    #   这类像分类的名字 —— 那会让读者把它当成第三种仪器读过去。
-    instrument_provenance.INSTRUMENT_UNKNOWN: "未登记",
-}
+#: 仪器名 → 中文标签（直接引用 `instrument_provenance.INSTRUMENT_LABEL` 唯一真相源）
+INSTRUMENT_LABEL: dict[str, str] = dict(instrument_provenance.INSTRUMENT_LABEL)
 
 #: 出现「未登记」时那句话。由载荷给,HTML 页脚与前端汇总区读同一份
-#: (渲染层各写一句,两处措辞早晚不一致)。
 INSTRUMENT_UNKNOWN_NOTE = (
     "「未登记」不是一种仪器,是一条披露缺口:这几条指标的依赖列还没归到任何一路"
     "仪器上。数是算出来了,但它出自哪套仪器暂时说不清 —— 要补的是登记表,不是采集。")
 
-#: 多仪器指标的说明。`describe()` 会在每一个涉及的仪器下各计 1 ⟹ 各项相加会大于条数。
+#: 多仪器指标的说明（正文禁用 `⟹` 推理符号）。
 INSTRUMENT_MULTI_NOTE = (
     "有的指标同时来自两路(例如语音字数率 = 转写字数 ÷ 有声时长,一头是文本、"
-    "一头是音频),它在两个仪器下各计一次 ⟹ 各项相加会大于指标条数。")
+    "一头是音频),它在两个仪器下各计一次，因此各项相加会大于指标条数。")
+
+NON_INTERCHANGEABILITY_DISCLOSURE: dict = {
+    "study_sessions": 32,
+    "study_rows": 389,
+    "constructs_total": 12,
+    "constructs_rho_ge_0_7": 1,
+    "conclusion_plain": (
+        "离线实测（32 场 / 389 条）表明，面部关键点几何代理与 52 维模型回归系数"
+        "在 12 个构念中仅有 1 个达到秩一致性 0.7 以上，因此两套测量结果不可混用；"
+        "本报告对每一条指标明确标明仪器来源，只做披露、不改数值。"
+    ),
+}
+
+_ASR_AFFECTED_INDICATORS: tuple[str, ...] = (
+    "lexical_diversity",
+    "discourse_marker_rate",
+    "self_repair_rate",
+    "answer_detail_chars_p50",
+    "speech_rate",
+)
+
+_L0_PATH = Path(__file__).resolve().parent.parent / "l0_columns.json"
+
+
+def _strip_dev_markup(text: str) -> str:
+    """清洗开发注释里的 markdown / 箭头记号，确保进入交付物附录时人话可读。"""
+    import re as _re
+    s = _re.sub(r"\*\*|`", "", str(text or ""))
+    s = s.replace("⟹", "，因此").replace("⇒", "，因此").replace("→", "变为")
+    return s.strip()
+
+
+_L0_BLOCKED_PLAIN: dict[str, tuple[str, str, str]] = {
+    "au15_mouth_down": (
+        "嘴角下压动作单元（AU15）",
+        "现有二维关键点几何代理信噪比不足，未通过跨场稳定性检验",
+        "完成专用嘴角下压标定集复核后解封",
+    ),
+    "head_yaw": (
+        "三维头部偏航角",
+        "缺少相机内参矩阵，当前仅输出二维归一化代理值，拒绝冒充真三维欧拉角",
+        "标定相机内参并切换三维姿态求解后解封",
+    ),
+    "head_pitch": (
+        "三维头部俯仰角",
+        "缺少相机内参矩阵，当前仅输出二维归一化代理值，拒绝冒充真三维欧拉角",
+        "标定相机内参并切换三维姿态求解后解封",
+    ),
+    "head_roll": (
+        "三维头部滚转角",
+        "缺少相机内参矩阵，未实现三维滚转角求解，拒绝二维近似替代",
+        "标定相机内参并切换三维姿态求解后解封",
+    ),
+    "asr_confidence": (
+        "语音转写逐字置信度",
+        "当前实时转写服务端接口不返回逐词置信概率字段",
+        "升级转写服务端返回词级概率或切换支持词级概率的同源引擎后解封",
+    ),
+}
+
+
+def _load_l0_blocked() -> list[dict]:
+    try:
+        raw = json.loads(_L0_PATH.read_text(encoding="utf-8"))
+        cols = raw.get("columns") if isinstance(raw, dict) else raw
+    except Exception:
+        return []
+    out: list[dict] = []
+    if not isinstance(cols, list):
+        return out
+    for c in cols:
+        if not isinstance(c, dict) or c.get("status") != "blocked":
+            continue
+        mod = c.get("modality", "")
+        name = c.get("name", "")
+        plain = _L0_BLOCKED_PLAIN.get(name)
+        label = plain[0] if plain else _strip_dev_markup(c.get("label") or name)
+        reason_plain = plain[1] if plain else _strip_dev_markup(c.get("notes") or "当前硬件或上游接口不支持该列真值测量")
+        unblock_human = plain[2] if plain else _strip_dev_markup(c.get("acceptance") or "完成对应标定或上游引擎升级后解封")
+        out.append({
+            "id": f"{mod}.{name}" if mod else name,
+            "column": name,
+            "modality": mod,
+            "label": label,
+            "reason_plain": reason_plain,
+            "unblock_human": unblock_human,
+            "unblock_machine": f"l0_columns[{mod}.{name}].status == 'implemented'",
+            "permanent": False,
+        })
+    return out
+
+
+def _build_governance_ledger() -> dict:
+    """构建主动拒绝与显式封停台账（5 列 L0 blocked + 活跃封停 + 主动拒绝冗余项）。"""
+    l0_blocked = _load_l0_blocked()
+    quarantine_active = [
+        {
+            "id": key,
+            "label": key,
+            "reason_plain": _strip_dev_markup(q.reason),
+            "unblock_human": _strip_dev_markup(q.unblock),
+            "unblock_machine": f"remove_from_quarantine('{key}')",
+            "permanent": "无对应里程碑" in q.unblock or "永久" in q.unblock,
+        }
+        for key, q in sorted(evidence_gate.QUARANTINE.items())
+    ]
+    retired_redundant = [
+        {
+            "id": "pause_ratio",
+            "label": "停顿占比（已主动拒绝）",
+            "reason_plain": "与发声占比构成精确代数恒等变换（实测秩相关 0.9990），主动拒绝重复计数",
+            "unblock_human": "永久不产出（避免将同一份声学证据重复计算两遍）",
+            "unblock_machine": "never_redundant",
+            "permanent": True,
+        },
+        {
+            "id": "fluency_score",
+            "label": "旧版流畅度合成分（已主动拒绝）",
+            "reason_plain": "可完全拆解为发声占比、平均发声段长与语速，零额外信息；现由「停顿结构均匀度」承接分布形状",
+            "unblock_human": "永久不产出旧合成分",
+            "unblock_machine": "never_redundant",
+            "permanent": True,
+        },
+        {
+            "id": "micro_exp_rate_per_min",
+            "label": "毫秒级面部短时动作频率（已退役）",
+            "reason_plain": "普通摄像头约 1 帧每秒的采样率在物理上无法捕获 40 至 200 毫秒短时面部动作，全语料无出值",
+            "unblock_human": "需接入百帧以上高速专用相机并完成独立标定集后另建新项",
+            "unblock_machine": "capture_fps >= 100 and facs_calibrated",
+            "permanent": False,
+        },
+        {
+            "id": "micro_exp_duration_mean_sec",
+            "label": "毫秒级面部短时动作时长（已退役）",
+            "reason_plain": "同上：低帧率普通摄像头在采样定理上无法测得毫秒级面部动作持续时间，全语料无出值",
+            "unblock_human": "需接入百帧以上高速专用相机并完成独立标定集后另建新项",
+            "unblock_machine": "capture_fps >= 100 and facs_calibrated",
+            "permanent": False,
+        },
+    ]
+    summary_plain = (
+        f"台账共登记 {len(l0_blocked)} 项底层显式封停、"
+        f"{len(quarantine_active)} 项旧口径代理隔离，以及 "
+        f"{len(retired_redundant)} 项主动拒绝或退役的冗余/不可测项目。"
+    )
+    return {
+        "l0_blocked": l0_blocked,
+        "quarantine_active": quarantine_active,
+        "retired_redundant": retired_redundant,
+        "summary_plain": summary_plain,
+    }
+
+
+def _build_blocked_dependency_warnings(indicators: list[dict], l0_blocked: list[dict]) -> list[dict]:
+    blocked_map = {item["column"]: item for item in l0_blocked if item.get("column")}
+    warnings: list[dict] = []
+    for row in indicators:
+        req = instrument_provenance._as_column_list(row.get("required_l0"))
+        hits = [c for c in req if c in blocked_map]
+        if not hits:
+            continue
+        name = row.get("name", "")
+        label = l1_quality.indicator_label(name)
+        warnings.append({
+            "indicator": name,
+            "indicator_label": label,
+            "blocked_columns": hits,
+            "note_plain": (
+                f"「{label}」底层依赖的 {'、'.join(hits)} 在 86 列台账中标为显式封停"
+                "（当前为 2D 像素比代理，非真 3D 空间角），读数仅作本场相对位移参考。"
+            ),
+        })
+    return warnings
+
+
+def _build_asr_confidence_disclosure(session_id: str, indicators: list[dict]) -> dict:
+    """构建 ASR 词级置信度披露与同源低尾降档摘要（绝不使用已证伪的 0.75 硬切）。"""
+    tr = transcript_chars.load_transcript_with_asr(session_id) if session_id else None
+    if not tr or not tr.get("text"):
+        return {
+            "status": "no_transcript",
+            "engine": "none",
+            "audio_scope": "none",
+            "affected_indicators": list(_ASR_AFFECTED_INDICATORS),
+            "word_conf_summary": None,
+            "degraded_indicators": [],
+            "note_plain": "本场尚无可用语音转写文本，5 项依赖转写的指标均按缺口处理。",
+        }
+    asr = tr.get("asr") or {}
+    engine = str(asr.get("engine") or "funasr_paraformer")
+    audio_scope = str(asr.get("audio_scope") or ("qa_segment" if tr.get("has_segments") else "whole_camera_webm"))
+    conf_source = str(asr.get("asr_confidence_source") or "unavailable")
+    word_summary = asr.get("word_conf_summary") if isinstance(asr.get("word_conf_summary"), dict) else None
+
+    if conf_source != "word_prob_aligned_same_engine" or not word_summary:
+        return {
+            "status": "unavailable",
+            "engine": engine,
+            "audio_scope": audio_scope,
+            "affected_indicators": list(_ASR_AFFECTED_INDICATORS),
+            "word_conf_summary": None,
+            "degraded_indicators": [],
+            "note_plain": (
+                "当前语音转写引擎不返回逐词置信度概率：5 项文本相关指标已通过字数样本门槛检验，"
+                "但底层转写识别准确率未独立测量，复核时请结合原始转写文本确认。"
+            ),
+        }
+
+    # 同源词级概率可用：按分域低尾规则评估（拒绝 0.75 硬切）
+    low_ratio = float(word_summary.get("low_word_ratio_lt_0_5", 0.0))
+    p20 = float(word_summary.get("p20", 1.0))
+    median = float(word_summary.get("median", 1.0))
+    extreme_floor = 0.50 if audio_scope == "qa_segment" else 0.45
+    need_degrade = (low_ratio > 0.30) or (p20 < 0.35) or (median < extreme_floor)
+
+    degraded: list[str] = []
+    if need_degrade:
+        for row in indicators:
+            if row.get("name") in _ASR_AFFECTED_INDICATORS and row.get("value") is not None:
+                degraded.append(row["name"])
+
+    scope_cn = "逐题音频" if audio_scope == "qa_segment" else "整场混音"
+    note_plain = (
+        f"同源词级置信度已核验（{scope_cn}，中位概率 {median:.2f}，后 20% 分位 {p20:.2f}，"
+        f"低于 0.50 词占比 {low_ratio:.0%}）："
+        + ("转写噪音偏高，建议将 5 项文本相关指标置信度降档解读。" if need_degrade
+           else "词级概率分布处于常规区间，无额外降档触发。")
+    )
+    return {
+        "status": "available",
+        "engine": engine,
+        "audio_scope": audio_scope,
+        "affected_indicators": list(_ASR_AFFECTED_INDICATORS),
+        "word_conf_summary": word_summary,
+        "degraded_indicators": degraded,
+        "note_plain": note_plain,
+    }
+
+
+def _build_second_instrument_appendix(logs: dict | None) -> dict:
+    """若面部日志含 52 维模型系数列（`bs_*`），生成严格隔离的第二仪器只读对照附录。"""
+    face_df = (logs or {}).get("face") if isinstance(logs, dict) else None
+    if face_df is None or not hasattr(face_df, "columns"):
+        return {
+            "available": False,
+            "disclaimer": "本场未加载含 52 维面部模型系数的日志，无第二仪器独立对照表。",
+            "rows": [],
+        }
+    bs_cols = [c for c in face_df.columns if isinstance(c, str) and c.startswith("bs_")]
+    if not bs_cols:
+        return {
+            "available": False,
+            "disclaimer": "本场面部日志不含 52 维模型系数列（仅含关键点几何代理），无第二仪器对照项。",
+            "rows": [],
+        }
+    try:
+        from . import blendshape_second_instrument as bsi
+        computed = bsi.compute_blendshape_indicators(face_df)
+        rows = []
+        for item in computed:
+            d = item.to_dict() if hasattr(item, "to_dict") else (dict(item) if isinstance(item, dict) else None)
+            if d is not None:
+                rows.append(d)
+        return {
+            "available": bool(rows),
+            "disclaimer": (
+                "以下读数由 FaceLandmarker 52 维模型回归系数独立算得，严格隔离于主表之外，"
+                "不参与任何 L1 指标计算与维度映射，不可与关键点几何代理直接混算或相减。"
+            ),
+            "rows": rows,
+        }
+    except Exception:
+        return {
+            "available": False,
+            "disclaimer": "第二仪器对照模块暂未产出可展示行（不影响主表几何代理结果）。",
+            "rows": [],
+        }
+
+
+def build_lead_summary(dimensions: dict, coverage: dict) -> str:
+    """生成与离线 HTML 完全同源的自然语言结论句（修复满覆盖把 2/2 误报为最薄维度的 Bug）。"""
+    n_passed = coverage.get("n_passed", 0)
+    n_slots = coverage.get("n_slots", 0)
+    n_dropped = coverage.get("n_dropped", 0)
+    n_measurable = coverage.get("n_measurable")
+    n_not_measured = coverage.get("n_not_measured")
+    n_no_indicator = coverage.get("n_no_indicator")
+    denom = n_measurable if isinstance(n_measurable, int) else n_slots
+
+    def _pair(dim: dict) -> tuple[int, int]:
+        got, _, total = str(dim.get("matched_indicators", "0/0")).partition("/")
+        try:
+            return int(got), int(total)
+        except (TypeError, ValueError):
+            return 0, 0
+
+    ranked = sorted(
+        dimensions.values(),
+        key=lambda d: (_pair(d)[0] / (_pair(d)[1] or 1), _pair(d)[0]),
+        reverse=True,
+    )
+    sentences: list[str] = []
+
+    if not dimensions:
+        sentences.append("这一场没有任何维度产出可核对的行为量。")
+    elif not n_passed:
+        pair = f"0 / {denom}" if denom else "0"
+        sentences.append(
+            f"这一场在 {len(dimensions)} 个维度上量到了 {pair} 项可测量指标"
+            "—— 不是「没测」，是测到的还不足以支撑读数，逐条原因见下。"
+        )
+    else:
+        all_full = all(_pair(d)[1] > 0 and _pair(d)[0] >= _pair(d)[1] for d in ranked)
+        if all_full:
+            sentences.append(
+                f"这一场在 {len(dimensions)} 个维度上量到了 {n_passed} / {denom} 项可测量指标，"
+                f"全部 {len(dimensions)} 个维度的可测量指标均已完整覆盖。"
+            )
+        else:
+            best = ranked[0]
+            b_got, b_tot = _pair(best)
+            b_ratio = b_got / (b_tot or 1)
+            sentences.append(
+                f"这一场在 {len(dimensions)} 个维度上量到了 {n_passed} / {denom} 项可测量指标，"
+                f"其中覆盖最完整的是「{best.get('display_name', '')}」（{b_got} / {b_tot}）。"
+            )
+            if len(ranked) > 1:
+                worst = ranked[-1]
+                w_got, w_tot = _pair(worst)
+                w_ratio = w_got / (w_tot or 1)
+                if w_ratio < b_ratio - 1e-9:
+                    sentences.append(
+                        f"覆盖最薄的是「{worst.get('display_name', '')}」（{w_got} / {w_tot}）。"
+                    )
+
+    if isinstance(n_not_measured, int) and isinstance(n_no_indicator, int):
+        if n_not_measured or n_no_indicator:
+            sentences.append(
+                f"分母之外还有 {n_not_measured} 项「这套采集不测」、{n_no_indicator} 项「整维没有对应指标」—— "
+                f"这 {n_not_measured + n_no_indicator} 项不是这一场量得好不好的问题，合起来才是 {n_slots} 个槽。"
+            )
+    elif n_dropped:
+        sentences.append(
+            f"另有 {n_dropped} 项在当前这套采集里没有对应的测法，已整条剔除。"
+        )
+    cap = coverage.get("confidence_cap")
+    if cap and cap != "无":
+        sentences.append(f"所有读数的置信度上限是「{cap}」。")
+    return "".join(sentences)
 
 
 def _instrument_block(indicators: list[dict]) -> dict:
-    """38 条指标 → 仪器来源汇总块(HTML 页脚与前端汇总区共用的那一份)。
-
-    返回值**全部是算好的结果**,不是让渲染层再算一遍的材料:`counts` / `footer`
-    都来自 `instrument_provenance`(它是唯一登记处),本模块只负责把它们搬进载荷。
-    渲染层自己数一遍的后果本仓记过多次:两处口径一分叉,同一份报告里两个数。
-
-    `unmapped_columns` 是**能据以动手的东西** —— 只说"8 条未登记"读者没法改;
-    说"缺的是哪几列"下一个人就能去登记表里补那几行。
-
-    ⚠️ 实测记录(2026-11-21):`demo_run.py --session 20260927_212143_95a8` 一开始真有
-    8 条落进 `unknown`,缺的列是 `f0` / `rms` / `frame_sec` —— 它们是**整场录音重算**
-    那条路(`voice_series`)的列名;而日志那条路上同样这几条指标写的是 `pitch` /
-    `energy`(登记表里登记的是后一种)。⟹ 同一条指标换条数据来路,披露就从「音频」
-    变成「未登记」。**当天已修**:`instrument_provenance` 把 `f0`/`rms` 登记为音频、
-    `frame_sec` 登记为"不是仪器"(它是帧长/栅格步长),`unmapped_columns` 随之为空,
-    这一场报告的 `未登记 0`。留给后人的那半句仍然成立:登记表在
-    `instrument_provenance.py`,新增列名要在**那张表**里登记,否则又会冒出假的"未登记"。
-    """
     counts = instrument_provenance.describe(indicators)
     unmapped = sorted({
         c for row in indicators
@@ -150,19 +476,23 @@ def _instrument_block(indicators: list[dict]) -> dict:
     })
     n_multi = sum(1 for row in indicators
                   if len(instrument_provenance.instruments_of(row)) > 1)
+    sub_by_ind = {
+        row["name"]: instrument_provenance.sub_instruments_of(row)
+        for row in indicators if isinstance(row, dict) and row.get("name")
+    }
     return {
         "n_indicators": len(indicators),
         "counts": counts,
         "footer": instrument_provenance.format_footer(indicators),
         "labels": dict(INSTRUMENT_LABEL),
-        #: 页面上的固定顺序(= `instrument_provenance.INSTRUMENTS`)。
-        #: `counts` 是 dict,前端按键遍历会得 JS 的整数键优先序 —— 界面顺序会随输入
-        #: 抖动。给一份列表,两边都按它排。
         "order": list(instrument_provenance.INSTRUMENTS),
         "n_multi": n_multi,
         "unmapped_columns": unmapped,
         "unknown_note": INSTRUMENT_UNKNOWN_NOTE,
         "multi_note": INSTRUMENT_MULTI_NOTE,
+        "sub_instruments_by_indicator": sub_by_ind,
+        "sub_instrument_labels": dict(instrument_provenance.SUB_INSTRUMENT_LABELS),
+        "non_interchangeability_disclosure": dict(NON_INTERCHANGEABILITY_DISCLOSURE),
     }
 
 
@@ -501,100 +831,87 @@ def build_l1_report(session_id: str, logs: dict | None = None) -> dict:
         cap = max((p["confidence"] for p in passed_slots),
                   key=lambda c: l1_mapper.CONF_RANK.get(c, 0))
 
+    coverage_payload = {
+        "n_slots": counts["n_slots"],
+        "n_passed": counts["n_passed"],
+        "n_dropped": counts["n_dropped"],
+        "n_measurable": counts["n_measurable"],
+        "n_measurable_no_data": counts["n_measurable_no_data"],
+        "n_not_measured": counts["n_not_measured"],
+        "n_no_indicator": counts["n_no_indicator"],
+        "pass_rate_of_measurable": counts["pass_rate_of_measurable"],
+        "summary_line": coverage_summary_line(
+            counts["n_measurable"], counts["n_passed"],
+            counts["n_not_measured"], counts["n_no_indicator"]),
+        "explanation": COVERAGE_EXPLANATION,
+        "segments": coverage_segments(
+            counts["n_measurable"], counts["n_passed"],
+            counts["n_measurable_no_data"],
+            counts["n_not_measured"], counts["n_no_indicator"]),
+        "confidence_cap": cap,
+        "passed_slots": passed_slots,
+    }
+
+    indicator_names = [row["name"] for row in quality.indicators if isinstance(row, dict) and row.get("name")]
+    governance_ledger = _build_governance_ledger()
+    zero_explanations = {
+        row["name"]: z
+        for row in quality.indicators
+        if isinstance(row, dict)
+        and (z := l1_quality.explain_zero(
+            row.get("name", ""), row.get("value"), row.get("n_valid"), row.get("n_total")
+        ))
+    }
+
     return {
         "engine": "l1",
+        "brand": {
+            "name": brand.BRAND_NAME,
+            "subtitle": brand.BRAND_SUBTITLE,
+            "slogan": brand.BRAND_SLOGAN,
+        },
         "dimensions": dimensions,
-        # 消失的维度必须能看见 —— 否则读者会以为"这一场没测到",而真相是
-        # "这个维度量的东西当前管线都不测"。
-        #
-        # ⚠️ 逐槽补 `human_name` / `plain_reason`(2026-10-25):前端 `ReportViewer`
-        # 直接印 `d.slot` 与 `d.reason`,而那是**审计细节** —— 内部键 + 内部指标名
-        # + markdown 星号。前端没有、也不该有槽名对照表(两张表迟早分叉),
-        # ⟹ 人话只能由载荷给。审计字段 `slot` / `reason` **原样保留**。
-        # 钉子:`tests/test_vanished_dimensions_are_printable.py`。
         "vanished_dimensions": [_printable_vanished(v) for v in vanished],
         "summary_narrative": NO_COMPOSITE,
-        "coverage": {
-            # ── 原有键(语义一个没动)─────────────────────────────────────
-            "n_slots": counts["n_slots"],
-            "n_passed": counts["n_passed"],
-            "n_dropped": counts["n_dropped"],
-            # ── 三段拆分(2026-11-21 新增)────────────────────────────────
-            # 为什么:14 里有 6 个槽**永远填不上**(3 个本套采集不测 + 3 个整维没有
-            # 同构念指标)。只发 `n_passed / n_slots` 会让读者把 8/14 读成"只覆盖了
-            # 57%",而能测的 8 个槽这一场是 8/8。计数只在 `coverage_counts()` 里算一次。
-            # 钉子:`tests/test_coverage_three_segments.py`。
-            "n_measurable": counts["n_measurable"],
-            "n_measurable_no_data": counts["n_measurable_no_data"],
-            "n_not_measured": counts["n_not_measured"],
-            "n_no_indicator": counts["n_no_indicator"],
-            "pass_rate_of_measurable": counts["pass_rate_of_measurable"],
-            # 三个出口(HTML / 前端 / demo_run)都读这三项,不各自拼措辞。
-            "summary_line": coverage_summary_line(
-                counts["n_measurable"], counts["n_passed"],
-                counts["n_not_measured"], counts["n_no_indicator"]),
-            "explanation": COVERAGE_EXPLANATION,
-            "segments": coverage_segments(
-                counts["n_measurable"], counts["n_passed"],
-                counts["n_measurable_no_data"],
-                counts["n_not_measured"], counts["n_no_indicator"]),
-            "confidence_cap": cap,
-            "passed_slots": passed_slots,
-        },
+        "coverage": coverage_payload,
         "model_metadata": {
             "version": PAYLOAD_VERSION,
             "timestamp": _dt.datetime.now().isoformat(timespec="seconds"),
         },
-        # L1 的完整审计链:35 条逐条状态 + 模态覆盖率 + gap 计数。
-        # 报告层不渲染它,但**必须发** —— 复核时要能一条一条对。
         "l1": {
             "n_total": quality.n_total,
             "n_measured": quality.n_measured,
             "by_confidence": dict(quality.by_confidence),
             "by_gap": dict(quality.by_gap),
             "modality_coverage": quality.coverage,
-            # ★ 每个模态**到底算出了几条**(2026-10-25)。报告头看的是日志文件的三态,
-            #   而语音有第二个数据源(整场录音重算),不经日志 —— 于是头说「未读到数据」、
-            #   正文说「V 族 10 条有值」。这句话由载荷给,渲染层不许自己数。
             "modality_summary": l1_quality.modality_summary(quality),
             "timebase": quality.timebase,
             "windows": quality.windows,
             "indicators": quality.indicators,
-            # ★ 2026-10-18:`explain_confidence()` 此前**没有任何调用点** ——
-            #   `LOW_CONFIDENCE_REASON` 那张表写好了却从没进过报告。
-            #   后果是报告上只写「置信 低」,不写"为什么只有这么信";
-            #   而后者才是读者要的那句话(置信度本身不回答它)。
             "low_confidence_notes": explain_confidence(quality),
-            # ★ 同一批理由的**给人读版**(2026-10-25):审计版把 `{指标名}:{理由}`
-            #   原样拼出来,而指标名是内部键 —— 实测交付物正文里印出了
-            #   `speech_rate:` / `pause_rate_per_min:` 等 5 个键,而维度表里
-            #   同一个指标印的是中文槽名。**两个版本都发**,分层的决定权在载荷。
             "low_confidence_notes_plain": explain_confidence(quality, plain=True),
-            # ★ 与旧引擎报告对比时的那句提醒。见 `l1_mapper.NOT_COMPARABLE`。
-            #   **两个版本都发**:`comparability_notes` 是审计版(带槽键与 L1 指标名,
-            #   核对口径的人要查);`comparability_notes_plain` 是给人读版(交付物与
-            #   界面都印这一版)。只发审计版 ⟹ 两个出口都会漏内部指标名;
-            #   只发人话版 ⟹ 映射查不到。分层的决定权在载荷,不在渲染层。
             "comparability_notes": l1_mapper.comparability_notes(),
             "comparability_notes_plain": l1_mapper.comparability_notes_plain(),
             "gaps": list(result.gaps),
-            # ★ 裁定①(2026-10-24):会话级 38 条的口径是**回答帧并集**,
-            #   逐题那份只作**离散度**层,不冒充会话级值。见 `l1_session.dispersion_of`。
             "dispersion": dict(getattr(result, "dispersion", None) or {}),
             "dispersion_note": (
-                "逐题值的题间离散度(中位/IQR/极值),**只在本场内有意义** —— "
-                "它不能与别的场次比,也不是会话级值;会话级那 38 条见 indicators"
-                "(口径:所有回答窗内帧的并集)。单题时不出现在这里(没有离散度可言)。"
+                "逐题值的题间离散度(中位/IQR/极值)，只在本场内有意义 —— "
+                "它不能与别的场次直接相减，也不是会话级值；会话级全部指标见明细表"
+                "（口径：所有回答窗内帧的并集）。单题时不出现在这里（没有离散度可言）。"
             ),
-            # ★ A5 仪器来源披露(2026-11-21):**汇总由载荷给**,渲染层不许自己数。
-            #
-            # 为什么必须进载荷:HTML 页脚与前端汇总区是同一份载荷的两个出口。
-            # 各写一遍"数一下有几条 geometric",两处迟早不同 —— 而这份报告对外要
-            # 说的那句话正是「报告已披露仪器来源」,它经不起两个页脚各说一套。
-            #
-            # 逐条的仪器在 `indicators[].instrument` / `[].instruments`(单值/多值
-            # 二选一,由 `annotate_indicators` 决定)与逐行的 `evidence_chain[].instruments`
-            # / `passed_slots[].instruments`(永远 list —— 渲染层只读这一个键)。
             "instruments": _instrument_block(quality.indicators),
+            # ── 2026-11-23 增量顶层证据链披露字段（不动既有行键，向后兼容） ──
+            "lead_summary": build_lead_summary(dimensions, coverage_payload),
+            "indicator_meta": l1_quality.build_indicator_meta(),
+            "zero_explanations": zero_explanations,
+            "dimension_registry": dict(l1_mapper.DIMENSION_REGISTRY),
+            "parameter_provenance": parameter_provenance.build_parameter_provenance(indicator_names),
+            "cross_modal_coverage": cross_modal_coverage.evaluate_cross_modal_coverage(result, logs=logs),
+            "asr_confidence_disclosure": _build_asr_confidence_disclosure(session_id, quality.indicators),
+            "governance_ledger": governance_ledger,
+            "blocked_dependency_warnings": _build_blocked_dependency_warnings(
+                quality.indicators, governance_ledger["l0_blocked"]
+            ),
+            "second_instrument_appendix": _build_second_instrument_appendix(logs),
         },
     }

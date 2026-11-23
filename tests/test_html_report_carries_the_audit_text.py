@@ -133,7 +133,7 @@ def test_frames_outside_a_window_are_disclosed_when_there_are_any():
     out = _text_of(ReportGenerator(output_dir="/tmp")._render_l1_audit_text(
         {"l1": {"windows": {"granularity": "answer", "n_windows": 3,
                             "frames_outside": {"face": 412, "gesture": 0}}}}))
-    assert "412" in out and "face" in out
+    assert "412" in out and "面部" in out
     assert "gesture" not in out, "零帧的模态不该印出来"
 
 

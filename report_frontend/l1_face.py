@@ -203,17 +203,28 @@ def _rising_edges(flag: np.ndarray) -> int:
 
 
 def _run_lengths(flag: np.ndarray, dt: np.ndarray) -> list[float]:
-    """`flag==1` 的连续段时长(秒)。`dt[i]` 是第 i 帧到第 i-1 帧的间隔。"""
+    """`flag==1` 的连续段时长(秒)。`dt[i]` 是第 i 帧到第 i-1 帧的间隔。
+
+    ⚠️ 边界防护（2026-11-23）：
+    - 若连续段在末尾单帧被截断（右删失，`start == len(flag) - 1`），`dt[start+1:]` 为空，
+      旧实现 `np.nansum([])` 返回 `0.0` 秒假时长并污染中位数/均值；
+    - 物理上持续事件时长必须严格大于 0 秒，右删失末尾单帧无法测得结束边界，
+      不写入已完成段长列表（事件计数仍由 `*_rate_per_min` 如实承担）。
+    """
     out: list[float] = []
     start = None
     for i, on in enumerate(flag):
         if on and start is None:
             start = i
         elif not on and start is not None:
-            out.append(float(np.nansum(dt[start + 1:i + 1])))
+            dur = float(np.nansum(dt[start + 1:i + 1]))
+            if np.isfinite(dur) and dur > 0.0:
+                out.append(dur)
             start = None
-    if start is not None:
-        out.append(float(np.nansum(dt[start + 1:])))
+    if start is not None and start + 1 < len(dt):
+        dur = float(np.nansum(dt[start + 1:]))
+        if np.isfinite(dur) and dur > 0.0:
+            out.append(dur)
     return out
 
 
@@ -333,8 +344,9 @@ def _family_for_window(sub: pd.DataFrame, tsub: np.ndarray, window: str,
         for a in parts:
             motion = motion + np.nan_to_num(np.abs(np.diff(a, prepend=np.nan)))
         got["head_motion_per_sec"] = measured(
-            "head_motion_per_sec", "F4_head", "Σ(|Δyaw|+|Δpitch|+|Δroll|) ÷ 秒",
-            ("head_yaw", "head_pitch"), window, "弧度/秒",
+            "head_motion_per_sec", "F4_head",
+            "Σ(|Δ2D_yaw_proxy|+|Δ2D_pitch_proxy|) ÷ 秒（2D 归一化像素比代理，非真 3D 欧拉角）",
+            ("head_yaw", "head_pitch"), window, "归一化位移/秒",
             value=float(np.nansum(motion)) / _span_sec(tsub),
             n_valid=n_ok, n_total=n_total,
             threshold=thr.get("head_pose", 30))
@@ -683,11 +695,13 @@ _ALL_SPECS: dict[str, tuple[str, str, tuple[str, ...]]] = {
     "blink_rate_per_min": ("F3_blink", "is_blink 的 0→1 上升沿数 ÷ 有效分钟",
                            ("is_blink", "timestamp")),
     "blink_duration_mean": ("F3_blink", "连续 is_blink=1 段时长均值", ("is_blink", "timestamp")),
-    "head_motion_per_sec": ("F4_head", "Σ(|Δyaw|+|Δpitch|+|Δroll|) ÷ 秒",
-                            ("head_yaw", "head_pitch")),
-    "head_away_ratio_vs_baseline": ("F4_head", "|head_yaw| > 本人中位数+3·MAD 的帧占比(自比基线)", ("head_yaw",)),
-    "brow_furrow_ratio_vs_baseline": ("F5_tension", "au4 < 本人中位数−3·MAD 的帧占比(自比基线;眉内距越小越皱)", ("au4_frown",)),
-    "lip_compression_ratio_vs_baseline": ("F5_tension", "au23 < 本人中位数−3·MAD 的帧占比(自比基线;唇红越薄越压)", ("au23_lip_compression",)),
+    "head_motion_per_sec": (
+        "F4_head",
+        "Σ(|Δ2D_yaw_proxy|+|Δ2D_pitch_proxy|) ÷ 秒（2D 归一化像素比代理，非真 3D 欧拉角）",
+        ("head_yaw", "head_pitch")),
+    "head_away_ratio_vs_baseline": ("F4_head", "|head_yaw| > 本人中位数+3·MAD 的帧占比(自比基线；基于 2D 代理)", ("head_yaw",)),
+    "brow_furrow_ratio_vs_baseline": ("F5_brow_lip", "au4 < 本人中位数−3·MAD 的帧占比(自比基线;眉内距越小越皱)", ("au4_frown",)),
+    "lip_compression_ratio_vs_baseline": ("F5_brow_lip", "au23 < 本人中位数−3·MAD 的帧占比(自比基线;唇红越薄越压)", ("au23_lip_compression",)),
     "au_activation_any_ratio": (
         "F6_expressivity",
         "**至少一条**可信 AU 超本人 τ 的帧占比(τ:5 条自比基线 + au12_smile 声明常量 0.263)", TRUSTED_AUS),

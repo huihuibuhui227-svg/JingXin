@@ -1,5 +1,6 @@
 # report_frontend/report_generator.py
 
+import math
 import os
 import re
 import webbrowser
@@ -8,7 +9,7 @@ import pandas as pd
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 from .data_loader import LogDataLoader
-from . import l1_mapper, l1_quality
+from . import brand, l1_mapper, l1_quality
 from .instrument_provenance import INSTRUMENT_UNKNOWN
 from .l1_report import build_l1_report
 
@@ -74,7 +75,7 @@ def _fmt_num(v) -> str:
         x = float(v)
     except (TypeError, ValueError):
         return str(v)
-    if x != x:                       # NaN
+    if not math.isfinite(x):
         return "—"
     if x == 0:
         return "0"
@@ -113,7 +114,7 @@ def _fmt_compact(v) -> str:
         x = float(v)
     except (TypeError, ValueError):
         return str(v)
-    if x != x:                        # NaN
+    if not math.isfinite(x):
         return "—"
     if x == 0:
         return "0"
@@ -134,38 +135,16 @@ def _fmt_compact(v) -> str:
 
 
 def _zero_note(item: Dict[str, Any]) -> str:
-    """一个 **0 值**旁边那句解释。非 0 返回空串。
-
-    ## 为什么 0 必须解释(2026-10-26 实测)
-
-    使用者那一场里 `smile_ratio` 是 `0.0`、`n_valid` 是 64 —— 表格上就印一个 `0`。
-    读者看到它会有两种读法,而两种都与事实不符:
-
-    * 「没测到」—— 不,测了 64 帧,分母是 542 帧;
-    * 「测出来是零」—— 也不精确,它是**一次都没有越过阈值**。
-
-    这两句对"这一场能说明什么"的含义完全不同,所以 0 旁边必须带一句人话。
-    ⚠️ 只对**真测过**的 0 说这句话;`n_valid` 为 0 的 0 是"没测到",那由缺口行负责,
-    不归这里(两处都说就成了同一件事说两遍)。
-    """
-    v = item.get("raw_value")
-    if v is None:
+    """一个 **0 值**旁边那句解释。非 0 或未观测返回空串；按 5 类指标语义精确选句。"""
+    msg = l1_quality.explain_zero(
+        str(item.get("feature") or ""),
+        item.get("raw_value"),
+        item.get("n_valid"),
+        item.get("n_total"),
+    )
+    if not msg:
         return ""
-    try:
-        if float(v) != 0:
-            return ""
-    except (TypeError, ValueError):
-        return ""
-    n = item.get("n_valid")
-    if n is None:
-        return ""
-    try:
-        n = int(n)
-    except (TypeError, ValueError):
-        return ""
-    if n <= 0:
-        return ""
-    return f"<span class=\"zero-note\">看过 {n} 个有效观测，一次也没超过阈值</span>"
+    return f'<span class="zero-note">{escape(msg)}</span>'
 
 
 def _instrument_cell(item: Dict[str, Any],
@@ -223,6 +202,7 @@ _MODALITY_LABELS = {
     "face": "面部",
     "gesture": "手势",
     "voice": "语音",
+    "text": "转写文本",
     "voice_interview": "语音（面试）",
     "voice_research": "语音（科研）",
 }
@@ -377,8 +357,8 @@ def _subject_block(session_id: Optional[str]) -> str:
         label = read_label(session_id)
     except Exception:
         return ('<div class="subject subject-missing">被测者：'
-                '<strong>读取失败</strong>（会话目录里的 <code>label.json</code> 读不出来，'
-                '请检查这个文件）</div>')
+                '<strong>读取失败</strong>（会话目录里的身份标注文件读取异常，'
+                '请检查原始录制目录）</div>')
     if not label:
         return ('<div class="subject subject-missing">被测者：<strong>未标注</strong>'
                 '（录制时没有填写姓名 / 学号 / 院系 —— 这份报告没法按人对号）</div>')
@@ -653,54 +633,25 @@ class ReportGenerator:
         —— 这个参数在 M2 之前是"收下就丢"的。
         """
         print("\n" + "=" * 70)
-        print("🚀 启动 JingXin 面试行为观测报告生成系统 (批量模式)")
+        print(f"🚀 启动 {brand.BRAND_NAME} 多模态行为证据披露报告生成系统 (批量模式)")
         print("=" * 70)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        # 文件名后缀 `-姓名` 要等 `loader.target_session` 定下来才知道(调用方可能没给
-        # session_id、由加载器取最新一场)—— 所以路径在 try 里、加载之后才拼。
         report_path = ""
 
         try:
             loader = LogDataLoader()
             data = loader.get_fused_latest_data(session_id)
             if not data:
-                # 本场一个模态都没读到:**照样出报告**(spec §6 行 1/2 / 第 17 条)——
-                # 头里逐条列出缺什么,而不是让面板显示"什么都没发生"。
-                # 实测:空 data 下 L1 给 覆盖 0/14、逐维缺口照常列出、图表照常生成。
                 print("   ⚠️  本场没有任何可用日志,仍生成一份只含缺口的报告")
 
-            # 文件名带上被测者姓名 —— 29 份 `..._<时刻>.html` 摆在列表里分不出谁是谁
-            # (2026-10-26 使用者原话)。没有标注则不加后缀(理由见 `_subject_slug`)。
-            stem = (f"Research_Assessment_Report_{timestamp}"
+            stem = (f"{brand.REPORT_FILENAME_PREFIX}_{timestamp}"
                     f"{_subject_slug(loader.target_session)}")
             report_path = _unique_report_path(self.output_dir, stem, loader.target_session)
 
-            # ★ 与 `/api/report/structured` **同一个引擎**(2026-10-25)。
-            #
-            #   2026-10-18 前端那条端点已切到 L1,而这里一直留在旧引擎
-            #   (`PsychologicalFeatureEngine` → `ResearchCapabilityMapper`)。
-            #   后果:同一场会话在界面上给出**两个互相矛盾的数** —— 前端报告页读
-            #   structured(2026-10-25 实测 7/14),而这里产出的 HTML 说 11/14。
-            #   差的那 4 个槽正是旧引擎把「手掌张开度 / 耸肩幅度 / 眼神接触」算成
-            #   "填上了",而 L1 判定**当前管线根本不测**(见 `docs/下一步.md` 第 29 条)。
-            #   两份东西在「历史报告」列表里并排,谁也看不出它们量的是两套口径。
-            #
-            #   对照该在**数据层**做(`?engine=legacy` 仍在),不该让交付物分叉。
-            #   钉子:`tests/test_html_report_uses_the_l1_engine.py`。
             result = build_l1_report(loader.target_session, logs=data)
             static_images = self._scan_static_images()
 
-            # ⚠️ 2026-10-26:`ReportVisualizer` 不再参与交付物。
-            #
-            # 它只产一张雷达图,半径是「每个维度过了几个槽」(3/2/0/0/1) ——
-            # 那不是任何行为量,而且落成 `radar_chart_<epoch>.html`(单份 4.8 MB,
-            # 内含整包 plotly),报告再用 `<iframe>` 引它 ⟹ **报告一拷走图就没了**。
-            # 使用者原话:「就一个雷达图,完全没有分析」。
-            #
-            # 现在图在 `_build_html_report` 里用内联 SVG 画:一份报告就是一个文件。
-            # `visualizer.py` 本身留着(它的单元测试还在,`?engine=legacy` 的对照
-            # 与历史产物清理也要它),只是**交付物这条路不再经过它**。
             html_content = self._build_html_report(result, {}, {}, data,
                                                    static_images,
                                                    sources=loader.selected_sessions,
@@ -713,25 +664,24 @@ class ReportGenerator:
             print(f"❌ 错误：{e}")
             return ""
 
-        # 报告**已经落盘**。打开浏览器是"顺手"的副作用 —— 它失败不许影响返回值:
-        # 退出码是本轮新引入的(第 17 条),一旦从这里抛出去,面板会把"报告其实写好了"
-        # 报成「任务失败」(假警报)。
-        try:
-            webbrowser.open('file://' + os.path.realpath(report_path))
-        except Exception as e:
-            print(f"   ⚠️  报告已生成,但打开浏览器失败：{e}")
+        if os.environ.get("JX_NO_BROWSER") != "1":
+            try:
+                webbrowser.open('file://' + os.path.realpath(report_path))
+            except Exception as e:
+                print(f"   ⚠️  报告已生成,但打开浏览器失败：{e}")
+        print(f"REPORT_PATH={os.path.realpath(report_path)}")
         print(f"\n✅ 报告已生成：{report_path}")
         return report_path
 
     def generate_report_live(self, session_id: str) -> str:
-        """从运行中的 API 服务获取实时内存数据，生成评估报告（实时模式）"""
+        """从运行中的 API 服务获取实时内存数据，生成证据披露报告（实时模式）"""
         print("\n" + "=" * 70)
-        print("🚀 启动 JingXin 面试行为观测报告生成系统 (实时模式)")
+        print(f"🚀 启动 {brand.BRAND_NAME} 多模态行为证据披露报告生成系统 (实时模式)")
         print(f"📋 会话 ID: {session_id}")
         print("=" * 70)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        stem = (f"Research_Assessment_Report_Live_{timestamp}"
+        stem = (f"{brand.REPORT_FILENAME_PREFIX}_Live_{timestamp}"
                 f"{_subject_slug(session_id)}")
         report_path = _unique_report_path(self.output_dir, stem, session_id)
 
@@ -743,14 +693,9 @@ class ReportGenerator:
             if 'face' not in data:
                 print("   ⚠️  未获取到面部数据，继续使用其他模态生成报告")
 
-            # 与批量路径同一个引擎(理由见 `generate_report` 那段注释)。
-            # 实时路径的 `logs` 来自三个服务的 `/summary`,形状与读盘那份相同。
             result = build_l1_report(session_id, logs=data)
             static_images = self._scan_static_images()
 
-            # 与批量路径同一条:图在报告里内联画(理由见 `generate_report` 那段)。
-            # 实时路径的模态是**按这一个人的 session_id 去内存里取的**,不存在"每模态取最新"
-            # 那种跨场拼接;所以来源就是这一个 id(逐个列出真正取到数据的模态)。
             html_content = self._build_html_report(result, {}, {}, data,
                                                    static_images,
                                                    sources=live_sources(session_id, data),
@@ -759,13 +704,18 @@ class ReportGenerator:
             with open(report_path, 'w', encoding='utf-8') as f:
                 f.write(html_content)
 
-            webbrowser.open('file://' + os.path.realpath(report_path))
-            print(f"\n✅ 实时报告已生成并打开：{report_path}")
-            return report_path
-
         except Exception as e:
             print(f"❌ 错误：{e}")
             return ""
+
+        if os.environ.get("JX_NO_BROWSER") != "1":
+            try:
+                webbrowser.open('file://' + os.path.realpath(report_path))
+            except Exception as e:
+                print(f"   ⚠️  实时报告已生成,但打开浏览器失败：{e}")
+        print(f"REPORT_PATH={os.path.realpath(report_path)}")
+        print(f"\n✅ 实时报告已生成：{report_path}")
+        return report_path
 
     def _scan_static_images(self) -> List[str]:
         images = []
@@ -1008,18 +958,26 @@ class ReportGenerator:
                 f"这一场在 {len(dims)} 个维度上量到了 <strong>{pair}</strong> 项可测量指标"
                 f"—— 不是「没测」,是测到的还不足以支撑读数,逐条原因见下。")
         else:
-            best = ranked[0]
-            b_got, b_tot = _pair(best)
-            sentences.append(
-                f"这一场在 {len(dims)} 个维度上量到了 <strong>{n_passed} / {denom}</strong> "
-                f"项可测量指标,其中最完整的是「{best.get('display_name', '')}」"
-                f"({b_got} / {b_tot})。")
-            if len(ranked) > 1:
-                worst = ranked[-1]
-                w_got, w_tot = _pair(worst)
-                if (w_got, w_tot) != (b_got, b_tot):
-                    sentences.append(
-                        f"最薄的是「{worst.get('display_name', '')}」({w_got} / {w_tot})。")
+            all_full = all(_pair(d)[1] > 0 and _pair(d)[0] >= _pair(d)[1] for d in ranked)
+            if all_full:
+                sentences.append(
+                    f"这一场在 {len(dims)} 个维度上量到了 <strong>{n_passed} / {denom}</strong> "
+                    f"项可测量指标,全部 {len(dims)} 个维度的可测量指标均已完整覆盖。")
+            else:
+                best = ranked[0]
+                b_got, b_tot = _pair(best)
+                b_ratio = b_got / (b_tot or 1)
+                sentences.append(
+                    f"这一场在 {len(dims)} 个维度上量到了 <strong>{n_passed} / {denom}</strong> "
+                    f"项可测量指标,其中最完整的是「{best.get('display_name', '')}」"
+                    f"({b_got} / {b_tot})。")
+                if len(ranked) > 1:
+                    worst = ranked[-1]
+                    w_got, w_tot = _pair(worst)
+                    w_ratio = w_got / (w_tot or 1)
+                    if w_ratio < b_ratio - 1e-9:
+                        sentences.append(
+                            f"最薄的是「{worst.get('display_name', '')}」({w_got} / {w_tot})。")
 
         if isinstance(n_not_measured, int) and isinstance(n_no_indicator, int):
             # 新载荷:把剩下两段**分开点名**,并说明它们与这一场的表现无关。
@@ -1114,7 +1072,7 @@ class ReportGenerator:
         for i, (name, got, total) in enumerate(rows):
             y = pad_top + i * row_h
             cy = y + row_h / 2
-            ratio = (got / total) if total else 0.0
+            ratio = min(1.0, max(0.0, (got / total) if total else 0.0))
             w = max(2.0, bar_w * ratio) if got else 0.0
             parts.append(f'<text class="label" x="0" y="{cy + 4:.1f}">{name}</text>')
             # 轨道画满整条 —— 读者要能看出"分母有多长",否则 3/3 与 3/14 长得一样。
@@ -1128,58 +1086,65 @@ class ReportGenerator:
         parts.append("</svg>")
         return "".join(parts)
 
-    def _figure_dispersion(self, result: Dict[str, Any]) -> str:
-        """图二:**逐题离散度** —— 每条指标在八道题之间差多少。
-
-        ## 数据早就在载荷里,报告从没印过
-
-        `l1.dispersion` 是 20 条指标的逐题中位 / IQR / 最小 / 最大,
-        `/api/report/structured` 一直在发,前端 `L1IndicatorTable` 一直在渲染 ——
-        只有 HTML 交付物一个字都没提。它回答的正是读者最想问的那件事:
-        **这个读数稳不稳**(同一场里,换个题目它变不变)。
-
-        ## 为什么是"小倍数"而不是一张散点
-
-        20 条指标的单位各不相同(占比、次/分钟、赫兹、秒)。**放在同一条 x 轴上
-        就是双轴的变种** —— 位置毫无意义。所以每行各自成轴:左端是本场最小值、
-        右端是最大值,刻度就标在两端。⟹ 行与行之间**只比形状,不比长短**,
-        这句话必须写在图注里,否则读者会横向比。
-
-        ⚠️ 每个数都是载荷里的原值(`min` / `median` / `max`),渲染层不重算。
-        """
+    @staticmethod
+    def _prepare_dispersion_rows(result: Dict[str, Any]) -> list[dict]:
+        """统一清洗并筛选逐题离散度行，供 SVG 图与平直行计数共享（防 NaN/inf/倒置/极小除零）。"""
         disp = ((result.get("l1") or {}).get("dispersion") or {})
-        if not disp:
-            return ""
-        rows = [(name, d) for name, d in disp.items() if isinstance(d, dict)]
+        if not isinstance(disp, dict):
+            return []
+        rows: list[dict] = []
+        for name, d in disp.items():
+            if not isinstance(d, dict):
+                continue
+            try:
+                lo, mid, hi = float(d["min"]), float(d["median"]), float(d["max"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if not (math.isfinite(lo) and math.isfinite(mid) and math.isfinite(hi)):
+                continue
+            if hi < lo:
+                continue
+            mid = min(hi, max(lo, mid))
+            eps = max(1e-12, 1e-9 * max(abs(lo), abs(hi)))
+            flat = (hi - lo) <= eps
+            rows.append({
+                "name": name,
+                "label": l1_quality.indicator_label(name),
+                "lo": lo,
+                "mid": mid,
+                "hi": hi,
+                "flat": flat,
+                "n_questions": d.get("n_questions"),
+            })
+        return rows
+
+    def _figure_dispersion(self, result: Dict[str, Any]) -> str:
+        """图二:**逐题离散度** —— 每条指标在各题之间差多少（独立刻度 + 边界防御）。"""
+        rows = self._prepare_dispersion_rows(result)
         if not rows:
             return ""
 
-        label_w, plot_w, row_h, pad_top = 128, 360, 34, 10
+        n_win = ((result.get("l1") or {}).get("windows") or {}).get("n_questions")
+        label_w, plot_w, row_h, pad_top = 136, 352, 34, 10
         width = label_w + plot_w + 96
         height = pad_top * 2 + row_h * len(rows)
         parts: list[str] = [
             f'<svg viewBox="0 0 {width} {height}" role="img" '
             f'aria-label="每条指标在题与题之间的分布">']
-        for i, (name, d) in enumerate(rows):
-            try:
-                lo, mid, hi = float(d["min"]), float(d["median"]), float(d["max"])
-            except (KeyError, TypeError, ValueError):
-                continue
+        for i, row in enumerate(rows):
+            lo, mid, hi, flat = row["lo"], row["mid"], row["hi"], row["flat"]
             y = pad_top + i * row_h
             cy = y + row_h / 2
-            label = l1_quality.indicator_label(name)
-            parts.append(f'<text class="label" x="0" y="{cy + 4:.1f}">{label}</text>')
+            q_cnt = row.get("n_questions")
+            suffix = (
+                f" ({q_cnt}/{n_win}题)"
+                if isinstance(q_cnt, int) and isinstance(n_win, int) and 0 < q_cnt < n_win
+                else ""
+            )
+            parts.append(f'<text class="label" x="0" y="{cy + 4:.1f}">{escape(row["label"] + suffix)}</text>')
             parts.append(f'<rect class="track" x="{label_w}" y="{cy - 1:.1f}" '
                          f'width="{plot_w}" height="2" rx="1"/>')
 
-            # ★ 各题取到同一个值时(`min == max`),这一行**没有左右可言**。
-            #
-            # 实测那一场 20 行里有 6 行如此:四条是"每道题都是 0"(一次也没超过
-            # 阈值),`pose_valid_ratio` 是"每道题都是 1"。按常规画法会得到
-            # 一条零长度线 + 两个**重叠在同一点**的端点标签 —— 读者看到的是
-            # 一个糊掉的「00」,而真相恰恰是这一行**最稳**。
-            # ⟹ 点放正中,只标一个数,并在旁边说明"各题相同"。
-            flat = (hi == lo)
             if flat:
                 cx = label_w + plot_w / 2
                 parts.append(f'<circle class="median" cx="{cx:.1f}" cy="{cy:.1f}" '
@@ -1191,8 +1156,12 @@ class ReportGenerator:
                 continue
 
             span = hi - lo
-            # 两侧各留 6% 的余量,免得端点标签压在边界上被裁掉。
             x0, x1 = lo - span * 0.06, hi + span * 0.06
+            if x1 <= x0:
+                cx = label_w + plot_w / 2
+                parts.append(f'<circle class="median" cx="{cx:.1f}" cy="{cy:.1f}" r="4.5"/>')
+                parts.append(f'<text class="flat-note" x="{width - 4}" y="{cy + 4:.1f}" text-anchor="end">各题相同</text>')
+                continue
             scale = plot_w / (x1 - x0)
 
             def _x(v: float) -> float:
@@ -1202,7 +1171,6 @@ class ReportGenerator:
                          f'x2="{_x(hi):.1f}" y2="{cy:.1f}"/>')
             parts.append(f'<circle class="median" cx="{_x(mid):.1f}" cy="{cy:.1f}" '
                          f'r="4.5"/>')
-            # 三个数都标出来:这一行的轴是**本行自己的**,不标数就只剩形状。
             parts.append(f'<text class="tick" x="{_x(lo):.1f}" y="{cy - 8:.1f}" '
                          f'text-anchor="middle">{_fmt_compact(lo)}</text>')
             parts.append(f'<text class="tick" x="{_x(hi):.1f}" y="{cy - 8:.1f}" '
@@ -1212,20 +1180,10 @@ class ReportGenerator:
         parts.append("</svg>")
         return "".join(parts)
 
-    @staticmethod
-    def _n_flat_rows(result: Dict[str, Any]) -> int:
-        """离散度里有几行「各题取到同一个值」—— 图注要说这个数。"""
-        disp = ((result.get("l1") or {}).get("dispersion") or {})
-        n = 0
-        for d in disp.values():
-            if not isinstance(d, dict):
-                continue
-            try:
-                if float(d["min"]) == float(d["max"]):
-                    n += 1
-            except (KeyError, TypeError, ValueError):
-                continue
-        return n
+    @classmethod
+    def _n_flat_rows(cls, result: Dict[str, Any]) -> int:
+        """离散度里有几行「各题取到同一个值」—— 与图共享同一份清洗结果。"""
+        return sum(1 for r in cls._prepare_dispersion_rows(result) if r["flat"])
 
     def _render_l1_audit_text(self, result: Dict[str, Any],
                               only: Optional[tuple] = None) -> str:
@@ -1316,7 +1274,7 @@ class ReportGenerator:
                 # ⚠️ 2026-10-26:原来写「不计入 F/G 的分母」—— F/G 是内部族名
                 #    (F = 面部、G = 手势),读者不知道那是什么。说模态名即可。
                 extra = ("；不在任何回答窗口内的帧：" +
-                         " · ".join(f"{k} {n} 帧" for k, n in outside.items()) +
+                         " · ".join(f"{_MODALITY_LABELS.get(k, k)} {n} 帧" for k, n in outside.items()) +
                          "（这些帧不算进「平均到每秒」那类数的分母）")
             blocks.append(
                 f"<div class='l1-audit'><h3>这一场是怎么切片的</h3><p>{text}{extra}</p></div>")
@@ -1376,24 +1334,25 @@ class ReportGenerator:
         multi_html = (f'<p class="note">{block.get("multi_note", "")}</p>'
                       if block.get("n_multi") else "")
 
-        # 模型系数为 0 本身就是要披露的事实:**每一个面部指标都来自手写几何代理**,
-        # 没有一条来自模型回归。不写这一句,读者会以为"两套仪器"是各出一半。
         blendshape_zero = ""
         if counts.get("blendshape", 0) == 0:
             blendshape_zero = (
-                '<p class="note">注意这份报告里<strong>没有一条</strong>面部指标来自模型系数'
-                '（52 列 blendshape 全部只采集、没有参与任何一条 L1 指标）——'
+                '<p class="note">注意这份报告里<strong>没有一条</strong>面部指标来自模型回归系数'
+                '（52 维面部模型系数全部仅作采集记录、未参与主表任何一条行为指标）——'
                 '这句话本身也是要披露的内容。</p>')
+
+        non_inter = (block.get("non_interchangeability_disclosure") or {}).get(
+            "conclusion_plain",
+            "离线实测（32 场 / 389 条）表明，关键点几何代理与 52 维模型回归系数在 12 个构念中"
+            "仅有 1 个达到秩一致性 0.7 以上，因此两套测量结果不可混用，本报告对每条指标明确标明出处。",
+        )
 
         return f"""
         <section id="instrument-disclosure">
             <h2>这些数是谁量的（仪器来源）</h2>
-            <p class="note">本系统的面部测量同时存在两套仪器：一套是手写的关键点几何代理
-            （<code>geometric</code>，例如「眉内距 ÷ 眼距」这类比率），另一套是
-            FaceLandmarker 模型回归出的 52 列系数（<code>blendshape</code>）。
-            离线实测（32 场 / 389 条）里，12 个构念只有 1 个达到秩一致性 ρ ≥ 0.7
-            ⟹ 两套数<strong>不可混用</strong>，所以上面每一张表都标了这条数出自哪一套。
-            这一节只做披露，不改任何一个值。</p>
+            <p class="note">本系统的面部测量同时存在两套仪器：一套是手写的关键点几何代理（geometric，
+            例如「眉内距 ÷ 眼距」这类比率），另一套是面部网格模型回归出的 52 维模型系数（blendshape）。
+            {escape(non_inter)}</p>
             <div class="prov-chips">{chips}</div>
             <p class="prov-footer">{block.get("footer", "")}</p>
             {multi_html}
@@ -1401,6 +1360,97 @@ class ReportGenerator:
             {unknown_html}
         </section>
         """
+
+    def _render_evidence_chain_notices(self, result: Dict[str, Any]) -> str:
+        """在正文中简洁披露跨模态时间覆盖、转写置信度与底层封停依赖提示。"""
+        l1 = result.get("l1") or {}
+        items: list[str] = []
+        cmc = l1.get("cross_modal_coverage") or {}
+        if cmc.get("summary_plain"):
+            items.append(f"<li><strong>跨模态时间对齐：</strong>{escape(str(cmc['summary_plain']))}</li>")
+        asr_disc = l1.get("asr_confidence_disclosure") or {}
+        if asr_disc.get("note_plain"):
+            items.append(f"<li><strong>语音转写置信度：</strong>{escape(str(asr_disc['note_plain']))}</li>")
+        for w in (l1.get("blocked_dependency_warnings") or []):
+            if w.get("note_plain"):
+                items.append(f"<li><strong>2D 代理提示：</strong>{escape(str(w['note_plain']))}</li>")
+        if not items:
+            return ""
+        return (
+            "<div class='l1-audit'><h3>测量边界与跨模态对齐核查</h3>"
+            f"<ul>{''.join(items)}</ul></div>"
+        )
+
+    def _render_extra_appendices(self, result: Dict[str, Any]) -> str:
+        """折叠附录：参数来源三级登记（T1/T2/T3）、主动拒绝与显式封停台账、第二仪器对照。"""
+        l1 = result.get("l1") or {}
+        blocks: list[str] = []
+
+        pp = l1.get("parameter_provenance") or {}
+        reg = pp.get("registry") or []
+        if reg:
+            rows = "".join(
+                f"<tr><td>{escape(str(p.get('label', p.get('param_id', ''))))}</td>"
+                f"<td class=\"num\">{escape(str(p.get('value', '—')))} {escape(str(p.get('unit', '')))}</td>"
+                f"<td>{escape(str(p.get('sub_tier', p.get('tier', ''))))}"
+                f"{'（未标定）' if p.get('provisional') else ''}</td>"
+                f"<td>{escape(str(p.get('provenance', '')))}</td></tr>"
+                for p in reg
+            )
+            blocks.append(f"""
+            <details>
+                <summary>附录：参数来源三级登记表（T1 物理定义 / T2 文献与标定 / T3 经验临时）</summary>
+                <p class="note">{escape(str(pp.get("summary_plain", "")))}</p>
+                <table><thead><tr><th>参数</th><th>取值</th><th>来源分级</th><th>依据说明</th></tr></thead>
+                <tbody>{rows}</tbody></table>
+            </details>
+            """)
+
+        gl = l1.get("governance_ledger") or {}
+        l0_b = gl.get("l0_blocked") or []
+        ret = gl.get("retired_redundant") or []
+        if l0_b or ret:
+            rows_b = "".join(
+                f"<tr><td>{escape(str(x.get('label', x.get('id', ''))))}</td>"
+                f"<td>底层封停</td>"
+                f"<td>{escape(str(x.get('reason_plain', '')))}</td>"
+                f"<td>{escape(str(x.get('unblock_human', '')))}</td></tr>"
+                for x in l0_b
+            )
+            rows_r = "".join(
+                f"<tr><td>{escape(str(x.get('label', x.get('id', ''))))}</td>"
+                f"<td>主动拒绝 / 退役</td>"
+                f"<td>{escape(str(x.get('reason_plain', '')))}</td>"
+                f"<td>{escape(str(x.get('unblock_human', '')))}</td></tr>"
+                for x in ret
+            )
+            blocks.append(f"""
+            <details>
+                <summary>附录：本系统主动拒绝与显式封停的指标台账（含解封条件）</summary>
+                <p class="note">{escape(str(gl.get("summary_plain", "")))}</p>
+                <table><thead><tr><th>对象</th><th>治理状态</th><th>拒绝/封停理由</th><th>解封条件</th></tr></thead>
+                <tbody>{rows_b}{rows_r}</tbody></table>
+            </details>
+            """)
+
+        sec = l1.get("second_instrument_appendix") or {}
+        if sec.get("available") and sec.get("rows"):
+            srows = "".join(
+                f"<tr><td>{escape(str(r.get('name', '')))}</td>"
+                f"<td class=\"num\">{_fmt_num(r.get('value'))}</td>"
+                f"<td class=\"num\">{escape(str(r.get('n_valid', '—')))}</td></tr>"
+                for r in sec["rows"]
+            )
+            blocks.append(f"""
+            <details>
+                <summary>附录：第二仪器（52 维面部模型系数）独立对照参考</summary>
+                <p class="note">{escape(str(sec.get("disclaimer", "")))}</p>
+                <table><thead><tr><th>对照项</th><th>读数</th><th>有效帧数</th></tr></thead>
+                <tbody>{srows}</tbody></table>
+            </details>
+            """)
+
+        return "".join(blocks)
 
     def _build_html_report(self, result: Dict[str, Any], chart_paths: Dict[str, Any],
                            features: Dict[str, Any], data: Dict[str, pd.DataFrame],
@@ -1462,7 +1512,7 @@ class ReportGenerator:
             if n_flat:
                 flat_note = (f"\n            其中 {n_flat} 条在各题上是<b>同一个值</b>"
                              f"(标着「各题相同」),它们是最稳的那一批;"
-                             f"值本身是 0 的,意思是每题都没超过阈值,不是没测到。")
+                             f"值本身是 0 的,意思是每题实测均为零或未触发事件,不是没测到。")
             disp_block = f"""
             <h2>题与题之间稳不稳</h2>
             <p class="note">同一个指标,{q}里各量了一次 —— 下图每一行是一条指标,
@@ -1470,13 +1520,17 @@ class ReportGenerator:
             <strong>每行各有自己的刻度</strong>,所以请横向看「这一行散不散」,
             不要拿两行的长短互相比较。</p>
             <figure>{fig_disp}
-            <figcaption>{n_disp} 条指标在题与题之间有两次以上测量。
+            <figcaption>{len(self._prepare_dispersion_rows(result))} 条指标在题与题之间有两次以上测量。
             只测了一次的指标不出现在这里 —— 单次测量没有「离散」可言,
             给个 0 会把「没测」说成「很稳」。{flat_note}</figcaption></figure>
             """
         else:
-            why = ("这一场是整场一个窗口,没有逐题切分" if not n_win
-                   else "每条指标在每道题上都只测到一次")
+            if not n_win:
+                why = "这一场是整场一个窗口，没有逐题切分"
+            elif n_win == 1:
+                why = "本场仅有 1 道题，单题没有题间离散度可言"
+            else:
+                why = f"虽然有 {n_win} 道题，但各指标有效出值的题数均不足 2 题（存在缺测或仅单题出值）"
             disp_block = f"""
             <h2>题与题之间稳不稳</h2>
             <p class="note">这一场报不出逐题离散度:{why},所以没有题与题之间的
@@ -1527,22 +1581,21 @@ class ReportGenerator:
         #   反过来会把一份交付物读成仪器说明书。但它必须在**页脚之前**,
         #   所以是"页脚那一块"而不是附录(附录会被 `<details>` 折起来)。
         instrument_block = self._render_instrument_disclosure(result)
+        notices_block = self._render_evidence_chain_notices(result)
+        extra_appendices = self._render_extra_appendices(result)
 
-        # 最后一道:正文里的半角标点换成全角(理由见 `_zh_punct`)。
-        # 放在**整份模板拼完之后**,只改标签之外的文本 —— 各段拼接处
-        # 也一并收口,不用在二十来处 f-string 里逐个手改。
         return _zh_punct(f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>JingXin 面试行为观测报告</title>
+<title>{brand.REPORT_HTML_TITLE}</title>
 <style>{_CSS}</style>
 </head>
 <body>
 <div class="wrap">
 <header>
-  <h1>JingXin 面试行为观测报告</h1>
+  <h1>{brand.REPORT_HTML_TITLE}</h1>
   {subject_html}
   <div class="meta">{_meta_line(target, result['model_metadata']['version'])}</div>
   <div class="sources">{sources_disclosure(sources or {}, target,
@@ -1558,6 +1611,7 @@ class ReportGenerator:
 {self._coverage_explanation(coverage)}
 <p class="lead">{self._lead_sentence(result)}</p>
 <p class="note">{result['summary_narrative']}</p>
+{notices_block}
 
 {cov_block}
 {disp_block}
@@ -1571,11 +1625,12 @@ class ReportGenerator:
 
 {self._render_l1_audit_text(result, only=("gaps", "low_confidence", "windows"))}
 
-{appendix_block}
-
 {instrument_block}
 
-<footer>JingXin 多模态行为观测 · 报告由系统自动生成 · 不含评分与评级</footer>
+{appendix_block}
+{extra_appendices}
+
+<footer>{brand.REPORT_HTML_FOOTER}</footer>
 </div>
 </body>
 </html>

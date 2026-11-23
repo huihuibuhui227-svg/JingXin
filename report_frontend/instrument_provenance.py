@@ -43,6 +43,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Iterable
 
 # ── 仪器名 ────────────────────────────────────────────────────────────────────
@@ -53,6 +54,29 @@ INSTRUMENT_AUDIO = "audio"
 INSTRUMENT_TEXT = "text"
 #: 依赖列一条都认不出来时记这个。**不是**一种仪器,是一个披露缺口。
 INSTRUMENT_UNKNOWN = "unknown"
+
+#: 公开中文标签（唯一真相源，`format_footer` 与 `l1_report` 共用，杜绝双份拷贝）
+INSTRUMENT_LABEL: dict[str, str] = {
+    INSTRUMENT_BLENDSHAPE: "模型系数",
+    INSTRUMENT_GEOMETRIC: "几何代理",
+    INSTRUMENT_AUDIO: "音频",
+    INSTRUMENT_TEXT: "文本",
+    INSTRUMENT_UNKNOWN: "未登记",
+}
+
+#: 二级细粒度仪器标签（区分面部 478 关键点、52 模型系数、姿态 33 点、手部 21 点、声学序列、实时韵律与转写文本）
+SUB_INSTRUMENT_LABELS: dict[str, str] = {
+    "mediapipe_face_478_geo": "MediaPipe 面部 478 点几何代理",
+    "mediapipe_face_52_blendshape": "MediaPipe 面部 52 维模型系数",
+    "mediapipe_pose_33_geo": "MediaPipe 姿态 33 点几何代理",
+    "mediapipe_hand_21_geo": "MediaPipe 手部 21 点几何代理",
+    "librosa_series_acoustic": "librosa 整场声学序列（pyin/rms）",
+    "prosody_log_acoustic": "实时语音韵律日志提取器",
+    "asr_transcript": "本地 ASR 语音转写文本",
+    "unknown": "未登记仪器",
+}
+
+_AU_COL_RE = re.compile(r"^au\d+_")
 
 #: 固定顺序 —— `describe()` 与多仪器列表都按这个序输出,页面上的顺序不随输入抖动。
 INSTRUMENTS: tuple[str, ...] = (
@@ -80,12 +104,10 @@ INSTRUMENT_OF_PREFIX: dict[str, str] = {
     # 模型回归出来的 52 个 FaceLandmarker 系数
     "bs_": INSTRUMENT_BLENDSHAPE,
     # 关键点几何代理:手写 AU 比率 / 视线 / 头姿 / 眨眼
-    #
-    # ⚠️ `au_` 是任务给的写法,但**实测列名是 `au4_frown` / `au12_smile`**(数字紧跟
-    # `au`,没有下划线)⟹ 只写 `au_` 会让 F 族 16 条全部落进 `unknown`
-    # (本仓 `l0_columns.json` 里真实列名如此)。两个前缀都登记,长的优先。
+    # ⚠️ 不再使用宽前缀 "au"（会把 "audio_*" 误判为视觉 geometric）；
+    #   真实列名 `au4_frown` / `au12_smile` 由 `instrument_of_column` 中的 `_AU_COL_RE` 精确匹配。
     "au_": INSTRUMENT_GEOMETRIC,
-    "au": INSTRUMENT_GEOMETRIC,
+    "audio_": INSTRUMENT_AUDIO,
     "gaze_": INSTRUMENT_GEOMETRIC,
     "head_": INSTRUMENT_GEOMETRIC,
     "blink": INSTRUMENT_GEOMETRIC,          # 题目给的是 `blink*`(无下划线)
@@ -133,11 +155,6 @@ INSTRUMENT_OF_EXACT: dict[str, str] = {
     "energy": INSTRUMENT_AUDIO,
     # 同一件事的**第二个列名**：日志那条路写 `pitch`/`energy`，而"整场录音重算"
     # 那条路(`voice_series.py`，librosa 的 pyin / feature.rms)写的是 `f0`/`rms`。
-    # 不登记这两个名字，同一条指标换个数据来路就会从「音频」掉进「未登记」——
-    # 那是把"知道"说成"不知道"，同样算披露失真（实测 8 条，2026-11-21）。
-    # ★ 2026-11-21:`answer_detail_chars_p50` 数的是**转写逐段字数** ⟹ 文本,不是音频。
-    #   不登记会掉进 `unknown`,页脚"未登记"凭空空一条。
-    "answer_detail_chars_p50": INSTRUMENT_TEXT,
     "f0": INSTRUMENT_AUDIO,
     "rms": INSTRUMENT_AUDIO,
     "voiced_flag": INSTRUMENT_AUDIO,
@@ -188,12 +205,50 @@ def instrument_of_column(column: str) -> str | None:
         return None
     if column in INSTRUMENT_OF_EXACT:
         return INSTRUMENT_OF_EXACT[column]
+    if _AU_COL_RE.match(column):
+        return INSTRUMENT_GEOMETRIC
     hit: str | None = None
     best = -1
     for prefix, instrument in INSTRUMENT_OF_PREFIX.items():
         if column.startswith(prefix) and len(prefix) > best:
             hit, best = instrument, len(prefix)
     return hit
+
+
+def sub_instrument_of_column(column: str) -> str | None:
+    """单列 → 二级细粒度仪器标识（只做更细披露，不影响一级大类契约）。"""
+    if not isinstance(column, str) or not column or column in NON_INSTRUMENT_COLUMNS:
+        return None
+    if column.startswith("bs_"):
+        return "mediapipe_face_52_blendshape"
+    if (
+        column.startswith(("au_", "gaze_", "head_", "blink", "iris_", "eye_", "face_", "symmetry", "micro_exp_"))
+        or _AU_COL_RE.match(column)
+        or column in ("is_blink", "avg_ear", "blink_rate_per_min", "eye_closed_sec", "symmetry_score")
+    ):
+        return "mediapipe_face_478_geo"
+    if column.startswith("hand_") or column in ("hand_visible_left", "hand_visible_right", "left_hand_spread", "right_hand_spread"):
+        return "mediapipe_hand_21_geo"
+    if column.startswith(("torso_", "shoulder_", "left_", "right_")) or column == "shrug_level":
+        return "mediapipe_pose_33_geo"
+    if column in ("f0", "rms", "voiced_flag"):
+        return "librosa_series_acoustic"
+    if column.startswith(("pitch_", "energy_", "voiced_", "pause_", "speech_", "duration_", "reaction_", "audio_")) or column in ("pitch", "energy"):
+        return "prosody_log_acoustic"
+    if column.startswith(("transcript", "text", "token", "word")) or column in ("n_chars", "transcript_text"):
+        return "asr_transcript"
+    return None
+
+
+def sub_instruments_of(indicator: Any) -> list[str]:
+    """返回单条指标的二级细粒度仪器列表（去重、定序）。"""
+    row = _as_dict(indicator)
+    found: list[str] = []
+    for c in _as_column_list(row.get("required_l0")):
+        sub = sub_instrument_of_column(c)
+        if sub and sub not in found:
+            found.append(sub)
+    return found or ["unknown"]
 
 
 def unmapped_columns(columns: Iterable[str]) -> set[str]:
@@ -328,12 +383,5 @@ def format_footer(indicators: list) -> str:
     读的人才不会把 `au12_smile` 和 `bs_mouthSmile` 当成一回事。)
     """
     counts = describe(indicators)
-    label = {
-        INSTRUMENT_GEOMETRIC: "几何代理",
-        INSTRUMENT_BLENDSHAPE: "模型系数",
-        INSTRUMENT_AUDIO: "音频",
-        INSTRUMENT_TEXT: "文本",
-        INSTRUMENT_UNKNOWN: "未登记",
-    }
-    parts = " / ".join(f"{label[k]} {counts[k]}" for k in INSTRUMENTS)
+    parts = " / ".join(f"{INSTRUMENT_LABEL[k]} {counts[k]}" for k in INSTRUMENTS)
     return f"共 {len(indicators or [])} 条指标 · 仪器来源:{parts}"

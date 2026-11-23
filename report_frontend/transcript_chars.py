@@ -117,6 +117,31 @@ def meta(session_id: str) -> dict | None:
         _read(_recording_transcript_path(session_id)))
 
 
+def load_transcript_with_asr(session_id: str) -> dict | None:
+    """读取整场转写并**完整保留 `asr` 元数据块**（引擎、音频范围、词级概率摘要）。
+
+    与 `meta()` 的区别：不丢弃 `asr` 块，供证据门做 ASR 置信度诚实披露与同源降档。
+    """
+    raw = _read(path(session_id))
+    source_kind = "cache"
+    if raw is None:
+        raw = _read(_recording_transcript_path(session_id))
+        source_kind = "recording"
+    if not raw:
+        return None
+    norm = _norm(raw) or {}
+    merged = raw.get("merged") if isinstance(raw.get("merged"), dict) else {}
+    asr_block = raw.get("asr") or merged.get("asr") or {}
+    if not isinstance(asr_block, dict):
+        asr_block = {}
+    return {
+        **norm,
+        "source_kind": source_kind,
+        "asr": asr_block,
+        "has_segments": bool(raw.get("segments") or merged.get("segments")),
+    }
+
+
 def _body(session_id: str) -> dict | None:
     """原始转写的**内层**字典(活路径在 `merged` 下,批量工具在顶层)。
 

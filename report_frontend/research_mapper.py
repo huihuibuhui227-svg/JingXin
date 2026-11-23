@@ -133,7 +133,7 @@ class ResearchCapabilityMapper:
             "logical_thinking": {
                 "name": "话语结构特征",
                 "description": "观测文本结构与面部动作单元相关的可测量。",
-                "algorithm": "加权线性组合 + 认知负荷推断",
+                "algorithm": "规则映射（历史兼容路径）",
                 "indicators": [
                     # 2026-09-27 列对账(逐槽,判据 = **同构念的更好测法**,不是"能过门"):
                     #
