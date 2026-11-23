@@ -830,9 +830,9 @@ async def discard_session(session_id: str, request: Request = None):
         presented_pw = request.headers.get("X-Admin-Password") or ""
         is_admin_pw = bool(admin_pw and presented_pw and hmac.compare_digest(presented_pw, admin_pw))
         if expected_tok is not None:
-            if presented_tok and not hmac.compare_digest(presented_tok, expected_tok) and not is_admin_pw:
-                raise HTTPException(status_code=403, detail="会话作废令牌不匹配")
-        elif admin_pw and not is_admin_pw:
+            if not is_admin_pw and (not presented_tok or not hmac.compare_digest(presented_tok, expected_tok)):
+                raise HTTPException(status_code=403, detail="会话作废令牌缺失或不匹配")
+        elif not is_admin_pw:
             raise HTTPException(
                 status_code=403,
                 detail="历史正式场次受保护：请通过素材管理页以管理员身份删除",

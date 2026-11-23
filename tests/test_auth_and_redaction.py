@@ -179,7 +179,14 @@ def test_voice_discard_blocks_anonymous_http_delete_of_historical_session(tmp_pa
     assert r_deny.status_code == 403
     assert sdir.is_dir()
 
+    # 即使未设置 JX_ADMIN_PASSWORD，匿名 HTTP 也必须 fail-closed 拒绝历史场次删除
+    monkeypatch.delenv("JX_ADMIN_PASSWORD", raising=False)
+    r_deny_no_env = tc.post(f"/session/{sid}/discard")
+    assert r_deny_no_env.status_code == 403
+    assert sdir.is_dir()
+
     # 携带正确管理员密码可放行
+    monkeypatch.setenv("JX_ADMIN_PASSWORD", "hist-protect-pw")
     r_ok = tc.post(f"/session/{sid}/discard", headers={"X-Admin-Password": "hist-protect-pw"})
     assert r_ok.status_code == 200
     assert not sdir.exists()
