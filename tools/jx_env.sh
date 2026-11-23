@@ -64,7 +64,11 @@ if [ -z "${JX_FRONTEND:-}" ]; then
 fi
 
 export JINGXIN_RECORDINGS_DIR="${JINGXIN_RECORDINGS_DIR:-$JX_RECORDINGS}"
-export REPO JX_PY JX_RECORDINGS JX_FRONTEND JINGXIN_RECORDINGS_DIR
+# 强制本地回环与 Tailscale 内网域名绕过任何系统 HTTP/SOCKS 代理，防止服务间探活与 ASR 断联
+export NO_PROXY="127.0.0.1,localhost,0.0.0.0,100.64.191.35,.ts.net${NO_PROXY:+,$NO_PROXY}"
+export no_proxy="$NO_PROXY"
+unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY
+export REPO JX_PY JX_RECORDINGS JX_FRONTEND JINGXIN_RECORDINGS_DIR NO_PROXY no_proxy
 
 __jx_latest_session() {
   # 取 JX_RECORDINGS 下**名字最新**的会话目录(排除 NONE 与 _试跑)
