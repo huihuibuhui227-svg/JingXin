@@ -2,9 +2,7 @@
 
 > **软著名**：`衡才智析——科研行为证据门控评估系统 V1.0` ｜ **核心理念**：「不给分，只给证据与缺口」 / 「仪器可以是黑盒，裁判必须是白盒」
 
-一套**多模态行为证据披露**系统。把一场面试或科研汇报中受试者的面部动作单元、手部/姿态、语音韵律、
-话语结构采下来，落成逐帧/逐回答的 CSV，再由零机器学习的白盒证据门按**有出处的判据**披露
-「哪些行为线索有证据、证据有多硬、哪些没量到且为什么、出自哪套仪器」。
+一套**多模态行为证据披露**系统。把一场面试或科研汇报中受试者的面部动作单元、3D 头姿与 52 维表情系数、上肢骨骼运动、语音声学韵律与转写话语结构采下来，落成逐帧/逐回答的 CSV，经由姿态残差校准与多通道动力学特征层，最后交给**不打分的白盒证据门与可解释机器学习裁判层（`GaussianHMM + PELT + Split Conformal`）**按有出处的判据披露「哪些行为线索有证据、处于哪类证据核验阶段、哪些没量到且为什么、出自哪套仪器」。
 
 > ⚠️ **它不是心理测量工具，也不做心理识别结论。** 这条是硬约束，不是措辞偏好：
 >
@@ -33,18 +31,19 @@
 仓库内布局：
 
 ```
-app.py                  Flask 报告面板(:5000，含脱敏/鉴权、健康探活、本地辅助解读与题库检索)
+app.py                  Flask 报告面板(:5000，含脱敏/鉴权、健康探活、本地辅助解读、题库检索与 /api/research/benchmarks)
 redline_guard.py        品牌与法规红线词/打分正则硬守卫（独立于 report_frontend/）
-face_expression/        面部服务(:8000)   内存 cv2.imdecode，输出 iris 四列 + AU + 52 Blendshape
-gesture_analysis/       手势服务(:8002)   Hand 21 点 + Pose 33 点
-voice_interaction/      语音服务(:8001)   多会话隔离、FunASR 转写 + 韵律、历史场次 fail-closed 防误删
-report_frontend/        报告层:data_loader → 回答窗口 → L1 指标(41 条) → 质量门 → 维度映射 →
-                         参数来源(T1/T2/T3) + 跨模态覆盖门控 + 治理台账 + 信号质检 + report_generator
+face_expression/        面部服务(:8000)   内存 cv2.imdecode，输出 iris + AU + 52 Blendshape + 3D 姿态 + 画质门控（98 列 CSV）
+gesture_analysis/       手势服务(:8002)   rtmlib RTMW 133 点全身双手引擎（兼容 Hand 21 / Pose 33 口径，59 列 CSV）
+voice_interaction/      语音服务(:8001)   Parselmouth 声学 + Silero VAD + CAM++ + FunASR 转写 + faster-whisper 词级核验
+report_frontend/        报告层:data_loader → 回答窗口 → L1(41 项)+L2(姿态校准/动力学/节律) → L3(HMM/PELT/Split Conformal)
+                         → 参数来源(T1/T2/T3) + 跨模态覆盖门控 + 治理台账 + report_generator 单文件 HTML
                          （旧引擎 feature_engine → research_mapper 仅 ?engine=legacy 对照）
-models/                 预训练 MediaPipe 模型 + 35.3 KB 纯 CPU 自监督信号质检模型(signal_quality_clf.joblib)
+research_lab/           严格隔离的离线多语料科研基准实验室（MIT / RecruitView / ChaLearn V2 / 中英迁移，绝不参与报告计分）
+models/                 MediaPipe 模型 + signal_quality_clf.joblib + behavior_regime_model.joblib + referee_hmm/conformal_gate.joblib
 media_retention.py      留存与账本(三服务共用的横切模块)
-l0_columns.json         ★ L0 列表的唯一权威(86 列,status × maturity 两轴)
-tools/                  起停服务(start_all.sh / stop_all.sh) / 验收 / CPU 基准 / 信号质检训练 / 转写
+l0_columns.json         ★ L0 列清单的唯一权威(status × maturity 两轴，含面部 98 列契约)
+tools/                  起停(start_all.sh / stop_all.sh) / 自检 / 基准 / 3D 回填 / 裁判重训 / 转写
 docs/                   文档(见 §4「权威在哪」)
 data/logs/              运行日志 CSV(gitignored)
 data/transcripts/       ASR 转写产物(gitignored,**含真实受试者个人信息,只能留服务器**)
@@ -85,12 +84,13 @@ bash tools/stop_all.sh
 
 | 服务 | 端口 | 作用 |
 |---|---|---|
-| face_expression | 8000 | 面部 478 点 AU / iris / 52 Blendshape |
-| voice_interaction | 8001 | FunASR 转写 + 韵律 + 多会话隔离 |
-| gesture_analysis | 8002 | Pose 33 点 + Hand 21 点 |
-| app.py（面板） | 5000 | 报告面板 API / 脱敏输出 / 导出 / 题库 / 本地助手 |
+| face_expression | 8000 | 面部 478 点 AU / iris / 52 Blendshape / 原生 3D 姿态角 / 画质门控 |
+| voice_interaction | 8001 | Parselmouth 声学 / Silero VAD / FunASR 转写 / faster-whisper 词级核验 |
+| gesture_analysis | 8002 | rtmlib RTMW 133 点全身与双手骨骼 |
+| app.py（面板） | 5000 | 报告面板 API / 脱敏输出 / 导出 / 题库 / 本地助手 / `/api/research/benchmarks` |
 | 前端（Vite） | 5173 | 《衡才智析》Web 界面 |
 | FunASR 运行时 | 10095 | 独立部署，见 §5 |
+| 本地 LLM（可选） | 8081 | `Qwen2.5-14B` OpenAI 兼容接口（仅按需摘要/追问，零评分参与） |
 
 一键全链路自检：
 
@@ -302,3 +302,24 @@ git add <具体路径>        # ★ 禁止 git add -A
 
 ### 新增核心测试
 `tests/test_dimension_table_uses_indicator_labels.py`、`tests/test_evidence_chain_enhancements.py`、`tests/test_auth_and_redaction.py`、`tests/test_voice_session_isolation_and_research_series.py`、`tests/test_signal_quality_and_local_assistant.py`。
+
+---
+
+## 2026-11-24 仪器层、特征校准层、不打分 ML 裁判层与多语料科研升级
+
+### 核心升级模块与工具
+
+| 模块 / 工具 | 核心能力与实测口径 |
+|---|---|
+| `face_expression/` (`4x4` 矩阵真 3D 欧拉角 + 画质门控) | 在 `face_au_log_<sid>.csv` 末尾安全追加 6 列至 98 列契约（`head_yaw_3d`/`pitch`/`roll`、`frame_brightness`、`frame_blur_laplacian`、`frame_quality_ok`）；`tools/jx_backfill_face_3d_telemetry.py` 完成 5 场旗舰历史会话真 3D 回填（`cb79` 切至 `三维姿态矩阵校准`，三维角速度中位数 `0.6352 度/秒`） |
+| `voice_interaction/` & `gesture_analysis/` | 语音升级 `Praat-Parselmouth` + 纯 ONNX `Silero VAD` + `CAM++` + `faster-whisper` 词级概率核验；上肢升级 `rtmlib` RTMW 133 点单帧共享引擎（双手稳定检出 `15/15`） |
+| `report_frontend/blendshape_calibration.py` + `face_dual_instrument_audit.py` | 质量门控 + Savitzky-Golay 去噪 + P10 基线 + 头姿岭回归残差校准，输出双仪器 5 构念秩一致度与融合判定（`tools/jx_blendshape_calibration_bench.py` 全语料实测 `3d_matrix: 5 / 2d_legacy: 38`） |
+| `report_frontend/feature_layer_v2.py` + `behavior_regime_model.py` | 三维角速度、`.npz` 声学动态、`SPARC` 运动平滑、`pycatch22` 22 维动力学（`12.1–20.1 ms`）及 K=4 无监督 GMM 行为节律时间轴 |
+| `report_frontend/referee_ml_engine.py` + `tools/train_referee_ml.py` | `GaussianHMM + ruptures.Pelt(rbf)` 阶段切分（5 折抖动降低 `30.11%`，平均驻留 `42.13s`，ARI `0.9732`）；基于下游 G1–G4 真实结局监督（`20 / 12 / 15` 分布，零合成样、彻底去自循环）训练 `IsolationForest + Split Conformal`（`alpha=0.10`，5 折准确率 `0.8936`、Macro-F1 `0.8752`、保形覆盖 `0.9787`、OOD AUROC `0.9802`；7 维纯底层遥测消融准确率 `0.9149`）与白盒可加归因 |
+| `tools/jx_gpu_vs_cpu_referee_bench.py` | 分层算力决策验证：常驻单场全套 CPU 仅需 `17.70 ms`（核心推理 `4.85 ms`），Tesla P40 FP32 TCN+BiGRU 预热后 256 场并发达 `2,062.7 场/秒`（较 CPU 提速 `10.48×`） |
+| `report_frontend/report_generator.py` & `local_llm_assistant.py` | 离线单文件 HTML 报告补全 `referee_ml` 阶段 SVG/归因图 SVG 及 3D 校准/V2 动力学折叠附录；本地解读默认切换至 GPU `:8081` (`Qwen2.5-14B`，12s 超时 + 红线硬复检) |
+| `app.py` (`GET /api/research/benchmarks`) & `research_lab/` | 只读聚合 MIT（`r=0.4023`）、RecruitView（2,011 文本 / 160 多模态）、ChaLearn V2（`1-MAE=0.9126`）与中英文行为节律迁移（联合一致率 `94.86%`）基准，严格不参与实际打分 |
+
+### 本阶段新增测试与门禁实测
+- 新增测试：`tests/test_html_report_v2_parity.py`、`tests/test_backfill_face_3d.py`、`tests/test_referee_ml.py`、`tests/test_blendshape_calibration.py`、`tests/test_feature_layer_v2.py`、`tests/test_face_dual_instrument.py`、`tests/test_face_3d_pose_capture.py`、`tests/test_capture_layer_v2.py`、`tests/test_behavior_regime.py`、`tests/test_gesture_rtmw_backend.py`、`tests/test_voice_instrument_upgrade.py`。
+- 全仓验证：全量 `pytest` 实测 `1,744 passed, 1 skipped`；`tools/jx_selfcheck.py --quiet`、`tools/jx_inventory.py --check` 与 `tools/jx_pii_guard.py` 均全绿通过。
