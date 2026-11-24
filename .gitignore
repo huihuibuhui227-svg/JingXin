@@ -108,3 +108,14 @@ research_lab/cache/
 models/research/*.joblib
 models/research/*.pt
 models/research/*.pth
+
+# 2026-11-24: media assets / raw recordings (code-only repo)
+recordings/
+*.mp4
+*.webm
+*.wav
+*.mp3
+*.avi
+*.mov
+*.mkv
+
