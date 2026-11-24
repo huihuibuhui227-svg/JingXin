@@ -78,6 +78,39 @@ def assess_frame_quality(image_rgb_or_bgr, landmarks=None) -> dict:
     }
 
 
+def _extract_flat_telemetry(head_pose_3d, frame_quality) -> dict:
+    """将嵌套 3D 头姿与画面质量展平为标量日志列；缺失或非有限值省略，不伪造 0。"""
+    flat: dict = {}
+    if isinstance(head_pose_3d, dict):
+        for src_key, dst_key in (
+            ("yaw_deg", "head_yaw_3d"),
+            ("pitch_deg", "head_pitch_3d"),
+            ("roll_deg", "head_roll_3d"),
+        ):
+            val = head_pose_3d.get(src_key)
+            if val is not None:
+                fval = float(val)
+                if np.isfinite(fval):
+                    flat[dst_key] = round(fval, 4)
+
+    if isinstance(frame_quality, dict):
+        b_val = frame_quality.get("brightness_mean")
+        if b_val is not None:
+            fb = float(b_val)
+            if np.isfinite(fb):
+                flat["frame_brightness"] = round(fb, 4)
+        blur_val = frame_quality.get("blur_laplacian")
+        if blur_val is not None:
+            fblur = float(blur_val)
+            if np.isfinite(fblur):
+                flat["frame_blur_laplacian"] = round(fblur, 4)
+        q_ok = frame_quality.get("quality_ok")
+        if q_ok is not None:
+            flat["frame_quality_ok"] = 1 if q_ok else 0
+
+    return flat
+
+
 class VideoPipeline:
     def __init__(self, session_id="default", save_landmarks=False, detector=None):
         # `fps` 参数已删除(M2.5 spec §5.1):它以前同时是「元数据」和「计时依据」,
@@ -148,12 +181,14 @@ class VideoPipeline:
             # M2.5 的 E2E 实测抓到的:5 帧里有 1 帧没检出脸,那一行的 timestamp 于是成了
             # 1.790318e+09(绝对 epoch 秒),而其余四行是 0.00 / 0.09 / 0.15 / 0.19 ——
             # 整列时间戳被混进了第二个时间源,正是 spec §5.1 要根除的东西。
-            return None, None, {
+            no_face_dict = {
                 "emotion": "no_face",
                 "timestamp": timestamp_ms / 1000.0,
                 "head_pose_3d": None,
                 "frame_quality": frame_quality,
             }
+            no_face_dict.update(_extract_flat_telemetry(None, frame_quality))
+            return None, None, no_face_dict
 
         # ★ **面部尺度 = 面部轮廓高**(2026-09-27,源头就这一处):
         #   前额顶(`FOREHEAD_TOP`)→ 下巴(`CHIN`),两端都在**面部中轴轮廓**上。
@@ -310,6 +345,7 @@ class VideoPipeline:
         output_dict = result.to_dict()
         output_dict["head_pose_3d"] = head_pose_3d
         output_dict["frame_quality"] = frame_quality
+        output_dict.update(_extract_flat_telemetry(head_pose_3d, frame_quality))
         return result, landmarks_norm, output_dict
 
     def reset(self) -> None:

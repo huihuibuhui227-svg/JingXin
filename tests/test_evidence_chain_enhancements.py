@@ -143,7 +143,8 @@ def test_build_l1_report_exposes_all_additive_evidence_blocks():
         "lead_summary", "indicator_meta", "zero_explanations", "dimension_registry",
         "parameter_provenance", "cross_modal_coverage", "asr_confidence_disclosure",
         "governance_ledger", "blocked_dependency_warnings", "second_instrument_appendix",
-        "face_dual_instrument", "behavior_regimes", "signal_quality_audit", "speaker_turn_audit",
+        "face_dual_instrument", "blendshape_calibration", "feature_layer_v2",
+        "behavior_regimes", "referee_ml", "signal_quality_audit", "speaker_turn_audit",
     ):
         assert k in l1, f"l1 载荷缺少增量字段 {k}"
     assert len(l1["indicator_meta"]) == 41
@@ -155,6 +156,13 @@ def test_build_l1_report_exposes_all_additive_evidence_blocks():
     assert l1["behavior_regimes"]["available"] is False
     assert l1["behavior_regimes"]["advisory_only"] is True
     assert l1["face_dual_instrument"]["available"] is False
+    assert l1["blendshape_calibration"]["available"] is False
+    assert l1["blendshape_calibration"]["inference_ms"] == 0.0
+    assert l1["feature_layer_v2"]["available"] is False
+    assert l1["feature_layer_v2"]["inference_ms"] == 0.0
+    assert l1["referee_ml"]["available"] is False
+    assert l1["referee_ml"]["advisory_only"] is True
+    assert l1["referee_ml"]["inference_ms"] == 0.0
 
 
 def test_transcript_chars_merges_whisper_conf_sidecar(tmp_path, monkeypatch):

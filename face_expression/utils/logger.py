@@ -64,6 +64,13 @@ class DataLogger:
                 #   插在它们前面会把那一块切断。新列一律加在**列序最末**,
                 #   老场次的文件照旧读得动(读侧按列名取)。
                 "face_scale",
+                # Wave 2: 3D 头姿欧拉角与画面质量标量列（严格追加于列序末尾）
+                "head_yaw_3d",
+                "head_pitch_3d",
+                "head_roll_3d",
+                "frame_brightness",
+                "frame_blur_laplacian",
+                "frame_quality_ok",
             ]
             # ↑ 模型自带的 52 个 blendshape(bs_* 列,2026-09-26 接上)。
             #   **加在末尾、旧列一个不动** ⟹ 老场次的文件照旧读得动(读侧按列名取),

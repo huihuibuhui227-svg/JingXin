@@ -78,15 +78,18 @@ from pathlib import Path
 
 from . import (
     behavior_regime_model,
+    blendshape_calibration,
     brand,
     cross_modal_coverage,
     evidence_gate,
     face_dual_instrument_audit,
+    feature_layer_v2,
     gap_explanations,
     instrument_provenance,
     l1_mapper,
     l1_quality,
     parameter_provenance,
+    referee_ml_engine,
     signal_quality_clf,
     speaker_turn_audit,
     transcript_chars,
@@ -869,6 +872,31 @@ def build_l1_report(session_id: str, logs: dict | None = None) -> dict:
         ))
     }
 
+    mod_summary = l1_quality.modality_summary(quality)
+    cm_coverage = cross_modal_coverage.evaluate_cross_modal_coverage(result, logs=logs)
+    sq_audit = signal_quality_clf.audit_session_signal_quality(logs, session_id)
+    bs_cal = blendshape_calibration.calibrate_session_blendshapes(logs)
+    fv2 = feature_layer_v2.extract_feature_layer_v2(logs, session_id)
+    has_referee_input = quality.n_measured > 0 or bool(fv2.get("available"))
+    referee_summary = (
+        {
+            "n_total": quality.n_total,
+            "n_measured": quality.n_measured,
+            "modality_coverage": quality.coverage,
+            "modality_summary": mod_summary,
+            "cross_modal_coverage": cm_coverage,
+            "signal_quality_audit": sq_audit,
+        }
+        if has_referee_input
+        else None
+    )
+    referee_ml = referee_ml_engine.evaluate_referee_ml(
+        logs,
+        session_id,
+        l1_summary=referee_summary,
+        feature_v2=fv2 if fv2.get("available") else None,
+    )
+
     return {
         "engine": "l1",
         "brand": {
@@ -890,7 +918,7 @@ def build_l1_report(session_id: str, logs: dict | None = None) -> dict:
             "by_confidence": dict(quality.by_confidence),
             "by_gap": dict(quality.by_gap),
             "modality_coverage": quality.coverage,
-            "modality_summary": l1_quality.modality_summary(quality),
+            "modality_summary": mod_summary,
             "timebase": quality.timebase,
             "windows": quality.windows,
             "indicators": quality.indicators,
@@ -911,7 +939,7 @@ def build_l1_report(session_id: str, logs: dict | None = None) -> dict:
             "zero_explanations": zero_explanations,
             "dimension_registry": dict(l1_mapper.DIMENSION_REGISTRY),
             "parameter_provenance": parameter_provenance.build_parameter_provenance(indicator_names),
-            "cross_modal_coverage": cross_modal_coverage.evaluate_cross_modal_coverage(result, logs=logs),
+            "cross_modal_coverage": cm_coverage,
             "asr_confidence_disclosure": _build_asr_confidence_disclosure(session_id, quality.indicators),
             "governance_ledger": governance_ledger,
             "blocked_dependency_warnings": _build_blocked_dependency_warnings(
@@ -919,8 +947,11 @@ def build_l1_report(session_id: str, logs: dict | None = None) -> dict:
             ),
             "second_instrument_appendix": _build_second_instrument_appendix(logs),
             "face_dual_instrument": face_dual_instrument_audit.audit_face_dual_instrument(logs),
+            "blendshape_calibration": bs_cal,
+            "feature_layer_v2": fv2,
             "behavior_regimes": behavior_regime_model.segment_session_regimes(logs, session_id),
-            "signal_quality_audit": signal_quality_clf.audit_session_signal_quality(logs, session_id),
+            "referee_ml": referee_ml,
+            "signal_quality_audit": sq_audit,
             "speaker_turn_audit": speaker_turn_audit.audit_speaker_turns(session_id, logs=logs),
         },
     }

@@ -137,6 +137,20 @@ def _deterministic_report_summary(payload: dict[str, Any]) -> str:
     br = l1.get("behavior_regimes") or {}
     if br.get("available") and br.get("summary_plain"):
         lines.append(f"7. 外显行为节奏：{br['summary_plain']}")
+    rm = l1.get("referee_ml") or {}
+    if rm.get("available"):
+        eg = rm.get("evidence_gate") or {}
+        ss = rm.get("stage_segmentation") or {}
+        stage_lbl = eg.get("stage_label") or ""
+        esc_note = "已触发复核提示" if eg.get("uncertainty_escalated") else "处于稳定核验集合内"
+        seg_txt = ss.get("summary_plain") or ""
+        top_attr = ""
+        attrs = eg.get("attributions") or []
+        if attrs:
+            top_attr = f"，主要支撑项为{attrs[0].get('label', '')}"
+        lines.append(
+            f"8. 阶段核验与证据支持度：判定为{stage_lbl}（{esc_note}{top_attr}）；{seg_txt}"
+        )
 
     return "\n".join(lines)
 
@@ -225,6 +239,13 @@ def _compact_facts_for_prompt(payload: dict[str, Any]) -> str:
         "cross_modal": (l1.get("cross_modal_coverage") or {}).get("summary_plain"),
         "signal_quality": (l1.get("signal_quality_audit") or {}).get("summary_plain"),
         "behavior_regimes": (l1.get("behavior_regimes") or {}).get("summary_plain"),
+        "referee_evidence_stage": ((l1.get("referee_ml") or {}).get("evidence_gate") or {}).get("stage_label"),
+        "referee_uncertainty_escalated": ((l1.get("referee_ml") or {}).get("evidence_gate") or {}).get("uncertainty_escalated"),
+        "referee_macro_stages": ((l1.get("referee_ml") or {}).get("stage_segmentation") or {}).get("summary_plain"),
+        "referee_top_attributions": [
+            f"{a.get('label')}:{a.get('value_display')}({a.get('direction')})"
+            for a in (((l1.get("referee_ml") or {}).get("evidence_gate") or {}).get("attributions") or [])[:3]
+        ],
     }
     return json.dumps(facts, ensure_ascii=False)
 

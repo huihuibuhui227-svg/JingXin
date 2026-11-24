@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import csv
 import importlib
 import json
 from pathlib import Path
@@ -326,11 +327,21 @@ def test_video_pipeline_supports_all_detector_tiers_and_preserves_csv(tmp_path, 
     assert d_full["head_pose_3d"] == pose
     assert d_full["frame_quality"]["quality_ok"] is True
 
-    # DataLogger 列头与 52 blendshape 协议保持完全不变
+    # DataLogger 嵌套字段不进 CSV 列头；52 blendshape 块保持不变；6 项标量列严格追加在 face_scale 之后
     logger_before = lg.DataLogger("video", session_id="20261124_000001_aaaa")
     expected_cols = list(logger_before.fieldnames)
     assert "head_pose_3d" not in expected_cols and "frame_quality" not in expected_cols
     assert len([c for c in expected_cols if c.startswith("bs_")]) == len(BLENDSHAPE_COLUMNS)
+    expected_tail = [
+        "head_yaw_3d",
+        "head_pitch_3d",
+        "head_roll_3d",
+        "frame_brightness",
+        "frame_blur_laplacian",
+        "frame_quality_ok",
+    ]
+    scale_idx = expected_cols.index("face_scale")
+    assert expected_cols[scale_idx + 1:] == expected_tail
     assert logger_before.log(d_full) is True
 
     p_bs = VideoPipeline(session_id="s_bs", detector=_BlendshapeOnlyDetector())
@@ -350,7 +361,24 @@ def test_video_pipeline_supports_all_detector_tiers_and_preserves_csv(tmp_path, 
     assert d_nf["emotion"] == "no_face"
     assert d_nf["timestamp"] == 0.25
     assert d_nf["head_pose_3d"] is None
+    assert "head_yaw_3d" not in d_nf and "head_pitch_3d" not in d_nf and "head_roll_3d" not in d_nf
     assert "未检测到人脸" in d_nf["frame_quality"]["warnings"]
+
+    assert logger_before.log(d_nf) is True
+    with open(logger_before.get_log_path(), newline="", encoding="utf-8") as fh:
+        rows = list(csv.DictReader(fh))
+    assert len(rows) == 2
+    assert float(rows[0]["head_yaw_3d"]) == pytest.approx(12.0)
+    assert float(rows[0]["head_pitch_3d"]) == pytest.approx(-3.0)
+    assert float(rows[0]["head_roll_3d"]) == pytest.approx(1.5)
+    assert float(rows[0]["frame_brightness"]) == pytest.approx(d_full["frame_quality"]["brightness_mean"])
+    assert float(rows[0]["frame_blur_laplacian"]) == pytest.approx(d_full["frame_quality"]["blur_laplacian"])
+    assert rows[0]["frame_quality_ok"] == "1"
+    # no_face 行不伪造 0 度头姿
+    assert rows[1]["head_yaw_3d"] == ""
+    assert rows[1]["head_pitch_3d"] == ""
+    assert rows[1]["head_roll_3d"] == ""
+    assert rows[1]["frame_quality_ok"] == "0"
 
 
 # ── 5. face_expression.api.app /health & /analyze ─────────────────────────────

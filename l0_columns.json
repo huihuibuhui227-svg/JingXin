@@ -15,13 +15,13 @@
       "text": 3
     },
     "actual": {
-      "face": 22,
+      "face": 28,
       "gesture": 41,
       "voice": 19,
       "text": 4
     },
     "live_contract": {
-      "face": 92,
+      "face": 98,
       "gesture": 59,
       "voice": 32
     },
@@ -1037,6 +1037,84 @@
       "quarantine_ref": "",
       "acceptance": "① `face_scale` **就是**那些以面部尺度为分母的面部列所用的那个数 —— 同一个值**传下去**,不在别处重算。本批把 `AUFeatureCalculator.calculate` 里**第二处** `dist(lm[10], lm[152])` 删掉了 —— 那个重复正是本条要防的东西。钉子有两条:`tests/test_face_l0_columns.py::test_face_scale_is_the_same_number_the_other_columns_divide_by`(calculator 层)与 `tests/test_face_outline_height.py::test_every_consumer_divides_by_the_number_that_goes_out_as_face_scale`(管线层 —— 它抓的是「消费方自己重算分母」这个 `face_scale` 抓不到的形态)。⚠️ **原判据「与面部各列的分母逐帧相等」2026-09-27 作废**:B2 之后各面部列用**多个不同分母**(`face_height` / **眼距**(au4、au6)/ `face_width`(au9)/ **眼宽**(iris 四列))⟹ 那句话按字面**不可能**成立。② ⚠️ **原判据「取景代理病由本列吸收」同样作废**:iris 四列的取景代理是被它**自己的** `(虹膜中心 − 眼中心) ÷ 眼宽` 消掉的(有平移不变钉子),`symmetry_score` 是被它自己的 `÷ face_height` 消掉的 ——**不是**被协变量「吸收」。本列的作用是**把取景差异显式暴露给下游**(§4.5:272 的第二条路)。③ M3.2(面部逐列重构 —— 与面部列的归一化一起落地)。\n\n★★ 2026-09-27 换端点的实测:见 `normalization`。分母由 `video_pipeline` **只算一次**并改名 `face_outline_height`(参数继续叫 `face_height` 会让 L0 行里\"旧分母 = 鼻尖→下巴\"的历史陈述与代码同名不同义)。",
       "basis": "① **取哪个解剖尺度由本行定**:§4.5:272 与 §3:133 都只点了名字(`face_scale`),全仓没有第二处定义。选 `dist(lm[1], lm[152])`(face_height)的依据:它是**现役**面部列的分母 —— `au1_inner_brow_raise` 等行的`normalization` 栏引的就是 video_pipeline.py 的 `face_height`;协变量必须与列实际除的那个尺度同源,否则「模型看见的取景尺度」与「列被除掉的尺度」是两个量,协变量就白给了。② `modality` 填 **face** 而不是 `covariate`:预检裁定 F2 —— 本列由 face 服务产出,而钉子方向 2 的 `_live_columns()` 只有 face/gesture/voice 三个键,填 `covariate` 的行一旦标 implemented 就会假红(schema_errors 已硬校验这条);「协变量」是**用途**(§4.5:272 的原话就是「显式输出为协变量」),写在定义与验收里,不写进 `modality`。③ 与另三条协变量的分工:`shoulder_width` / `hand_visible_left` / `hand_visible_right` 由 Task 3 登记、Task 7 实现(裁定 F3),本任务只登记 `face_scale`。"
+    },
+    {
+      "column": "head_yaw_3d",
+      "modality": "face",
+      "definition": "MediaPipe FaceLandmarker 原生 4×4 面部变换矩阵经 Y-X-Z 本征欧拉角分解得到的真实三维偏航角。",
+      "source": "face_expression/pipeline/detector.py extract_euler_3d_from_matrix + video_pipeline.py",
+      "normalization": "none（相机坐标系物理角度）",
+      "unit": "度",
+      "maturity": "A",
+      "l0_output": "吐单帧偏航角度；无有效矩阵或未检出人脸时留空。",
+      "status": "implemented",
+      "quarantine_ref": "",
+      "acceptance": "追加于 face_scale 之后不改变既有列序，与 3D 变换矩阵分解单调对齐并通过矩阵正交性与无脸留空单元测试。"
+    },
+    {
+      "column": "head_pitch_3d",
+      "modality": "face",
+      "definition": "MediaPipe FaceLandmarker 原生 4×4 面部变换矩阵经 Y-X-Z 本征欧拉角分解得到的真实三维俯仰角。",
+      "source": "face_expression/pipeline/detector.py extract_euler_3d_from_matrix + video_pipeline.py",
+      "normalization": "none（相机坐标系物理角度）",
+      "unit": "度",
+      "maturity": "A",
+      "l0_output": "吐单帧俯仰角度；无有效矩阵或未检出人脸时留空。",
+      "status": "implemented",
+      "quarantine_ref": "",
+      "acceptance": "追加于 head_yaw_3d 之后，在 ±90 度万向节临界点保持数值有界且无脸时留空。"
+    },
+    {
+      "column": "head_roll_3d",
+      "modality": "face",
+      "definition": "MediaPipe FaceLandmarker 原生 4×4 面部变换矩阵经 Y-X-Z 本征欧拉角分解得到的真实三维滚转角。",
+      "source": "face_expression/pipeline/detector.py extract_euler_3d_from_matrix + video_pipeline.py",
+      "normalization": "none（相机坐标系物理角度）",
+      "unit": "度",
+      "maturity": "A",
+      "l0_output": "吐单帧头部侧倾角度；无有效矩阵或未检出人脸时留空。",
+      "status": "implemented",
+      "quarantine_ref": "",
+      "acceptance": "追加于 head_pitch_3d 之后，支持二维面内旋转角度一致性验证。"
+    },
+    {
+      "column": "frame_brightness",
+      "modality": "face",
+      "definition": "单帧采集画面的灰度平均亮度，用于下游画面质量门控与过曝/偏暗识别。",
+      "source": "face_expression/pipeline/video_pipeline.py assess_frame_quality",
+      "normalization": "none（8 位灰度均值 0-255）",
+      "unit": "灰度值",
+      "maturity": "A",
+      "l0_output": "吐单帧亮度均值。",
+      "status": "implemented",
+      "quarantine_ref": "",
+      "acceptance": "在全白/全暗合成图像及真实视频帧下准确反映画面亮度并在无脸路径仍如实落盘。"
+    },
+    {
+      "column": "frame_blur_laplacian",
+      "modality": "face",
+      "definition": "单帧采集画面的拉普拉斯算子二阶梯度的方差，反映图像对焦清晰度。",
+      "source": "face_expression/pipeline/video_pipeline.py assess_frame_quality",
+      "normalization": "none（图像梯度方差）",
+      "unit": "方差标量",
+      "maturity": "A",
+      "l0_output": "吐清晰度指标，供下游以 ≥15.0 过滤运动模糊或失焦帧。",
+      "status": "implemented",
+      "quarantine_ref": "",
+      "acceptance": "可区分纯平模糊图像与清晰纹理图像，并稳定落盘。"
+    },
+    {
+      "column": "frame_quality_ok",
+      "modality": "face",
+      "definition": "综合亮度适中、画面清晰及成功检出人脸的实时单帧采集质量布尔标记（1 通过 / 0 未通过）。",
+      "source": "face_expression/pipeline/video_pipeline.py assess_frame_quality",
+      "normalization": "none（质量二值开关）",
+      "unit": "布尔(0/1)",
+      "maturity": "A",
+      "l0_output": "吐单帧质检通过状态供第二层校准模块优先采纳高质量帧。",
+      "status": "implemented",
+      "quarantine_ref": "",
+      "acceptance": "与 frame_brightness/frame_blur_laplacian/无脸检测一致联动，通过 3D 持久化与校准单测。"
     },
     {
       "column": "left_hand_jitter",

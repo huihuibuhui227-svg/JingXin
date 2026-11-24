@@ -1,0 +1,82 @@
+{
+  "trained_at": "2026-11-24 12:44:50",
+  "task_scope": "macro_behavioral_stage_segmentation_and_conformal_evidence_gating",
+  "scoring_participation": false,
+  "non_scoring_guarantee": "仅做行为阶段切分与证据充分度核验，不计算任何总分或人物评价",
+  "dataset": {
+    "n_real_sessions": 47,
+    "n_real_windows": 5666,
+    "n_real_sessions_with_voice_series": 22,
+    "n_synthetic_boundary_calibration": 24,
+    "synthetic_usage_note": "24 条合成边界样仅用于辅助校准分类边界，全部交叉验证指标严格仅在 47 场真实会话上计算。",
+    "real_stage_distribution": {
+      "stage_1_verified": 19,
+      "stage_2_review": 13,
+      "stage_3_limited": 15
+    }
+  },
+  "stage_segmentation": {
+    "model_type": "GaussianHMM + ruptures.Pelt(rbf)",
+    "model_file": "models/referee_hmm_model.joblib",
+    "model_size_kb": 4.09,
+    "n_states": 4,
+    "sticky_self_transition_diag": [
+      0.99,
+      0.99,
+      0.99,
+      0.99
+    ],
+    "cv_scheme": "GroupKFold(n_splits=5, group=session_id)",
+    "gmm_cv_transition_count": 714,
+    "hmm_cv_transition_count": 499,
+    "flicker_reduction_pct": 30.11,
+    "full_corpus_flicker_reduction_pct": 32.13,
+    "gmm_mean_dwell_sec": 30.22,
+    "hmm_mean_dwell_sec": 42.13,
+    "cross_fold_viterbi_ari_mean": 0.9732,
+    "cross_fold_viterbi_agreement_mean": 0.9792,
+    "pelt_mean_changepoints_per_session": 1.45,
+    "pelt_median_ms_per_session": 4.357
+  },
+  "evidence_gate": {
+    "model_type": "StandardScaler + LogisticRegression(C=2.0) + IsolationForest + SplitConformal",
+    "model_file": "models/referee_conformal_gate.joblib",
+    "model_size_kb": 43.62,
+    "feature_names": [
+      "measured_ratio",
+      "valid_modality_count_norm",
+      "signal_usable_ratio",
+      "cross_modal_overlap_ratio",
+      "face_valid_frame_ratio",
+      "audio_speech_coverage",
+      "gesture_continuity_ratio",
+      "dynamics_stability_score"
+    ],
+    "cv_scheme": "GroupKFold(n_splits=5, group=session_id) on 47 real sessions",
+    "alpha": 0.1,
+    "target_coverage": 0.9,
+    "final_q_hat": 0.7272,
+    "fold_q_hats": [
+      0.9696,
+      0.8803,
+      0.9646,
+      0.686,
+      0.8922
+    ],
+    "cv_accuracy": 0.9149,
+    "cv_macro_f1": 0.9056,
+    "empirical_conformal_coverage": 0.9574,
+    "mean_conformal_set_size": 1.106,
+    "uncertainty_escalation_rate": 0.234,
+    "ood_auroc_mean": 1.0,
+    "ood_auroc_std": 0.0
+  },
+  "cpu_runtime": {
+    "benchmark_session_windows": 73,
+    "warm_inference_ms_median": 20.55,
+    "warm_inference_ms_p95": 21.21,
+    "standalone_inference_ms_median": 308.3,
+    "train_elapsed_sec": 22.49
+  },
+  "boundary_note": "本模块仅对客观动作节律做时序分段并对采集证据充分度做不确定性核验，不输出任何数值汇总或主观特质结论；遇不确定或异常分布时自动转交人工复核。"
+}
