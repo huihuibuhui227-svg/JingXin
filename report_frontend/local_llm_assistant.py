@@ -5,9 +5,9 @@
 1. 本模块**绝不参与**任何 L0/L1 指标计算、白盒置信度裁决或维度汇总；
 2. 严禁生成任何分数、评级、排名或心理/临床推断；所有本地小模型返回内容必须通过
    `redline_guard.find_assistant_violations()` 二次审查，命中即立刻回退至确定性规则模板；
-3. 本地小模型（OpenAI 兼容接口，默认 `http://127.0.0.1:8080/v1`）采用短超时（默认 4s）
-   且完全可选：离线或超时时毫秒级（< 5ms）返回确定性结构化摘要或局部 TF-IDF 检索结果，
-   绝不拖慢主系统响应速度。
+3. 本地小模型（OpenAI 兼容接口，默认 `http://127.0.0.1:8081/v1`，默认模型 `Qwen2.5-14B`）
+   采用短超时（默认 12s）且完全可选：离线或超时时毫秒级（< 5ms）返回确定性结构化摘要或
+   局部 TF-IDF 检索结果，绝不拖慢主系统响应速度。
 """
 from __future__ import annotations
 
@@ -22,9 +22,9 @@ from typing import Any
 
 import redline_guard
 
-DEFAULT_LLM_BASE_URL = "http://127.0.0.1:8080/v1"
-DEFAULT_LLM_MODEL = "Ternary-Bonsai-2-27B"
-DEFAULT_LLM_TIMEOUT_SEC = 10.0
+DEFAULT_LLM_BASE_URL = "http://127.0.0.1:8081/v1"
+DEFAULT_LLM_MODEL = "Qwen2.5-14B"
+DEFAULT_LLM_TIMEOUT_SEC = 12.0
 
 ASSISTANT_WATERMARK = (
     "由本地辅助模块生成，仅作文本可读化与追问/检索参考，不参与任何指标计算与评定。"
@@ -274,10 +274,10 @@ def assist_report(
     if use_llm:
         sys_prompt = (
             "你是《衡才智析》系统的本地文本可读化助手。"
-            "严格遵守：1) 只复述给定 JSON 里的客观覆盖率、置信度与缺口；"
-            "2) 绝对禁止输出任何分数、百分比评分、等级或排名；"
+            "严格遵守：1) 只复述给定 JSON 里的客观覆盖项数、置信度与缺口；"
+            "2) 绝对禁止输出任何分数、等级或排名，实测项请表述为「X / 14 项实测」而非关键点；"
             "3) 绝对禁止做情绪、临床或主观品格推断；"
-            "4) 输出简洁中文要点（不超过 220 字）。"
+            "4) 输出简洁中文要点（不超过 180 字）。"
         )
         task_desc = (
             "请把以下脱敏行为证据事实改写为 4 条简洁客观的中文导读："
@@ -285,7 +285,9 @@ def assist_report(
             else "请严格依据以下脱敏证据缺口，给出 3 条客观的人工面试补充追问建议："
         )
         user_prompt = f"{task_desc}\n{_compact_facts_for_prompt(payload)}"
-        llm_text, err, model_name = _call_local_openai_chat(sys_prompt, user_prompt, timeout=timeout)
+        llm_text, err, model_name = _call_local_openai_chat(
+            sys_prompt, user_prompt, timeout=timeout, max_tokens=260
+        )
         if llm_text:
             violations = redline_guard.find_assistant_violations(llm_text)
             if violations:

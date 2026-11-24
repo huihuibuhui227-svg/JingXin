@@ -20,6 +20,7 @@ from report_frontend import (
     l1_quality,
     l1_report,
     l1_thresholds,
+    local_llm_assistant,
     parameter_provenance,
     session_timeline,
     transcript_chars,
@@ -207,3 +208,51 @@ def test_transcript_chars_merges_whisper_conf_sidecar(tmp_path, monkeypatch):
     assert disc["status"] == "available"
     assert disc["degraded_indicators"] == []
     assert "旁路同音频识别模型" in disc["note_plain"]
+
+
+def test_local_llm_assistant_config_defaults_and_env_overrides(monkeypatch):
+    for var in ("JX_LLM_BASE_URL", "JX_LLM_MODEL", "JX_LLM_TIMEOUT_SEC"):
+        monkeypatch.delenv(var, raising=False)
+
+    assert local_llm_assistant.DEFAULT_LLM_BASE_URL == "http://127.0.0.1:8081/v1"
+    assert local_llm_assistant.DEFAULT_LLM_MODEL == "Qwen2.5-14B"
+    assert local_llm_assistant.DEFAULT_LLM_TIMEOUT_SEC == 12.0
+    assert local_llm_assistant._llm_config() == (
+        "http://127.0.0.1:8081/v1",
+        "Qwen2.5-14B",
+        12.0,
+    )
+
+    monkeypatch.setenv("JX_LLM_BASE_URL", "http://127.0.0.1:9099/v1/")
+    monkeypatch.setenv("JX_LLM_MODEL", "  custom-model  ")
+    monkeypatch.setenv("JX_LLM_TIMEOUT_SEC", "12.5")
+    assert local_llm_assistant._llm_config() == (
+        "http://127.0.0.1:9099/v1",
+        "custom-model",
+        12.5,
+    )
+
+    monkeypatch.setenv("JX_LLM_TIMEOUT_SEC", "invalid")
+    assert local_llm_assistant._llm_config()[2] == 12.0
+
+
+def test_research_benchmarks_endpoint_returns_sanitized_summaries():
+    import app as jx_app
+
+    client = jx_app.app.test_client()
+    resp = client.get("/api/research/benchmarks")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["status"] == "success"
+    assert data["research_only"] is True
+    assert data["scoring_participation"] is False
+    for key in ("multicorpus", "blendshape_calibration", "referee_ml", "gpu_vs_cpu"):
+        assert data[key]["available"] is True
+
+    # 仅返回语料汇总，不把逐会话明细暴露到接口里
+    assert "sessions" not in data["blendshape_calibration"]
+    assert data["blendshape_calibration"]["corpus_summary"]["pose_mode_counts"]["3d_matrix"] >= 5
+
+    raw = resp.get_data(as_text=True)
+    for banned in ("焦虑", "紧张", "压力", "抗压", "情绪稳定", "说谎", "诚信", "录用", "人格", "心理画像", "常模"):
+        assert banned not in raw

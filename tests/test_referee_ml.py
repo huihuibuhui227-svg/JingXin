@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from types import SimpleNamespace
 
 import numpy as np
@@ -11,6 +12,7 @@ import pandas as pd
 import redline_guard
 from report_frontend import referee_ml_engine as rme
 from report_frontend.data_loader import LogDataLoader
+from tools import jx_pii_guard, train_referee_ml as trm
 
 BANNED_WORDS = (
     "焦虑", "紧张", "压力", "抗压", "情绪稳定", "说谎", "诚信",
@@ -173,6 +175,7 @@ def test_rule_fallback_when_models_absent(tmp_path):
     assert res["available"] is True
     assert res["advisory_only"] is True
     assert res["evidence_gate"]["stage_code"] in rme.STAGE_ORDER
+    assert res["evidence_gate"]["supervision_protocol"] == "rule_fallback"
     assert len(res["evidence_gate"]["attributions"]) == len(rme.EVIDENCE_FEATURE_NAMES)
     assert res["stage_segmentation"]["available"] is True
     assert len(res["stage_segmentation"]["macro_stages"]) >= 2
@@ -192,11 +195,20 @@ def test_trained_models_artifacts_and_metrics_integrity():
     assert 2.0 <= hmm_kb <= 25.0, f"HMM 模型体积异常: {hmm_kb:.2f} KB"
     assert 10.0 <= gate_kb <= 60.0, f"Conformal Gate 模型体积异常: {gate_kb:.2f} KB"
 
-    metrics = json.loads(rme.DEFAULT_METRICS_PATH.read_text(encoding="utf-8"))
+    metrics_text = rme.DEFAULT_METRICS_PATH.read_text(encoding="utf-8")
+    assert jx_pii_guard.scan_text(metrics_text) == []
+    metrics = json.loads(metrics_text)
     assert metrics["scoring_participation"] is False
     assert "session_ids" not in metrics
     assert metrics["dataset"]["n_real_sessions"] == 47
     assert metrics["dataset"]["n_real_windows"] == 5666
+    assert metrics["dataset"]["n_synthetic_boundary_calibration"] == 0
+    assert metrics["dataset"]["real_stage_distribution"] == {
+        "stage_1_verified": 20,
+        "stage_2_review": 12,
+        "stage_3_limited": 15,
+    }
+    _assert_clean_copy(metrics["dataset"]["synthetic_usage_note"])
 
     seg_m = metrics["stage_segmentation"]
     assert seg_m["flicker_reduction_pct"] >= 20.0
@@ -204,12 +216,34 @@ def test_trained_models_artifacts_and_metrics_integrity():
     assert seg_m["cross_fold_viterbi_ari_mean"] >= 0.85
 
     gate_m = metrics["evidence_gate"]
+    assert gate_m["supervision_protocol"] == "downstream_l1_g1_g4_audit_outcome"
+    _assert_clean_copy(gate_m["supervision_note_plain"])
+    assert gate_m["cv_scheme"].startswith("StratifiedGroupKFold")
     assert gate_m["alpha"] == 0.10
     assert gate_m["target_coverage"] == 0.90
     assert gate_m["cv_accuracy"] >= 0.85
     assert gate_m["cv_macro_f1"] >= 0.85
     assert gate_m["empirical_conformal_coverage"] >= 0.90
     assert gate_m["ood_auroc_mean"] >= 0.95
+
+    cm = gate_m["confusion_matrix"]
+    assert cm["labels"] == list(rme.STAGE_ORDER)
+    assert len(cm["matrix"]) == 3 and all(len(row) == 3 for row in cm["matrix"])
+    assert [sum(row) for row in cm["matrix"]] == [20, 12, 15]
+    assert sum(sum(row) for row in cm["matrix"]) == 47
+
+    ab = gate_m["non_circular_raw_telemetry_ablation"]
+    assert ab["n_features"] == 7
+    assert ab["excluded_features"] == ["measured_ratio"]
+    assert len(ab["feature_names"]) == 7 and "measured_ratio" not in ab["feature_names"]
+    for key in ("cv_accuracy", "cv_macro_f1", "empirical_conformal_coverage", "mean_conformal_set_size"):
+        assert isinstance(ab[key], (int, float)) and math.isfinite(ab[key])
+    assert ab["cv_accuracy"] >= 0.85
+    assert ab["cv_macro_f1"] >= 0.85
+    assert ab["empirical_conformal_coverage"] >= 0.90
+    assert ab["mean_conformal_set_size"] >= 1.0
+    assert sum(sum(row) for row in ab["confusion_matrix"]["matrix"]) == 47
+
     _assert_clean_copy(metrics["boundary_note"])
     _assert_clean_copy(metrics["non_scoring_guarantee"])
 
@@ -230,6 +264,7 @@ def test_evidence_gate_conformal_ood_and_attributions():
     res_clean = rme.evaluate_referee_ml(logs, session_id=None, feature_v2=clean_fv2)
     eg_c = res_clean["evidence_gate"]
     assert eg_c["stage_code"] == "stage_1_verified"
+    assert eg_c["supervision_protocol"] == "downstream_l1_g1_g4_audit_outcome"
     assert eg_c["stage_label"] == "阶段 I · 证据充分可核验"
     assert "stage_1_verified" in eg_c["conformal_set"]
     assert eg_c["ood_anomaly_flag"] is False
@@ -349,3 +384,45 @@ def test_real_sessions_integration(monkeypatch):
         _assert_clean_copy(res_cb79["evidence_gate"]["summary_plain"])
         _assert_clean_copy(res_cb79["stage_segmentation"]["summary_plain"])
         json.dumps(res_cb79, allow_nan=False)
+
+
+def test_non_circular_downstream_supervision_and_custom_log_dir(tmp_path):
+    assert not hasattr(trm, "_derive_evidence_stage_label")
+    assert not hasattr(trm, "_build_synthetic_boundary_sessions")
+
+    assert trm._derive_downstream_audit_stage({"coverage": {"confidence_cap": "高"}}) == "stage_1_verified"
+    assert trm._derive_downstream_audit_stage({"coverage": {"confidence_cap": "中"}}) == "stage_2_review"
+    for cap in ("低", "无", "不足", "", None):
+        assert trm._derive_downstream_audit_stage({"coverage": {"confidence_cap": cap}}) == "stage_3_limited"
+    assert trm._derive_downstream_audit_stage({}) == "stage_3_limited"
+
+    # 自定义 log_dir（含无账本 voice_interview CSV）必须干净完成加载且不抛 speech_rate 校验错
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    logs, _ = _make_multi_stage_logs()
+    for idx, sid in enumerate(("20261124_100001_aa01", "20261124_100002_aa02")):
+        logs["face"].to_csv(log_dir / f"face_au_log_{sid}.csv", index=False)
+        logs["gesture"].to_csv(log_dir / f"gesture_log_{sid}.csv", index=False)
+        if idx == 0:
+            logs["voice_interview"].to_csv(log_dir / f"interview_emotion_log_{sid}.csv", index=False)
+
+    loaded = trm.load_real_sessions(log_dir=log_dir)
+    assert len(loaded) == 2
+    assert all(s["ev_label"] in rme.STAGE_ORDER for s in loaded)
+
+    # 小规模夹具下 _fit_gate_and_conformal 优雅降级折叠数并产出有限指标
+    rng = np.random.default_rng(7)
+    X_toy = np.vstack([
+        rng.uniform(0.75, 0.98, size=(4, 8)),
+        rng.uniform(0.35, 0.65, size=(3, 8)),
+        rng.uniform(0.02, 0.25, size=(3, 8)),
+    ])
+    y_toy = np.array([0, 0, 0, 0, 1, 1, 1, 2, 2, 2], dtype=int)
+    g_toy = np.array([f"20261124_10000{i}_aa0{i}" for i in range(10)], dtype=object)
+    res_toy = trm._fit_gate_and_conformal(
+        X_toy, y_toy, g_toy, list(rme.STAGE_ORDER), alpha=0.10, C=2.0, n_splits_outer=5, n_splits_inner=4
+    )
+    assert math.isfinite(res_toy["cv_accuracy"])
+    assert math.isfinite(res_toy["empirical_conformal_coverage"])
+    assert np.asarray(res_toy["confusion_matrix"]).shape == (3, 3)
+    assert sum(sum(r) for r in res_toy["confusion_matrix"]) == 10

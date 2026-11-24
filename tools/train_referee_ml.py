@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
-"""训练并验证《衡才智析》Layer 3 ML 行为阶段切分与证据核验门控模型（纯 CPU + GroupKFold）。
+"""训练并验证《衡才智析》Layer 3 ML 行为阶段切分与证据核验门控模型（纯 CPU + StratifiedGroupKFold）。
 
 训练边界（严格非评分、零人物评价、零 PII）：
-- 仅读取 `data/logs/` 与 `data/l0_series/` 下真实会话的客观运动学、发声序列与覆盖统计；
+- 仅读取 `data/logs/`、`data/l0_series/` 与 `data/transcripts/` 下真实会话的客观运动学、发声序列与覆盖审计结果；
 - Model 1 (`models/referee_hmm_model.joblib`)：
   在 47 场真实会话的 5,666 个多模态滑动窗上拟合 4 状态粘性 GaussianHMM（Viterbi 阶段解码）
   并对比帧独立 GMM 的跳变抖动抑制率、平均驻留时长与 5 折 GroupKFold 一致性；
 - Model 2 (`models/referee_conformal_gate.joblib`)：
-  在 47 场真实会话（配合 24 条确定性边界合成校准样补充对齐边界，真实与合成数在指标中分别诚实披露）上
+  100% 基于 47 场真实会话（0 条合成样本），以非循环的下游五维 L1 证据审计 G1-G4 物理置信度上限
+  （`coverage.confidence_cap`：高 / 中 / 低或不足）作为监督信号，
   拟合 StandardScaler + LogisticRegression(C=2.0) + IsolationForest(contamination=0.08) +
-  Split Conformal Prediction（alpha=0.10，理论覆盖率 90%），并严守 5 折 GroupKFold(session_id) 验证；
+  Split Conformal Prediction（alpha=0.10，理论覆盖率 90%），严守 5 折 StratifiedGroupKFold(session_id) 验证，
+  并补充剔除 `measured_ratio` 的 7 维原始传感遥测非循环消融实验；
 - 产物：
   1. models/referee_hmm_model.joblib
   2. models/referee_conformal_gate.joblib
@@ -38,11 +40,12 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     accuracy_score,
     adjusted_rand_score,
+    confusion_matrix,
     f1_score,
     roc_auc_score,
 )
 from sklearn.mixture import GaussianMixture
-from sklearn.model_selection import GroupKFold, StratifiedKFold
+from sklearn.model_selection import GroupKFold, KFold, StratifiedGroupKFold, StratifiedKFold
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import PowerTransformer, StandardScaler
 
@@ -54,6 +57,7 @@ from report_frontend import behavior_regime_model as brm
 from report_frontend import referee_ml_engine as rme
 from report_frontend.cross_modal_coverage import evaluate_cross_modal_coverage
 from report_frontend.data_loader import LogDataLoader
+from report_frontend.l1_report import build_l1_report
 from report_frontend.l1_session import compute_session_l1
 from report_frontend.signal_quality_clf import audit_session_signal_quality
 from report_frontend.voice_series import load_series
@@ -108,99 +112,15 @@ def _fit_sticky_hmm(
     return hmm, gmm, hmm_map, gmm_map
 
 
-def _derive_evidence_stage_label(feat_vec: np.ndarray) -> str:
-    """基于客观采集完整性与跨模态覆盖导出结构性证据阶段标签（非评分）。"""
-    meas_r, mod_norm, sq_u, cm_ov, fv, sp, gv, dyn = [float(x) for x in feat_vec]
-    n_mods = round(mod_norm * 4.0)
-    if (
-        meas_r >= 0.70
-        and n_mods >= 3
-        and sq_u >= 0.65
-        and cm_ov >= 0.55
-        and fv >= 0.60
-        and gv >= 0.60
-        and dyn >= 0.50
-    ):
+def _derive_downstream_audit_stage(l1_report_payload: dict[str, Any]) -> str:
+    """基于下游五维 L1 证据审计上限（G1-G4 物理质量门控产物）导出非循环证据阶段标签。"""
+    cov = l1_report_payload.get("coverage") if isinstance(l1_report_payload, dict) else None
+    cap = str((cov or {}).get("confidence_cap") or "").strip()
+    if cap == "高":
         return "stage_1_verified"
-    if meas_r >= 0.25 and (n_mods >= 2 or sq_u >= 0.50 or sp >= 0.25):
+    if cap == "中":
         return "stage_2_review"
     return "stage_3_limited"
-
-
-def _build_synthetic_boundary_sessions() -> tuple[np.ndarray, np.ndarray]:
-    """生成 24 条确定性边界/降质合成会话，仅用于校准阶段边界完整性，不进入真实 47 场 CV 统计。"""
-    rng = np.random.default_rng(2026)
-    rows: list[list[float]] = []
-    labels: list[str] = []
-
-    # 8 条阶段 I 稳定/近边界样本
-    for _ in range(8):
-        fv = float(rng.uniform(0.66, 0.98))
-        gv = float(rng.uniform(0.66, 0.98))
-        sp = float(rng.uniform(0.32, 0.70))
-        cm_ov = min(fv, gv, min(1.0, sp / 0.30))
-        rows.append([
-            float(rng.uniform(0.75, 1.0)),
-            float(rng.choice([0.75, 1.0])),
-            float(rng.uniform(0.68, 0.98)),
-            cm_ov,
-            fv,
-            sp,
-            gv,
-            float(rng.uniform(0.65, 0.96)),
-        ])
-        labels.append("stage_1_verified")
-
-    # 8 条阶段 II 部分覆盖 / 跨模态错配 / 单路偏弱边界样本
-    for i in range(8):
-        if i < 3:
-            # 单路视觉偏弱导致跨模态重合偏低
-            fv = float(rng.uniform(0.08, 0.42))
-            gv = float(rng.uniform(0.65, 0.98))
-            sp = float(rng.uniform(0.35, 0.70))
-            meas = float(rng.uniform(0.75, 0.98))
-            mod_n = float(rng.choice([0.75, 1.0]))
-            sq_u = float(rng.uniform(0.10, 0.45))
-            cm_ov = min(fv, gv)
-            dyn = float(rng.uniform(0.65, 0.92))
-        elif i < 6:
-            # 指标齐全但跨模态时段重叠偏低或姿态受限
-            fv = float(rng.uniform(0.80, 0.96))
-            gv = float(rng.uniform(0.20, 0.50))
-            sp = float(rng.uniform(0.40, 0.65))
-            meas = float(rng.uniform(0.85, 1.0))
-            mod_n = 1.0
-            sq_u = float(rng.uniform(0.65, 0.95))
-            cm_ov = float(rng.uniform(0.06, 0.42))
-            dyn = float(rng.uniform(0.50, 0.88))
-        else:
-            # L1 实测率中等但原始采集帧良好
-            fv = float(rng.uniform(0.55, 0.95))
-            gv = float(rng.uniform(0.55, 0.95))
-            sp = float(rng.uniform(0.28, 0.72))
-            meas = float(rng.uniform(0.28, 0.48))
-            mod_n = float(rng.choice([0.25, 0.50]))
-            sq_u = float(rng.uniform(0.55, 0.95))
-            cm_ov = min(fv, gv, min(1.0, sp / 0.30))
-            dyn = float(rng.uniform(0.70, 0.95))
-        rows.append([meas, mod_n, sq_u, cm_ov, fv, sp, gv, dyn])
-        labels.append("stage_2_review")
-
-    # 8 条阶段 III 证据受限 / 稀疏样本
-    for _ in range(8):
-        rows.append([
-            float(rng.uniform(0.0, 0.20)),
-            float(rng.choice([0.0, 0.25])),
-            float(rng.uniform(0.0, 0.45)),
-            0.0,
-            float(rng.uniform(0.0, 0.45)),
-            float(rng.uniform(0.0, 0.08)),
-            float(rng.uniform(0.0, 0.95)),
-            float(rng.uniform(0.45, 0.95)),
-        ])
-        labels.append("stage_3_limited")
-
-    return np.asarray(rows, dtype=float), np.asarray(labels, dtype=object)
 
 
 def _generate_corrupted_ood_samples(X_ref: np.ndarray, seed: int) -> np.ndarray:
@@ -234,6 +154,10 @@ def _generate_corrupted_ood_samples(X_ref: np.ndarray, seed: int) -> np.ndarray:
 
 
 def load_real_sessions(log_dir: Path | None = None) -> list[dict[str, Any]]:
+    default_logs_dir = (REPO / "data" / "logs").resolve()
+    resolved_dir = Path(log_dir).resolve() if log_dir is not None else default_logs_dir
+    is_default_corpus = resolved_dir == default_logs_dir
+
     loader = LogDataLoader(str(log_dir) if log_dir else None)
     groups = loader._scan_and_group_files()
     face_by_sid = {f["session_id"]: f["path"] for f in groups["face"]}
@@ -256,7 +180,12 @@ def load_real_sessions(log_dir: Path | None = None) -> list[dict[str, Any]]:
                 try:
                     logs[key] = pd.read_csv(mp[sid], low_memory=False)
                 except Exception:
-                    pass
+                    try:
+                        df_safe = loader._read_csv_safe(mp[sid])
+                        if df_safe is not None and not df_safe.empty:
+                            logs[key] = df_safe
+                    except Exception:
+                        pass
 
         vs = load_series(sid)
         X_w, meta_w = brm.extract_regime_windows(logs.get("face"), logs.get("gesture"), voice_series=vs)
@@ -274,7 +203,20 @@ def load_real_sessions(log_dir: Path | None = None) -> list[dict[str, Any]]:
             cmc_payload=cmc,
             sq_payload=sq,
         )
-        ev_label = _derive_evidence_stage_label(ev_vec)
+
+        # 下游五维 L1 证据审计真相标签：
+        # 真实语料直接以 build_l1_report(sid) 的 G1-G4 置信度上限为非循环监督信号
+        # （避免部分历史场次 voice_interview CSV 无时基/序列缓存触发校验 ValueError）；
+        # 若单元测试传入自定义 log_dir，则优先带入 logs 并保留安全兜底。
+        if is_default_corpus:
+            l1_report_payload = build_l1_report(sid)
+        else:
+            try:
+                l1_report_payload = build_l1_report(sid, logs=logs)
+            except Exception:
+                l1_report_payload = build_l1_report(sid)
+
+        ev_label = _derive_downstream_audit_stage(l1_report_payload)
         sessions.append({
             "session_id": sid,
             "logs": logs,
@@ -283,12 +225,206 @@ def load_real_sessions(log_dir: Path | None = None) -> list[dict[str, Any]]:
             "ev_vec": ev_vec,
             "ev_map": ev_map,
             "ev_label": ev_label,
+            "l1_report": l1_report_payload,
             "has_voice_series": bool(np.isfinite(X_w[:, -1]).any()),
         })
 
     if not sessions:
         raise RuntimeError("未找到可用于训练 Layer 3 模型的真实多模态会话日志")
     return sessions
+
+
+def _iter_grouped_splits(
+    X: np.ndarray,
+    y: np.ndarray,
+    groups: np.ndarray,
+    *,
+    n_splits_target: int,
+    shuffle: bool = False,
+    random_state: int = 42,
+) -> tuple[str, list[tuple[np.ndarray, np.ndarray]]]:
+    """构建分层分组折分；若测试夹具某类样本过少则优雅回退至 GroupKFold / StratifiedKFold / KFold。"""
+    uniq_groups = np.unique(groups)
+    n_groups = int(len(uniq_groups))
+    uniq_classes = np.unique(y)
+
+    if len(uniq_classes) >= 2 and n_groups >= 2:
+        min_groups_per_class = min(int(len(np.unique(groups[y == c]))) for c in uniq_classes)
+        k_sgkf = min(n_splits_target, n_groups, min_groups_per_class)
+        if k_sgkf >= 2:
+            splitter = StratifiedGroupKFold(
+                n_splits=k_sgkf,
+                shuffle=shuffle,
+                random_state=random_state if shuffle else None,
+            )
+            return f"StratifiedGroupKFold(n_splits={k_sgkf}, group=session_id)", list(
+                splitter.split(X, y, groups=groups)
+            )
+
+    if n_groups >= 2:
+        k_gkf = min(n_splits_target, n_groups)
+        splitter = GroupKFold(n_splits=k_gkf)
+        return f"GroupKFold(n_splits={k_gkf}, group=session_id)", list(splitter.split(X, y, groups=groups))
+
+    if len(uniq_classes) >= 2:
+        min_cls = min(int((y == c).sum()) for c in uniq_classes)
+        k_skf = min(n_splits_target, min_cls)
+        if k_skf >= 2:
+            splitter = StratifiedKFold(n_splits=k_skf, shuffle=shuffle, random_state=random_state)
+            return f"StratifiedKFold(n_splits={k_skf})", list(splitter.split(X, y))
+
+    k_kf = min(n_splits_target, len(X))
+    if k_kf < 2:
+        raise RuntimeError(f"样本数不足以执行交叉验证: {len(X)}")
+    splitter = KFold(n_splits=k_kf, shuffle=shuffle, random_state=random_state if shuffle else None)
+    return f"KFold(n_splits={k_kf})", list(splitter.split(X))
+
+
+def _predict_full_probs(clf: LogisticRegression, X_scaled: np.ndarray, n_classes: int) -> np.ndarray:
+    """将分类器预测概率按完整类别槽位 [0..n_classes-1] 对齐，兼容小规模合成夹具缺类折。"""
+    raw_p = np.asarray(clf.predict_proba(X_scaled), dtype=float)
+    if raw_p.shape[1] == n_classes and np.array_equal(clf.classes_, np.arange(n_classes)):
+        return raw_p
+    full_p = np.zeros((len(X_scaled), n_classes), dtype=float)
+    for col_idx, cls_id in enumerate(clf.classes_):
+        full_p[:, int(cls_id)] = raw_p[:, col_idx]
+    return full_p
+
+
+def _fit_gate_and_conformal(
+    X_ev: np.ndarray,
+    y_ev: np.ndarray,
+    sess_ids: np.ndarray,
+    classes: list[str],
+    *,
+    alpha: float = 0.10,
+    C: float = 2.0,
+    n_splits_outer: int = 5,
+    n_splits_inner: int = 4,
+    eval_ood: bool = True,
+) -> dict[str, Any]:
+    """100% 在真实会话上执行外层 StratifiedGroupKFold + 内层 Split Conformal 校准与全量拟合。"""
+    n_samples = int(len(y_ev))
+    n_classes = int(len(classes))
+    outer_desc, outer_splits = _iter_grouped_splits(
+        X_ev, y_ev, sess_ids, n_splits_target=n_splits_outer, shuffle=False, random_state=42
+    )
+
+    oof_preds = np.zeros(n_samples, dtype=int)
+    oof_probs = np.zeros((n_samples, n_classes), dtype=float)
+    oof_in_set = np.zeros(n_samples, dtype=bool)
+    oof_set_size = np.zeros(n_samples, dtype=int)
+    oof_escalated = np.zeros(n_samples, dtype=bool)
+    fold_q_hats: list[float] = []
+    fold_ood_aurocs: list[float] = []
+    oof_real_nonconf = np.zeros(n_samples, dtype=float)
+
+    for fold_idx, (tr_i, va_i) in enumerate(outer_splits):
+        # 内层分组分层折分仅在真实训练集 tr_i 上收集无验证泄漏的保形校准残差
+        _, inner_splits = _iter_grouped_splits(
+            X_ev[tr_i],
+            y_ev[tr_i],
+            sess_ids[tr_i],
+            n_splits_target=n_splits_inner,
+            shuffle=True,
+            random_state=42 + fold_idx,
+        )
+        cal_scores: list[float] = []
+        for itr, ical in inner_splits:
+            if len(np.unique(y_ev[tr_i[itr]])) < 2:
+                continue
+            sc_i = StandardScaler().fit(X_ev[tr_i[itr]])
+            clf_i = LogisticRegression(C=C, max_iter=500, random_state=42).fit(
+                sc_i.transform(X_ev[tr_i[itr]]), y_ev[tr_i[itr]]
+            )
+            p_cal = _predict_full_probs(clf_i, sc_i.transform(X_ev[tr_i[ical]]), n_classes)
+            cal_scores.extend((1.0 - p_cal[np.arange(len(ical)), y_ev[tr_i[ical]]]).tolist())
+
+        if not cal_scores:
+            cal_scores = [0.5]
+        cal_arr = np.asarray(cal_scores, dtype=float)
+        n_cal = len(cal_arr)
+        q_level = min(1.0, math.ceil((n_cal + 1) * (1.0 - alpha)) / float(n_cal))
+        q_hat = float(np.quantile(cal_arr, q_level, method="higher"))
+        fold_q_hats.append(q_hat)
+
+        scaler_f = StandardScaler().fit(X_ev[tr_i])
+        clf_f = LogisticRegression(C=C, max_iter=500, random_state=42).fit(
+            scaler_f.transform(X_ev[tr_i]), y_ev[tr_i]
+        )
+
+        iso_scaler_f = StandardScaler().fit(X_ev[tr_i])
+        iso_f = IsolationForest(n_estimators=40, contamination=0.08, random_state=42).fit(
+            iso_scaler_f.transform(X_ev[tr_i])
+        )
+
+        va_p = _predict_full_probs(clf_f, scaler_f.transform(X_ev[va_i]), n_classes)
+        va_pred = np.argmax(va_p, axis=1)
+        oof_probs[va_i] = va_p
+        oof_preds[va_i] = va_pred
+
+        va_iso_z = iso_scaler_f.transform(X_ev[va_i])
+        va_ood_sc = -iso_f.decision_function(va_iso_z)
+        va_ood_flag = iso_f.predict(va_iso_z) == -1
+
+        for j, vi in enumerate(va_i):
+            oof_real_nonconf[vi] = float(1.0 - va_p[j, y_ev[vi]])
+            cset = np.flatnonzero(1.0 - va_p[j] <= q_hat)
+            empty = len(cset) == 0
+            if empty:
+                cset = np.array([va_pred[j]])
+            oof_in_set[vi] = bool(y_ev[vi] in cset)
+            oof_set_size[vi] = int(len(cset))
+            oof_escalated[vi] = bool((len(cset) > 1) or empty or bool(va_ood_flag[j]))
+
+        if eval_ood and X_ev.shape[1] == len(rme.EVIDENCE_FEATURE_NAMES):
+            ood_X = _generate_corrupted_ood_samples(X_ev[va_i], seed=1000 + fold_idx)
+            ood_sc = -iso_f.decision_function(iso_scaler_f.transform(ood_X))
+            y_ood = np.concatenate([np.zeros(len(va_ood_sc)), np.ones(len(ood_sc))])
+            sc_ood = np.concatenate([va_ood_sc, ood_sc])
+            fold_ood_aurocs.append(float(roc_auc_score(y_ood, sc_ood)))
+
+    cv_acc = float(accuracy_score(y_ev, oof_preds))
+    cv_macro_f1 = float(f1_score(y_ev, oof_preds, average="macro", zero_division=0))
+    emp_cov = float(oof_in_set.mean())
+    mean_set_size = float(oof_set_size.mean())
+    escalation_rate = float(oof_escalated.mean())
+    cm = confusion_matrix(y_ev, oof_preds, labels=list(range(n_classes))).tolist()
+
+    ood_auroc_mean = float(np.mean(fold_ood_aurocs)) if fold_ood_aurocs else None
+    ood_auroc_std = float(np.std(fold_ood_aurocs)) if fold_ood_aurocs else None
+
+    # 全量交付模型：100% 使用真实样本 OOF 残差计算有限样本分位数 q_hat
+    final_q_level = min(1.0, math.ceil((n_samples + 1) * (1.0 - alpha)) / float(n_samples))
+    final_q_hat = float(np.quantile(oof_real_nonconf, final_q_level, method="higher"))
+
+    final_scaler = StandardScaler().fit(X_ev)
+    final_clf = LogisticRegression(C=C, max_iter=500, random_state=42).fit(
+        final_scaler.transform(X_ev), y_ev
+    )
+    final_iso_scaler = StandardScaler().fit(X_ev)
+    final_iso = IsolationForest(n_estimators=40, contamination=0.08, random_state=42).fit(
+        final_iso_scaler.transform(X_ev)
+    )
+
+    return {
+        "cv_scheme": outer_desc,
+        "outer_splits": int(len(outer_splits)),
+        "cv_accuracy": cv_acc,
+        "cv_macro_f1": cv_macro_f1,
+        "empirical_conformal_coverage": emp_cov,
+        "mean_conformal_set_size": mean_set_size,
+        "uncertainty_escalation_rate": escalation_rate,
+        "confusion_matrix": cm,
+        "fold_q_hats": fold_q_hats,
+        "final_q_hat": final_q_hat,
+        "ood_auroc_mean": ood_auroc_mean,
+        "ood_auroc_std": ood_auroc_std,
+        "scaler": final_scaler,
+        "classifier": final_clf,
+        "iso_scaler": final_iso_scaler,
+        "isolation_forest": final_iso,
+    }
 
 
 def train_and_save(
@@ -411,127 +547,69 @@ def train_and_save(
     joblib.dump(hmm_artifact, hmm_path, compress=3)
     hmm_kb = round(hmm_path.stat().st_size / 1024.0, 2)
 
-    # ── 2. 训练并评估 Model 2: IsolationForest + LogisticRegression + Split Conformal ──
+    # ── 2. 训练并评估 Model 2: 100% 真实会话非循环监督 + Split Conformal ──────
     X_ev = np.vstack([s["ev_vec"] for s in sessions])
     classes = list(rme.STAGE_ORDER)
     cls_to_i = {c: i for i, c in enumerate(classes)}
     y_ev_str = np.asarray([s["ev_label"] for s in sessions], dtype=object)
     y_ev = np.asarray([cls_to_i[str(c)] for c in y_ev_str], dtype=int)
 
-    syn_X, syn_y_str = _build_synthetic_boundary_sessions()
-    syn_y = np.asarray([cls_to_i[str(c)] for c in syn_y_str], dtype=int)
-
     alpha = 0.10
-    oof_preds = np.zeros(len(y_ev), dtype=int)
-    oof_probs = np.zeros((len(y_ev), len(classes)), dtype=float)
-    oof_in_set = np.zeros(len(y_ev), dtype=bool)
-    oof_set_size = np.zeros(len(y_ev), dtype=int)
-    oof_escalated = np.zeros(len(y_ev), dtype=bool)
-    fold_q_hats: list[float] = []
-    fold_ood_aurocs: list[float] = []
-    oof_real_nonconf: list[float] = []
+    gate_res = _fit_gate_and_conformal(
+        X_ev,
+        y_ev,
+        sess_ids,
+        classes,
+        alpha=alpha,
+        C=2.0,
+        n_splits_outer=n_splits,
+        n_splits_inner=4,
+        eval_ood=True,
+    )
 
-    for fold_idx, (tr_i, va_i) in enumerate(gkf.split(X_ev, y_ev, groups=sess_ids)):
-        # 内层 4 折仅在真实训练会话上产出无泄漏保形校准残差（合成样本仅用于辅助拟合线性分类面）
-        inner_splits = min(4, len(tr_i))
-        skf = StratifiedKFold(n_splits=inner_splits, shuffle=True, random_state=42 + fold_idx)
-        cal_scores: list[float] = []
-        for itr, ical in skf.split(X_ev[tr_i], y_ev[tr_i]):
-            X_fit = np.vstack([X_ev[tr_i[itr]], syn_X])
-            y_fit = np.concatenate([y_ev[tr_i[itr]], syn_y])
-            sc_i = StandardScaler().fit(X_fit)
-            clf_i = LogisticRegression(C=2.0, max_iter=500, random_state=42).fit(sc_i.transform(X_fit), y_fit)
-            p_cal = clf_i.predict_proba(sc_i.transform(X_ev[tr_i[ical]]))
-            cal_scores.extend((1.0 - p_cal[np.arange(len(ical)), y_ev[tr_i[ical]]]).tolist())
-
-        cal_arr = np.asarray(cal_scores, dtype=float)
-        n_cal = len(cal_arr)
-        q_level = min(1.0, math.ceil((n_cal + 1) * (1.0 - alpha)) / float(n_cal))
-        q_hat = float(np.quantile(cal_arr, q_level, method="higher"))
-        fold_q_hats.append(q_hat)
-
-        # 折内分类器与孤立森林
-        X_tr_aug = np.vstack([X_ev[tr_i], syn_X])
-        y_tr_aug = np.concatenate([y_ev[tr_i], syn_y])
-        scaler_f = StandardScaler().fit(X_tr_aug)
-        clf_f = LogisticRegression(C=2.0, max_iter=500, random_state=42).fit(scaler_f.transform(X_tr_aug), y_tr_aug)
-
-        iso_scaler_f = StandardScaler().fit(X_ev[tr_i])
-        iso_f = IsolationForest(n_estimators=40, contamination=0.08, random_state=42).fit(iso_scaler_f.transform(X_ev[tr_i]))
-
-        va_p = clf_f.predict_proba(scaler_f.transform(X_ev[va_i]))
-        va_pred = np.argmax(va_p, axis=1)
-        oof_probs[va_i] = va_p
-        oof_preds[va_i] = va_pred
-        for j, vi in enumerate(va_i):
-            oof_real_nonconf.append(float(1.0 - va_p[j, y_ev[vi]]))
-
-        va_iso_z = iso_scaler_f.transform(X_ev[va_i])
-        va_ood_sc = -iso_f.decision_function(va_iso_z)
-        va_ood_flag = iso_f.predict(va_iso_z) == -1
-
-        for j, vi in enumerate(va_i):
-            cset = np.flatnonzero(1.0 - va_p[j] <= q_hat)
-            empty = len(cset) == 0
-            if empty:
-                cset = np.array([va_pred[j]])
-            oof_in_set[vi] = bool(y_ev[vi] in cset)
-            oof_set_size[vi] = int(len(cset))
-            oof_escalated[vi] = bool((len(cset) > 1) or empty or bool(va_ood_flag[j]))
-
-        # OOD AUROC：真实验证会话 vs 物理矛盾/损坏 OOD 样本
-        ood_X = _generate_corrupted_ood_samples(X_ev[va_i], seed=1000 + fold_idx)
-        ood_sc = -iso_f.decision_function(iso_scaler_f.transform(ood_X))
-        y_ood = np.concatenate([np.zeros(len(va_ood_sc)), np.ones(len(ood_sc))])
-        sc_ood = np.concatenate([va_ood_sc, ood_sc])
-        fold_ood_aurocs.append(float(roc_auc_score(y_ood, sc_ood)))
-
-    cv_acc = float(accuracy_score(y_ev, oof_preds))
-    cv_macro_f1 = float(f1_score(y_ev, oof_preds, average="macro"))
-    emp_cov = float(oof_in_set.mean())
-    mean_set_size = float(oof_set_size.mean())
-    escalation_rate = float(oof_escalated.mean())
-    ood_auroc_mean = float(np.mean(fold_ood_aurocs))
-    ood_auroc_std = float(np.std(fold_ood_aurocs))
-
-    # 全量交付模型：使用 47 场真实 OOF 残差计算有限样本分位数 q_hat（无泄漏保形门槛）
-    n_oof = len(oof_real_nonconf)
-    final_q_level = min(1.0, math.ceil((n_oof + 1) * (1.0 - alpha)) / float(n_oof))
-    final_q_hat = float(np.quantile(np.asarray(oof_real_nonconf, dtype=float), final_q_level, method="higher"))
-
-    X_full_aug = np.vstack([X_ev, syn_X])
-    y_full_aug = np.concatenate([y_ev, syn_y])
-    final_scaler = StandardScaler().fit(X_full_aug)
-    final_clf = LogisticRegression(C=2.0, max_iter=500, random_state=42).fit(final_scaler.transform(X_full_aug), y_full_aug)
-
-    final_iso_scaler = StandardScaler().fit(X_ev)
-    final_iso = IsolationForest(n_estimators=40, contamination=0.08, random_state=42).fit(final_iso_scaler.transform(X_ev))
+    # 非循环原始传感遥测消融实验：剔除 measured_ratio，仅用 7 维原始传感与时序对齐特征预测下游审计上限
+    feature_names_all = list(rme.EVIDENCE_FEATURE_NAMES)
+    excluded_features = ["measured_ratio"]
+    keep_indices = [i for i, fname in enumerate(feature_names_all) if fname not in excluded_features]
+    ablation_features = [feature_names_all[i] for i in keep_indices]
+    ablation_res = _fit_gate_and_conformal(
+        X_ev[:, keep_indices],
+        y_ev,
+        sess_ids,
+        classes,
+        alpha=alpha,
+        C=2.0,
+        n_splits_outer=n_splits,
+        n_splits_inner=4,
+        eval_ood=False,
+    )
 
     gate_artifact = {
-        "version": "1.0.0",
-        "feature_names": list(rme.EVIDENCE_FEATURE_NAMES),
+        "version": "1.1.0",
+        "supervision_protocol": "downstream_l1_g1_g4_audit_outcome",
+        "feature_names": feature_names_all,
         "classes": classes,
         "stage_labels": rme.STAGE_LABELS,
-        "scaler": final_scaler,
-        "classifier": final_clf,
-        "iso_scaler": final_iso_scaler,
-        "isolation_forest": final_iso,
+        "scaler": gate_res["scaler"],
+        "classifier": gate_res["classifier"],
+        "iso_scaler": gate_res["iso_scaler"],
+        "isolation_forest": gate_res["isolation_forest"],
         "alpha": alpha,
         "target_coverage": 1.0 - alpha,
-        "q_hat": final_q_hat,
-        "empirical_cv_coverage": round(emp_cov, 4),
+        "q_hat": gate_res["final_q_hat"],
+        "empirical_cv_coverage": round(gate_res["empirical_conformal_coverage"], 4),
     }
     gate_path = model_dir / "referee_conformal_gate.joblib"
     joblib.dump(gate_artifact, gate_path, compress=3)
     gate_kb = round(gate_path.stat().st_size / 1024.0, 2)
 
     # ── 3. 端到端纯 CPU 热推理延迟基准 ────────────────────────────────────────
-    # 找一个 ~60-120 窗的中等会话测试热推理耗时（含带 l1_summary 报告热路径与独立路径）
     rep_sess = min(sessions, key=lambda s: abs(len(s["X_windows"]) - 75))
-    from report_frontend.l1_report import build_l1_report
-    rep_l1 = build_l1_report(rep_sess["session_id"], logs=rep_sess["logs"])
+    try:
+        rep_l1 = build_l1_report(rep_sess["session_id"], logs=rep_sess["logs"])
+    except Exception:
+        rep_l1 = rep_sess["l1_report"]
 
-    # 先预热模型缓存
     _ = rme.evaluate_referee_ml(
         rep_sess["logs"], session_id=rep_sess["session_id"], l1_summary=rep_l1, model_dir=model_dir
     )
@@ -567,8 +645,10 @@ def train_and_save(
             "n_real_sessions": int(n_sessions),
             "n_real_windows": int(n_windows),
             "n_real_sessions_with_voice_series": int(n_sessions_voice),
-            "n_synthetic_boundary_calibration": int(len(syn_X)),
-            "synthetic_usage_note": "24 条合成边界样仅用于辅助校准分类边界，全部交叉验证指标严格仅在 47 场真实会话上计算。",
+            "n_synthetic_boundary_calibration": 0,
+            "synthetic_usage_note": (
+                "已取消合成边界样本，全部模型训练、分层分组交叉验证与 Split Conformal 校准均 100% 基于真实多模态会话样本。"
+            ),
             "real_stage_distribution": stage_dist,
         },
         "stage_segmentation": {
@@ -593,19 +673,46 @@ def train_and_save(
             "model_type": "StandardScaler + LogisticRegression(C=2.0) + IsolationForest + SplitConformal",
             "model_file": "models/referee_conformal_gate.joblib",
             "model_size_kb": gate_kb,
-            "feature_names": list(rme.EVIDENCE_FEATURE_NAMES),
-            "cv_scheme": f"GroupKFold(n_splits={n_splits}, group=session_id) on 47 real sessions",
+            "supervision_protocol": "downstream_l1_g1_g4_audit_outcome",
+            "supervision_note_plain": (
+                "真实训练标签严格取自下游五维 L1 证据审计的 G1 至 G4 物理置信度上限，"
+                "包含高、中与低或不足三档，完全脱离输入特征阈值规则并消除循环监督。"
+            ),
+            "feature_names": feature_names_all,
+            "cv_scheme": f"{gate_res['cv_scheme']} on {n_sessions} real sessions",
             "alpha": alpha,
             "target_coverage": round(1.0 - alpha, 2),
-            "final_q_hat": round(final_q_hat, 4),
-            "fold_q_hats": [round(q, 4) for q in fold_q_hats],
-            "cv_accuracy": round(cv_acc, 4),
-            "cv_macro_f1": round(cv_macro_f1, 4),
-            "empirical_conformal_coverage": round(emp_cov, 4),
-            "mean_conformal_set_size": round(mean_set_size, 3),
-            "uncertainty_escalation_rate": round(escalation_rate, 4),
-            "ood_auroc_mean": round(ood_auroc_mean, 4),
-            "ood_auroc_std": round(ood_auroc_std, 4),
+            "final_q_hat": round(gate_res["final_q_hat"], 4),
+            "fold_q_hats": [round(q, 4) for q in gate_res["fold_q_hats"]],
+            "cv_accuracy": round(gate_res["cv_accuracy"], 4),
+            "cv_macro_f1": round(gate_res["cv_macro_f1"], 4),
+            "empirical_conformal_coverage": round(gate_res["empirical_conformal_coverage"], 4),
+            "mean_conformal_set_size": round(gate_res["mean_conformal_set_size"], 3),
+            "uncertainty_escalation_rate": round(gate_res["uncertainty_escalation_rate"], 4),
+            "ood_auroc_mean": (
+                round(gate_res["ood_auroc_mean"], 4) if gate_res["ood_auroc_mean"] is not None else None
+            ),
+            "ood_auroc_std": (
+                round(gate_res["ood_auroc_std"], 4) if gate_res["ood_auroc_std"] is not None else None
+            ),
+            "confusion_matrix": {
+                "labels": classes,
+                "matrix": gate_res["confusion_matrix"],
+            },
+            "non_circular_raw_telemetry_ablation": {
+                "n_features": int(len(ablation_features)),
+                "excluded_features": excluded_features,
+                "feature_names": ablation_features,
+                "cv_scheme": f"{ablation_res['cv_scheme']} on {n_sessions} real sessions",
+                "cv_accuracy": round(ablation_res["cv_accuracy"], 4),
+                "cv_macro_f1": round(ablation_res["cv_macro_f1"], 4),
+                "empirical_conformal_coverage": round(ablation_res["empirical_conformal_coverage"], 4),
+                "mean_conformal_set_size": round(ablation_res["mean_conformal_set_size"], 3),
+                "confusion_matrix": {
+                    "labels": classes,
+                    "matrix": ablation_res["confusion_matrix"],
+                },
+            },
         },
         "cpu_runtime": {
             "benchmark_session_windows": int(len(rep_sess["X_windows"])),

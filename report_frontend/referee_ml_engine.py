@@ -574,6 +574,9 @@ def _evaluate_evidence_gate(
         w_diff = coef[i_s1] - coef[i_s3]
         w_contrast = np.where(w_diff > 0.0, w_diff, np.maximum(coef[i_s1], 0.05))
         raw_contribs = w_contrast * Xz[0]
+        supervision_protocol = str(
+            gate_artifact.get("supervision_protocol") or "downstream_l1_g1_g4_audit_outcome"
+        )
     else:
         alpha = 0.10
         stage_code, stage_probs = _rule_evidence_stage(feat_map)
@@ -583,6 +586,7 @@ def _evaluate_evidence_gate(
         uncertainty_escalated = len(conformal_set) > 1
         # 规则回退下的标准化中心偏差归因
         raw_contribs = np.asarray([(feat_vec[j] - 0.55) * 1.5 for j in range(len(EVIDENCE_FEATURE_NAMES))], dtype=float)
+        supervision_protocol = "rule_fallback"
 
     attributions: list[dict[str, Any]] = []
     for j, fname in enumerate(EVIDENCE_FEATURE_NAMES):
@@ -621,6 +625,7 @@ def _evaluate_evidence_gate(
     return {
         "stage_code": stage_code,
         "stage_label": STAGE_LABELS[stage_code],
+        "supervision_protocol": supervision_protocol,
         "stage_probs": stage_probs,
         "conformal_set": conformal_set,
         "conformal_set_labels": conformal_set_labels,
@@ -895,6 +900,7 @@ def _empty_result(session_id: str | None, metrics_data: dict[str, Any] | None) -
         "evidence_gate": {
             "stage_code": "unavailable",
             "stage_label": STAGE_LABELS["unavailable"],
+            "supervision_protocol": "unavailable",
             "stage_probs": {c: 0.0 for c in STAGE_ORDER},
             "conformal_set": [],
             "conformal_set_labels": [],

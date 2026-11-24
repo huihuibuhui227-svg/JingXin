@@ -216,6 +216,109 @@ _LOG_KEY_TO_MODALITY = {
 }
 
 
+_STAGE_BADGE_CLASSES = {
+    "stage_1_verified": "stage-verified",
+    "stage_2_review": "stage-review",
+    "stage_3_limited": "stage-limited",
+}
+_STAGE_DEFAULT_LABELS = {
+    "stage_1_verified": "阶段 I · 证据充分可核验",
+    "stage_2_review": "阶段 II · 证据可用需复核",
+    "stage_3_limited": "阶段 III · 证据受限待补采",
+    "unavailable": "未获取有效采集数据",
+}
+_MACRO_COLOR_CLASS = {
+    "steady": "steady",
+    "steady_speaking": "steady",
+    "active": "active",
+    "active_expressive": "active",
+    "pause": "pause",
+    "pause_thinking": "pause",
+    "low_signal": "low",
+    "low": "low",
+}
+_MACRO_DEFAULT_LABELS = {
+    "steady": "平稳展开期",
+    "active": "高互动活跃期",
+    "pause": "停顿组织期",
+    "low": "采集受限期",
+}
+_POSE_MODE_META = {
+    "3d_matrix": ("三维姿态矩阵校准", "pill-ok"),
+    "2d_legacy": ("二维姿态代理校准", "pill-warn"),
+    "unavailable": ("无姿态参照", "pill-neutral"),
+}
+_AGREEMENT_PILL = {
+    "高度一致": "pill-ok",
+    "中度一致": "pill-tag",
+    "分歧较大": "pill-warn",
+    "通道未激活": "pill-neutral",
+}
+_ELIGIBILITY_PILL = {
+    "已校准可融合": "pill-ok",
+    "辅助对照": "pill-tag",
+    "待3D重采验证": "pill-warn",
+}
+_V2_TRACK_LABELS = {
+    "face_kinematics": "面部运动学",
+    "voice_dynamics": "语音动力学",
+    "gesture_smoothness": "上肢平滑度",
+    "catch22_dynamics": "多通道时序",
+}
+
+
+def _finite_float(v: Any) -> Optional[float]:
+    """安全转为有限浮点数，缺失或非有限值返回 None。"""
+    if v is None or isinstance(v, bool):
+        return None
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return None
+    return x if math.isfinite(x) else None
+
+
+def _sanitize_plain(text: Any) -> str:
+    """清理载荷说明文字中的注释体记号与推理符号，保留自然中文语义。"""
+    t = str(text or "")
+    t = re.sub(r"\*\*|`", "", t)
+    t = t.replace("⟹", "，所以").replace("⇒", "，所以")
+    t = t.replace(" → ", " 变成 ").replace("→", " 变成 ")
+    return re.sub(r"[，,]{2,}", "，", t)
+
+
+def _clean_prose(text: Any) -> str:
+    """清理渲染到交付物正文的中文说明，替换直引号并消除内部符号。"""
+    t = _sanitize_plain(text)
+    t = re.sub(r'"([^"]*)"', r"「\1」", t)
+    return t.replace('"', "")
+
+
+def _fmt_v2_highlight(v: Any, unit: str) -> str:
+    """第二层动力学指标读数格式化：比例按百分比展示，其余按量级控制小数位。"""
+    x = _finite_float(v)
+    if x is None:
+        return "—"
+    if unit == "比例":
+        return f"{x * 100:.1f}%"
+    a = abs(x)
+    if a >= 100:
+        num_str = f"{x:.1f}"
+    elif a >= 1:
+        num_str = f"{x:.2f}"
+    elif a >= 0.001 or x == 0:
+        num_str = f"{x:.3f}" if x != 0 else "0"
+    else:
+        num_str = f"{x:.2e}"
+    return f"{num_str} {escape(unit)}" if unit else num_str
+
+
+def _fmt_rho(v: Any) -> str:
+    """相关系数或差值格式化为三位小数，非有限值返回占位符。"""
+    x = _finite_float(v)
+    return f"{x:.3f}" if x is not None else "—"
+
+
 #: 交付物的样式表。**与正文分开** —— 正文是 f-string,里面每个 `{` 都要转义,
 #: 把 CSS 单独放一份就不用给几十个大括号加反斜杠。
 #:
@@ -233,13 +336,27 @@ _CSS = """
   /* A5 仪器来源披露:「未登记」是**缺口**,不是一种仪器,所以给它自己的警示色,
      不与正文的灰字同色 —— 同色就会被当成第三套仪器读过去。 */
   --alert:#a8332b;
+  --stage-steady:#2a78d6; --stage-active:#0b5d2e;
+  --stage-pause:#b26b00; --stage-low:#898781;
+  --ok-fg:#0b5d2e; --ok-bg:#edf7f0; --ok-bd:#bfe3cb;
+  --warn-fg:#7a4a05; --warn-bg:#fdf6e9; --warn-bd:#eed39e;
+  --lim-fg:#9e1f1f; --lim-bg:#fdf0f0; --lim-bd:#f2c2c2;
+  --info-fg:#0a4a8f; --info-bg:#eef5fc; --info-bd:#c2dcf5;
+  --attr-pos:#2a78d6; --attr-neg:#eb6834;
 }
 @media (prefers-color-scheme: dark){
   :root{ --page:#141413; --surface:#1b1b19;
          --ink:#f3f2ed; --ink-2:#bab8b1; --ink-3:#8c8a84;
          --rule:#302f2b; --track:#2a2926;
          --series-1:#3987e5; --series-2:#d95926;
-         --alert:#ef8a80; }
+         --alert:#ef8a80;
+         --stage-steady:#3987e5; --stage-active:#34a853;
+         --stage-pause:#e59a38; --stage-low:#898781;
+         --ok-fg:#6ee7a0; --ok-bg:#142a1d; --ok-bd:#245337;
+         --warn-fg:#f3b863; --warn-bg:#2b2112; --warn-bd:#5e431c;
+         --lim-fg:#f28b82; --lim-bg:#2e1717; --lim-bd:#612927;
+         --info-fg:#7eb8f7; --info-bg:#132336; --info-bd:#25466b;
+         --attr-pos:#3987e5; --attr-neg:#d95926; }
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--page);color:var(--ink);
@@ -325,6 +442,47 @@ figure svg{min-width:560px}
 .prov-warn{border-left:3px solid var(--alert);padding:4px 0 4px 12px;
   color:var(--ink-2);font-size:13px}
 .prov-warn code{font-size:12px}
+/* ── referee_ml & v2 appendices ─────────────────────────────────────────── */
+.referee-card{background:var(--surface);border:1px solid var(--rule);
+  border-radius:10px;padding:18px 20px;margin:14px 0 24px}
+.referee-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:10px}
+.stage-badge{display:inline-flex;align-items:center;padding:2px 10px;
+  border-radius:999px;font-size:12.5px;font-weight:600;border:1px solid var(--rule);
+  color:var(--ink-2);background:var(--page)}
+.stage-verified{color:var(--ok-fg);background:var(--ok-bg);border-color:var(--ok-bd)}
+.stage-review{color:var(--warn-fg);background:var(--warn-bg);border-color:var(--warn-bd)}
+.stage-limited{color:var(--lim-fg);background:var(--lim-bg);border-color:var(--lim-bd)}
+.stage-info{color:var(--info-fg);background:var(--info-bg);border-color:var(--info-bd)}
+.cov-chips{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 14px}
+.cov-chip{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;
+  border-radius:999px;font-size:12.5px;color:var(--ink-2);background:var(--page);
+  border:1px solid var(--rule);font-variant-numeric:tabular-nums}
+.cov-chip-warn{color:var(--warn-fg);background:var(--warn-bg);border-color:var(--warn-bd);font-weight:600}
+.cov-chip-alert{color:var(--lim-fg);background:var(--lim-bg);border-color:var(--lim-bd)}
+.attr-pos{fill:var(--attr-pos);color:var(--attr-pos)}
+.attr-neg{fill:var(--attr-neg);color:var(--attr-neg)}
+.stage-legend{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 6px}
+.stage-swatch{display:inline-block;width:9px;height:9px;border-radius:2px;flex-shrink:0}
+.stage-swatch-steady{background:var(--stage-steady)}
+.stage-swatch-active{background:var(--stage-active)}
+.stage-swatch-pause{background:var(--stage-pause)}
+.stage-swatch-low{background:var(--stage-low)}
+.stage-seg-steady{fill:var(--stage-steady)}
+.stage-seg-active{fill:var(--stage-active)}
+.stage-seg-pause{fill:var(--stage-pause)}
+.stage-seg-low{fill:var(--stage-low)}
+.cp-diamond{fill:var(--alert)}
+.cp-line{stroke:var(--alert);stroke-width:1.6;stroke-dasharray:3 2}
+.cp-halo{stroke:var(--surface);stroke-width:3;stroke-opacity:.85}
+.pill-tags{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 10px}
+.pill-tag{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;
+  color:var(--info-fg);background:var(--info-bg);border:1px solid var(--info-bd)}
+.pill-neutral{color:var(--ink-2);background:var(--page);border-color:var(--rule)}
+.pill-ok{color:var(--ok-fg);background:var(--ok-bg);border-color:var(--ok-bd)}
+.pill-warn{color:var(--warn-fg);background:var(--warn-bg);border-color:var(--warn-bd)}
+.diag-box{margin:10px 0 14px;padding:9px 12px;border-radius:6px;
+  background:var(--page);border:1px solid var(--rule);color:var(--ink-2);font-size:12.5px}
+.delta-pos{color:var(--ok-fg);font-weight:600}
 """
 
 
@@ -1215,22 +1373,8 @@ class ReportGenerator:
         def _want(key: str) -> bool:
             return only is None or key in only
 
-        def _plain(t: str) -> str:
-            # 载荷里的这几句是**开发者写的注释体**,带 `**` / 反引号。
-            # 前端 `L1IndicatorTable.plain()` 做同一件事(纯文本界面里它们是噪音)。
-            t = re.sub(r"\*\*|`", "", t)
-            # ⚠️ 2026-10-26 补:注释体里还有**推理记号**。实测正文
-            #    「本场素材的限制」印着「(只有提问标记)⟹ 逐题窗口照常可用」——
-            #    `⟹` 是我们写代码时表示"所以"的符号,读者看到的是一个
-            #    不会念的字符。同一类毛病:`→`(映射)、`⇒`。
-            #    这里换成人话,而不是删掉 —— 推理关系本身是这句的意思。
-            t = t.replace("⟹", "，所以").replace("⇒", "，所以")
-            t = t.replace(" → ", " 变成 ").replace("→", " 变成 ")
-            # 换完可能出现「，，」这种叠字(原句本来就在符号前有标点)。
-            return re.sub(r"[，,]{2,}", "，", t)
-
         def _ul(items) -> str:
-            return "<ul>" + "".join(f"<li>{_plain(str(i))}</li>" for i in items) + "</ul>"
+            return "<ul>" + "".join(f"<li>{_sanitize_plain(i)}</li>" for i in items) + "</ul>"
 
         blocks: list[str] = []
 
@@ -1436,7 +1580,7 @@ class ReportGenerator:
         sec = l1.get("second_instrument_appendix") or {}
         if sec.get("available") and sec.get("rows"):
             srows = "".join(
-                f"<tr><td>{escape(str(r.get('name', '')))}</td>"
+                f"<tr><td>{escape(_clean_prose(r.get('label') or r.get('name', '')))}</td>"
                 f"<td class=\"num\">{_fmt_num(r.get('value'))}</td>"
                 f"<td class=\"num\">{escape(str(r.get('n_valid', '—')))}</td></tr>"
                 for r in sec["rows"]
@@ -1444,13 +1588,499 @@ class ReportGenerator:
             blocks.append(f"""
             <details>
                 <summary>附录：第二仪器（52 维面部模型系数）独立对照参考</summary>
-                <p class="note">{escape(str(sec.get("disclaimer", "")))}</p>
+                <p class="note">{escape(_clean_prose(sec.get("disclaimer", "")))}</p>
                 <table><thead><tr><th>对照项</th><th>读数</th><th>有效帧数</th></tr></thead>
                 <tbody>{srows}</tbody></table>
             </details>
             """)
 
+        dual_block = self._render_dual_calibration_appendix(l1)
+        if dual_block:
+            blocks.append(dual_block)
+
+        fv2_block = self._render_feature_layer_v2_appendix(l1)
+        if fv2_block:
+            blocks.append(fv2_block)
+
         return "".join(blocks)
+
+    def _render_stage_timeline_svg(self, seg_data: Dict[str, Any]) -> str:
+        """渲染宏观行为阶段时间轴与转折点内联 SVG 及图例。"""
+        raw_segs = seg_data.get("macro_stages") or seg_data.get("segments") or []
+        raw_cps = seg_data.get("change_points") or seg_data.get("changepoints") or []
+        if not isinstance(raw_segs, list) or not raw_segs:
+            return ""
+
+        segs: list[dict[str, Any]] = []
+        max_end = 0.0
+        for item in raw_segs:
+            if not isinstance(item, dict):
+                continue
+            s0 = _finite_float(item.get("start_sec"))
+            s1 = _finite_float(item.get("end_sec"))
+            if s0 is None or s1 is None or s1 < s0:
+                continue
+            max_end = max(max_end, s1)
+            raw_key = str(
+                item.get("color_key")
+                or item.get("stage")
+                or item.get("macro_stage")
+                or item.get("state")
+                or ""
+            )
+            ckey = _MACRO_COLOR_CLASS.get(raw_key, "low")
+            lbl = _clean_prose(item.get("label") or _MACRO_DEFAULT_LABELS.get(ckey, "其他阶段"))
+            ann = _clean_prose(item.get("annotation") or "")
+            ratio = _finite_float(item.get("ratio"))
+            segs.append({
+                "start": s0, "end": s1, "ckey": ckey,
+                "label": lbl, "ratio": ratio, "annotation": ann,
+            })
+        if not segs:
+            return ""
+
+        total_raw = seg_data.get("total_duration_sec")
+        if total_raw is None:
+            total_raw = seg_data.get("total_sec")
+        span_sec = max(_finite_float(total_raw) or 0.0, max_end, 0.001)
+
+        pad_x, bar_w = 14.0, 692.0
+        rects: list[str] = []
+        legend_map: dict[tuple[str, str], float] = {}
+        annotated_note = ""
+        for seg in segs:
+            s0 = max(0.0, min(span_sec, seg["start"]))
+            s1 = max(s0, min(span_sec, seg["end"]))
+            x_raw = pad_x + (s0 / span_sec) * bar_w
+            w_raw = ((s1 - s0) / span_sec) * bar_w
+            x = min(x_raw, pad_x + bar_w - 2.0)
+            w = max(2.0, min(w_raw, pad_x + bar_w - x))
+            rects.append(
+                f'<rect class="stage-seg-{seg["ckey"]}" x="{x:.1f}" y="22" '
+                f'width="{w:.1f}" height="24">'
+                f'<title>{escape(seg["label"])} {s0:.1f}s - {s1:.1f}s</title></rect>'
+            )
+            ratio = seg["ratio"] if seg["ratio"] is not None else ((s1 - s0) / span_sec)
+            lkey = (seg["ckey"], seg["label"])
+            legend_map[lkey] = legend_map.get(lkey, 0.0) + max(0.0, ratio)
+            if not annotated_note and seg["annotation"]:
+                annotated_note = seg["annotation"]
+
+        cps: list[dict[str, Any]] = []
+        cp_marks: list[str] = []
+        for cp in (raw_cps if isinstance(raw_cps, list) else []):
+            if isinstance(cp, (int, float)) and not isinstance(cp, bool):
+                t_cp = _finite_float(cp)
+                cue = "节律转折点"
+            elif isinstance(cp, dict):
+                t_cp = _finite_float(cp.get("time_sec"))
+                cue = _clean_prose(cp.get("cue_summary") or cp.get("label") or "节律转折点")
+            else:
+                continue
+            if t_cp is None:
+                continue
+            t_clamped = max(0.0, min(span_sec, t_cp))
+            cx = max(pad_x + 4.0, min(pad_x + bar_w - 4.0, pad_x + (t_clamped / span_sec) * bar_w))
+            cps.append({"time_sec": t_clamped, "cue": cue})
+            cp_marks.append(
+                f'<g><title>{t_clamped:.1f}s 转折：{escape(cue)}</title>'
+                f'<line class="cp-halo" x1="{cx:.1f}" y1="20" x2="{cx:.1f}" y2="48"/>'
+                f'<line class="cp-line" x1="{cx:.1f}" y1="18" x2="{cx:.1f}" y2="50"/>'
+                f'<polygon class="cp-diamond" points="{cx:.1f},7 {cx + 5:.1f},12 '
+                f'{cx:.1f},17 {cx - 5:.1f},12"/></g>'
+            )
+
+        fracs = (0.0, 0.25, 0.5, 0.75, 1.0) if span_sec >= 8.0 else (0.0, 0.5, 1.0)
+        ticks: list[str] = []
+        for frac in fracs:
+            val_s = frac * span_sec
+            if val_s <= 0.0:
+                t_txt = "0s"
+            elif span_sec < 10.0:
+                t_txt = f"{val_s:.1f}s".replace(".0s", "s")
+            else:
+                t_txt = f"{int(round(val_s))}s"
+            tx = pad_x + frac * bar_w
+            anchor = "start" if frac == 0.0 else ("end" if frac == 1.0 else "middle")
+            ticks.append(
+                f'<line class="axis" x1="{tx:.1f}" y1="50" x2="{tx:.1f}" y2="55"/>'
+                f'<text class="tick" x="{tx:.1f}" y="68" text-anchor="{anchor}">{t_txt}</text>'
+            )
+
+        svg = (
+            '<svg viewBox="0 0 720 76" role="img" aria-label="行为阶段时间轴与转折点">'
+            '<defs><clipPath id="referee-stage-clip">'
+            '<rect x="14" y="22" width="692" height="24" rx="5"/>'
+            '</clipPath></defs>'
+            '<g clip-path="url(#referee-stage-clip)">'
+            '<rect class="track" x="14" y="22" width="692" height="24"/>'
+            + "".join(rects)
+            + "</g>"
+            + "".join(cp_marks)
+            + '<line class="axis" x1="14" y1="52" x2="706" y2="52"/>'
+            + "".join(ticks)
+            + "</svg>"
+        )
+
+        legend_items = "".join(
+            f'<span class="cov-chip"><span class="stage-swatch stage-swatch-{ckey}" '
+            f'aria-hidden="true"></span><span>{escape(lbl)}</span>'
+            f'<strong>{int(round(ratio * 100))}%</strong></span>'
+            for (ckey, lbl), ratio in legend_map.items()
+        )
+        if annotated_note:
+            legend_items += f'<span class="cov-chip">首段标记：{escape(annotated_note)}</span>'
+
+        cp_chips = ""
+        if cps:
+            cp_chips = '<div class="stage-legend">' + "".join(
+                f'<span class="cov-chip cov-chip-alert">{cp["time_sec"]:.0f}s 转折：{escape(cp["cue"])}</span>'
+                for cp in cps
+            ) + "</div>"
+
+        stat_parts = [f"共 {len(segs)} 段"]
+        mean_dwell = _finite_float(seg_data.get("mean_dwell_sec"))
+        if mean_dwell is not None:
+            stat_parts.append(f"平均驻留 {mean_dwell:.1f} 秒")
+        flicker = _finite_float(seg_data.get("flicker_reduction_pct"))
+        if flicker is not None and flicker >= 0.0:
+            stat_parts.append(f"较逐窗识别减少 {flicker:.0f}% 抖动切换")
+        stat_html = (
+            '<div class="cov-chips">'
+            + "".join(f'<span class="cov-chip">{escape(p)}</span>' for p in stat_parts)
+            + "</div>"
+        )
+
+        summary = _clean_prose(seg_data.get("summary_plain") or "")
+        cap_html = f"<figcaption>{escape(summary)}</figcaption>" if summary else ""
+        return (
+            f"<h3>宏观行为阶段切分</h3>"
+            f"{stat_html}"
+            f"<figure>{svg}{cap_html}</figure>"
+            f'<div class="stage-legend">{legend_items}</div>'
+            f"{cp_chips}"
+        )
+
+    def _render_attributions_svg(self, attributions: List[Dict[str, Any]]) -> str:
+        """渲染证据核验白盒加性归因发散条形图（内联 SVG）。"""
+        cleaned: list[dict[str, Any]] = []
+        for item in attributions:
+            if not isinstance(item, dict):
+                continue
+            cval = _finite_float(item.get("contribution"))
+            if cval is None:
+                continue
+            lbl = _clean_prose(item.get("label") or "")
+            if not lbl:
+                continue
+            cleaned.append({
+                "label": lbl,
+                "contribution": cval,
+                "direction": _clean_prose(item.get("direction") or ""),
+                "value_display": _clean_prose(item.get("value_display") or ""),
+            })
+        if not cleaned:
+            return ""
+
+        cleaned.sort(key=lambda x: abs(x["contribution"]), reverse=True)
+        top_items = cleaned[:8]
+        max_abs = max(0.001, max(abs(x["contribution"]) for x in top_items))
+
+        top_pad, row_h = 24, 28
+        height = top_pad + len(top_items) * row_h + 8
+        track_left, track_w, zero_x, half_max, val_x = 190.0, 380.0, 380.0, 180.0, 716.0
+
+        rows_svg: list[str] = [
+            f'<text class="tick" x="{zero_x - 10:.1f}" y="14" text-anchor="end">待补强</text>',
+            f'<text class="tick" x="{zero_x:.1f}" y="14" text-anchor="middle">0</text>',
+            f'<text class="tick" x="{zero_x + 10:.1f}" y="14" text-anchor="start">正向支撑</text>',
+            f'<line class="axis" x1="{zero_x:.1f}" y1="{top_pad - 4}" '
+            f'x2="{zero_x:.1f}" y2="{height - 4}"/>',
+        ]
+
+        for idx, item in enumerate(top_items):
+            cy = top_pad + idx * row_h + row_h / 2.0
+            contrib = item["contribution"]
+            is_pos = item["direction"] == "正向支撑" or (
+                item["direction"] != "待补强" and contrib >= 0.0
+            )
+            mag = abs(contrib)
+            bar_w = 2.0 if mag == 0.0 else max(6.0, (mag / max_abs) * half_max)
+            bar_x = zero_x if is_pos else zero_x - bar_w
+            bar_cls = "attr-pos" if is_pos else "attr-neg"
+            signed_str = f"{'+' if contrib >= 0 else ''}{contrib:.2f}"
+            right_txt = (
+                f"{signed_str} · {item['value_display']}"
+                if item["value_display"]
+                else signed_str
+            )
+            dir_txt = item["direction"] or ("正向支撑" if is_pos else "待补强")
+            rows_svg.append(
+                f'<g><title>{escape(item["label"])} · {escape(dir_txt)} · '
+                f'贡献 {signed_str}</title>'
+                f'<text class="label" x="0" y="{cy + 4:.1f}">{escape(item["label"])}</text>'
+                f'<rect class="track" x="{track_left:.1f}" y="{cy - 7:.1f}" '
+                f'width="{track_w:.1f}" height="14" rx="3"/>'
+                f'<rect class="{bar_cls}" x="{bar_x:.1f}" y="{cy - 7:.1f}" '
+                f'width="{bar_w:.1f}" height="14" rx="3"/>'
+                f'<text class="value" x="{val_x:.1f}" y="{cy + 4:.1f}" '
+                f'text-anchor="end">{escape(right_txt)}</text></g>'
+            )
+
+        svg = (
+            f'<svg viewBox="0 0 720 {height}" role="img" aria-label="阶段核验影响因素归因">'
+            + "".join(rows_svg)
+            + "</svg>"
+        )
+        return (
+            "<h3>阶段核验影响因素归因</h3>"
+            f"<figure>{svg}"
+            "<figcaption>蓝色向右表示正向支撑因子，橙色向左表示待补强因子；"
+            "右侧数字为归因贡献度与对应实测覆盖。</figcaption></figure>"
+        )
+
+    def _render_referee_ml_section(self, result: Dict[str, Any]) -> str:
+        """渲染第三层行为阶段分段与保形证据核验区域。"""
+        ref_ml = (result.get("l1") or {}).get("referee_ml") or {}
+        if not isinstance(ref_ml, dict) or not ref_ml.get("available"):
+            return ""
+
+        eg = ref_ml.get("evidence_gate") or {}
+        stage_code = str(eg.get("stage_code") or "")
+        badge_cls = _STAGE_BADGE_CLASSES.get(stage_code, "")
+        stage_label = _clean_prose(
+            eg.get("stage_label") or _STAGE_DEFAULT_LABELS.get(stage_code, "阶段核验完成")
+        )
+
+        badges = [
+            f'<span class="stage-badge {badge_cls}">{escape(stage_label)}</span>',
+            '<span class="stage-badge stage-info">不打分核验</span>',
+        ]
+        escalated = bool(eg.get("uncertainty_escalated"))
+        ood_flag = bool(eg.get("ood_anomaly_flag"))
+        if escalated or ood_flag:
+            badges.append('<span class="stage-badge stage-review">建议人工复核</span>')
+
+        cset_labels = [
+            _clean_prose(x) for x in (eg.get("conformal_set_labels") or []) if x
+        ]
+        if not cset_labels and eg.get("conformal_set"):
+            cset_labels = [
+                _STAGE_DEFAULT_LABELS.get(str(c), "待定阶段")
+                for c in eg.get("conformal_set") or []
+            ]
+        cset_text = " / ".join(cset_labels) if cset_labels else "暂无"
+
+        target_cov = _finite_float(eg.get("target_coverage"))
+        target_pct = int(round((target_cov if target_cov is not None else 0.90) * 100))
+        cov_text = f"目标覆盖率 {target_pct}%"
+        emp_cov = _finite_float(eg.get("empirical_cv_coverage"))
+        if emp_cov is not None:
+            cov_text += f"，交叉验证实证覆盖率 {emp_cov * 100:.1f}%"
+
+        chips = [
+            f'<span class="cov-chip">保形候选集合：{escape(cset_text)}</span>',
+            f'<span class="cov-chip">{escape(cov_text)}</span>',
+        ]
+        if escalated:
+            chips.append('<span class="cov-chip cov-chip-warn">不确定性升级：建议人工复核边界项</span>')
+        if "ood_anomaly_flag" in eg:
+            ood_cls = " cov-chip-warn" if ood_flag else ""
+            ood_txt = "已检出偏离" if ood_flag else "未见异常"
+            chips.append(f'<span class="cov-chip{ood_cls}">分布偏离检测：{ood_txt}</span>')
+
+        eg_summary = _clean_prose(eg.get("summary_plain") or "")
+        summary_html = f"<p>{escape(eg_summary)}</p>" if eg_summary else ""
+
+        seg_data = ref_ml.get("stage_segmentation") or {}
+        timeline_html = ""
+        if isinstance(seg_data, dict):
+            if seg_data.get("available", True) is not False:
+                timeline_html = self._render_stage_timeline_svg(seg_data)
+            if not timeline_html:
+                seg_note = _clean_prose(seg_data.get("summary_plain") or "")
+                if seg_note:
+                    timeline_html = f'<p class="note">{escape(seg_note)}</p>'
+
+        attrs_html = self._render_attributions_svg(eg.get("attributions") or [])
+
+        return (
+            "<h2>行为阶段分段与证据核验</h2>"
+            '<div class="referee-card">'
+            f'<div class="referee-head">{"".join(badges)}</div>'
+            '<p class="note">仅作行为阶段切分与证据核验，不输出分数或个体评价。</p>'
+            f"{summary_html}"
+            f'<div class="cov-chips">{"".join(chips)}</div>'
+            f"{timeline_html}"
+            f"{attrs_html}"
+            "</div>"
+        )
+
+    def _render_dual_calibration_appendix(self, l1: Dict[str, Any]) -> str:
+        """渲染面部双仪器一致性核对与头部姿态校准对照折叠附录。"""
+        dual_inst = l1.get("face_dual_instrument") or {}
+        bs_cal = l1.get("blendshape_calibration") or {}
+        has_dual = bool(isinstance(dual_inst, dict) and dual_inst.get("available"))
+        has_cal = bool(isinstance(bs_cal, dict) and bs_cal.get("available"))
+        if not has_dual and not has_cal:
+            return ""
+
+        parts: list[str] = []
+        if has_dual:
+            parts.append("<h3>双仪器逐构念一致性核对</h3>")
+            d_sum = _clean_prose(dual_inst.get("summary_plain") or "")
+            if d_sum:
+                parts.append(f'<p class="note">{escape(d_sum)}</p>')
+            pairs = dual_inst.get("pairs") or []
+            if pairs:
+                pair_rows: list[str] = []
+                for p in pairs:
+                    if not isinstance(p, dict):
+                        continue
+                    lvl = _clean_prose(p.get("agreement_level") or "通道未激活")
+                    p_cls = _AGREEMENT_PILL.get(lvl, "pill-neutral")
+                    lbl = _clean_prose(p.get("label") or "")
+                    nv = p.get("n_valid")
+                    nv_str = str(int(nv)) if isinstance(nv, (int, float)) and math.isfinite(float(nv)) else "—"
+                    pair_rows.append(
+                        f"<tr><td><strong>{escape(lbl)}</strong></td>"
+                        f'<td><span class="pill-tag {p_cls}">{escape(lvl)}</span></td>'
+                        f'<td class="num">{_fmt_rho(p.get("spearman_rho"))}</td>'
+                        f'<td class="num">{_fmt_rho(p.get("delta_spearman_rho"))}</td>'
+                        f'<td class="num">{nv_str}</td></tr>'
+                    )
+                parts.append(
+                    "<table><thead><tr><th>行为构念</th><th>一致等级</th>"
+                    "<th>逐帧秩相关</th><th>变化趋势相关</th><th>有效帧</th></tr></thead>"
+                    f"<tbody>{''.join(pair_rows)}</tbody></table>"
+                )
+            diag = dual_inst.get("au15_pitch_diagnostic") or {}
+            if isinstance(diag, dict) and diag.get("available") and diag.get("diagnostic_note"):
+                parts.append(
+                    f'<div class="diag-box">{escape(_clean_prose(diag["diagnostic_note"]))}</div>'
+                )
+
+        if has_cal:
+            parts.append("<h3>时序平滑与头部姿态校准对照</h3>")
+            pose_mode = str(bs_cal.get("pose_mode") or "unavailable")
+            pose_label, pose_cls = _POSE_MODE_META.get(pose_mode, _POSE_MODE_META["unavailable"])
+            n_clean = bs_cal.get("n_clean_frames", 0)
+            n_raw = bs_cal.get("n_raw_frames", 0)
+            qpr = _finite_float(bs_cal.get("quality_pass_rate"))
+            qpr_txt = f" · 通过率 {qpr * 100:.1f}%" if qpr is not None else ""
+            parts.append(
+                f'<div class="cov-chips">'
+                f'<span class="pill-tag {pose_cls}">{pose_label}</span>'
+                f'<span class="cov-chip">有效帧 {n_clean} / {n_raw}{qpr_txt}</span>'
+                f"</div>"
+            )
+            c_sum = _clean_prose(bs_cal.get("summary_plain") or "")
+            if c_sum:
+                parts.append(f'<p class="note">{escape(c_sum)}</p>')
+            constructs = bs_cal.get("constructs") or []
+            if constructs:
+                c_rows: list[str] = []
+                for c in constructs:
+                    if not isinstance(c, dict):
+                        continue
+                    lbl = _clean_prose(c.get("label") or "")
+                    note = _clean_prose(c.get("note") or "")
+                    note_html = f'<div class="note">{escape(note)}</div>' if note else ""
+                    delta = _finite_float(c.get("rho_delta"))
+                    if delta is None:
+                        delta_html = "—"
+                    elif delta > 0:
+                        delta_html = f'<span class="delta-pos">+{delta:.3f}</span>'
+                    else:
+                        delta_html = f"{delta:.3f}"
+                    r2 = _finite_float(c.get("pose_r2"))
+                    r2_txt = f"{r2 * 100:.1f}%" if r2 is not None else "—"
+                    elig = _clean_prose(c.get("eligibility") or "待3D重采验证")
+                    e_cls = _ELIGIBILITY_PILL.get(elig, "pill-warn")
+                    c_rows.append(
+                        f"<tr><td><strong>{escape(lbl)}</strong>{note_html}</td>"
+                        f'<td class="num">{_fmt_rho(c.get("raw_rho"))}</td>'
+                        f'<td class="num">{_fmt_rho(c.get("calibrated_rho"))}</td>'
+                        f'<td class="num">{delta_html}</td>'
+                        f'<td class="num">{r2_txt}</td>'
+                        f'<td><span class="pill-tag {e_cls}">{escape(elig)}</span></td></tr>'
+                    )
+                parts.append(
+                    "<table><thead><tr><th>面部动作</th><th>校准前一致度</th>"
+                    "<th>校准后一致度</th><th>变化量</th><th>头姿解释占比</th>"
+                    "<th>融合判定</th></tr></thead>"
+                    f"<tbody>{''.join(c_rows)}</tbody></table>"
+                )
+            disc = _clean_prose(bs_cal.get("disclaimer") or "")
+            if disc:
+                parts.append(f'<p class="note">{escape(disc)}</p>')
+
+        return (
+            "<details>"
+            "<summary>附录：面部双仪器一致性与头部姿态校准对照</summary>"
+            f"{''.join(parts)}"
+            "</details>"
+        )
+
+    def _render_feature_layer_v2_appendix(self, l1: Dict[str, Any]) -> str:
+        """渲染第二层多通道动力学特征摘要折叠附录。"""
+        fv2 = l1.get("feature_layer_v2") or {}
+        if not isinstance(fv2, dict) or not fv2.get("available"):
+            return ""
+
+        parts: list[str] = []
+        tags = [_clean_prose(t) for t in (fv2.get("framework_tags") or []) if t]
+        if tags:
+            parts.append(
+                '<div class="pill-tags">'
+                + "".join(f'<span class="pill-tag">{escape(t)}</span>' for t in tags)
+                + "</div>"
+            )
+
+        summary = _clean_prose(fv2.get("summary_plain") or "")
+        if summary:
+            parts.append(f'<p class="note">{escape(summary)}</p>')
+
+        highlights = fv2.get("highlights") or []
+        if highlights:
+            h_rows: list[str] = []
+            for h in highlights:
+                if not isinstance(h, dict):
+                    continue
+                lbl = _clean_prose(h.get("label") or "")
+                unit = _clean_prose(h.get("unit") or "")
+                val_txt = _fmt_v2_highlight(h.get("value"), unit)
+                track_key = str(h.get("track") or "")
+                track_lbl = _V2_TRACK_LABELS.get(track_key, "其他动力学通道")
+                note = _clean_prose(h.get("note") or "") or "—"
+                h_rows.append(
+                    f"<tr><td><strong>{escape(lbl)}</strong></td>"
+                    f'<td class="num">{val_txt}</td>'
+                    f'<td><span class="pill-tag pill-neutral">{escape(track_lbl)}</span></td>'
+                    f"<td>{escape(note)}</td></tr>"
+                )
+            parts.append(
+                "<table><thead><tr><th>指标名称</th><th>实测读数</th>"
+                "<th>来源通道</th><th>说明</th></tr></thead>"
+                f"<tbody>{''.join(h_rows)}</tbody></table>"
+            )
+
+        n_streams = (((fv2.get("tracks") or {}).get("catch22_dynamics") or {}).get("n_streams") or 0)
+        infer_ms = _finite_float(fv2.get("inference_ms"))
+        meta_bits: list[str] = []
+        if isinstance(n_streams, (int, float)) and n_streams > 0:
+            meta_bits.append(f"已提取 {int(n_streams)} 条多通道时间序列动力学特征")
+        if infer_ms is not None:
+            meta_bits.append(f"耗时 {infer_ms:.1f} ms")
+        if meta_bits:
+            parts.append(f'<p class="note">{" · ".join(meta_bits)}</p>')
+
+        return (
+            "<details>"
+            "<summary>附录：第二层多通道动力学特征摘要</summary>"
+            f"{''.join(parts)}"
+            "</details>"
+        )
 
     def _build_html_report(self, result: Dict[str, Any], chart_paths: Dict[str, Any],
                            features: Dict[str, Any], data: Dict[str, pd.DataFrame],
@@ -1582,6 +2212,7 @@ class ReportGenerator:
         #   所以是"页脚那一块"而不是附录(附录会被 `<details>` 折起来)。
         instrument_block = self._render_instrument_disclosure(result)
         notices_block = self._render_evidence_chain_notices(result)
+        referee_block = self._render_referee_ml_section(result)
         extra_appendices = self._render_extra_appendices(result)
 
         return _zh_punct(f"""<!DOCTYPE html>
@@ -1615,6 +2246,7 @@ class ReportGenerator:
 
 {cov_block}
 {disp_block}
+{referee_block}
 
 <h2>每一维量到了什么</h2>
 {self._render_vanished_dimensions(result)}

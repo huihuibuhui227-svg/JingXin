@@ -818,6 +818,170 @@ def question_bank_llm_search():
         return jsonify({"status": "error", "message": str(exc)}), 500
 
 
+def _load_json_if_exists(path: str) -> dict | None:
+    if not path or not os.path.isfile(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = _json.load(fh)
+        return data if isinstance(data, dict) else None
+    except Exception:
+        logger.exception("读取基准 JSON 失败: %s", path)
+        return None
+
+
+def _summarize_model_macros(models_dict: dict | None) -> list[dict]:
+    if not isinstance(models_dict, dict):
+        return []
+    out: list[dict] = []
+    for model_name, payload in models_dict.items():
+        if not isinstance(payload, dict):
+            continue
+        macro = payload.get("macro") if isinstance(payload.get("macro"), dict) else payload
+        out.append({
+            "model": model_name,
+            "pearson_r": macro.get("pearson_r"),
+            "spearman_rho": macro.get("spearman_rho"),
+            "rmse": macro.get("rmse"),
+            "mae": macro.get("mae"),
+            "acc_1_minus_mae": macro.get("acc_1_minus_mae"),
+        })
+    return out
+
+
+@app.route('/api/research/benchmarks', methods=['GET'])
+def get_research_benchmarks():
+    """只读聚合离线科研方法学与层内校验基准（零 PII、零真实受试者明细、绝不参与评分）。"""
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(base_dir)
+    reinforce_dir = os.path.join(project_root, "07_三方向与评审筹备", "系统补强")
+
+    mc_raw = _load_json_if_exists(
+        os.getenv("JX_BENCH_MULTICORPUS_PATH")
+        or os.path.join(base_dir, "research_lab", "results", "multicorpus_benchmark_20261124.json")
+    )
+    bs_raw = _load_json_if_exists(
+        os.getenv("JX_BENCH_BLENDSHAPE_PATH")
+        or os.path.join(reinforce_dir, "blendshape_calibration_benchmark_20261124.json")
+    )
+    ref_raw = _load_json_if_exists(
+        os.getenv("JX_BENCH_REFEREE_PATH")
+        or os.path.join(base_dir, "report_frontend", "referee_ml_metrics.json")
+    )
+    gpu_raw = _load_json_if_exists(
+        os.getenv("JX_BENCH_GPU_VS_CPU_PATH")
+        or os.path.join(reinforce_dir, "gpu_vs_cpu_referee_benchmark_20261124.json")
+    )
+
+    multicorpus_section: dict = {"available": False}
+    if mc_raw:
+        ext = mc_raw.get("extraction_summary") or {}
+        mit = mc_raw.get("experiment_1_mit") or {}
+        rv = mc_raw.get("experiment_2_recruitview") or {}
+        rv_ta = rv.get("track_a_full_metadata_text") or {}
+        rv_tb = rv.get("track_b_multimodal") or {}
+        ch = mc_raw.get("experiment_3_chalearn") or {}
+        ch_best_name = ch.get("best_model") or "AudioVisual-Ridge"
+        ch_best_targets = ((ch.get("models") or {}).get(ch_best_name) or {}).get("per_target") or {}
+        rt = mc_raw.get("experiment_4_regime_transfer") or {}
+        multicorpus_section = {
+            "available": True,
+            "generated_at": mc_raw.get("generated_at"),
+            "extraction": {
+                "total_clips_succeeded": ext.get("total_clips_succeeded"),
+                "clips_per_sec": ext.get("clips_per_sec"),
+                "workers": ext.get("workers"),
+            },
+            "mit": {
+                "n_interviews": mit.get("n_interviews"),
+                "n_participants": mit.get("n_participants"),
+                "cv_scheme": mit.get("cv_scheme"),
+                "best_model": mit.get("best_model"),
+                "models": _summarize_model_macros(mit.get("models")),
+                "gpu_mlp_hardware": mit.get("gpu_mlp_hardware"),
+            },
+            "recruitview": {
+                "cv_scheme": rv.get("cv_scheme"),
+                "track_a_n_clips": rv_ta.get("n_clips"),
+                "track_a_n_users": rv_ta.get("n_users"),
+                "track_a_models": _summarize_model_macros(rv_ta.get("models")),
+                "track_b_n_clips": rv_tb.get("n_clips"),
+                "track_b_n_users": rv_tb.get("n_users"),
+                "track_b_best_model": rv_tb.get("best_model"),
+                "track_b_models": _summarize_model_macros(rv_tb.get("models")),
+            },
+            "chalearn": {
+                "split_counts": ch.get("split_counts"),
+                "n_total_features": ch.get("n_total_features"),
+                "best_model": ch_best_name,
+                "models": _summarize_model_macros(ch.get("models")),
+                "best_model_dimensions": [
+                    {
+                        "key": k,
+                        "pearson_r": v.get("pearson_r"),
+                        "spearman_rho": v.get("spearman_rho"),
+                        "acc_1_minus_mae": v.get("acc_1_minus_mae"),
+                    }
+                    for k, v in ch_best_targets.items()
+                    if isinstance(v, dict)
+                ],
+            },
+            "regime_transfer": {
+                "shared_features": rt.get("shared_features") or [],
+                "chinese_corpus": rt.get("chinese_corpus") or {},
+                "english_corpus": rt.get("english_corpus") or {},
+                "regimes": rt.get("regimes") or {},
+            },
+        }
+
+    blendshape_section: dict = {"available": False}
+    if bs_raw and isinstance(bs_raw.get("corpus_summary"), dict):
+        blendshape_section = {
+            "available": True,
+            "generated_at": bs_raw.get("generated_at"),
+            "corpus_summary": bs_raw["corpus_summary"],
+        }
+
+    referee_section: dict = {"available": False}
+    if ref_raw:
+        referee_section = {
+            "available": True,
+            "trained_at": ref_raw.get("trained_at"),
+            "scoring_participation": False,
+            "non_scoring_guarantee": ref_raw.get("non_scoring_guarantee"),
+            "dataset": ref_raw.get("dataset") or {},
+            "stage_segmentation": ref_raw.get("stage_segmentation") or {},
+            "evidence_gate": ref_raw.get("evidence_gate") or {},
+            "cpu_runtime": ref_raw.get("cpu_runtime") or {},
+        }
+
+    gpu_section: dict = {"available": False}
+    if gpu_raw:
+        gpu_section = {
+            "available": True,
+            "generated_at": gpu_raw.get("generated_at"),
+            "hardware": gpu_raw.get("hardware") or {},
+            "cpu_referee": gpu_raw.get("cpu_referee") or {},
+            "gpu_neural_sequence_referee": gpu_raw.get("gpu_neural_sequence_referee") or {},
+            "comparison": gpu_raw.get("comparison") or {},
+        }
+
+    payload = {
+        "status": "success",
+        "research_only": True,
+        "scoring_participation": False,
+        "boundary_note": (
+            "本页面展示公开学术数据集与工程消融方法学验证结果，旨在论证跨通道信号稳定性、姿态解耦与"
+            "不确定性核验有效性；相关权重与统计数值均不参与任何真实访谈报告的计分、排序或个体评价。"
+        ),
+        "multicorpus": multicorpus_section,
+        "blendshape_calibration": blendshape_section,
+        "referee_ml": referee_section,
+        "gpu_vs_cpu": gpu_section,
+    }
+    return Response(_json.dumps(payload, ensure_ascii=False, allow_nan=False), mimetype="application/json")
+
+
 if __name__ == '__main__':
     logger.info("=" * 50)
     logger.info(f"{brand.BRAND_FULL_TITLE} 总控服务启动中...")
