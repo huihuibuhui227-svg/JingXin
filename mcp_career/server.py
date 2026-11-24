@@ -33,6 +33,7 @@ _JD_DIMENSION_RULES: tuple[dict[str, Any], ...] = (
     {
         "key": "structured_reasoning",
         "label": "结构化逻辑与因果阐述",
+        "theoretical_construct": "Schraw & Dennison (1994) · 认知规划与条理阐述",
         "keywords": ("结构", "逻辑", "汇报", "沟通", "阐述", "表达", "拆解", "条理", "方案"),
         "indicators": ["discourse_marker_rate", "answer_detail_chars_p50", "speech_rate"],
         "advice": "阐述方案时显式使用因果与转折连接标记，先给核心前提再展开论据细节。",
@@ -40,13 +41,20 @@ _JD_DIMENSION_RULES: tuple[dict[str, Any], ...] = (
     {
         "key": "ai_premise_critique",
         "label": "AI 输出审辨与边界修正",
+        "theoretical_construct": "Tankelevitch et al. (CHI 2024) & Lee et al. (CHI 2025) · 监测、核验与排错三环",
         "keywords": ("大模型", "AI", "生成", "幻觉", "审辨", "批判", "假设", "验证", "归因", "口径", "漂移", "降级", "审计", "合规"),
-        "indicators": ["counter_premise_marker_rate", "revision_anchor_density"],
-        "advice": "刻意强化「指出漏洞前提 → 举反例边界 → 给出具体修正方案」三步闭环表述。",
+        "indicators": [
+            "counter_premise_marker_rate",
+            "evidence_verification_marker_rate",
+            "revision_anchor_density",
+            "metacognitive_regulation_balance",
+        ],
+        "advice": "刻意强化「指出漏洞前提 → 查证数据口径 → 给出具体修正方案」三环闭环表述。",
     },
     {
         "key": "vocal_cadence",
         "label": "陈述节奏与停顿控制",
+        "theoretical_construct": "Nelson & Narens (1990) · 表达过程监测与节律调控",
         "keywords": ("节奏", "汇报", "表达", "追问", "答辩", "稳定", "讲授", "沟通"),
         "indicators": ["pause_structure_entropy", "voiced_ratio", "pitch_variability_per_sec", "response_latency_sec"],
         "advice": "面对追问时控制首句组织反应时长，在结论转折处保留短暂均匀停顿。",
@@ -54,6 +62,7 @@ _JD_DIMENSION_RULES: tuple[dict[str, Any], ...] = (
     {
         "key": "nonverbal_poise",
         "label": "注视稳定与上肢协同表达",
+        "theoretical_construct": "多模态沟通协同 · 视线驻留与姿态稳态",
         "keywords": ("宣讲", "展示", "演示", "讲师", "产品", "协调", "面对", "汇报"),
         "indicators": ["gaze_stability", "gaze_dwell_p50", "gesture_activity_per_sec", "hand_openness_p50"],
         "advice": "汇报关键数据或系统结构时保持摄像头正向注视与上肢自然进入画面区域。",
@@ -143,6 +152,7 @@ def tool_decompose_jd_competencies(jd_text: str) -> dict[str, Any]:
             observable.append({
                 "key": rule["key"],
                 "label": rule["label"],
+                "theoretical_construct": rule.get("theoretical_construct", ""),
                 "matched_keywords": hits,
                 "required_indicators": list(rule["indicators"]),
                 "critique_focus": rule["advice"],
@@ -151,6 +161,7 @@ def tool_decompose_jd_competencies(jd_text: str) -> dict[str, Any]:
         observable.append({
             "key": _JD_DIMENSION_RULES[0]["key"],
             "label": _JD_DIMENSION_RULES[0]["label"],
+            "theoretical_construct": _JD_DIMENSION_RULES[0].get("theoretical_construct", ""),
             "matched_keywords": ["通用表达前提"],
             "required_indicators": list(_JD_DIMENSION_RULES[0]["indicators"]),
             "critique_focus": _JD_DIMENSION_RULES[0]["advice"],
@@ -158,6 +169,7 @@ def tool_decompose_jd_competencies(jd_text: str) -> dict[str, Any]:
         observable.append({
             "key": _JD_DIMENSION_RULES[1]["key"],
             "label": _JD_DIMENSION_RULES[1]["label"],
+            "theoretical_construct": _JD_DIMENSION_RULES[1].get("theoretical_construct", ""),
             "matched_keywords": ["通用审辨边界"],
             "required_indicators": list(_JD_DIMENSION_RULES[1]["indicators"]),
             "critique_focus": _JD_DIMENSION_RULES[1]["advice"],
@@ -173,6 +185,7 @@ def tool_decompose_jd_competencies(jd_text: str) -> dict[str, Any]:
     return {
         "source": "custom_jd",
         "char_count": len(raw),
+        "theory_framework": "Nelson & Narens (1990) / Tankelevitch et al. (CHI 2024) / Lee et al. (CHI 2025)",
         "observable_competencies": observable,
         "blocked_hard_skills": blocked,
         "non_scoring_notice": "岗位拆解仅区分可观测行为线索与不可测硬技能缺口，不生成岗前分值。",
@@ -257,12 +270,12 @@ def tool_align_session_evidence_to_jd(
         if isinstance(row, dict) and row.get("name"):
             ind_map[row["name"]] = row
 
-    ext_meta = (
-        ((payload.get("scene_profile") or {}).get("extensions") or {}).get("metacognition_text") or {}
-    )
-    for row in ext_meta.get("indicators") or []:
-        if isinstance(row, dict) and row.get("name"):
-            ind_map[row["name"]] = row
+    ext_all = (payload.get("scene_profile") or {}).get("extensions") or {}
+    for block_key in ("metacognition_text", "metacognition_regulation"):
+        block = ext_all.get(block_key) or {}
+        for row in block.get("indicators") or []:
+            if isinstance(row, dict) and row.get("name"):
+                ind_map[row["name"]] = row
 
     alignments: list[dict[str, Any]] = []
     n_covered = 0
@@ -317,6 +330,7 @@ def tool_align_session_evidence_to_jd(
         alignments.append({
             "key": comp.get("key"),
             "label": comp.get("label"),
+            "theoretical_construct": _guard_text(str(comp.get("theoretical_construct") or "")),
             "coverage_status": cov_status,
             "critique_focus": _guard_text(str(comp.get("critique_focus") or "")),
             "evidences": evidences,
@@ -330,6 +344,7 @@ def tool_align_session_evidence_to_jd(
         "position_id": position_id or "custom_jd",
         "position_title": role_title,
         "scoring_participation": False,
+        "theory_framework": "人机协同元认知监测—核验—排错三环框架（CHI 2024/2025；Nelson & Narens 1990）",
         "non_scoring_statement": "本对照仅核查岗位可观测需求在本场多模态录测中的证据覆盖与缺失，不出具契合度分数或筛序结论。",
         "summary_counts": {
             "competencies_total": len(competencies),

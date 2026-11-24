@@ -781,11 +781,13 @@ def activate_question_bank(module):
 # ── 本地按需辅助接口（严格隔离：零指标计算、零打分、红线审查 + 毫秒级回退） ──
 @app.route('/api/report/llm-assist', methods=['POST'])
 def report_llm_assist():
-    """按需生成脱敏报告的可读化摘要或基于证据缺口的追问提纲。"""
+    """按需生成脱敏报告的可读化文字观察报告或基于证据缺口的追问提纲。"""
     body = request.get_json(silent=True) or {}
     session_id = (body.get("session_id") or request.args.get("session_id") or "").strip() or None
     mode = (body.get("mode") or "summary").strip()
     use_llm = bool(body.get("use_llm", True))
+    refresh = bool(body.get("refresh", False))
+    req_scene = (body.get("scene_profile") or "").strip() or None
     try:
         from report_frontend.data_loader import LogDataLoader
         from report_frontend.l1_report import build_l1_report
@@ -796,9 +798,16 @@ def report_llm_assist():
         payload = build_l1_report(
             loader.target_session,
             logs=data,
-            scene_profile=(body.get("scene_profile") or "").strip() or None,
+            scene_profile=req_scene,
         )
-        res = assist_report(payload, mode=mode, use_llm=use_llm)
+        res = assist_report(
+            payload,
+            mode=mode,
+            use_llm=use_llm,
+            scene_profile=req_scene,
+            session_id=loader.target_session,
+            refresh=refresh,
+        )
         return jsonify({
             "status": "success",
             "session_id": loader.target_session,

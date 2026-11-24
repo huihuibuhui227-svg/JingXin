@@ -1,14 +1,15 @@
 # report_frontend/longitudinal_tracker.py
-"""《衡才智析》个体内多访次纵向追踪与跨场对比引擎（严守非医疗、不给分与可比性原则）。
+"""《衡才智析》个体内多访次纵向追踪与跨场对比引擎（严守非医疗、不给分与非遍历性原则）。
 
-方法学借鉴并产品化 `subject_trend.py`：
-1. 严格匿名建档：仅存 `subject_code`（如 `SUBJ-001`）、场景标识与绑定访次序列，
-   不保存真实姓名、学号或任何个体推断结论；
-2. 跨版本定义守卫：若多场次跨越 `capture:gen1 / gen1.5 / gen2` 或重算脚本哈希变化，
+方法学依据与设计纪律（Molenaar 2004；Fisher et al. 2018 PNAS；Onnela & Rauch 2016；
+Cummins et al. 2015；Roberts 1959 EWMA；Leys et al. 2013 MAD）：
+1. 严格匿名建档与非遍历性：仅存匿名编号 `subject_code`（如 `SUBJ-001`），
+   禁止跨人群均值对照、群体排名或任何个体标签化结论；
+2. 跨版本定义守卫：若多场次跨越不同采录口径代次或重算清单哈希变化，
    显式标注为不可比并拒绝拟合跨越代差的连线；
-3. 缺口绝不当零守卫：某次缺测或未达门限时保留空值与原始缺口代码，图表按断点断开；
-4. 首访自身基线锚定：以首次有效可比访次作为个人参考原点，计算客观动力学指标的
-   相对变化幅度与中间半数分布带，遇模型保形升级或分布偏离时提示人工复核。
+3. 缺口绝不当零守卫：某次缺测或未达门限时保留空值与原始缺口代码，EWMA 遇缺口断链重置；
+4. 个体内稳健过程控制：结合首访自身基线锚定、指数加权移动平均（EWMA，λ=0.4）
+   以及个人中位数 ± 1.4826 × MAD 稳健偏离带，仅给出客观波动与人工核查提醒。
 """
 from __future__ import annotations
 
@@ -34,6 +35,7 @@ _REPO = Path(__file__).resolve().parent.parent
 _DEFAULT_STORE_PATH = _REPO / "data" / "longitudinal_subjects.json"
 _SUBJECT_CODE_RE = re.compile(r"^[A-Za-z0-9_-]{2,48}$")
 _LOCK = threading.Lock()
+_EWMA_LAMBDA = 0.4
 
 VERIFICATION_COMPLIANCE_NOTE = (
     "非医疗器械 · 本模块仅计算匿名个体多次采录的客观声学与运动学指标变化轨迹，"
@@ -41,6 +43,7 @@ VERIFICATION_COMPLIANCE_NOTE = (
 )
 
 TRACKED_METRICS: tuple[dict[str, str], ...] = (
+    {"key": "speech_rate", "label": "陈述语速", "unit": "字/秒", "source": "l1"},
     {"key": "voiced_ratio", "label": "语音发声占比", "unit": "比例", "source": "l1"},
     {"key": "pause_structure_entropy", "label": "停顿节律均匀度", "unit": "无量纲", "source": "l1"},
     {"key": "pitch_variability_per_sec", "label": "基频每秒变动幅度", "unit": "Hz/秒", "source": "l1"},
@@ -48,6 +51,19 @@ TRACKED_METRICS: tuple[dict[str, str], ...] = (
     {"key": "gesture_activity_per_sec", "label": "上肢每秒活动幅度", "unit": "单位/秒", "source": "l1"},
     {"key": "head_angular_vel_3d", "label": "头姿三维角速度中位", "unit": "度/秒", "source": "fv2"},
 )
+
+LONGITUDINAL_METHODOLOGY: dict[str, Any] = {
+    "paradigm": "非遍历性个体内纵向追踪（Idiographic N-of-1）",
+    "smoothing": "EWMA 指数加权移动平均（λ = 0.4，遇缺口与跨代次自动断链重置）",
+    "robust_band": "个人中位数 ± 1.4826 × MAD（有效访次不少于 3 次时启用）",
+    "references": [
+        "Molenaar (2004) 面向个体特质科学（Idiographic Science）的非遍历性证明",
+        "Fisher, Medaglia & Jeronimus (2018, PNAS) 群体均值向个体推演的不可泛化性",
+        "Onnela & Rauch (2016) 低侵入高隐私数字行为表型观测范式",
+        "Cummins et al. (2015, Speech Comm.) 声学韵律与停顿节律纵向敏感性综述",
+        "Roberts (1959) EWMA 过程控制平滑与 Leys et al. (2013) 稳健中位数绝对偏差",
+    ],
+}
 
 
 def store_path() -> Path:
@@ -287,13 +303,34 @@ def _extract_session_snapshot(
     }
 
 
+def _classify_drift_status(
+    value: float | None,
+    *,
+    is_first_valid: bool,
+    n_valid: int,
+    robust_z: float | None,
+) -> str:
+    if value is None:
+        return "缺测"
+    if is_first_valid:
+        return "基线参考"
+    if n_valid < 3 or robust_z is None:
+        return "样本积累中"
+    az = abs(robust_z)
+    if az >= 3.0:
+        return "持续偏移·建议人工复核"
+    if az >= 2.0:
+        return "轻度偏离·建议核查环境"
+    return "个人稳定区间"
+
+
 def compute_trajectory(
     visit_records: list[dict[str, Any]],
     *,
     scene_profile: str = "longitudinal_followup",
     loader: LogDataLoader | None = None,
 ) -> dict[str, Any]:
-    """给定有序访次列表，输出跨版本可比性守卫与个体内首访基线偏移轨迹。"""
+    """给定有序访次列表，输出跨版本可比性守卫与个体内稳健纵向过程控制轨迹。"""
     snapshots: list[dict[str, Any]] = []
     for idx, v in enumerate(visit_records, 1):
         sid = str(v.get("session_id") or "").strip()
@@ -316,7 +353,7 @@ def compute_trajectory(
         comparability_reasons.append("存在无法确定定义版本的场次，按规范禁止强制连线。")
     if len(unique_versions) > 1:
         comparability_reasons.append(
-            f"所选场次横跨多个采集定义版本（{', '.join(unique_versions)}），"
+            f"所选场次横跨多个采集口径版本（{', '.join(unique_versions)}），"
             "不同代次分母/坐标系不可混算，仅支持分代并排核对。"
         )
     if any(not s["has_loaded_logs"] for s in snapshots):
@@ -330,17 +367,24 @@ def compute_trajectory(
     )
 
     series_list: list[dict[str, Any]] = []
+    drift_alerts: list[str] = []
     for spec in TRACKED_METRICS:
         k = spec["key"]
-        pts: list[dict[str, Any]] = []
+        raw_pts: list[dict[str, Any]] = []
         valid_vals: list[float] = []
         anchor_val: float | None = None
+        ewma_curr: float | None = None
+        ewma_latest: float | None = None
+        first_valid_assigned = False
+
         for snap in snapshots:
             m = snap["metrics"].get(k) or {}
             v = m.get("value")
             if isinstance(v, (int, float)) and math.isfinite(float(v)):
                 vf = float(v)
                 valid_vals.append(vf)
+                is_first = not first_valid_assigned
+                first_valid_assigned = True
                 if anchor_val is None:
                     anchor_val = vf
                 delta_pct = (
@@ -348,26 +392,89 @@ def compute_trajectory(
                     if anchor_val is not None and abs(anchor_val) > 1e-6
                     else (0.0 if anchor_val is not None else None)
                 )
+                if comparable:
+                    ewma_curr = vf if ewma_curr is None else (_EWMA_LAMBDA * vf + (1.0 - _EWMA_LAMBDA) * ewma_curr)
+                    ewma_rounded = round(float(ewma_curr), 6)
+                    ewma_latest = ewma_rounded
+                else:
+                    ewma_curr = None
+                    ewma_rounded = None
             else:
+                is_first = False
                 delta_pct = None
-            pts.append({
+                ewma_curr = None
+                ewma_rounded = None
+
+            raw_pts.append({
                 "visit_order": snap["visit_order"],
                 "visit_label": snap["visit_label"],
                 "session_id": snap["session_id"],
                 "value": m.get("value"),
                 "delta_from_t0_pct": delta_pct,
+                "ewma_value": ewma_rounded,
                 "confidence": m.get("confidence") or "无",
                 "gap": m.get("gap"),
+                "_is_first_valid": is_first,
             })
 
         arr = np.asarray(valid_vals, dtype=float) if valid_vals else np.array([], dtype=float)
+        n_valid = len(arr)
+        p25_val = round(float(np.quantile(arr, 0.25)), 6) if n_valid >= 1 else None
+        med_val = round(float(np.median(arr)), 6) if n_valid >= 1 else None
+        p75_val = round(float(np.quantile(arr, 0.75)), 6) if n_valid >= 1 else None
+        iqr_val = round(float(p75_val - p25_val), 6) if (p75_val is not None and p25_val is not None) else None
+        if n_valid >= 1:
+            mad_raw = float(np.median(np.abs(arr - float(np.median(arr)))))
+            mad_val = round(mad_raw, 6)
+        else:
+            mad_raw = 0.0
+            mad_val = None
+        robust_scale = 1.4826 * mad_raw if mad_raw > 1e-6 else None
+
+        pts: list[dict[str, Any]] = []
+        n_drift_flagged = 0
+        for p in raw_pts:
+            val = p["value"]
+            if (
+                comparable
+                and n_valid >= 3
+                and isinstance(val, (int, float))
+                and med_val is not None
+                and robust_scale is not None
+            ):
+                rz = round((float(val) - float(med_val)) / robust_scale, 3)
+            else:
+                rz = None
+            status = _classify_drift_status(
+                val if isinstance(val, (int, float)) else None,
+                is_first_valid=bool(p.pop("_is_first_valid", False)),
+                n_valid=n_valid,
+                robust_z=rz,
+            )
+            if status.startswith(("轻度偏离", "持续偏移")):
+                n_drift_flagged += 1
+                drift_alerts.append(
+                    f"{p['visit_label']}（{spec['label']}）呈现{status}（偏离系数 {rz:+.2f}），"
+                    "建议核查采录环境、麦距或坐姿变化。"
+                )
+            pts.append({
+                **p,
+                "robust_drift_z": rz,
+                "drift_status": status,
+            })
+
         summary = {
-            "n_valid_visits": len(valid_vals),
+            "n_valid_visits": n_valid,
             "t0_baseline": round(float(anchor_val), 6) if anchor_val is not None else None,
-            "p25": round(float(np.quantile(arr, 0.25)), 6) if len(arr) >= 1 else None,
-            "median": round(float(np.median(arr)), 6) if len(arr) >= 1 else None,
-            "p75": round(float(np.quantile(arr, 0.75)), 6) if len(arr) >= 1 else None,
-            "drawable": comparable and len(valid_vals) >= 2,
+            "p25": p25_val,
+            "median": med_val,
+            "p75": p75_val,
+            "mad": mad_val,
+            "iqr": iqr_val,
+            "ewma_lambda": _EWMA_LAMBDA,
+            "ewma_latest": ewma_latest,
+            "n_drift_flagged": n_drift_flagged,
+            "drawable": comparable and n_valid >= 2,
         }
         series_list.append({
             "key": k,
@@ -389,11 +496,13 @@ def compute_trajectory(
                 f"{snap['visit_label']}（{snap['session_id']}）处于保形不确定升级状态，"
                 "建议人工确认低置信指标项。"
             )
+    review_alerts.extend(drift_alerts[:4])
 
     return {
         "comparable": comparable,
         "def_versions": unique_versions,
         "comparability_notes": comparability_reasons,
+        "methodology": LONGITUDINAL_METHODOLOGY,
         "n_visits": len(snapshots),
         "visits": snapshots,
         "series": series_list,
@@ -426,7 +535,7 @@ def compare_sessions(
     scene_profile: str = "research_interview",
     loader: LogDataLoader | None = None,
 ) -> dict[str, Any]:
-    """面向基地一科研过程的多场会话并排与纵向对比接口。"""
+    """面向研思循证场景的多场会话并排与纵向对比接口。"""
     cleaned: list[dict[str, Any]] = []
     for idx, raw_sid in enumerate(session_ids, 1):
         sid = media_retention.validate_session_id(str(raw_sid or "").strip())

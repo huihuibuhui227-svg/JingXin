@@ -120,3 +120,52 @@ def test_longitudinal_and_compare_flask_endpoints(tmp_path, monkeypatch):
     r_cmp = client.get("/api/reports/compare?session_ids=20261015_120000_ab12,20261016_120000_cd34")
     assert r_cmp.status_code == 200
     assert r_cmp.get_json()["n_visits"] == 2
+
+
+def test_idiographic_ewma_and_mad_robust_drift(tmp_path, monkeypatch):
+    class _FakeLoader:
+        def get_fused_latest_data(self, sid):
+            return {"mock": True}
+
+    series_map = {
+        "20261010_100000_aa01": 4.0,
+        "20261012_100000_aa02": 4.1,
+        "20261014_100000_aa03": 3.9,
+        "20261016_100000_aa04": 4.0,
+        "20261018_100000_aa05": 6.5,  # 明显个人偏移
+    }
+
+    def _mock_report(sid, logs=None, scene_profile=None):
+        val = series_map[sid]
+        return {
+            "coverage": {"n_passed": 9, "n_slots": 14, "confidence_cap": "高"},
+            "l1": {
+                "indicators": [
+                    {"name": "speech_rate", "value": val, "confidence": "高", "gap": None},
+                    {"name": "voiced_ratio", "value": 0.42 if sid != "20261014_100000_aa03" else None, "confidence": "高" if sid != "20261014_100000_aa03" else "无", "gap": None if sid != "20261014_100000_aa03" else "no_samples"},
+                ],
+                "feature_layer_v2": {"tracks": {"face_kinematics": {"pose_mode": "3d_matrix", "head_angular_velocity_3d_p50": 10.0}}},
+                "blendshape_calibration": {"pose_mode": "3d_matrix"},
+            },
+        }
+
+    monkeypatch.setattr(lt, "build_l1_report", _mock_report)
+    traj = lt.compare_sessions(list(series_map.keys()), scene_profile="longitudinal_followup", loader=_FakeLoader())
+    assert traj["comparable"] is True
+    assert "Molenaar" in " ".join(traj["methodology"]["references"])
+
+    sr = next(s for s in traj["series"] if s["key"] == "speech_rate")
+    assert sr["summary"]["ewma_lambda"] == 0.4
+    assert sr["summary"]["mad"] is not None
+    assert sr["summary"]["n_drift_flagged"] >= 1
+    last_pt = sr["points"][-1]
+    assert last_pt["ewma_value"] is not None
+    assert last_pt["robust_drift_z"] >= 3.0
+    assert "持续偏移" in last_pt["drift_status"]
+
+    # voiced_ratio 在第 3 次访次缺失时，EWMA 必须断开置 None 并从第 4 次重新初始化
+    vr = next(s for s in traj["series"] if s["key"] == "voiced_ratio")
+    assert vr["points"][2]["value"] is None
+    assert vr["points"][2]["ewma_value"] is None
+    assert vr["points"][3]["ewma_value"] == 0.42
+

@@ -97,3 +97,55 @@ def test_app_scene_profiles_endpoint_and_structured_switch(monkeypatch):
     rep_json = r_rep.get_json()
     assert rep_json["result"]["scene_profile"]["id"] == "longitudinal_followup"
     assert rep_json["result"]["l1"]["n_total"] == 41
+
+
+def test_metacognition_regulation_extensions_and_theory_metadata():
+    profiles = {p["id"]: p for p in scene_profiles.list_scene_profiles()}
+    assert profiles["research_interview"]["name"].startswith("研思循证")
+    assert profiles["ai_metacognition"]["name"].startswith("元智审辨")
+    assert profiles["longitudinal_followup"]["name"].startswith("时序观微")
+    for pid, prof in profiles.items():
+        tf = prof.get("theoretical_foundation") or {}
+        assert tf.get("framework"), f"{pid} missing framework"
+        assert len(tf.get("references") or []) >= 3, f"{pid} needs literature refs"
+
+    rich_text = (
+        "原回答仅统计整体均值，但该前提不成立且忽视了对照组缺失与样本量差异这一边界条件。"
+        "我们需要先核实原始数据的统计口径与实证依据，问题在于缺少分层复现检验，"
+        "应当改为按对照组基线重新验证并补充文献出处说明。"
+    )
+    ext = scene_extensions.build_scene_extensions(
+        "ai_metacognition",
+        "synthetic_meta_v2",
+        logs={"transcript_text": rich_text},
+        feature_v2=None,
+    )
+    reg = ext["metacognition_regulation"]
+    assert reg["available"] is True
+    by_name = {row["name"]: row for row in reg["indicators"]}
+    assert by_name["evidence_verification_marker_rate"]["value"] > 0
+    assert by_name["metacognitive_regulation_balance"]["value"] == 1.0
+    assert len(ext["all_metacognition_indicators"]) == 4
+
+    # 验证 longitudinal_snapshot 已修复读取 feature_layer_v2 真实路径
+    fv2_mock = {
+        "available": True,
+        "tracks": {
+            "face_kinematics": {
+                "pose_mode": "3d_matrix",
+                "head_angular_velocity_3d_p50": 11.8,
+            },
+            "gesture_smoothness": {"sparc": -2.35},
+        },
+    }
+    ext_fu = scene_extensions.build_scene_extensions(
+        "longitudinal_followup",
+        "synthetic_fu_v2",
+        logs={},
+        feature_v2=fv2_mock,
+    )
+    snap = ext_fu["longitudinal_snapshot"]
+    assert snap["available"] is True
+    assert snap["face_3d_angular_vel_median"] == 11.8
+    assert snap["gesture_sparc_smoothness"] == -2.35
+

@@ -2098,26 +2098,31 @@ class ReportGenerator:
         name = _clean_prose(sp.get("name") or "")
         weight = _clean_prose(sp.get("weight_label") or "")
         banner = _clean_prose(sp.get("compliance_banner") or "")
+        theory = sp.get("theoretical_foundation") or {}
+        theory_fw = _clean_prose(theory.get("framework") or "") if isinstance(theory, dict) else ""
         ext = sp.get("extensions") or {}
         ext_html = ""
-        meta_ext = ext.get("metacognition_text") if isinstance(ext, dict) else None
-        if isinstance(meta_ext, dict) and isinstance(meta_ext.get("indicators"), list):
+        if isinstance(ext, dict):
             rows_html = []
-            for item in meta_ext["indicators"]:
-                if not isinstance(item, dict):
+            for blk_key in ("metacognition_text", "metacognition_regulation"):
+                meta_ext = ext.get(blk_key)
+                if not isinstance(meta_ext, dict) or not isinstance(meta_ext.get("indicators"), list):
                     continue
-                lbl = _clean_prose(item.get("label") or "")
-                val = item.get("value")
-                unit = _clean_prose(item.get("unit") or "")
-                val_txt = "缺口暂不可给" if val is None else f"{_fmt_num(val)} {unit}".strip()
-                conf = _clean_prose(item.get("confidence") or "无")
-                summary = _clean_prose(item.get("summary") or "")
-                rows_html.append(
-                    f"<tr><td><strong>{escape(lbl)}</strong></td>"
-                    f"<td class=\"num\">{escape(val_txt)}</td>"
-                    f"<td>{escape(conf)}</td>"
-                    f"<td>{escape(summary)}</td></tr>"
-                )
+                for item in meta_ext["indicators"]:
+                    if not isinstance(item, dict):
+                        continue
+                    lbl = _clean_prose(item.get("label") or "")
+                    val = item.get("value")
+                    unit = _clean_prose(item.get("unit") or "")
+                    val_txt = "缺口暂不可给" if val is None else f"{_fmt_num(val)} {unit}".strip()
+                    conf = _clean_prose(item.get("confidence") or "无")
+                    summary = _clean_prose(item.get("summary") or "")
+                    rows_html.append(
+                        f"<tr><td><strong>{escape(lbl)}</strong></td>"
+                        f"<td class=\"num\">{escape(val_txt)}</td>"
+                        f"<td>{escape(conf)}</td>"
+                        f"<td>{escape(summary)}</td></tr>"
+                    )
             if rows_html:
                 ext_html = (
                     "<h3>审辨修正扩展观测量</h3>"
@@ -2128,17 +2133,50 @@ class ReportGenerator:
 
         overrides = sp.get("explicit_blocked_overrides") or []
         ov_chips = "".join(
-            f'<span class="cov-chip">主动封停：{escape(_clean_prose(o.get("label") or ""))}</span>'
+            f'<span class="cov-chip">不予输出：{escape(_clean_prose(o.get("label") or ""))}</span>'
             for o in overrides
             if isinstance(o, dict) and o.get("label")
         )
         head_tag = f"{name}（{weight}）" if weight else name
+        theory_p = f'<p class="note">理论基础：{escape(theory_fw)}</p>' if theory_fw else ""
         banner_p = f'<p class="note">{escape(banner)}</p>' if banner else ""
         chips_div = f'<div class="cov-chips">{ov_chips}</div>' if ov_chips else ""
         return (
             f'<div class="referee-card">'
             f'<div class="referee-head"><span class="stage-badge stage-info">当前场景：{escape(head_tag)}</span></div>'
-            f"{banner_p}{chips_div}{ext_html}</div>"
+            f"{theory_p}{banner_p}{chips_div}{ext_html}</div>"
+        )
+
+    def _render_readable_narrative_section(self, result: Dict[str, Any]) -> str:
+        """渲染自然流畅的可读行为观察正文（纯规则确定性合成，零打分、零内部术语）。"""
+        try:
+            from .local_llm_assistant import assist_report
+            res = assist_report(result, mode="narrative_review", use_llm=False)
+            sections = res.get("sections") or []
+        except Exception:
+            return ""
+        if not sections:
+            return ""
+        cards_html: list[str] = []
+        for sec in sections:
+            title = _clean_prose(sec.get("title") or "")
+            body = _clean_prose(sec.get("body") or "")
+            if not title or not body:
+                continue
+            cards_html.append(
+                f'<div style="margin:10px 0 12px;">'
+                f'<h3 style="margin:0 0 4px;font-size:15px;">{escape(title)}</h3>'
+                f'<p style="margin:0;line-height:1.8;">{escape(body)}</p>'
+                f"</div>"
+            )
+        if not cards_html:
+            return ""
+        return (
+            "<h2>可读行为观察报告</h2>"
+            '<div class="referee-card">'
+            f"{''.join(cards_html)}"
+            '<p class="note">说明：以上文字由真实实测指标与采集边界自动汇总生成，不参与任何打分或定性划档。</p>'
+            "</div>"
         )
 
     def _build_html_report(self, result: Dict[str, Any], chart_paths: Dict[str, Any],
@@ -2272,6 +2310,7 @@ class ReportGenerator:
         instrument_block = self._render_instrument_disclosure(result)
         notices_block = self._render_evidence_chain_notices(result)
         scene_block = self._render_scene_profile_section(result)
+        narrative_block = self._render_readable_narrative_section(result)
         referee_block = self._render_referee_ml_section(result)
         extra_appendices = self._render_extra_appendices(result)
 
@@ -2303,6 +2342,7 @@ class ReportGenerator:
 <p class="lead">{self._lead_sentence(result)}</p>
 <p class="note">{result['summary_narrative']}</p>
 {scene_block}
+{narrative_block}
 {notices_block}
 
 {cov_block}

@@ -318,9 +318,11 @@ git add <具体路径>        # ★ 禁止 git add -A
 | `report_frontend/feature_layer_v2.py` + `behavior_regime_model.py` | 三维角速度、`.npz` 声学动态、`SPARC` 运动平滑、`pycatch22` 22 维动力学（`12.1–20.1 ms`）及 K=4 无监督 GMM 行为节律时间轴 |
 | `report_frontend/referee_ml_engine.py` + `tools/train_referee_ml.py` | `GaussianHMM + ruptures.Pelt(rbf)` 阶段切分（5 折抖动降低 `30.11%`，平均驻留 `42.13s`，ARI `0.9732`）；基于下游 G1–G4 真实结局监督（`20 / 12 / 15` 分布，零合成样、彻底去自循环）训练 `IsolationForest + Split Conformal`（`alpha=0.10`，5 折准确率 `0.8936`、Macro-F1 `0.8752`、保形覆盖 `0.9787`、OOD AUROC `0.9802`；7 维纯底层遥测消融准确率 `0.9149`）与白盒可加归因 |
 | `tools/jx_gpu_vs_cpu_referee_bench.py` | 分层算力决策验证：常驻单场全套 CPU 仅需 `17.70 ms`（核心推理 `4.85 ms`），Tesla P40 FP32 TCN+BiGRU 预热后 256 场并发达 `2,062.7 场/秒`（较 CPU 提速 `10.48×`） |
-| `report_frontend/report_generator.py` & `local_llm_assistant.py` | 离线单文件 HTML 报告补全 `referee_ml` 阶段 SVG/归因图 SVG 及 3D 校准/V2 动力学折叠附录；本地解读默认切换至 GPU `:8081` (`Qwen2.5-14B`，12s 超时 + 红线硬复检) |
+| `report_frontend/report_generator.py` & `local_llm_assistant.py` | 离线单文件 HTML 报告内置 5 段「可读行为观察报告」与 3D 校准/`referee_ml` 同源渲染；本地 `:8081 Qwen2.5-14B`（`70s` 超时 + 量纲方向校对 + 红线硬复检 + 确定性规则多段回退）生成导师审阅版 / 个人成长版 / 追问提纲 |
+| `report_frontend/scene_profiles.json` & `scene_extensions.py` | 三基地声明式切换：**研思循证 · 科研行为过程分析** / **元智审辨 · AI 元能力与职业实训**（CHI 2024/2025 与 Nelson & Narens 4 项规则指标 + `event_windows` 三段切窗） / **时序观微 · 匿名个体纵向随访**（`anonymous_kinematics_only` 零原片挡位）；保持核心 41 项指标锁死 |
+| `report_frontend/longitudinal_tracker.py` & `mcp_career/` | 非遍历性个体（$N$-of-1）纵向追踪引擎：7 项声学与真 3D 运动学指标、EWMA ($\lambda=0.4$ 遇缺口与跨代自动重置)、个人 $\text{Median} \pm 1.4826 \times \text{MAD}$ 稳健偏离指数；4 工具 JSON-RPC 2.0 Career MCP 对齐理论构念且严禁打分 |
 | `app.py` (`GET /api/research/benchmarks`) & `research_lab/` | 只读聚合 MIT（`r=0.4023`）、RecruitView（2,011 文本 / 160 多模态）、ChaLearn V2（`1-MAE=0.9126`）与中英文行为节律迁移（联合一致率 `94.86%`）基准，严格不参与实际打分 |
 
 ### 本阶段新增测试与门禁实测
-- 新增测试：`tests/test_html_report_v2_parity.py`、`tests/test_backfill_face_3d.py`、`tests/test_referee_ml.py`、`tests/test_blendshape_calibration.py`、`tests/test_feature_layer_v2.py`、`tests/test_face_dual_instrument.py`、`tests/test_face_3d_pose_capture.py`、`tests/test_capture_layer_v2.py`、`tests/test_behavior_regime.py`、`tests/test_gesture_rtmw_backend.py`、`tests/test_voice_instrument_upgrade.py`。
-- 全仓验证：全量 `pytest` 实测 `1,744 passed, 1 skipped`；`tools/jx_selfcheck.py --quiet`、`tools/jx_inventory.py --check` 与 `tools/jx_pii_guard.py` 均全绿通过。
+- 新增与加强测试：`tests/test_html_report_v2_parity.py`、`tests/test_scene_profiles.py`、`tests/test_mcp_career.py`、`tests/test_longitudinal_tracker.py`、`tests/test_signal_quality_and_local_assistant.py`、`tests/test_backfill_face_3d.py`、`tests/test_referee_ml.py`、`tests/test_blendshape_calibration.py`。
+- 全仓验证：全量 `pytest` 实测 `1,759 passed, 1 skipped`；`tools/jx_selfcheck.py --quiet`、`tools/jx_inventory.py --check` 与 `tools/jx_pii_guard.py` 均全绿通过。

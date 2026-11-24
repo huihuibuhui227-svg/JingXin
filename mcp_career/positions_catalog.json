@@ -1,5 +1,5 @@
 {
-  "schema_version": "career_positions_v1",
+  "schema_version": "career_positions_v2",
   "positions": [
     {
       "position_id": "pos_ai_algo",
@@ -11,25 +11,33 @@
         {
           "key": "structured_reasoning",
           "label": "技术方案结构化阐述",
+          "theoretical_construct": "Schraw & Dennison (1994) · 认知规划与条理阐述",
           "required_indicators": ["discourse_marker_rate", "answer_detail_chars_p50", "speech_rate"],
           "critique_focus": "阐述工程权衡时能否使用明确因果连接词与分点约束"
         },
         {
           "key": "ai_premise_critique",
           "label": "AI 输出前提假设质疑与边界限定",
-          "required_indicators": ["counter_premise_marker_rate", "revision_anchor_density"],
-          "critique_focus": "面对生成方案时能否定位幻觉前提、反例边界并给出可复现修正"
+          "theoretical_construct": "Tankelevitch et al. (CHI 2024) & Lee et al. (CHI 2025) · 监测、核验与排错三环",
+          "required_indicators": [
+            "counter_premise_marker_rate",
+            "evidence_verification_marker_rate",
+            "revision_anchor_density",
+            "metacognitive_regulation_balance"
+          ],
+          "critique_focus": "面对生成方案时能否依次完成前提质疑、口径溯源与可复现修正方案"
         },
         {
           "key": "vocal_engagement",
           "label": "陈述节奏与停顿控制",
+          "theoretical_construct": "Nelson & Narens (1990) · 表达过程监测与节律调控",
           "required_indicators": ["pause_structure_entropy", "voiced_ratio", "pitch_variability_per_sec"],
           "critique_focus": "关键推理转折处的停顿分布是否均匀、避免长时间无序卡顿"
         }
       ],
       "blocked_hard_skills": [
         "CUDA 内核调优与大模型分布式训练线上代码实测",
-        "LeetCode / 算法白板手写编码通过率",
+        "算法白板手写编码与在线编程测试通过率",
         "过往开源仓库与论文源码工程完整度"
       ],
       "sample_ai_critique_prompt": "AI 生成建议称「只需对所有训练样本按均方差归一化后再用交叉验证均分，就能保证线上零分布偏移」。请完成：① 找出其中前提混淆漏洞；② 举例说明分布漂移边界；③ 口头阐述可验证的替代校验流程。"
@@ -44,18 +52,26 @@
         {
           "key": "metric_rigor",
           "label": "数据口径核对与反例审辨",
-          "required_indicators": ["counter_premise_marker_rate", "revision_anchor_density", "lexical_diversity"],
-          "critique_focus": "能否敏锐识别分母口径错配、代数恒等冗余与样本泄露假设"
+          "theoretical_construct": "Lee et al. (CHI 2025) · 信息核验与口径求证",
+          "required_indicators": [
+            "counter_premise_marker_rate",
+            "evidence_verification_marker_rate",
+            "revision_anchor_density",
+            "lexical_diversity"
+          ],
+          "critique_focus": "能否敏锐识别分母口径错配、代数恒等冗余与样本泄露假设并要求对照核验"
         },
         {
           "key": "fluency_delivery",
           "label": "条理化口头汇报密度",
+          "theoretical_construct": "Schraw & Dennison (1994) · 信息整合与规范陈述",
           "required_indicators": ["speech_rate", "pause_structure_entropy", "answer_detail_chars_p50"],
           "critique_focus": "结论先行的详尽阐述与句间停顿节律稳定度"
         },
         {
           "key": "gaze_poise",
           "label": "面向汇报对象的目光保持与姿态稳定",
+          "theoretical_construct": "多模态沟通协同 · 视线驻留与姿态稳态",
           "required_indicators": ["gaze_stability", "gaze_dwell_p50"],
           "critique_focus": "阐述关键结论时视线聚焦驻留与头姿稳定度"
         }
@@ -77,18 +93,27 @@
         {
           "key": "academic_critique",
           "label": "实验设计漏洞定位与修正闭环",
-          "required_indicators": ["counter_premise_marker_rate", "revision_anchor_density", "discourse_marker_rate"],
-          "critique_focus": "能否识别对比基线缺失与消融实验漏洞，并提出可落地对照设计"
+          "theoretical_construct": "Nelson & Narens (1990) & 鄢章华 (2026) · 批判质疑、实证求证与修正",
+          "required_indicators": [
+            "counter_premise_marker_rate",
+            "evidence_verification_marker_rate",
+            "revision_anchor_density",
+            "metacognitive_regulation_balance",
+            "discourse_marker_rate"
+          ],
+          "critique_focus": "能否识别对比基线缺失与消融实验漏洞，援引实证来源并提出可落地对照设计"
         },
         {
           "key": "response_readiness",
           "label": "学术追问反应与阐述深度",
+          "theoretical_construct": "Schraw & Dennison (1994) · 理解监测与实时自我修复",
           "required_indicators": ["response_latency_sec", "answer_detail_chars_p50", "self_repair_rate"],
           "critique_focus": "被追问边界条件时的组织反应时长、自我修正频率与阐述详尽度"
         },
         {
           "key": "nonverbal_emphasis",
           "label": "辅助解释手势活跃与开合度",
+          "theoretical_construct": "科学阐述多模态协同 · 上肢示意自然度",
           "required_indicators": ["gesture_activity_per_sec", "hand_openness_p50"],
           "critique_focus": "汇报方法结构时上肢协同示意自然度"
         }
@@ -110,12 +135,19 @@
         {
           "key": "system_boundary_critique",
           "label": "边界条件与降级策略审辨",
-          "required_indicators": ["counter_premise_marker_rate", "revision_anchor_density"],
+          "theoretical_construct": "Tankelevitch et al. (CHI 2024) · 输出边界审查与防错调控",
+          "required_indicators": [
+            "counter_premise_marker_rate",
+            "evidence_verification_marker_rate",
+            "revision_anchor_density",
+            "metacognitive_regulation_balance"
+          ],
           "critique_focus": "识别静默降级、并发竞争与无校验默认值的工程风险并提出修正"
         },
         {
           "key": "concise_explanation",
           "label": "清晰排障思路陈述",
+          "theoretical_construct": "Schraw & Dennison (1994) · 因果拆解与排查陈述",
           "required_indicators": ["discourse_marker_rate", "pause_duration_p50", "voiced_ratio"],
           "critique_focus": "按原因、影响面、修复与回归验证顺序展开条理表达"
         }
@@ -137,12 +169,19 @@
         {
           "key": "auditability_mindset",
           "label": "模型边界与可审计性审辨",
-          "required_indicators": ["counter_premise_marker_rate", "revision_anchor_density", "discourse_marker_rate"],
+          "theoretical_construct": "Lee et al. (CHI 2025) · 任务把关（Task Stewardship）与审辨",
+          "required_indicators": [
+            "counter_premise_marker_rate",
+            "evidence_verification_marker_rate",
+            "revision_anchor_density",
+            "discourse_marker_rate"
+          ],
           "critique_focus": "面对高准确率宣传时能否追问样本切分泄露、分布外拒识及可追溯日志"
         },
         {
           "key": "steady_presentation",
           "label": "合规审查汇报节奏稳健度",
+          "theoretical_construct": "多模态清晰度 · 语音韵律与注视稳态",
           "required_indicators": ["gaze_stability", "pause_structure_entropy", "speech_rate"],
           "critique_focus": "说明不确定性与人工复核转交门限时的沉着连贯阐述"
         }
@@ -164,18 +203,25 @@
         {
           "key": "workflow_critique",
           "label": "交互幻觉防范与用户引导审辨",
-          "required_indicators": ["counter_premise_marker_rate", "revision_anchor_density", "answer_detail_chars_p50"],
+          "theoretical_construct": "Tankelevitch et al. (CHI 2024) · 人机工作流编排与认知摩擦设计",
+          "required_indicators": [
+            "counter_premise_marker_rate",
+            "revision_anchor_density",
+            "metacognitive_regulation_balance",
+            "answer_detail_chars_p50"
+          ],
           "critique_focus": "能否看出端到端黑盒展示的风险并重塑「透明证据 + 人工兜底」交互"
         },
         {
           "key": "expressive_presence",
-          "label": "方案宣讲感染力与手势辅助",
+          "label": "方案宣讲与手势辅助",
+          "theoretical_construct": "人际清晰传达 · 语调起伏与协同手势",
           "required_indicators": ["smile_duration_p50", "gesture_activity_per_sec", "pitch_variability_per_sec"],
           "critique_focus": "面向评审汇报方案时的语音起伏与手势协同自然度"
         }
       ],
       "blocked_hard_skills": [
-        "完整 Axure / Figma 交互原型交付审阅",
+        "完整交互原型交付物现场审阅",
         "历史产品留存与商业化营收指标核验",
         "跨部门真实项目推动履历"
       ],
@@ -191,19 +237,21 @@
         {
           "key": "design_critique",
           "label": "工程选型与冗余依赖审辨",
+          "theoretical_construct": "Lee et al. (CHI 2025) · 输出审辨与重构调优",
           "required_indicators": ["counter_premise_marker_rate", "revision_anchor_density", "lexical_diversity"],
           "critique_focus": "能否识别盲目引入重型图形库带来的包体膨胀并提出轻量 SVG 替代"
         },
         {
           "key": "clear_narrative",
           "label": "交互规范与无障碍阐述",
+          "theoretical_construct": "Schraw & Dennison (1994) · 结构化系统表达",
           "required_indicators": ["discourse_marker_rate", "pause_structure_entropy", "gaze_dwell_p50"],
           "critique_focus": "说明路由组织与状态边界时的结构化阐述"
         }
       ],
       "blocked_hard_skills": [
-        "TypeScript 类型体操与浏览器底层渲染调优上机测试",
-        "React 并发调度源码级问题定位",
+        "TypeScript 类型与浏览器底层渲染调优上机测试",
+        "前端并发调度源码级问题定位",
         "线上前端监控平台埋点分析实操"
       ],
       "sample_ai_critique_prompt": "AI 建议在每张轻量仪表盘中默认嵌入 1MB 的重型三维图形库并直接渲染复杂阴影装饰。请完成：① 指出信息噪声与性能损耗漏洞；② 给出轻量化可访问性指标；③ 提出原位改版方案。"
@@ -218,20 +266,27 @@
         {
           "key": "geometry_critique",
           "label": "空间坐标系与物理约束审辨",
-          "required_indicators": ["counter_premise_marker_rate", "revision_anchor_density", "discourse_marker_rate"],
+          "theoretical_construct": "Nelson & Narens (1990) & Baltrusaitis (2018) · 量纲与前提核验",
+          "required_indicators": [
+            "counter_premise_marker_rate",
+            "evidence_verification_marker_rate",
+            "revision_anchor_density",
+            "discourse_marker_rate"
+          ],
           "critique_focus": "识别 2D 像素投影代替 3D 世界坐标引起的透视偏差并提出解耦方案"
         },
         {
           "key": "technical_precision",
           "label": "高频术语切换下的口语准确度",
+          "theoretical_construct": "言辞精准度 · 低口误修正与稳态语流",
           "required_indicators": ["self_repair_rate", "speech_rate", "voiced_ratio"],
           "critique_focus": "双语专业词汇混讲场景下的停顿控制与低口误修正密度"
         }
       ],
       "blocked_hard_skills": [
-        "C++ / Eigen 手写 PnP 矩阵求解编码实测",
+        "C++ / Eigen 手写矩阵求解编码实测",
         "标定板现场实拍与内参重投影误差调试",
-        "嵌入式端算子 INT8 量化部署实操"
+        "嵌入式端算子量化部署实操"
       ],
       "sample_ai_critique_prompt": "AI 提出「用未标定普通摄像头的二维像素距离直接等价为头部三维转角速度」。请完成：① 指出距离随景深变化引起的尺度耦合错误；② 说明 4×4 变换矩阵去耦合的思路；③ 提出双仪器残差校准验证方法。"
     },
@@ -245,12 +300,19 @@
         {
           "key": "pedagogical_critique",
           "label": "人机协同误区示范与纠偏阐述",
-          "required_indicators": ["counter_premise_marker_rate", "revision_anchor_density", "answer_detail_chars_p50"],
+          "theoretical_construct": "鄢章华等 (2026) · 「教师—AI—学生」三元协同与能力缺口定位",
+          "required_indicators": [
+            "counter_premise_marker_rate",
+            "revision_anchor_density",
+            "metacognitive_regulation_balance",
+            "answer_detail_chars_p50"
+          ],
           "critique_focus": "能否示范拆解大模型表面流利但无事实支撑的话术"
         },
         {
           "key": "teaching_clarity",
-          "label": "面向学生群体的语调与态势亲和表现",
+          "label": "面向学生群体的语调与态势引导",
+          "theoretical_construct": "教学互动多模态 · 韵律变化与注视陪伴",
           "required_indicators": ["pitch_variability_per_sec", "smile_duration_p50", "gesture_activity_per_sec", "gaze_dwell_p50"],
           "critique_focus": "讲授过程中适度的语调抑扬、稳定视线关注与开放手势引导"
         }
@@ -272,12 +334,19 @@
         {
           "key": "compliance_critique",
           "label": "条款冲突与越权风险审辨",
-          "required_indicators": ["counter_premise_marker_rate", "revision_anchor_density", "discourse_marker_rate"],
-          "critique_focus": "从公开研究数据集商用限制、GPL 传染条文与生物特征留存中精准抓出红线"
+          "theoretical_construct": "Lee et al. (CHI 2025) & Nelson & Narens (1990) · 依据求证与越界排错",
+          "required_indicators": [
+            "counter_premise_marker_rate",
+            "evidence_verification_marker_rate",
+            "revision_anchor_density",
+            "discourse_marker_rate"
+          ],
+          "critique_focus": "从公开研究数据集商用限制、开源协议传染条文与生物特征留存中精准抓出红线"
         },
         {
           "key": "precision_delivery",
           "label": "条款依据陈述严谨性",
+          "theoretical_construct": "表达严谨度 · 停顿规律与低修正率",
           "required_indicators": ["pause_duration_p50", "self_repair_rate", "lexical_diversity"],
           "critique_focus": "精确引述条文边界而非模糊概算"
         }

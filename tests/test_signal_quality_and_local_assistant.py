@@ -159,3 +159,33 @@ def test_question_bank_tfidf_search_and_flask_routes(tmp_path, monkeypatch):
     assert assist_body["status"] == "success"
     assert assist_body["redline_verified"] is True
     assert "不参与任何指标计算与评定" in assist_body["watermark"]
+
+
+def test_narrative_review_and_participant_feedback_modes():
+    from report_frontend.l1_report import build_l1_report
+
+    real_shape = build_l1_report("nonexistent_synth_narrative", logs={}, scene_profile="ai_metacognition")
+    res_rev = local_llm_assistant.assist_report(
+        real_shape,
+        mode="narrative_review",
+        use_llm=False,
+        scene_profile="ai_metacognition",
+    )
+    assert res_rev["mode"] == "narrative_review"
+    assert res_rev["redline_verified"] is True
+    assert len(res_rev["sections"]) == 5
+    assert "元智审辨" in res_rev["content"]
+    assert redline_guard.find_assistant_violations(res_rev["content"]) == []
+
+    res_stu = local_llm_assistant.assist_report(
+        real_shape,
+        mode="participant_feedback",
+        use_llm=False,
+        scene_profile="ai_metacognition",
+    )
+    assert res_stu["mode"] == "participant_feedback"
+    assert res_stu["redline_verified"] is True
+    assert len(res_stu["sections"]) == 5
+    assert "你" in res_stu["content"]
+    assert redline_guard.find_assistant_violations(res_stu["content"]) == []
+

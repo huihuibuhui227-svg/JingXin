@@ -1,13 +1,17 @@
 {
-  "schema_version": "scene_profiles_v1",
+  "schema_version": "scene_profiles_v2",
   "default_profile": "research_interview",
   "profiles": [
     {
       "id": "research_interview",
-      "name": "科研过程分析中心",
-      "short_label": "科研过程",
-      "weight_label": "60% 主线",
-      "route_base": "/research",
+      "name": "研思循证 · 科研行为过程分析",
+      "short_label": "研思循证",
+      "english_tag": "Research Process Evidence",
+      "theme_key": "base1",
+      "accent_color": "#005bb5",
+      "weight_label": "核心科研场景",
+      "competition_share": "60% 主线",
+      "route_base": "/hub/research",
       "baseline_mode": "session_self",
       "privacy_modes_supported": ["full", "audio_only", "anonymous_kinematics_only"],
       "default_privacy_mode": "full",
@@ -16,28 +20,48 @@
       "active_indicator_families": ["face", "gesture", "voice", "text"],
       "extension_indicators": [],
       "stage_windows": ["answer"],
+      "theoretical_foundation": {
+        "framework": "多模态过程性证据链与保形不确定性核验框架",
+        "core_principle": "物理可测性优先（三维姿态残差校准）与缺口显式保留，结合非监督行为阶段切分与不打分分裂保形门控，确保每条线索可追溯、每项缺测有交代。",
+        "references": [
+          "Baltrusaitis et al. (2018) 面部动作单元与三维头姿去偏校准",
+          "Killick et al. (2012, JASA) PELT 精确行为变点检测",
+          "Vovk et al. (2005) 分裂保形不确定性核验与人工转交边界",
+          "Luby et al. / 过程性行为观察信度与逐题离散度分析范式"
+        ],
+        "key_constructs": [
+          "话语结构与阐述详实度",
+          "声学韵律与停顿节律稳定度",
+          "三维头姿稳定性与视线停留",
+          "上肢运动平滑度与跨模态同步覆盖"
+        ]
+      },
       "explicit_blocked_overrides": [
         {
           "key": "uncalibrated_2d_pose_substitute",
-          "label": "未校准二维头姿与口角下垂物理代换量",
-          "reason": "保持物理可测性台账显式封停，不以近似几何量覆写三维坐标口"
+          "label": "未校准二维头姿与口角位移代换量",
+          "reason": "保持物理可测性台账显式封停，不以近似像素几何量覆写三维姿态读数"
         },
         {
-          "key": "composite_research_score",
-          "label": "个体总分与研究能力分档",
-          "reason": "无跨人标定样本与客观量纲折算尺度，按规程全链路禁止产出总分"
+          "key": "composite_research_conclusion",
+          "label": "个体总分、能力分档与结论性排序",
+          "reason": "缺少跨人群客观量纲折算尺度，按规程全链路禁止产出复合数值"
         }
       ],
       "threshold_overrides": {},
-      "compliance_banner": "仅披露科研汇报与学术问答期间的可观测行为证据、置信度与缺口，不出具总分或定性划档结论。",
-      "description": "面向高校课题组汇报、复试答辩与科研训练场景的过程性行为证据主基地，复用 41 项 L1 指标、14 槽覆盖与不打分机器学习阶段核验。"
+      "compliance_banner": "仅呈现科研汇报与学术问答期间的可观测行为线索、置信度与采集缺口，不出具总分或主观定性结论。",
+      "description": "面向高校课题组汇报、复试答辩与学术交流训练的核心科研分析模块，整合 41 项物理可测指标、多题波动分析与阶段核验。"
     },
     {
       "id": "ai_metacognition",
-      "name": "AI 元能力与求职实训中心",
-      "short_label": "AI 元能力",
-      "weight_label": "30% 拓展",
-      "route_base": "/career-mcp",
+      "name": "元智审辨 · AI 元能力与职业实训",
+      "short_label": "元智审辨",
+      "english_tag": "AI Metacognition & Career",
+      "theme_key": "base2",
+      "accent_color": "#0b6e4f",
+      "weight_label": "AI 审辨与求职实训",
+      "competition_share": "30% 拓展",
+      "route_base": "/hub/metacognition",
       "baseline_mode": "session_self",
       "privacy_modes_supported": ["full", "audio_only", "anonymous_kinematics_only"],
       "default_privacy_mode": "full",
@@ -46,9 +70,28 @@
       "active_indicator_families": ["face", "gesture", "voice", "text"],
       "extension_indicators": [
         "counter_premise_marker_rate",
-        "revision_anchor_density"
+        "revision_anchor_density",
+        "evidence_verification_marker_rate",
+        "metacognitive_regulation_balance"
       ],
       "stage_windows": ["stage_read_ai", "stage_critique", "stage_revise"],
+      "theoretical_foundation": {
+        "framework": "人机协同元认知监测—核验—排错三环调控框架",
+        "core_principle": "针对生成式智能时代易发生的「认知卸载」风险，依托认知摩擦任务观测学习者在「阅读回答 → 审辨漏洞 → 阐述修正」中的监测、求证与排错行为，并与岗位可观测线索对照。",
+        "references": [
+          "Nelson & Narens (1990) 元认知对象层与元层监测—控制双环模型",
+          "Schraw & Dennison (1994) 认知调节多维观测（规划、监测、排错、核验）",
+          "Tankelevitch et al. (CHI 2024 Best Paper) 生成式智能协同中的元认知需求与可控摩擦",
+          "Lee et al. (CHI 2025) 生成式智能对批判性思维与认知卸载的影响机制",
+          "鄢章华、刘蕾、鞠佳洋 (2026) 数智普惠赋能高校大学生元能力培养"
+        ],
+        "key_constructs": [
+          "前提质疑与反例边界限定（元认知监测）",
+          "信息溯源与数据口径求证（信息核验）",
+          "指错定位并给出替代修正（排错调节）",
+          "三环调控覆盖完备度与阶段停顿节律"
+        ]
+      },
       "mcp_server": {
         "name": "career-mcp-bridge",
         "endpoint": "/api/mcp/career",
@@ -62,27 +105,31 @@
       "explicit_blocked_overrides": [
         {
           "key": "position_fit_numeric_value",
-          "label": "岗位契合度数值分与候选筛序建议",
-          "reason": "严格遵守非黑盒筛人规则与公开研究语料授权边界，只输出证据覆盖与缺口对照"
+          "label": "岗位匹配分值、淘汰排序与筛人建议",
+          "reason": "严格遵守非黑盒筛选规则与公开语料授权边界，仅提供能力证据覆盖与待补齐缺口"
         },
         {
           "key": "unobserved_hard_coding_skill",
-          "label": "书面编程、工程产线与外部履历真实性",
-          "reason": "单次行为采录无法观测纸笔与项目代码产出，在岗位拆解时显式列为不可测缺口"
+          "label": "书面编程实战、线上代码质量与履历真伪核验",
+          "reason": "单场表达采录无法直接观测代码产线与过往项目原文，必须在岗位对照时明确列为未观测缺口"
         }
       ],
       "threshold_overrides": {
         "text_extension_min_chars": 80
       },
-      "compliance_banner": "聚焦人机协同过程中的信息核查与观点修正行为记录，岗位对照仅给出行为证据与待补齐缺口，不出具筛选建议。",
-      "description": "在共享行为内核之上增加「阅读 AI 回答、审辨指错、阐述修正」三阶段窗切分、两项规则化审辨结构指标与标准 MCP 岗位缺口映射。"
+      "compliance_banner": "聚焦人机协同过程中的信息核查与观点修正记录，岗位对照仅披露实测证据与待补齐缺口，不出具筛选或去留建议。",
+      "description": "依据人机协同元认知双环理论构建，联动「阅读回答 → 审辨找错 → 阐述修正」三阶段实训、四项规则化审辨结构指标及岗位可观测能力对照。"
     },
     {
       "id": "longitudinal_followup",
-      "name": "长周期行为随访中心",
-      "short_label": "长周期随访",
-      "weight_label": "10% 前瞻预留",
-      "route_base": "/followup",
+      "name": "时序观微 · 匿名个体纵向随访",
+      "short_label": "时序观微",
+      "english_tag": "Idiographic Longitudinal",
+      "theme_key": "base3",
+      "accent_color": "#8a5300",
+      "weight_label": "匿名纵向研究 · 非医疗",
+      "competition_share": "10% 前瞻预留",
+      "route_base": "/hub/followup",
       "baseline_mode": "self_longitudinal",
       "privacy_modes_supported": ["anonymous_kinematics_only", "audio_only"],
       "default_privacy_mode": "anonymous_kinematics_only",
@@ -93,26 +140,43 @@
         "self_baseline_kinematic_drift"
       ],
       "stage_windows": ["visit_baseline"],
+      "theoretical_foundation": {
+        "framework": "非遍历性个体内（Idiographic N-of-1）长周期行为动力学框架",
+        "core_principle": "依据群体与个体过程非遍历性定理，严禁跨个体均值对比与群体标签化；全程锁定零原始影像落盘隐私挡位，采用指数加权移动平均与稳健中位数离散带锚定个人首访基线。",
+        "references": [
+          "Molenaar (2004) 面向个体特质科学（Idiographic Science）的非遍历性证明",
+          "Fisher, Medaglia & Jeronimus (2018, PNAS) 群体均值向个体推演的局限与个体内方差基准",
+          "Onnela & Rauch (2016) 高隐私保护低侵入数字行为表型纵向观测范式",
+          "Cummins et al. (2015, Speech Comm.) 声学韵律与停顿节律的纵向敏感性综述",
+          "Roberts (1959) EWMA 过程控制平滑与 Leys et al. (2013) 稳健中位数绝对偏差（MAD）"
+        ],
+        "key_constructs": [
+          "匿名编号与本人首访（t0）自我基线锚定",
+          "EWMA 指数平滑趋势（λ=0.4，遇缺口与跨代自动断链重置）",
+          "个人稳健偏移指数（Median / 1.4826×MAD）",
+          "语速、发声占比、停顿均匀度与三维头姿角速度七项轨迹"
+        ]
+      },
       "explicit_blocked_overrides": [
         {
           "key": "raw_media_disk_retention",
-          "label": "原始面部影像照片与原声片段磁盘留存",
-          "reason": "随访场景强制默认无影像落盘隐私模式，仅在内存完成标量特征提取后落盘匿名遥测"
+          "label": "原始面部影像、照片与原声录音磁盘留存",
+          "reason": "随访模块默认锁定无影像留存隐私挡位，仅在内存完成特征提取后保存匿名数值轨迹"
         },
         {
           "key": "cross_subject_population_reference",
-          "label": "跨人群对照基准与群组划归标签",
-          "reason": "严格采用同个体首访自我基线对照，绝不执行跨个体分布对比或分类归档"
+          "label": "跨人群对照基准与群体分类归档标签",
+          "reason": "依据非遍历性原则严格只与本人既往访次对比，禁止任何跨人排序或人群归类"
         },
         {
           "key": "subjective_health_status_conclusion",
-          "label": "任何身心状态或医学观察性推断结论",
-          "reason": "非医疗器械属性硬限制，仅客观记录多访次运动学与声学指标变化区间"
+          "label": "任何身心状态诊断或医学观察性推断结论",
+          "reason": "严格遵守非医疗器械边界，仅客观呈现多访次运动学与声学客观数值变化区间"
         }
       ],
       "threshold_overrides": {},
-      "compliance_banner": "非医疗器械 · 仅供匿名编号长周期客观行为动力学科研随访，严格禁出任何健康、个体归类或结论性描述。",
-      "description": "采用个体内多次访次纵向跟踪底座，锁定无原始视频落盘隐私模式与跨版本可比性守卫，记录客观节律、停顿及头姿角速度相对本人首访的变化。"
+      "compliance_banner": "非医疗器械 · 仅供匿名编号个体内长周期客观行为动力学追踪，严格禁止跨人对比与任何健康或医学推断。",
+      "description": "面向个体自身长期演变观测的高隐私纵向追踪工作区，锁定无影像原声落盘模式，提供本人基线对照、EWMA 平滑趋势与稳健离散带核查。"
     }
   ]
 }

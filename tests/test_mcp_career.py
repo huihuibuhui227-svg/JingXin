@@ -86,4 +86,9 @@ def test_mcp_align_session_never_scores_and_exposes_flask_bridge(monkeypatch):
         "position_id": "pos_ai_algo",
     })
     assert r_align.status_code == 200
-    assert r_align.get_json()["scoring_participation"] is False
+    body = r_align.get_json()
+    assert body["scoring_participation"] is False
+    assert body.get("theory_framework")
+    first_comp = body["competency_alignments"][0]
+    assert first_comp.get("theoretical_construct")
+

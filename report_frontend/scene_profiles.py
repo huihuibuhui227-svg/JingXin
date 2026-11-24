@@ -2,9 +2,9 @@
 """《衡才智析》声明式多场景档案加载与绑定层。
 
 核心原则：
-1. 三大应用基地共享同一套 41 项核心物理指标与不打分统计保形裁判底座；
-2. 切换场景仅切换声明式档案中的场景名称、基线模式、隐私要求、主动封停列表、
-   场景扩展项与合规提示条，绝不改动核心指标计数（41 项）或输出任何复合总分；
+1. 三大应用场景共享同一套 41 项核心物理指标与不打分保形核验底座；
+2. 切换场景仅切换声明式档案中的场景名称、理论锚点、基线模式、隐私要求、
+   显式封停列表、场景扩展项与合规提示条，绝不改动核心指标计数（41 项）或产出数值分；
 3. 与 `redline_guard` 对齐：场景档案中的用户可见文案严禁包含禁用词汇。
 """
 from __future__ import annotations
@@ -76,12 +76,16 @@ def build_scene_profile_payload(
     """构造注入报告载荷 `payload['scene_profile']` 的公开摘要结构。"""
     prof = get_scene_profile(scene_id)
     return {
-        "schema_version": _load_registry().get("schema_version", "scene_profiles_v1"),
+        "schema_version": _load_registry().get("schema_version", "scene_profiles_v2"),
         "id": prof["id"],
         "name": prof["name"],
         "short_label": prof["short_label"],
+        "english_tag": prof.get("english_tag", ""),
+        "theme_key": prof.get("theme_key", "base1"),
+        "accent_color": prof.get("accent_color", "#005bb5"),
         "weight_label": prof["weight_label"],
-        "route_base": prof.get("route_base", "/research"),
+        "competition_share": prof.get("competition_share", ""),
+        "route_base": prof.get("route_base", "/hub/research"),
         "baseline_mode": prof["baseline_mode"],
         "default_privacy_mode": prof["default_privacy_mode"],
         "privacy_modes_supported": list(prof.get("privacy_modes_supported") or []),
@@ -89,6 +93,7 @@ def build_scene_profile_payload(
         "active_indicator_families": list(prof.get("active_indicator_families") or []),
         "extension_indicator_keys": list(prof.get("extension_indicators") or []),
         "stage_windows": list(prof.get("stage_windows") or []),
+        "theoretical_foundation": copy.deepcopy(prof.get("theoretical_foundation") or {}),
         "explicit_blocked_overrides": list(prof.get("explicit_blocked_overrides") or []),
         "threshold_overrides": dict(prof.get("threshold_overrides") or {}),
         "compliance_banner": prof["compliance_banner"],
