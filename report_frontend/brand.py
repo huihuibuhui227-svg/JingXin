@@ -16,19 +16,19 @@ from redline_guard import (
     find_redline_violations,
 )
 
-# ── 对外正式品牌口径（见 24_定稿名称与夸大的边界_20261121.md） ─────────────
+# ── 对外正式品牌口径（定稿：衡才智析——多模态行为证据分析系统） ─────────────
 BRAND_NAME = "衡才智析"
-BRAND_SUBTITLE = "多模态行为证据披露系统"
+BRAND_SUBTITLE = "多模态行为证据分析系统"
 BRAND_FULL_TITLE = f"《{BRAND_NAME}——{BRAND_SUBTITLE}》"
-BRAND_ENGLISH = "Hengcai Zhixi: A Multimodal Behavioral Evidence Disclosure System"
+BRAND_ENGLISH = "Hengcai Zhixi: A Multimodal Behavioral Evidence Analysis System"
 COPYRIGHT_SOFTWARE_NAME = "衡才智析——科研行为证据门控评估系统 V1.0"
 BRAND_SLOGAN = "不给分，只给证据与缺口"
 ARCHITECTURE_SLOGAN = "仪器可以是黑盒，裁判必须是白盒"
 
 # 报告与导出物默认标题 / 页脚 / 文件名前缀
-REPORT_HTML_TITLE = f"{BRAND_NAME} · 多模态行为证据披露报告"
+REPORT_HTML_TITLE = f"{BRAND_NAME} · 多模态行为证据分析报告"
 REPORT_HTML_FOOTER = (
-    f"{BRAND_NAME} · {BRAND_SUBTITLE} · 报告由系统自动生成 · 不含评分与评级"
+    f"{BRAND_NAME} · {BRAND_SUBTITLE} · 报告由系统自动生成 · 仅披露实测证据与缺口"
 )
 TRANSCRIPT_EXPORT_HEADER = f"{BRAND_NAME} · 语音转写原件导出"
 REPORT_FILENAME_PREFIX = "HengCai_Evidence_Report"

@@ -27,6 +27,7 @@ _TOOL_CANDIDATES = (
     os.environ.get("JX_BACKFILL_TOOL"),
     str(Path(__file__).resolve().parent.parent / "tools" / "backfill_transcript_asr.py"),
     "/home/zgy/huihuibui/衡才智析/07_三方向与评审筹备/系统补强/patch/backfill_transcript_asr.py",
+    "/home/zgy/huihuibui/衡才智析/99_归档/系统补强_1121补丁残留/patch/backfill_transcript_asr.py",
 )
 
 
@@ -38,7 +39,10 @@ def _load_tool():
             sys.modules[spec.name] = mod
             spec.loader.exec_module(mod)
             return mod
-    pytest.skip("找不到 backfill_transcript_asr.py(可用 JX_BACKFILL_TOOL 指定)")
+    pytest.skip(
+        "找不到 backfill_transcript_asr.py(可用 JX_BACKFILL_TOOL 指定)",
+        allow_module_level=True,
+    )
 
 
 tool = _load_tool()

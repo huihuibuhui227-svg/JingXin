@@ -118,4 +118,6 @@ recordings/
 *.avi
 *.mov
 *.mkv
+**/data/reviewer_notes/
+**/data/longitudinal_subjects.json
 

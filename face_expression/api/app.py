@@ -47,6 +47,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def _privacy_mode_middleware(request: Request, call_next):
+    with media_retention.privacy_scope(request.headers.get("X-Privacy-Mode")):
+        return await call_next(request)
+
 # ... existing code ...
 
 # 会话管理：存储每个用户的 VideoPipeline 实例

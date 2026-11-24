@@ -230,14 +230,11 @@ def compose_label(session_id: str, *, serial: str, name: str,
 
 # ── 本场征询结果(肖像 / 音频权)─────────────────────────────────────────
 #
-# `full`       = 摄像头 + 麦克风全开(默认的老做法)
-# `audio_only` = 只开麦克风,**根本不打开摄像头** ⟹ 这一场没有帧、没有原生录像,
-#                face / gesture 两个模态在报告里如实显示"未采集"
-#
-# 为什么它不是 `label` 的一部分、也不进目录名:目录名是"这一场是谁的",而同意与否
-# 不是身份 —— 把它拼进目录名会让同一场在改主意时被迫改名,而改名会与在录的帧抢路径
-# (`rename_session_dir_to_label` 的注释里记着这个坑)。
-CONSENT_VALUES = ("full", "audio_only")
+# `full`                      = 摄像头 + 麦克风全开（默认）
+# `audio_only`                = 只开麦克风，不打开摄像头
+# `anonymous_kinematics_only` = 匿名无原片隐私模式：内存推理正常写出标量特征 CSV，
+#                               但禁止原始照片与原声视频落盘留存（方向 C 专用）
+CONSENT_VALUES = ("full", "audio_only", "anonymous_kinematics_only")
 
 
 def _consent(value: str | None) -> str | None:

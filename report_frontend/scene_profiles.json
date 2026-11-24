@@ -1,0 +1,118 @@
+{
+  "schema_version": "scene_profiles_v1",
+  "default_profile": "research_interview",
+  "profiles": [
+    {
+      "id": "research_interview",
+      "name": "科研过程分析中心",
+      "short_label": "科研过程",
+      "weight_label": "60% 主线",
+      "route_base": "/research",
+      "baseline_mode": "session_self",
+      "privacy_modes_supported": ["full", "audio_only", "anonymous_kinematics_only"],
+      "default_privacy_mode": "full",
+      "question_bank_modules": ["research", "interview"],
+      "core_indicator_count": 41,
+      "active_indicator_families": ["face", "gesture", "voice", "text"],
+      "extension_indicators": [],
+      "stage_windows": ["answer"],
+      "explicit_blocked_overrides": [
+        {
+          "key": "uncalibrated_2d_pose_substitute",
+          "label": "未校准二维头姿与口角下垂物理代换量",
+          "reason": "保持物理可测性台账显式封停，不以近似几何量覆写三维坐标口"
+        },
+        {
+          "key": "composite_research_score",
+          "label": "个体总分与研究能力分档",
+          "reason": "无跨人标定样本与客观量纲折算尺度，按规程全链路禁止产出总分"
+        }
+      ],
+      "threshold_overrides": {},
+      "compliance_banner": "仅披露科研汇报与学术问答期间的可观测行为证据、置信度与缺口，不出具总分或定性划档结论。",
+      "description": "面向高校课题组汇报、复试答辩与科研训练场景的过程性行为证据主基地，复用 41 项 L1 指标、14 槽覆盖与不打分机器学习阶段核验。"
+    },
+    {
+      "id": "ai_metacognition",
+      "name": "AI 元能力与求职实训中心",
+      "short_label": "AI 元能力",
+      "weight_label": "30% 拓展",
+      "route_base": "/career-mcp",
+      "baseline_mode": "session_self",
+      "privacy_modes_supported": ["full", "audio_only", "anonymous_kinematics_only"],
+      "default_privacy_mode": "full",
+      "question_bank_modules": ["metacognition", "interview"],
+      "core_indicator_count": 41,
+      "active_indicator_families": ["face", "gesture", "voice", "text"],
+      "extension_indicators": [
+        "counter_premise_marker_rate",
+        "revision_anchor_density"
+      ],
+      "stage_windows": ["stage_read_ai", "stage_critique", "stage_revise"],
+      "mcp_server": {
+        "name": "career-mcp-bridge",
+        "endpoint": "/api/mcp/career",
+        "tools": [
+          "search_career_positions",
+          "decompose_jd_competencies",
+          "generate_ai_critique_task",
+          "align_session_evidence_to_jd"
+        ]
+      },
+      "explicit_blocked_overrides": [
+        {
+          "key": "position_fit_numeric_value",
+          "label": "岗位契合度数值分与候选筛序建议",
+          "reason": "严格遵守非黑盒筛人规则与公开研究语料授权边界，只输出证据覆盖与缺口对照"
+        },
+        {
+          "key": "unobserved_hard_coding_skill",
+          "label": "书面编程、工程产线与外部履历真实性",
+          "reason": "单次行为采录无法观测纸笔与项目代码产出，在岗位拆解时显式列为不可测缺口"
+        }
+      ],
+      "threshold_overrides": {
+        "text_extension_min_chars": 80
+      },
+      "compliance_banner": "聚焦人机协同过程中的信息核查与观点修正行为记录，岗位对照仅给出行为证据与待补齐缺口，不出具筛选建议。",
+      "description": "在共享行为内核之上增加「阅读 AI 回答、审辨指错、阐述修正」三阶段窗切分、两项规则化审辨结构指标与标准 MCP 岗位缺口映射。"
+    },
+    {
+      "id": "longitudinal_followup",
+      "name": "长周期行为随访中心",
+      "short_label": "长周期随访",
+      "weight_label": "10% 前瞻预留",
+      "route_base": "/followup",
+      "baseline_mode": "self_longitudinal",
+      "privacy_modes_supported": ["anonymous_kinematics_only", "audio_only"],
+      "default_privacy_mode": "anonymous_kinematics_only",
+      "question_bank_modules": ["research"],
+      "core_indicator_count": 41,
+      "active_indicator_families": ["face", "gesture", "voice"],
+      "extension_indicators": [
+        "self_baseline_kinematic_drift"
+      ],
+      "stage_windows": ["visit_baseline"],
+      "explicit_blocked_overrides": [
+        {
+          "key": "raw_media_disk_retention",
+          "label": "原始面部影像照片与原声片段磁盘留存",
+          "reason": "随访场景强制默认无影像落盘隐私模式，仅在内存完成标量特征提取后落盘匿名遥测"
+        },
+        {
+          "key": "cross_subject_population_reference",
+          "label": "跨人群对照基准与群组划归标签",
+          "reason": "严格采用同个体首访自我基线对照，绝不执行跨个体分布对比或分类归档"
+        },
+        {
+          "key": "subjective_health_status_conclusion",
+          "label": "任何身心状态或医学观察性推断结论",
+          "reason": "非医疗器械属性硬限制，仅客观记录多访次运动学与声学指标变化区间"
+        }
+      ],
+      "threshold_overrides": {},
+      "compliance_banner": "非医疗器械 · 仅供匿名编号长周期客观行为动力学科研随访，严格禁出任何健康、个体归类或结论性描述。",
+      "description": "采用个体内多次访次纵向跟踪底座，锁定无原始视频落盘隐私模式与跨版本可比性守卫，记录客观节律、停顿及头姿角速度相对本人首访的变化。"
+    }
+  ]
+}

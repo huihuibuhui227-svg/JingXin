@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -305,3 +306,53 @@ def clip_session_end(ws: WindowSet, session_end_sec: float) -> WindowSet:
         # 由 `build_windows` 的 `empty` 消息如实报出。
         last.t_end = max(float(session_end_sec), last.t_start)
     return ws
+
+
+#: AI 元能力审辨任务默认三阶段标签顺序
+METACOGNITION_STAGES: tuple[str, ...] = ("stage_read_ai", "stage_critique", "stage_revise")
+
+
+def extract_stage_windows(
+    session_id: str,
+    *,
+    origin_wall: float = 0.0,
+    session_end_sec: float | None = None,
+) -> list[dict[str, Any]]:
+    """读取 `questions.jsonl` 中可选的阶段字段，构造有序任务阶段时间窗口。
+
+    当 `questions.jsonl` 包含 `stage`（如 `stage_read_ai` / `stage_critique` / `stage_revise`）
+    或 `phase` 时，按时间对齐返回每个阶段的起止秒；缺省或无台账时返回空列表而不编造边界。
+    """
+    try:
+        questions = session_meta.read_questions(session_id)
+    except Exception:
+        return []
+    tagged = [
+        q for q in questions
+        if isinstance(q, dict)
+        and (q.get("stage") or q.get("phase"))
+        and q.get("ask_start") is not None
+    ]
+    if not tagged:
+        return []
+    tagged.sort(key=lambda q: (float(q.get("ask_start", 0.0)), int(q.get("index") or 0)))
+    out: list[dict[str, Any]] = []
+    for idx, q in enumerate(tagged):
+        t0 = float(q["ask_start"]) - origin_wall
+        if q.get("ask_end") is not None and float(q["ask_end"]) > float(q["ask_start"]):
+            t1 = float(q["ask_end"]) - origin_wall
+        elif idx + 1 < len(tagged):
+            t1 = float(tagged[idx + 1]["ask_start"]) - origin_wall
+        elif session_end_sec is not None:
+            t1 = max(t0, float(session_end_sec))
+        else:
+            t1 = t0
+        out.append({
+            "stage": str(q.get("stage") or q.get("phase")),
+            "qid": str(q.get("qid") or ""),
+            "index": int(q.get("index") or idx),
+            "t_start": round(max(0.0, t0), 3),
+            "t_end": round(max(0.0, t1), 3),
+            "duration_sec": round(max(0.0, t1 - t0), 3),
+        })
+    return out

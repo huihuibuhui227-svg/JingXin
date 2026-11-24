@@ -784,14 +784,19 @@ class ReportGenerator:
         if not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir)
 
-    def generate_report(self, session_id: Optional[str] = None) -> str:
+    def generate_report(
+        self,
+        session_id: Optional[str] = None,
+        *,
+        scene_profile: Optional[str] = None,
+    ) -> str:
         """从磁盘 CSV 文件生成评估报告（批处理模式）。
 
         `session_id`:本报告要描述的那一场(M2)。**不给就取最新一场**,并在报告头写明是谁
         —— 这个参数在 M2 之前是"收下就丢"的。
         """
         print("\n" + "=" * 70)
-        print(f"🚀 启动 {brand.BRAND_NAME} 多模态行为证据披露报告生成系统 (批量模式)")
+        print(f"🚀 启动 {brand.BRAND_NAME} {brand.BRAND_SUBTITLE} (批量模式)")
         print("=" * 70)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -807,7 +812,10 @@ class ReportGenerator:
                     f"{_subject_slug(loader.target_session)}")
             report_path = _unique_report_path(self.output_dir, stem, loader.target_session)
 
-            result = build_l1_report(loader.target_session, logs=data)
+            if scene_profile is not None:
+                result = build_l1_report(loader.target_session, logs=data, scene_profile=scene_profile)
+            else:
+                result = build_l1_report(loader.target_session, logs=data)
             static_images = self._scan_static_images()
 
             html_content = self._build_html_report(result, {}, {}, data,
@@ -834,7 +842,7 @@ class ReportGenerator:
     def generate_report_live(self, session_id: str) -> str:
         """从运行中的 API 服务获取实时内存数据，生成证据披露报告（实时模式）"""
         print("\n" + "=" * 70)
-        print(f"🚀 启动 {brand.BRAND_NAME} 多模态行为证据披露报告生成系统 (实时模式)")
+        print(f"🚀 启动 {brand.BRAND_NAME} {brand.BRAND_SUBTITLE} (实时模式)")
         print(f"📋 会话 ID: {session_id}")
         print("=" * 70)
 
@@ -2082,6 +2090,57 @@ class ReportGenerator:
             "</details>"
         )
 
+    def _render_scene_profile_section(self, result: Dict[str, Any]) -> str:
+        """渲染场景档案摘要与合规边界条（零术语/零符号/零禁用词）。"""
+        sp = result.get("scene_profile")
+        if not isinstance(sp, dict) or not sp.get("name"):
+            return ""
+        name = _clean_prose(sp.get("name") or "")
+        weight = _clean_prose(sp.get("weight_label") or "")
+        banner = _clean_prose(sp.get("compliance_banner") or "")
+        ext = sp.get("extensions") or {}
+        ext_html = ""
+        meta_ext = ext.get("metacognition_text") if isinstance(ext, dict) else None
+        if isinstance(meta_ext, dict) and isinstance(meta_ext.get("indicators"), list):
+            rows_html = []
+            for item in meta_ext["indicators"]:
+                if not isinstance(item, dict):
+                    continue
+                lbl = _clean_prose(item.get("label") or "")
+                val = item.get("value")
+                unit = _clean_prose(item.get("unit") or "")
+                val_txt = "缺口暂不可给" if val is None else f"{_fmt_num(val)} {unit}".strip()
+                conf = _clean_prose(item.get("confidence") or "无")
+                summary = _clean_prose(item.get("summary") or "")
+                rows_html.append(
+                    f"<tr><td><strong>{escape(lbl)}</strong></td>"
+                    f"<td class=\"num\">{escape(val_txt)}</td>"
+                    f"<td>{escape(conf)}</td>"
+                    f"<td>{escape(summary)}</td></tr>"
+                )
+            if rows_html:
+                ext_html = (
+                    "<h3>审辨修正扩展观测量</h3>"
+                    "<table><thead><tr><th>扩展观测量</th><th>实测读数</th>"
+                    "<th>置信度</th><th>说明</th></tr></thead>"
+                    f"<tbody>{''.join(rows_html)}</tbody></table>"
+                )
+
+        overrides = sp.get("explicit_blocked_overrides") or []
+        ov_chips = "".join(
+            f'<span class="cov-chip">主动封停：{escape(_clean_prose(o.get("label") or ""))}</span>'
+            for o in overrides
+            if isinstance(o, dict) and o.get("label")
+        )
+        head_tag = f"{name}（{weight}）" if weight else name
+        banner_p = f'<p class="note">{escape(banner)}</p>' if banner else ""
+        chips_div = f'<div class="cov-chips">{ov_chips}</div>' if ov_chips else ""
+        return (
+            f'<div class="referee-card">'
+            f'<div class="referee-head"><span class="stage-badge stage-info">当前场景：{escape(head_tag)}</span></div>'
+            f"{banner_p}{chips_div}{ext_html}</div>"
+        )
+
     def _build_html_report(self, result: Dict[str, Any], chart_paths: Dict[str, Any],
                            features: Dict[str, Any], data: Dict[str, pd.DataFrame],
                            static_images: List[str],
@@ -2212,6 +2271,7 @@ class ReportGenerator:
         #   所以是"页脚那一块"而不是附录(附录会被 `<details>` 折起来)。
         instrument_block = self._render_instrument_disclosure(result)
         notices_block = self._render_evidence_chain_notices(result)
+        scene_block = self._render_scene_profile_section(result)
         referee_block = self._render_referee_ml_section(result)
         extra_appendices = self._render_extra_appendices(result)
 
@@ -2242,6 +2302,7 @@ class ReportGenerator:
 {self._coverage_explanation(coverage)}
 <p class="lead">{self._lead_sentence(result)}</p>
 <p class="note">{result['summary_narrative']}</p>
+{scene_block}
 {notices_block}
 
 {cov_block}

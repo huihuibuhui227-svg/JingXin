@@ -567,10 +567,16 @@ def get_structured_report():
             result = ResearchCapabilityMapper().map_features_to_scores(features)
         elif which == "l1":
             from report_frontend.l1_report import build_l1_report
+            from report_frontend import scene_profiles
 
+            raw_sp = (request.args.get("scene_profile") or "").strip() or None
+            try:
+                norm_sp = scene_profiles.normalize_scene_profile_id(raw_sp) if raw_sp else None
+            except ValueError as exc:
+                return jsonify({"status": "error", "message": str(exc)}), 400
             # `logs` 直接给已经融合好的那份,不让 L1 层自己再去 `data/` 里找一遍
             # (读取口径只有 `LogDataLoader` 一处)。
-            result = build_l1_report(loader.target_session, logs=data)
+            result = build_l1_report(loader.target_session, logs=data, scene_profile=norm_sp)
         else:
             return jsonify({"status": "error",
                             "message": f"engine 只能是 l1 或 legacy,收到 {which!r}"}), 400
@@ -787,7 +793,11 @@ def report_llm_assist():
 
         loader = LogDataLoader()
         data = loader.get_fused_latest_data(session_id)
-        payload = build_l1_report(loader.target_session, logs=data)
+        payload = build_l1_report(
+            loader.target_session,
+            logs=data,
+            scene_profile=(body.get("scene_profile") or "").strip() or None,
+        )
         res = assist_report(payload, mode=mode, use_llm=use_llm)
         return jsonify({
             "status": "success",
@@ -980,6 +990,197 @@ def get_research_benchmarks():
         "gpu_vs_cpu": gpu_section,
     }
     return Response(_json.dumps(payload, ensure_ascii=False, allow_nan=False), mimetype="application/json")
+
+
+# ── 多场景声明式配置接口（一核三基地共用底层） ──
+@app.route('/api/scene-profiles', methods=['GET'])
+def api_scene_profiles():
+    """列出全部声明式场景档案或查询单一档案。"""
+    from report_frontend import scene_profiles
+
+    sid = (request.args.get("id") or "").strip() or None
+    if sid:
+        try:
+            return jsonify({"status": "success", "profile": scene_profiles.get_scene_profile(sid)})
+        except ValueError as exc:
+            return jsonify({"status": "error", "message": str(exc)}), 400
+    return jsonify({
+        "status": "success",
+        "default_profile": scene_profiles.DEFAULT_SCENE_PROFILE_ID,
+        "profiles": scene_profiles.list_scene_profiles(),
+    })
+
+
+# ── 标准 JSON-RPC 2.0 Career MCP 协议与求职证据对照端点（基地二） ──
+@app.route('/api/mcp/career', methods=['POST'])
+def api_mcp_career_rpc():
+    """标准 JSON-RPC 2.0 Career MCP 协议桥接端点（严禁计算匹配分或筛人结论）。"""
+    from mcp_career.server import handle_jsonrpc
+
+    req = request.get_json(silent=True)
+    if req is None:
+        return jsonify({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Invalid JSON"}}), 400
+    resp = handle_jsonrpc(req)
+    if resp is None:
+        return ("", 204)
+    return jsonify(resp)
+
+
+@app.route('/api/career/positions', methods=['GET'])
+def api_career_positions():
+    from mcp_career.server import tool_search_career_positions
+
+    return jsonify({
+        "status": "success",
+        **tool_search_career_positions(
+            keyword=request.args.get("keyword", ""),
+            track=request.args.get("track", ""),
+            level=request.args.get("level", ""),
+        ),
+    })
+
+
+@app.route('/api/career/decompose-jd', methods=['POST'])
+def api_career_decompose_jd():
+    from mcp_career.server import tool_decompose_jd_competencies
+
+    body = request.get_json(silent=True) or {}
+    try:
+        res = tool_decompose_jd_competencies(jd_text=str(body.get("jd_text") or ""))
+        return jsonify({"status": "success", **res})
+    except ValueError as exc:
+        return jsonify({"status": "error", "message": str(exc)}), 400
+
+
+@app.route('/api/career/generate-task', methods=['POST'])
+def api_career_generate_task():
+    from mcp_career.server import tool_generate_ai_critique_task
+
+    body = request.get_json(silent=True) or {}
+    try:
+        res = tool_generate_ai_critique_task(
+            position_id=str(body.get("position_id") or ""),
+            jd_text=str(body.get("jd_text") or ""),
+        )
+        return jsonify({"status": "success", **res})
+    except ValueError as exc:
+        return jsonify({"status": "error", "message": str(exc)}), 400
+
+
+@app.route('/api/career/align-evidence', methods=['POST'])
+def api_career_align_evidence():
+    from mcp_career.server import tool_align_session_evidence_to_jd
+
+    body = request.get_json(silent=True) or {}
+    try:
+        res = tool_align_session_evidence_to_jd(
+            session_id=str(body.get("session_id") or ""),
+            position_id=str(body.get("position_id") or ""),
+            jd_text=str(body.get("jd_text") or ""),
+        )
+        return jsonify({"status": "success", **res})
+    except ValueError as exc:
+        return jsonify({"status": "error", "message": str(exc)}), 400
+
+
+# ── 长周期个体纵向随访与多场科研对比端点（基地三 + 基地一） ──
+@app.route('/api/longitudinal/subjects', methods=['GET', 'POST'])
+def api_longitudinal_subjects():
+    from report_frontend import longitudinal_tracker as lt
+
+    if request.method == 'GET':
+        return jsonify({
+            "status": "success",
+            "compliance_note": lt.VERIFICATION_COMPLIANCE_NOTE,
+            "metrics": list(lt.TRACKED_METRICS),
+            "subjects": lt.list_subjects(),
+        })
+    body = request.get_json(silent=True) or {}
+    try:
+        rec = lt.upsert_subject(
+            subject_code=str(body.get("subject_code") or ""),
+            scene_profile=str(body.get("scene_profile") or "longitudinal_followup"),
+            alias_note=str(body.get("alias_note") or ""),
+            consent_mode=str(body.get("consent_mode") or "anonymous_kinematics_only"),
+        )
+        return jsonify({"status": "success", "subject": rec})
+    except ValueError as exc:
+        return jsonify({"status": "error", "message": str(exc)}), 400
+
+
+@app.route('/api/longitudinal/subjects/<subject_code>/visits', methods=['POST'])
+def api_longitudinal_attach_visit(subject_code):
+    from report_frontend import longitudinal_tracker as lt
+
+    body = request.get_json(silent=True) or {}
+    try:
+        rec = lt.attach_visit(
+            subject_code=subject_code,
+            session_id=str(body.get("session_id") or ""),
+            visit_label=str(body.get("visit_label") or ""),
+            privacy_mode=str(body.get("privacy_mode") or "anonymous_kinematics_only"),
+        )
+        return jsonify({"status": "success", "subject": rec})
+    except ValueError as exc:
+        return jsonify({"status": "error", "message": str(exc)}), 400
+
+
+@app.route('/api/longitudinal/subjects/<subject_code>/trajectory', methods=['GET'])
+def api_longitudinal_trajectory(subject_code):
+    from report_frontend import longitudinal_tracker as lt
+
+    try:
+        data = lt.get_subject_trajectory(subject_code)
+        return jsonify({"status": "success", **data})
+    except KeyError as exc:
+        return jsonify({"status": "error", "message": str(exc)}), 404
+    except ValueError as exc:
+        return jsonify({"status": "error", "message": str(exc)}), 400
+
+
+@app.route('/api/reports/compare', methods=['GET'])
+def api_reports_compare():
+    from report_frontend import longitudinal_tracker as lt
+
+    raw = (request.args.get("session_ids") or "").strip()
+    sids = [s.strip() for s in raw.split(",") if s.strip()]
+    if not sids:
+        return jsonify({"status": "error", "message": "请提供至少两个 comma 分隔的 session_ids"}), 400
+    scene_profile = (request.args.get("scene_profile") or "research_interview").strip()
+    try:
+        res = lt.compare_sessions(sids, scene_profile=scene_profile)
+        return jsonify({"status": "success", **res})
+    except ValueError as exc:
+        return jsonify({"status": "error", "message": str(exc)}), 400
+
+
+# ── 导师/管理员非打分人工复核注记（基地一保形升级闭环） ──
+@app.route('/api/report/review-notes/<session_id>', methods=['GET'])
+def api_get_reviewer_note(session_id):
+    from report_frontend import reviewer_notes
+
+    try:
+        return jsonify({"status": "success", "note": reviewer_notes.read_reviewer_note(session_id)})
+    except ValueError as exc:
+        return jsonify({"status": "error", "message": str(exc)}), 400
+
+
+@app.route('/api/report/review-notes/<session_id>', methods=['POST'])
+@recordings_browser._admin_required()
+def api_save_reviewer_note(session_id):
+    from report_frontend import reviewer_notes
+
+    body = request.get_json(silent=True) or {}
+    try:
+        saved = reviewer_notes.write_reviewer_note(
+            session_id,
+            verification_status=str(body.get("verification_status") or "verified_consistent"),
+            focus_tags=list(body.get("focus_tags") or []),
+            note_text=str(body.get("note_text") or ""),
+        )
+        return jsonify({"status": "success", "note": saved})
+    except ValueError as exc:
+        return jsonify({"status": "error", "message": str(exc)}), 400
 
 
 if __name__ == '__main__':

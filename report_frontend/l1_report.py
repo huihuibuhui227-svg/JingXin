@@ -90,6 +90,8 @@ from . import (
     l1_quality,
     parameter_provenance,
     referee_ml_engine,
+    scene_extensions,
+    scene_profiles,
     signal_quality_clf,
     speaker_turn_audit,
     transcript_chars,
@@ -760,8 +762,14 @@ def coverage_counts(dims: dict, vanished: list, n_passed: int) -> dict:
     }
 
 
-def build_l1_report(session_id: str, logs: dict | None = None) -> dict:
+def build_l1_report(
+    session_id: str,
+    logs: dict | None = None,
+    *,
+    scene_profile: str | None = None,
+) -> dict:
     """跑一场 → `/api/report/structured` 的 `result`。"""
+    profile_id = scene_profiles.normalize_scene_profile_id(scene_profile)
     result = compute_session_l1(session_id, logs=logs)
     dims, vanished = l1_mapper.map_l1_to_dimensions(result.indicators)
     quality = build_quality_report(result)
@@ -896,6 +904,16 @@ def build_l1_report(session_id: str, logs: dict | None = None) -> dict:
         l1_summary=referee_summary,
         feature_v2=fv2 if fv2.get("available") else None,
     )
+    scene_ext = scene_extensions.build_scene_extensions(
+        profile_id,
+        session_id,
+        logs=logs,
+        feature_v2=fv2,
+    )
+    scene_profile_payload = scene_profiles.build_scene_profile_payload(
+        profile_id,
+        extensions=scene_ext,
+    )
 
     return {
         "engine": "l1",
@@ -904,6 +922,7 @@ def build_l1_report(session_id: str, logs: dict | None = None) -> dict:
             "subtitle": brand.BRAND_SUBTITLE,
             "slogan": brand.BRAND_SLOGAN,
         },
+        "scene_profile": scene_profile_payload,
         "dimensions": dimensions,
         "vanished_dimensions": [_printable_vanished(v) for v in vanished],
         "summary_narrative": NO_COMPOSITE,

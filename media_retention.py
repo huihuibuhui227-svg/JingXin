@@ -16,6 +16,8 @@ voice 包(否则会把 TTS/ASR 整条 import 链拉起来,M1 Ruling M1-2)。副�
 """
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import hashlib
 import json
 import os
@@ -66,6 +68,46 @@ def root() -> Path:
         return Path(env)
     repo_local = Path.home() / "JingXin" / "recordings"
     return repo_local if repo_local.is_dir() else DEFAULT_ROOT
+
+
+_PRIVACY_MODE_VAR: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "jx_privacy_mode", default=None
+)
+
+
+def current_privacy_mode() -> str | None:
+    """当前请求/上下文显式声明的隐私模式（如 `anonymous_kinematics_only`）。"""
+    val = _PRIVACY_MODE_VAR.get()
+    return str(val).strip().lower() if val else None
+
+
+@contextlib.contextmanager
+def privacy_scope(mode: str | None):
+    """在当前异步/同步上下文临时设定采集隐私模式，退出自动恢复。"""
+    norm = str(mode).strip().lower() if mode else None
+    token = _PRIVACY_MODE_VAR.set(norm)
+    try:
+        yield
+    finally:
+        _PRIVACY_MODE_VAR.reset(token)
+
+
+def is_anonymous_kinematics_only(session_id: str | None = None) -> bool:
+    """判定是否处于零原始图像/音频落盘的匿名运动学隐私模式。"""
+    if current_privacy_mode() == "anonymous_kinematics_only":
+        return True
+    if not session_id:
+        return False
+    try:
+        rec = resolve_recording_dir(validate_session_id(session_id))
+        lp = rec / "label.json"
+        if lp.is_file():
+            data = json.loads(lp.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and data.get("consent") == "anonymous_kinematics_only":
+                return True
+    except Exception:
+        pass
+    return False
 
 
 def enabled() -> bool:
@@ -532,7 +574,7 @@ def retain_frame(session_id: str, modality: str, data: bytes,
 
     存的是服务端收到的**同一份 bytes**,不重新编码、不缩放(录制需求 §5)。
     """
-    if not enabled():
+    if not enabled() or is_anonymous_kinematics_only(session_id):
         return None
     sid = validate_session_id(session_id)
     validate_modality(modality)
@@ -575,7 +617,7 @@ def retain_audio(session_id: str, kind: str, data: bytes, source: str = "",
     B 的 converted 会被后到的 A 覆盖,账本里两行指向同一文件、sha 不同。
     当前部署够不到(ffmpeg 是同步阻塞、且单 worker),但那是**没写下来的隐含前提**。
     """
-    if not enabled():
+    if not enabled() or is_anonymous_kinematics_only(session_id):
         return None
     if kind not in ("raw", "converted"):
         raise ValueError(f"未知音频种类: {kind!r}(只允许 raw / converted)")
@@ -636,7 +678,7 @@ def retain_uploaded_video(session_id: str, data: bytes,
 
     `_prepare` 的探针传空元组:文件落在 `media/` 本身,没有 `media/camera/` 这一层。
     """
-    if not enabled():
+    if not enabled() or is_anonymous_kinematics_only(session_id):
         return None
     sid = validate_session_id(session_id)
     with _session_lock(sid):

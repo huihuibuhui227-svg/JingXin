@@ -61,6 +61,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def _privacy_mode_middleware(request: Request, call_next):
+    with media_retention.privacy_scope(request.headers.get("X-Privacy-Mode")):
+        return await call_next(request)
+
 # ... existing code ...
 
 # ================== 初始化组件 ==================
@@ -1023,10 +1029,14 @@ async def submit_session_media(session_id: str, file: UploadFile = File(...)):
         # 永远不该触发,一旦触发就说明上游把多次录制塞进了同一场,必须响亮。
         raise HTTPException(status_code=409, detail=str(exc))
     if rec is None:
-        # 两种"没存":留存被显式关掉 / 中途写失败。两者都**不许装成功** ——
+        # 三种"没存":匿名无影像隐私模式 / 留存被显式关掉 / 中途写失败。三者都**不许装成功** ——
         # 这个端点唯一的工作就是留存,静默 200 会让人以为素材存下了。
-        why = ("留存已关闭(JINGXIN_RETAIN_MEDIA=0)" if not media_retention.enabled()
-               else "落盘失败:" + "；".join(media_retention.degraded_reasons(sid)))
+        if media_retention.is_anonymous_kinematics_only(sid):
+            why = "匿名无影像隐私模式已启用（原始音视频未落盘）"
+        elif not media_retention.enabled():
+            why = "留存已关闭(JINGXIN_RETAIN_MEDIA=0)"
+        else:
+            why = "落盘失败:" + "；".join(media_retention.degraded_reasons(sid))
         return {"status": "success", "stored": False, "reason": why,
                 "session_id": sid, "bytes": len(data)}
 
@@ -1102,11 +1112,16 @@ async def get_session_summary(session_id: str, type: str = "interview"):
 # ========== 科研评估接口 ==========
 
 @app.post("/research/start")
-async def start_research_assessment():
+async def start_research_assessment(module: str = "research"):
     global research_assessment, research_logger
+    target_module = str(module or "research").strip().lower()
+    if target_module in ("followup", "longitudinal", "longitudinal_followup"):
+        target_module = "research"
+    if target_module not in ("research", "metacognition"):
+        raise HTTPException(status_code=400, detail=f"未知科研/实训题库模块：{module!r}")
     try:
         pipe = ResearchAssessmentPipeline()
-        _reload_question_bank(pipe, "research")
+        _reload_question_bank(pipe, target_module)
         first_question = pipe.get_next_question()
         if not first_question:
             raise HTTPException(status_code=500, detail="无法获取问题")
@@ -1125,6 +1140,7 @@ async def start_research_assessment():
 
         _speak_if_enabled(first_question)
         return {"status": "started", "session_id": sid, "discard_token": discard_token,
+                "module": target_module,
                 "question": first_question, "total_questions": len(pipe.questions)}
     except HTTPException:
         raise          # 别再包一层:否则 500 会变成"启动科研评估失败: 500: 无法获取问题"

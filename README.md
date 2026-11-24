@@ -1,4 +1,4 @@
-# 《衡才智析——多模态行为证据披露系统》（原开发代号 JingXin）
+# 《衡才智析——多模态行为证据分析系统》（原开发代号 JingXin）
 
 > **软著名**：`衡才智析——科研行为证据门控评估系统 V1.0` ｜ **核心理念**：「不给分，只给证据与缺口」 / 「仪器可以是黑盒，裁判必须是白盒」
 
@@ -31,17 +31,18 @@
 仓库内布局：
 
 ```
-app.py                  Flask 报告面板(:5000，含脱敏/鉴权、健康探活、本地辅助解读、题库检索与 /api/research/benchmarks)
+app.py                  Flask 报告面板(:5000，含脱敏/鉴权、健康探活、scene_profiles、Career MCP、纵向对比/随访、人工复核注记、本地辅助解读、题库检索与科研基准)
 redline_guard.py        品牌与法规红线词/打分正则硬守卫（独立于 report_frontend/）
-face_expression/        面部服务(:8000)   内存 cv2.imdecode，输出 iris + AU + 52 Blendshape + 3D 姿态 + 画质门控（98 列 CSV）
-gesture_analysis/       手势服务(:8002)   rtmlib RTMW 133 点全身双手引擎（兼容 Hand 21 / Pose 33 口径，59 列 CSV）
-voice_interaction/      语音服务(:8001)   Parselmouth 声学 + Silero VAD + CAM++ + FunASR 转写 + faster-whisper 词级核验
-report_frontend/        报告层:data_loader → 回答窗口 → L1(41 项)+L2(姿态校准/动力学/节律) → L3(HMM/PELT/Split Conformal)
-                         → 参数来源(T1/T2/T3) + 跨模态覆盖门控 + 治理台账 + report_generator 单文件 HTML
+mcp_career/             标准 JSON-RPC 2.0 Career MCP Server（4 工具 / 10 岗位，只披露证据覆盖与缺口，零匹配分）
+face_expression/        面部服务(:8000)   内存 cv2.imdecode，输出 iris + AU + 52 Blendshape + 3D 姿态 + 画质门控（98 列 CSV），支持无影像隐私拦截
+gesture_analysis/       手势服务(:8002)   rtmlib RTMW 133 点全身双手引擎（兼容 Hand 21 / Pose 33 口径，59 列 CSV），支持无影像隐私拦截
+voice_interaction/      语音服务(:8001)   Parselmouth 声学 + Silero VAD + CAM++ + FunASR 转写 + faster-whisper 词级核验，支持多模块题库与无影像拦截
+report_frontend/        报告层:data_loader → 回答/三阶段窗口 → L1(41 项)+L2(姿态校准/动力学/节律)+L3(HMM/PELT/Split Conformal)
+                         → scene_profiles / scene_extensions / longitudinal_tracker / reviewer_notes / report_generator 单文件 HTML
                          （旧引擎 feature_engine → research_mapper 仅 ?engine=legacy 对照）
 research_lab/           严格隔离的离线多语料科研基准实验室（MIT / RecruitView / ChaLearn V2 / 中英迁移，绝不参与报告计分）
 models/                 MediaPipe 模型 + signal_quality_clf.joblib + behavior_regime_model.joblib + referee_hmm/conformal_gate.joblib
-media_retention.py      留存与账本(三服务共用的横切模块)
+media_retention.py      留存与账本(三服务共用，支持 full / audio_only / anonymous_kinematics_only 隐私拦截)
 l0_columns.json         ★ L0 列清单的唯一权威(status × maturity 两轴，含面部 98 列契约)
 tools/                  起停(start_all.sh / stop_all.sh) / 自检 / 基准 / 3D 回填 / 裁判重训 / 转写
 docs/                   文档(见 §4「权威在哪」)
@@ -87,7 +88,7 @@ bash tools/stop_all.sh
 | face_expression | 8000 | 面部 478 点 AU / iris / 52 Blendshape / 原生 3D 姿态角 / 画质门控 |
 | voice_interaction | 8001 | Parselmouth 声学 / Silero VAD / FunASR 转写 / faster-whisper 词级核验 |
 | gesture_analysis | 8002 | rtmlib RTMW 133 点全身与双手骨骼 |
-| app.py（面板） | 5000 | 报告面板 API / 脱敏输出 / 导出 / 题库 / 本地助手 / `/api/research/benchmarks` |
+| app.py（面板） | 5000 | 报告面板 API / 脱敏输出 / 导出 / 题库 / 场景引擎 / Career MCP / 纵向追踪 / 复核注记 / 本地助手 / 科研基准 |
 | 前端（Vite） | 5173 | 《衡才智析》Web 界面 |
 | FunASR 运行时 | 10095 | 独立部署，见 §5 |
 | 本地 LLM（可选） | 8081 | `Qwen2.5-14B` OpenAI 兼容接口（仅按需摘要/追问，零评分参与） |
